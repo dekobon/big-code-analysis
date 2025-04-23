@@ -165,7 +165,7 @@ impl<Config: 'static + Send + Sync> ConcurrentRunner<Config> {
     ///
     /// * `num_jobs` - Number of jobs utilized to process files concurrently.
     /// * `proc_files` - Function that processes each file found during
-    ///    the search.
+    ///   the search.
     pub fn new<ProcFiles>(num_jobs: usize, proc_files: ProcFiles) -> Self
     where
         ProcFiles: 'static + Fn(PathBuf, &Config) -> std::io::Result<()> + Send + Sync,
@@ -204,7 +204,7 @@ impl<Config: 'static + Send + Sync> ConcurrentRunner<Config> {
     ///
     /// * `config` - Information used to process a file.
     /// * `files_data` - Information about the files to be included or excluded
-    ///    from a search more the number of paths considered in the search.
+    ///   from a search more the number of paths considered in the search.
     pub fn run(
         self,
         config: Config,
