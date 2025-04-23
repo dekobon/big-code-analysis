@@ -176,7 +176,7 @@ tasks:
         workerType: ci
         payload:
           maxRunTime: 3600
-          image: "rust:buster"
+          image: "rust:bookworm"
           command:
             - "/bin/bash"
             - "-cxe"
@@ -210,7 +210,7 @@ tasks:
         workerType: ci
         payload:
           maxRunTime: 3600
-          image: "rust:buster"
+          image: "rust:bookworm"
           command:
             - "/bin/bash"
             - "-cxe"
@@ -244,7 +244,7 @@ tasks:
         workerType: ci
         payload:
           maxRunTime: 3600
-          image: "rust:buster"
+          image: "rust:bookworm"
           command:
             - "/bin/bash"
             - "-cxe"
@@ -278,7 +278,7 @@ tasks:
         workerType: ci
         payload:
           maxRunTime: 3600
-          image: "rust:buster"
+          image: "rust:bookworm"
           command:
             - "/bin/bash"
             - "-cxe"
@@ -312,7 +312,7 @@ tasks:
         workerType: ci
         payload:
           maxRunTime: 3600
-          image: "rust:buster"
+          image: "rust:bookworm"
           command:
             - "/bin/bash"
             - "-cxe"
@@ -346,7 +346,7 @@ tasks:
         workerType: ci
         payload:
           maxRunTime: 3600
-          image: "rust:buster"
+          image: "rust:bookworm"
           command:
             - "/bin/bash"
             - "-cxe"
@@ -380,7 +380,7 @@ tasks:
         workerType: ci
         payload:
           maxRunTime: 3600
-          image: "rust:buster"
+          image: "rust:bookworm"
           command:
             - "/bin/bash"
             - "-cxe"
@@ -416,7 +416,7 @@ tasks:
           workerType: ci
           payload:
             maxRunTime: 3600
-            image: "rust:buster"
+            image: "rust:bookworm"
             command:
               - "/bin/bash"
               - "-cxe"
@@ -494,7 +494,7 @@ tasks:
           workerType: ci
           payload:
             maxRunTime: 3600
-            image: "rust:buster"
+            image: "rust:bookworm"
             command:
               - "/bin/bash"
               - "-cxe"
