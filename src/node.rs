@@ -24,8 +24,11 @@ impl Tree {
 }
 
 /// An `AST` node.
+///
+/// The inner `tree_sitter::Node` is exposed for advanced use cases
+/// where direct access to the underlying tree-sitter API is needed.
 #[derive(Clone, Copy, Debug)]
-pub struct Node<'a>(OtherNode<'a>);
+pub struct Node<'a>(pub OtherNode<'a>);
 
 impl<'a> Node<'a> {
     /// Checks if a node represents a syntax error or contains any syntax errors
