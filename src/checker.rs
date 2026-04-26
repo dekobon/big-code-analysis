@@ -718,40 +718,64 @@ impl Checker for GoCode {
 }
 
 impl Checker for KotlinCode {
-    fn is_comment(_: &Node) -> bool {
-        false
+    fn is_comment(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Kotlin::LineComment | Kotlin::BlockComment
+        )
     }
 
     fn is_useful_comment(_: &Node, _: &[u8]) -> bool {
         false
     }
 
-    fn is_func_space(_: &Node) -> bool {
-        false
+    fn is_func_space(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Kotlin::SourceFile | Kotlin::ClassDeclaration | Kotlin::ObjectDeclaration
+        )
     }
 
-    fn is_func(_: &Node) -> bool {
-        false
+    fn is_func(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Kotlin::FunctionDeclaration | Kotlin::SecondaryConstructor
+        )
     }
 
-    fn is_closure(_: &Node) -> bool {
-        false
+    fn is_closure(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Kotlin::LambdaLiteral | Kotlin::AnonymousFunction
+        )
     }
 
-    fn is_call(_: &Node) -> bool {
-        false
+    fn is_call(node: &Node) -> bool {
+        node.kind_id() == Kotlin::CallExpression
     }
 
-    fn is_non_arg(_: &Node) -> bool {
-        false
+    fn is_non_arg(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Kotlin::LPAREN | Kotlin::COMMA | Kotlin::RPAREN
+        )
     }
 
-    fn is_string(_: &Node) -> bool {
-        false
+    fn is_string(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Kotlin::StringLiteral | Kotlin::MultilineStringLiteral
+        )
     }
 
-    fn is_else_if(_: &Node) -> bool {
-        false
+    #[inline(always)]
+    fn is_else_if(node: &Node) -> bool {
+        // tree-sitter-kotlin models `else if` as an `else` keyword sibling
+        // followed by an `if_expression`, not a wrapping clause node.
+        node.kind_id() == Kotlin::IfExpression
+            && node
+                .previous_sibling()
+                .is_some_and(|prev| prev.kind_id() == Kotlin::Else)
     }
 
     fn is_primitive(_id: u16) -> bool {
