@@ -619,7 +619,57 @@ impl Cognitive for KotlinCode {
     }
 }
 
-implement_metric_trait!(Cognitive, PreprocCode, CcommentCode, GoCode);
+impl Cognitive for GoCode {
+    fn compute(
+        node: &Node,
+        stats: &mut Stats,
+        nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
+    ) {
+        use Go as G;
+
+        let (mut nesting, mut depth, mut lambda) = get_nesting_from_map(node, nesting_map);
+
+        match node.kind_id().into() {
+            G::IfStatement => {
+                if !Self::is_else_if(node) {
+                    increase_nesting(stats, &mut nesting, depth, lambda);
+                }
+            }
+            G::ForStatement
+            | G::ExpressionSwitchStatement
+            | G::TypeSwitchStatement
+            | G::SelectStatement => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
+            }
+            G::Else | G::GotoStatement => {
+                increment_by_one(stats);
+            }
+            G::BreakStatement | G::ContinueStatement => {
+                if node.children().any(|c| c.kind_id() == G::LabelName) {
+                    increment_by_one(stats);
+                }
+            }
+            G::BinaryExpression => {
+                compute_booleans::<language_go::Go>(node, stats, G::AMPAMP, G::PIPEPIPE);
+            }
+            G::FunctionDeclaration | G::MethodDeclaration => {
+                nesting = 0;
+                increment_function_depth::<language_go::Go>(
+                    &mut depth,
+                    node,
+                    G::FunctionDeclaration,
+                );
+            }
+            G::FuncLiteral => {
+                lambda += 1;
+            }
+            _ => {}
+        }
+        nesting_map.insert(node.id(), (nesting, depth, lambda));
+    }
+}
+
+implement_metric_trait!(Cognitive, PreprocCode, CcommentCode);
 
 #[cfg(test)]
 mod tests {
