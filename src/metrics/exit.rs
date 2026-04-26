@@ -198,7 +198,18 @@ impl Exit for PerlCode {
     }
 }
 
-implement_metric_trait!(Exit, KotlinCode, PreprocCode, CcommentCode);
+impl Exit for KotlinCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        if matches!(
+            node.kind_id().into(),
+            Kotlin::ReturnExpression | Kotlin::ThrowExpression
+        ) {
+            stats.exit += 1;
+        }
+    }
+}
+
+implement_metric_trait!(Exit, PreprocCode, CcommentCode);
 
 #[cfg(test)]
 mod tests {
@@ -782,6 +793,32 @@ mod tests {
                       "min": 0.0,
                       "max": 2.0
                     }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_exit_return_and_throw() {
+        check_metrics::<KotlinParser>(
+            "fun divide(a: Int, b: Int): Int {
+                if (b == 0) {
+                    throw IllegalArgumentException(\"zero\")
+                }
+                return a / b
+            }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 2.0,
+                      "min": 0.0,
+                      "max": 2.0
+                    }
+                    "###
                 );
             },
         );

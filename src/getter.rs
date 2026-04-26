@@ -575,7 +575,51 @@ impl Getter for JavaCode {
     }
 }
 
-impl Getter for KotlinCode {}
+impl Getter for KotlinCode {
+    fn get_space_kind(node: &Node) -> SpaceKind {
+        use Kotlin::*;
+
+        match node.kind_id().into() {
+            ClassDeclaration | ObjectDeclaration => SpaceKind::Class,
+            FunctionDeclaration | SecondaryConstructor | LambdaLiteral | AnonymousFunction => {
+                SpaceKind::Function
+            }
+            SourceFile => SpaceKind::Unit,
+            _ => SpaceKind::Unknown,
+        }
+    }
+
+    fn get_op_type(node: &Node) -> HalsteadType {
+        use Kotlin::*;
+
+        match node.kind_id().into() {
+            // Operator: control flow keywords
+            If | Else | When | For | While | Do | Try | Catch | Finally | Throw | Return
+            | ReturnAT
+            // Operator: other keywords
+            | Class | Fun | Object | Val | Var | In | Is | As | AsQMARK | BANGis | BANGin
+            | This | Super | Constructor
+            // Operator: brackets, separators, terminators
+            | SEMI | COMMA | COLONCOLON | LBRACE | LBRACK | LPAREN
+            // Operator: assignment and arithmetic
+            | EQ | PLUS | DASH | STAR | SLASH | PERCENT
+            | PLUSEQ | DASHEQ | STAREQ | SLASHEQ | PERCENTEQ
+            | PLUSPLUS | DASHDASH
+            // Operator: comparison and equality
+            | LT | GT | LTEQ | GTEQ | EQEQ | EQEQEQ | BANGEQ | BANGEQEQ
+            // Operator: logical and misc
+            | AMPAMP | PIPEPIPE | BANG | BANGBANG
+            | QMARK | QMARKCOLON | QMARKDOT
+            | DOTDOT | DOTDOTLT | DASHGT | COLON => HalsteadType::Operator,
+            // Operands: identifiers and literals
+            Identifier | NumberLiteral | FloatLiteral | StringLiteral
+            | MultilineStringLiteral | CharacterLiteral | Label => HalsteadType::Operand,
+            _ => HalsteadType::Unknown,
+        }
+    }
+
+    get_operator!(Kotlin);
+}
 
 impl Getter for GoCode {
     fn get_space_kind(node: &Node) -> SpaceKind {

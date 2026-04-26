@@ -989,7 +989,31 @@ impl Loc for PerlCode {
     }
 }
 
-implement_metric_trait!(Loc, PreprocCode, CcommentCode, KotlinCode);
+impl Loc for KotlinCode {
+    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool, is_unit: bool) {
+        use Kotlin::*;
+
+        let (start, end) = init(node, stats, is_func_space, is_unit);
+
+        match node.kind_id().into() {
+            SourceFile => {}
+            LineComment | BlockComment => {
+                add_cloc_lines(stats, start, end);
+            }
+            ForStatement | WhileStatement | DoWhileStatement | IfExpression | WhenExpression
+            | TryExpression | ThrowExpression | ReturnExpression | Assignment
+            | PropertyDeclaration => {
+                stats.lloc.logical_lines += 1;
+            }
+            _ => {
+                check_comment_ends_on_code_line(stats, start);
+                stats.ploc.lines.insert(start);
+            }
+        }
+    }
+}
+
+implement_metric_trait!(Loc, PreprocCode, CcommentCode);
 
 #[cfg(test)]
 mod tests {
@@ -4747,6 +4771,50 @@ my $x = 1;",
                       "blank_min": 0.0,
                       "blank_max": 0.0
                     }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_loc_basic() {
+        check_metrics::<KotlinParser>(
+            "// A simple function
+            fun greet(name: String): String {
+                val greeting = \"Hello, \" + name
+                if (name.isEmpty()) {
+                    return \"Hello, World!\"
+                }
+                return greeting
+            }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.loc,
+                    @r###"
+                    {
+                      "sloc": 8.0,
+                      "ploc": 7.0,
+                      "lloc": 4.0,
+                      "cloc": 1.0,
+                      "blank": 0.0,
+                      "sloc_average": 4.0,
+                      "ploc_average": 3.5,
+                      "lloc_average": 2.0,
+                      "cloc_average": 0.5,
+                      "blank_average": 0.0,
+                      "sloc_min": 7.0,
+                      "sloc_max": 7.0,
+                      "cloc_min": 0.0,
+                      "cloc_max": 0.0,
+                      "ploc_min": 7.0,
+                      "ploc_max": 7.0,
+                      "lloc_min": 4.0,
+                      "lloc_max": 4.0,
+                      "blank_min": 0.0,
+                      "blank_max": 0.0
+                    }
+                    "###
                 );
             },
         );

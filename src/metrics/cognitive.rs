@@ -139,10 +139,10 @@ fn compute_booleans<T: std::cmp::PartialEq + std::convert::From<u16>>(
     typs2: T,
 ) {
     for child in node.children() {
-        if typs1 == child.kind_id().into() || typs2 == child.kind_id().into() {
-            stats.structural = stats
-                .boolean_seq
-                .eval_based_on_prev(child.kind_id(), stats.structural)
+        let id = child.kind_id();
+        let converted: T = id.into();
+        if typs1 == converted || typs2 == converted {
+            stats.structural = stats.boolean_seq.eval_based_on_prev(id, stats.structural);
         }
     }
 }
@@ -577,7 +577,49 @@ impl Cognitive for PerlCode {
     }
 }
 
-implement_metric_trait!(Cognitive, PreprocCode, CcommentCode, KotlinCode, GoCode);
+impl Cognitive for KotlinCode {
+    fn compute(
+        node: &Node,
+        stats: &mut Stats,
+        nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
+    ) {
+        use Kotlin::*;
+
+        let (mut nesting, mut depth, mut lambda) = get_nesting_from_map(node, nesting_map);
+
+        match node.kind_id().into() {
+            IfExpression => {
+                if !Self::is_else_if(node) {
+                    increase_nesting(stats, &mut nesting, depth, lambda);
+                }
+            }
+            ForStatement | WhileStatement | DoWhileStatement | WhenExpression | CatchBlock => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
+            }
+            Else => {
+                increment_by_one(stats);
+            }
+            BinaryExpression => {
+                compute_booleans::<language_kotlin::Kotlin>(node, stats, AMPAMP, PIPEPIPE);
+            }
+            FunctionDeclaration | SecondaryConstructor => {
+                nesting = 0;
+                increment_function_depth::<language_kotlin::Kotlin>(
+                    &mut depth,
+                    node,
+                    FunctionDeclaration,
+                );
+            }
+            LambdaLiteral | AnonymousFunction => {
+                lambda += 1;
+            }
+            _ => {}
+        }
+        nesting_map.insert(node.id(), (nesting, depth, lambda));
+    }
+}
+
+implement_metric_trait!(Cognitive, PreprocCode, CcommentCode, GoCode);
 
 #[cfg(test)]
 mod tests {
@@ -2434,6 +2476,361 @@ mod tests {
                       "min": 0.0,
                       "max": 4.0
                     }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_cognitive_control_flow() {
+        check_metrics::<KotlinParser>(
+            "fun process(x: Int, y: Int): String {
+                if (x > 0) {                // +1
+                    for (i in 1..x) {       // +2 (nesting=1)
+                        if (i % 2 == 0) {   // +3 (nesting=2)
+                            println(i)
+                        }
+                    }
+                } else if (x < 0) {        // +1 (else-if: flat +1 for else, if not counted as else-if)
+                    when (y) {              // +2 (nesting=1)
+                        1 -> println(\"one\")
+                        2 -> println(\"two\")
+                        else -> println(\"other\")
+                    }
+                } else {                    // +1
+                    while (y > 0) {         // +2
+                        println(y)
+                    }
+                }
+                return if (x > y) \"big\" else \"small\"
+            }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 15.0,
+                      "average": 15.0,
+                      "min": 0.0,
+                      "max": 15.0
+                    }
+                    "###
+                );
+            },
+        );
+    }
+
+
+    #[test]
+    fn kotlin_no_cognitive() {
+        check_metrics::<KotlinParser>("fun main() { val x = 42 }", "foo.kt", |metric| {
+            insta::assert_json_snapshot!(metric.cognitive, @r#"
+            {
+              "sum": 0.0,
+              "average": 0.0,
+              "min": 0.0,
+              "max": 0.0
+            }
+            "#);
+        });
+    }
+
+    #[test]
+    fn kotlin_simple_if_with_boolean() {
+        check_metrics::<KotlinParser>(
+            "fun test(a: Boolean, b: Boolean) { if (a && b) { val x = 1 } }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive, @r#"
+                {
+                  "sum": 2.0,
+                  "average": 2.0,
+                  "min": 0.0,
+                  "max": 2.0
+                }
+                "#);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_nesting() {
+        check_metrics::<KotlinParser>(
+            "fun test(items: List<Int>) {
+                if (items.isNotEmpty()) {
+                    for (i in items) {
+                        if (i > 0) {
+                            println(i)
+                        }
+                    }
+                }
+            }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive, @r#"
+                {
+                  "sum": 6.0,
+                  "average": 6.0,
+                  "min": 0.0,
+                  "max": 6.0
+                }
+                "#);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_when_expression() {
+        check_metrics::<KotlinParser>(
+            "fun test(x: Int) { when { x > 10 -> val a = 1; x > 5 -> val b = 2; else -> val c = 3 } }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive, @r#"
+                {
+                  "sum": 2.0,
+                  "average": 2.0,
+                  "min": 0.0,
+                  "max": 2.0
+                }
+                "#);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_else_if_chain() {
+        check_metrics::<KotlinParser>(
+            "fun test(x: Int) {
+                if (x > 10) {
+                } else if (x > 5) {
+                } else if (x > 0) {
+                } else {
+                }
+            }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive, @r#"
+                {
+                  "sum": 4.0,
+                  "average": 4.0,
+                  "min": 0.0,
+                  "max": 4.0
+                }
+                "#);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_lambda_nesting() {
+        check_metrics::<KotlinParser>(
+            "fun test() { val f = { if (true) { } } }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive, @r#"
+                {
+                  "sum": 2.0,
+                  "average": 1.0,
+                  "min": 0.0,
+                  "max": 2.0
+                }
+                "#);
+            },
+        );
+    }
+
+    #[test]
+    fn go_no_cognitive() {
+        check_metrics::<GoParser>("package main\nvar x = 42", "foo.go", |metric| {
+            insta::assert_json_snapshot!(
+                metric.cognitive,
+                @r###"
+                {
+                  "sum": 0.0,
+                  "average": null,
+                  "min": 0.0,
+                  "max": 0.0
+                }
+                "###
+            );
+        });
+    }
+
+    #[test]
+    fn go_simple_function() {
+        check_metrics::<GoParser>(
+            "package main
+            func f(a, b bool) {
+                if a && b {    // +1 (if) +1 (&&)
+                    return
+                }
+                if a || b {    // +1 (if) +1 (||)
+                    return
+                }
+            }",
+            "foo.go",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 4.0,
+                      "min": 0.0,
+                      "max": 4.0
+                    }
+                    "###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_nesting() {
+        check_metrics::<GoParser>(
+            "package main
+            func f(x int, items []int) {
+                if x > 0 {                    // +1 (nesting 0)
+                    for _, v := range items {  // +2 (nesting 1)
+                        if v > 0 {             // +3 (nesting 2)
+                            println(v)
+                        }
+                    }
+                }
+            }",
+            "foo.go",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 6.0,
+                      "average": 6.0,
+                      "min": 0.0,
+                      "max": 6.0
+                    }
+                    "###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_switch() {
+        check_metrics::<GoParser>(
+            "package main
+            func f(x int) {
+                switch x {         // +1 (nesting 0)
+                case 1:
+                    if x > 0 {     // +2 (nesting 1)
+                        println(x)
+                    }
+                default:
+                    println(x)
+                }
+            }",
+            "foo.go",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 3.0,
+                      "min": 0.0,
+                      "max": 3.0
+                    }
+                    "###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_goto() {
+        check_metrics::<GoParser>(
+            "package main
+            func f(n int) {
+                if n > 10 {    // +1 (nesting 0)
+                    goto end   // +1 (goto)
+                }
+            end:
+                return
+            }",
+            "foo.go",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 2.0,
+                      "min": 0.0,
+                      "max": 2.0
+                    }
+                    "###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_else_if_chain() {
+        check_metrics::<GoParser>(
+            "package main
+            func f(x int) {
+                if x > 0 {           // +1 (nesting 0)
+                    println(x)
+                } else if x < 0 {    // +1 (else-if)
+                    println(-x)
+                } else {              // +1 (else)
+                    println(0)
+                }
+            }",
+            "foo.go",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 3.0,
+                      "min": 0.0,
+                      "max": 3.0
+                    }
+                    "###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_labeled_break_continue() {
+        check_metrics::<GoParser>(
+            "package main
+            func f() {
+            outer:
+                for i := 0; i < 3; i++ {       // +1 (nesting 0)
+                    for j := 0; j < 3; j++ {    // +2 (nesting 1)
+                        if i == j {              // +3 (nesting 2)
+                            continue outer       // +1 (labeled continue)
+                        }
+                    }
+                }
+            }",
+            "foo.go",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 7.0,
+                      "average": 7.0,
+                      "min": 0.0,
+                      "max": 7.0
+                    }
+                    "###
                 );
             },
         );

@@ -276,7 +276,21 @@ impl Cyclomatic for PerlCode {
     }
 }
 
-implement_metric_trait!(Cyclomatic, KotlinCode, PreprocCode, CcommentCode);
+impl Cyclomatic for KotlinCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        use Kotlin::*;
+
+        match node.kind_id().into() {
+            IfExpression | ForStatement | WhileStatement | DoWhileStatement | WhenEntry
+            | CatchBlock | AMPAMP | PIPEPIPE => {
+                stats.cyclomatic += 1.;
+            }
+            _ => {}
+        }
+    }
+}
+
+implement_metric_trait!(Cyclomatic, PreprocCode, CcommentCode);
 
 #[cfg(test)]
 mod tests {
@@ -1247,6 +1261,47 @@ mod tests {
                       "min": 1.0,
                       "max": 5.0
                     }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_cyclomatic_mixed() {
+        check_metrics::<KotlinParser>(
+            "class Calc {
+                fun compute(x: Int, y: Int): Int {
+                    if (x > 0) {            // +1
+                        for (i in 1..x) {   // +1
+                            println(i)
+                        }
+                    }
+                    when (y) {
+                        1 -> println(\"one\")   // +1 (WhenEntry)
+                        2 -> println(\"two\")   // +1
+                        else -> println(\"?\") // +1
+                    }
+                    val ok = x > 0 && y > 0  // +1
+                    try {
+                        println(x / y)
+                    } catch (e: Exception) { // +1
+                        println(\"err\")
+                    }
+                    return x + y
+                }
+            }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 10.0,
+                      "average": 3.3333333333333335,
+                      "min": 1.0,
+                      "max": 8.0
+                    }
+                    "###
                 );
             },
         );
