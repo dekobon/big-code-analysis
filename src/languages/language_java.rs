@@ -326,6 +326,7 @@ pub enum Java {
     ReceiverParameterRepeat1 = 319,
     TypeIdentifier = 320,
     Error = 321,
+    
 }
 
 impl From<Java> for &'static str {
@@ -654,6 +655,7 @@ impl From<Java> for &'static str {
             Java::ReceiverParameterRepeat1 => "receiver_parameter_repeat1",
             Java::TypeIdentifier => "type_identifier",
             Java::Error => "ERROR",
+            
         }
     }
 }

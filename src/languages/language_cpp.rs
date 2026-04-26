@@ -643,6 +643,7 @@ pub enum Cpp {
     StatementIdentifier = 636,
     TypeIdentifier = 637,
     Error = 638,
+    
 }
 
 impl From<Cpp> for &'static str {
@@ -908,9 +909,7 @@ impl From<Cpp> for &'static str {
             Cpp::MOZHEAPALLOCATOR => "MOZ_HEAP_ALLOCATOR",
             Cpp::MOZHEAPCLASS => "MOZ_HEAP_CLASS",
             Cpp::MOZIMPLICIT => "MOZ_IMPLICIT",
-            Cpp::MOZINHERITTYPEANNOTATIONSFROMTEMPLATEARGS => {
-                "MOZ_INHERIT_TYPE_ANNOTATIONS_FROM_TEMPLATE_ARGS"
-            }
+            Cpp::MOZINHERITTYPEANNOTATIONSFROMTEMPLATEARGS => "MOZ_INHERIT_TYPE_ANNOTATIONS_FROM_TEMPLATE_ARGS",
             Cpp::MOZINITOUTSIDECTOR => "MOZ_INIT_OUTSIDE_CTOR",
             Cpp::MOZISCLASSINIT => "MOZ_IS_CLASS_INIT",
             Cpp::MOZISREFPTR => "MOZ_IS_REFPTR",
@@ -941,17 +940,11 @@ impl From<Cpp> for &'static str {
             Cpp::MOZNODANGLINGONTEMPORARIES => "MOZ_NO_DANGLING_ON_TEMPORARIES",
             Cpp::MOZNOSANITIZESIGNEDOVERFLOW => "MOZ_NO_SANITIZE_SIGNED_OVERFLOW",
             Cpp::MOZNOSANITIZEUNSIGNEDOVERFLOW => "MOZ_NO_SANITIZE_UNSIGNED_OVERFLOW",
-            Cpp::MOZONLYUSEDTOAVOIDSTATICCONSTRUCTORS => {
-                "MOZ_ONLY_USED_TO_AVOID_STATIC_CONSTRUCTORS"
-            }
+            Cpp::MOZONLYUSEDTOAVOIDSTATICCONSTRUCTORS => "MOZ_ONLY_USED_TO_AVOID_STATIC_CONSTRUCTORS",
             Cpp::MOZOWNINGREF => "MOZ_OWNING_REF",
-            Cpp::MOZPOPDISABLENONTRIVIALUNIONWARNINGS => {
-                "MOZ_POP_DISABLE_NONTRIVIAL_UNION_WARNINGS"
-            }
+            Cpp::MOZPOPDISABLENONTRIVIALUNIONWARNINGS => "MOZ_POP_DISABLE_NONTRIVIAL_UNION_WARNINGS",
             Cpp::MOZPRETENDNORETURNFORSTATICANALYSIS => "MOZ_PRETEND_NORETURN_FOR_STATIC_ANALYSIS",
-            Cpp::MOZPUSHDISABLENONTRIVIALUNIONWARNINGS => {
-                "MOZ_PUSH_DISABLE_NONTRIVIAL_UNION_WARNINGS"
-            }
+            Cpp::MOZPUSHDISABLENONTRIVIALUNIONWARNINGS => "MOZ_PUSH_DISABLE_NONTRIVIAL_UNION_WARNINGS",
             Cpp::MOZRAII => "MOZ_RAII",
             Cpp::MOZREQUIREDBASEMETHOD => "MOZ_REQUIRED_BASE_METHOD",
             Cpp::MOZSTACKCLASS => "MOZ_STACK_CLASS",
@@ -1243,13 +1236,9 @@ impl From<Cpp> for &'static str {
             Cpp::TranslationUnitRepeat1 => "translation_unit_repeat1",
             Cpp::PreprocParamsRepeat1 => "preproc_params_repeat1",
             Cpp::PreprocIfRepeat1 => "preproc_if_repeat1",
-            Cpp::PreprocIfInFieldDeclarationListRepeat1 => {
-                "preproc_if_in_field_declaration_list_repeat1"
-            }
+            Cpp::PreprocIfInFieldDeclarationListRepeat1 => "preproc_if_in_field_declaration_list_repeat1",
             Cpp::PreprocIfInEnumeratorListRepeat1 => "preproc_if_in_enumerator_list_repeat1",
-            Cpp::PreprocIfInEnumeratorListNoCommaRepeat1 => {
-                "preproc_if_in_enumerator_list_no_comma_repeat1"
-            }
+            Cpp::PreprocIfInEnumeratorListNoCommaRepeat1 => "preproc_if_in_enumerator_list_no_comma_repeat1",
             Cpp::PreprocArgumentListRepeat1 => "preproc_argument_list_repeat1",
             Cpp::DeclarationRepeat1 => "declaration_repeat1",
             Cpp::TypeDefinitionRepeat1 => "type_definition_repeat1",
@@ -1300,6 +1289,7 @@ impl From<Cpp> for &'static str {
             Cpp::StatementIdentifier => "statement_identifier",
             Cpp::TypeIdentifier => "type_identifier",
             Cpp::Error => "ERROR",
+            
         }
     }
 }

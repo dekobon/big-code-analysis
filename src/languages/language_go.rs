@@ -224,6 +224,7 @@ pub enum Go {
     TypeConstraint = 217,
     TypeIdentifier = 218,
     Error = 219,
+    
 }
 
 impl From<Go> for &'static str {
@@ -367,7 +368,7 @@ impl From<Go> for &'static str {
             Go::ChannelType => "channel_type",
             Go::FunctionType => "function_type",
             Go::Block => "block",
-            Go::StatementList => "_statement_list",
+            Go::StatementList => "statement_list",
             Go::Statement => "_statement",
             Go::EmptyStatement => "empty_statement",
             Go::SimpleStatement => "_simple_statement",
@@ -436,7 +437,7 @@ impl From<Go> for &'static str {
             Go::FieldDeclarationRepeat1 => "field_declaration_repeat1",
             Go::InterfaceTypeRepeat1 => "interface_type_repeat1",
             Go::TypeElemRepeat1 => "type_elem_repeat1",
-            Go::StatementListRepeat1 => "_statement_list_repeat1",
+            Go::StatementListRepeat1 => "statement_list_repeat1",
             Go::ExpressionSwitchStatementRepeat1 => "expression_switch_statement_repeat1",
             Go::TypeSwitchStatementRepeat1 => "type_switch_statement_repeat1",
             Go::TypeCaseRepeat1 => "type_case_repeat1",
@@ -450,6 +451,7 @@ impl From<Go> for &'static str {
             Go::TypeConstraint => "type_constraint",
             Go::TypeIdentifier => "type_identifier",
             Go::Error => "ERROR",
+            
         }
     }
 }
