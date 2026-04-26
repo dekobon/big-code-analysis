@@ -360,7 +360,6 @@ pub enum Rust {
     ShorthandFieldIdentifier = 353,
     TypeIdentifier = 354,
     Error = 355,
-    
 }
 
 impl From<Rust> for &'static str {
@@ -723,7 +722,6 @@ impl From<Rust> for &'static str {
             Rust::ShorthandFieldIdentifier => "shorthand_field_identifier",
             Rust::TypeIdentifier => "type_identifier",
             Rust::Error => "ERROR",
-            
         }
     }
 }

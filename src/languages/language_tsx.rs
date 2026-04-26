@@ -405,7 +405,6 @@ pub enum Tsx {
     ThisType = 398,
     TypeIdentifier = 399,
     Error = 400,
-    
 }
 
 impl From<Tsx> for &'static str {
@@ -813,7 +812,6 @@ impl From<Tsx> for &'static str {
             Tsx::ThisType => "this_type",
             Tsx::TypeIdentifier => "type_identifier",
             Tsx::Error => "ERROR",
-            
         }
     }
 }

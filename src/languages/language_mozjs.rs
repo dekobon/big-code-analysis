@@ -269,7 +269,6 @@ pub enum Mozjs {
     ShorthandPropertyIdentifierPattern = 262,
     StatementIdentifier = 263,
     Error = 264,
-    
 }
 
 impl From<Mozjs> for &'static str {
@@ -541,7 +540,6 @@ impl From<Mozjs> for &'static str {
             Mozjs::ShorthandPropertyIdentifierPattern => "shorthand_property_identifier_pattern",
             Mozjs::StatementIdentifier => "statement_identifier",
             Mozjs::Error => "ERROR",
-            
         }
     }
 }
