@@ -182,7 +182,7 @@ impl Exit for JavaCode {
     }
 }
 
-implement_metric_trait!(Exit, KotlinCode, PreprocCode, CcommentCode);
+implement_metric_trait!(Exit, KotlinCode, PreprocCode, CcommentCode, GoCode);
 
 #[cfg(test)]
 mod tests {
