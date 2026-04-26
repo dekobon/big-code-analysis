@@ -23,7 +23,7 @@ Vendored / path-dependent grammar crates also live in the repo:
 `tree-sitter-preproc`. External grammar crates are pinned with `=X.Y.Z`
 versions in the root `Cargo.toml`.
 
-The default branch is **`master`**, not `main`.
+The default branch is **`main`**.
 
 ## Project layout
 
