@@ -221,7 +221,28 @@ impl Cyclomatic for JavaCode {
     }
 }
 
-implement_metric_trait!(Cyclomatic, KotlinCode, PreprocCode, CcommentCode, GoCode);
+impl Cyclomatic for GoCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        // Aliased because `Go::Go` (the `go` keyword variant) collides with
+        // the bare enum name in pattern position under `use Go::*;`.
+        use Go as G;
+
+        match node.kind_id().into() {
+            G::IfStatement
+            | G::ForStatement
+            | G::ExpressionCase
+            | G::TypeCase
+            | G::CommunicationCase
+            | G::AMPAMP
+            | G::PIPEPIPE => {
+                stats.cyclomatic += 1.;
+            }
+            _ => {}
+        }
+    }
+}
+
+implement_metric_trait!(Cyclomatic, KotlinCode, PreprocCode, CcommentCode);
 
 #[cfg(test)]
 mod tests {
@@ -545,6 +566,127 @@ mod tests {
                     {
                       "sum": 11.0,
                       "average": 2.2,
+                      "min": 1.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_simple_function() {
+        check_metrics::<GoParser>(
+            "package main
+            func f(a, b bool) int { // +2 (+1 unit space)
+                if a && b { // +2 (+1 &&)
+                    return 1
+                }
+                if c || d { // +2 (+1 ||)
+                    return 2
+                }
+                return 0
+            }",
+            "foo.go",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 6.0,
+                      "average": 3.0,
+                      "min": 1.0,
+                      "max": 5.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_switch_and_select() {
+        check_metrics::<GoParser>(
+            "package main
+            func f(x int, c chan int) { // +1 (function space base)
+                switch x {
+                case 1: // +1
+                case 2: // +1
+                default: // not counted
+                }
+                select {
+                case <-c: // +1
+                default: // not counted
+                }
+            }",
+            "foo.go",
+            |metric| {
+                // nspace = 2 (func and unit)
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 5.0,
+                      "average": 2.5,
+                      "min": 1.0,
+                      "max": 4.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_type_switch_and_for() {
+        check_metrics::<GoParser>(
+            "package main
+            func f(x interface{}, n int) { // +2 (+1 unit space)
+                switch x.(type) {
+                case int: // +1
+                case string: // +1
+                }
+                for i := 0; i < n; i++ { // +1
+                }
+                for range []int{} { // +1
+                }
+            }",
+            "foo.go",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 6.0,
+                      "average": 3.0,
+                      "min": 1.0,
+                      "max": 5.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_else_if_and_defer() {
+        check_metrics::<GoParser>(
+            "package main
+            func f(x int) int { // +2 (+1 unit space)
+                defer cleanup()
+                go work()
+                if x > 0 { // +1
+                    return 1
+                } else if x < 0 { // +1
+                    return -1
+                }
+                return 0
+            }",
+            "foo.go",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 2.0,
                       "min": 1.0,
                       "max": 3.0
                     }"###

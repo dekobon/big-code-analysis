@@ -916,6 +916,115 @@ mod tests {
     }
 
     #[test]
+    fn go_no_functions_and_closures() {
+        check_metrics::<GoParser>("package main\nvar a = 42", "foo.go", |metric| {
+            insta::assert_json_snapshot!(
+                metric.nargs,
+                @r###"
+                    {
+                      "total_functions": 0.0,
+                      "total_closures": 0.0,
+                      "average_functions": 0.0,
+                      "average_closures": 0.0,
+                      "total": 0.0,
+                      "average": 0.0,
+                      "functions_min": 0.0,
+                      "functions_max": 0.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }"###
+            );
+        });
+    }
+
+    #[test]
+    fn go_single_function() {
+        check_metrics::<GoParser>(
+            "package main
+            func f(a int, b int) int {
+                return a + b
+            }",
+            "foo.go",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r###"
+                    {
+                      "total_functions": 2.0,
+                      "total_closures": 0.0,
+                      "average_functions": 2.0,
+                      "average_closures": 0.0,
+                      "total": 2.0,
+                      "average": 2.0,
+                      "functions_min": 0.0,
+                      "functions_max": 2.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_method_excludes_receiver() {
+        check_metrics::<GoParser>(
+            "package main
+            type T struct{}
+            func (t *T) Greet(name string) string {
+                return name
+            }",
+            "foo.go",
+            |metric| {
+                // Receiver is in a separate `receiver` field and is not counted.
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r###"
+                    {
+                      "total_functions": 1.0,
+                      "total_closures": 0.0,
+                      "average_functions": 1.0,
+                      "average_closures": 0.0,
+                      "total": 1.0,
+                      "average": 1.0,
+                      "functions_min": 0.0,
+                      "functions_max": 1.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_func_literal_closure() {
+        check_metrics::<GoParser>(
+            "package main
+            var f = func(x int, y int) int { return x + y }",
+            "foo.go",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r###"
+                    {
+                      "total_functions": 0.0,
+                      "total_closures": 2.0,
+                      "average_functions": 0.0,
+                      "average_closures": 2.0,
+                      "total": 2.0,
+                      "average": 2.0,
+                      "functions_min": 0.0,
+                      "functions_max": 0.0,
+                      "closures_min": 0.0,
+                      "closures_max": 2.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
     fn javascript_nested_functions() {
         check_metrics::<JavascriptParser>(
             "function f(a, b) {
