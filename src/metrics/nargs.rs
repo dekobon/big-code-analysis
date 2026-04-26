@@ -264,6 +264,49 @@ impl NArgs for GoCode {
     }
 }
 
+fn compute_kotlin_func_args(node: &Node, nargs: &mut usize) {
+    for child in node.children() {
+        if child.kind_id() == Kotlin::FunctionValueParameters {
+            child.act_on_child(&mut |n| {
+                if !KotlinCode::is_non_arg(n) {
+                    *nargs += 1;
+                }
+            });
+            return;
+        }
+    }
+}
+
+fn compute_kotlin_lambda_args(node: &Node, nargs: &mut usize) {
+    for child in node.children() {
+        if child.kind_id() == Kotlin::LambdaParameters {
+            child.act_on_child(&mut |n| {
+                if n.kind_id() != Kotlin::COMMA {
+                    *nargs += 1;
+                }
+            });
+            return;
+        }
+    }
+}
+
+impl NArgs for KotlinCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        if Self::is_func(node) {
+            compute_kotlin_func_args(node, &mut stats.fn_nargs);
+            return;
+        }
+
+        if Self::is_closure(node) {
+            if node.kind_id() == Kotlin::LambdaLiteral {
+                compute_kotlin_lambda_args(node, &mut stats.closure_nargs);
+            } else {
+                compute_kotlin_func_args(node, &mut stats.closure_nargs);
+            }
+        }
+    }
+}
+
 implement_metric_trait!(
     [NArgs],
     PythonCode,
@@ -275,7 +318,6 @@ implement_metric_trait!(
     PreprocCode,
     CcommentCode,
     JavaCode,
-    KotlinCode,
     PerlCode
 );
 
@@ -1593,5 +1635,35 @@ mod tests {
                     }"###
             );
         });
+    }
+
+    #[test]
+    fn kotlin_nargs_functions_and_closures() {
+        check_metrics::<KotlinParser>(
+            "fun add(a: Int, b: Int): Int {
+                val transform = { x: Int, y: Int -> x + y }
+                return transform(a, b)
+            }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r###"
+                    {
+                      "total_functions": 2.0,
+                      "total_closures": 2.0,
+                      "average_functions": 2.0,
+                      "average_closures": 2.0,
+                      "total": 4.0,
+                      "average": 2.0,
+                      "functions_min": 0.0,
+                      "functions_max": 2.0,
+                      "closures_min": 0.0,
+                      "closures_max": 2.0
+                    }
+                    "###
+                );
+            },
+        );
     }
 }

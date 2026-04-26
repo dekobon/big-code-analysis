@@ -340,7 +340,13 @@ impl Halstead for PerlCode {
     }
 }
 
-implement_metric_trait!(Halstead, KotlinCode, PreprocCode, CcommentCode);
+impl Halstead for KotlinCode {
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], halstead_maps: &mut HalsteadMaps<'a>) {
+        compute_halstead::<Self>(node, code, halstead_maps);
+    }
+}
+
+implement_metric_trait!(Halstead, PreprocCode, CcommentCode);
 
 #[cfg(test)]
 mod tests {
@@ -773,6 +779,40 @@ mod tests {
                   "bugs": 0.02294502281013948
                 }
                 "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_halstead_basic() {
+        check_metrics::<KotlinParser>(
+            "fun add(a: Int, b: Int): Int {
+                val result = a + b
+                return result
+            }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.halstead,
+                    @r###"
+                    {
+                      "n1": 9.0,
+                      "N1": 11.0,
+                      "n2": 5.0,
+                      "N2": 10.0,
+                      "length": 21.0,
+                      "estimated_program_length": 40.13896548741762,
+                      "purity_ratio": 1.9113793089246487,
+                      "vocabulary": 14.0,
+                      "volume": 79.9544533632097,
+                      "difficulty": 9.0,
+                      "level": 0.1111111111111111,
+                      "effort": 719.5900802688873,
+                      "time": 39.97722668160485,
+                      "bugs": 0.026767153565498338
+                    }
+                    "###
                 );
             },
         );
