@@ -1,8 +1,8 @@
 # big-code-analysis
 
 [![Crates.io](https://img.shields.io/crates/v/big-code-analysis.svg)](https://crates.io/crates/big-code-analysis)
-[![Task Status](https://community-tc.services.mozilla.com/api/github/v1/repository/mozilla/big-code-analysis/master/badge.svg)](https://community-tc.services.mozilla.com/api/github/v1/repository/mozilla/big-code-analysis/master/latest)
-[![codecov](https://codecov.io/gh/mozilla/big-code-analysis/branch/master/graph/badge.svg)](https://codecov.io/gh/mozilla/big-code-analysis)
+[![Task Status](https://community-tc.services.mozilla.com/api/github/v1/repository/dekobon/big-code-analysis/master/badge.svg)](https://community-tc.services.mozilla.com/api/github/v1/repository/dekobon/big-code-analysis/master/latest)
+[![codecov](https://codecov.io/gh/dekobon/big-code-analysis/branch/master/graph/badge.svg)](https://codecov.io/gh/dekobon/big-code-analysis)
 <a href="https://chat.mozilla.org/#/room/#big-code-analysis:mozilla.org" target="_blank">
    <img src="https://img.shields.io/badge/chat%20on%20[m]-%23rust--code--analysis%3Amozilla.org-blue">
 </a>
@@ -29,10 +29,10 @@ In addition, we provide a **big-code-analysis-web** tool to use the library thro
 
 **big-code-analysis** supports many types of programming languages and
 computes a great variety of metrics. You can find up to date documentation at
-<a href="https://mozilla.github.io/big-code-analysis/index.html" target="_blank">Documentation</a>.
+<a href="https://dekobon.github.io/big-code-analysis/index.html" target="_blank">Documentation</a>.
 
 On the
-<a href="https://mozilla.github.io/big-code-analysis/commands/index.html" target="_blank">
+<a href="https://dekobon.github.io/big-code-analysis/commands/index.html" target="_blank">
     Commands
 </a> page, there is a list of commands that can be run to get information
 about metrics, nodes, and other general data provided by this software.
@@ -83,14 +83,14 @@ Will run the tests, generate the new snapshot references and let you review them
 
 ### Updating grammars
 Have a look at
-<a href="https://mozilla.github.io/big-code-analysis/developers/update-grammars.html" target="_blank">Update grammars guide</a>
+<a href="https://dekobon.github.io/big-code-analysis/developers/update-grammars.html" target="_blank">Update grammars guide</a>
 to learn how to update languages grammars.
 
 # Contributing
 
 If you want to contribute to the development of this software, have a look at the
 guidelines contained in our
-<a href="https://mozilla.github.io/big-code-analysis/developers/index.html" target="_blank">Developers Guide</a>.
+<a href="https://dekobon.github.io/big-code-analysis/developers/index.html" target="_blank">Developers Guide</a>.
 
 
 # How to cite big-code-analysis

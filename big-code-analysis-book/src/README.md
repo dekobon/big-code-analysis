@@ -7,9 +7,9 @@ called
 <a href="https://tree-sitter.github.io/tree-sitter/" target="_blank">Tree Sitter</a>.
 
 You can find the source code of this software on
-<a href="https://github.com/mozilla/big-code-analysis/" target="_blank">GitHub</a>,
+<a href="https://github.com/dekobon/big-code-analysis/" target="_blank">GitHub</a>,
 while issues and feature requests can be posted on the respective
-<a href="https://github.com/mozilla/big-code-analysis/issues/" target="_blank">GitHub Issue Tracker</a>.
+<a href="https://github.com/dekobon/big-code-analysis/issues/" target="_blank">GitHub Issue Tracker</a>.
 
 ## Supported platforms
 
@@ -17,7 +17,7 @@ while issues and feature requests can be posted on the respective
 and Windows.
 
 On our
-<a href="https://github.com/mozilla/big-code-analysis/releases" target="_blank">GitHub Release Page</a>
+<a href="https://github.com/dekobon/big-code-analysis/releases" target="_blank">GitHub Release Page</a>
 you can find the `Linux` and `Windows` binaries already compiled and
 packed for you.
 

@@ -134,7 +134,7 @@ def compute_ci_metrics(args: argparse.Namespace) -> None:
         "clone",
         "--depth=1",
         "-j8",
-        "https://github.com/mozilla/big-code-analysis",
+        "https://github.com/dekobon/big-code-analysis",
         rca_path,
     )
 
@@ -209,7 +209,7 @@ def main() -> None:
         description="This tool computes the metrics of a chosen repository "
         "before and after a tree-sitter grammar update.",
         epilog="The source code of this program can be found on "
-        "GitHub at https://github.com/mozilla/big-code-analysis",
+        "GitHub at https://github.com/dekobon/big-code-analysis",
     )
 
     # Subcommands parsers

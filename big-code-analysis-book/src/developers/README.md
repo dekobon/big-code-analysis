@@ -16,13 +16,13 @@ You can do that:
 through **HTTPS**
 
 ```
-git clone -j8 https://github.com/mozilla/big-code-analysis.git
+git clone -j8 https://github.com/dekobon/big-code-analysis.git
 ```
 
 or through **SSH**
 
 ```
-git clone -j8 git@github.com:mozilla/big-code-analysis.git
+git clone -j8 git@github.com:dekobon/big-code-analysis.git
 ```
 
 ## Building

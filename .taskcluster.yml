@@ -477,7 +477,7 @@ tasks:
                 taskboot retrieve-artifact --output-path=. --artifacts=public/book.tar.gz
                 tar xfz book.tar.gz -C big-code-analysis-book
                 ./big-code-analysis-book/deploy-to-GitHub-Pages
-                taskboot git-push --force-push github.com/mozilla/big-code-analysis moz-tools-bot gh-pages
+                taskboot git-push --force-push github.com/dekobon/big-code-analysis moz-tools-bot gh-pages
                 rm -rf book.tar.gz
           metadata:
             name: "big-code-analysis book deployment"
@@ -650,7 +650,7 @@ tasks:
                 - "/bin/sh"
                 - "-cxe"
                 - |-
-                  taskboot github-release mozilla/big-code-analysis ${head_branch[10:]} --asset Cargo.lock:public/Cargo.lock ${linux_cli}:public/${linux_cli} ${linux_web}:public/${linux_web} ${win_cli}:public/${win_cli} ${win_web}:public/${win_web}
+                  taskboot github-release dekobon/big-code-analysis ${head_branch[10:]} --asset Cargo.lock:public/Cargo.lock ${linux_cli}:public/${linux_cli} ${linux_web}:public/${linux_web} ${win_cli}:public/${win_cli} ${win_web}:public/${win_web}
             metadata:
               name: "big-code-analysis release publication ${head_branch[10:]}"
               description: big-code-analysis release publication on Github

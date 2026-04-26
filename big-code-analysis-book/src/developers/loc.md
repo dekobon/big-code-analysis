@@ -54,4 +54,4 @@ METRIC VALUE: 2
 To implement the LoC related metrics described above you need to implement the `Loc` trait for the language you want to support.
 
 This requires implementing the `compute` function.
-See [/src/metrics/loc.rs](https://github.com/mozilla/big-code-analysis/blob/master/src/metrics/loc.rs) for where to implement, as well as examples from other languages.
+See [/src/metrics/loc.rs](https://github.com/dekobon/big-code-analysis/blob/master/src/metrics/loc.rs) for where to implement, as well as examples from other languages.

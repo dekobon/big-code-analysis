@@ -13,7 +13,7 @@ RUN_CI="no"
 MASTER_CARGO_TOML="master-cargo.toml"
 
 # Download master branch Cargo.toml and save it in a temporary file
-wget -LqO - https://raw.githubusercontent.com/mozilla/big-code-analysis/master/Cargo.toml | tr -d ' ' > $MASTER_CARGO_TOML
+wget -LqO - https://raw.githubusercontent.com/dekobon/big-code-analysis/master/Cargo.toml | tr -d ' ' > $MASTER_CARGO_TOML
 
 # Get the name of the current crate
 TS_CRATE_NAME=`echo $TS_CRATE | cut -f1 -d "="`

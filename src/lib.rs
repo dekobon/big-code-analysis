@@ -2,9 +2,9 @@
 //! from source codes written in many different programming languages.
 //!
 //! You can find the source code of this software on
-//! <a href="https://github.com/mozilla/big-code-analysis/" target="_blank">GitHub</a>,
+//! <a href="https://github.com/dekobon/big-code-analysis/" target="_blank">GitHub</a>,
 //! while issues and feature requests can be posted on the respective
-//! <a href="https://github.com/mozilla/big-code-analysis/issues/" target="_blank">GitHub Issue Tracker</a>.
+//! <a href="https://github.com/dekobon/big-code-analysis/issues/" target="_blank">GitHub Issue Tracker</a>.
 //!
 //! ## Supported Languages
 //!
