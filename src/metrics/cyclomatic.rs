@@ -578,25 +578,18 @@ mod tests {
     fn go_simple_function() {
         check_metrics::<GoParser>(
             "package main
-            func f(a, b bool) int { // +2 (+1 unit space)
-                if a && b { // +2 (+1 &&)
-                    return 1
-                }
-                if c || d { // +2 (+1 ||)
-                    return 2
-                }
-                return 0
-            }",
+            func f() {}",
             "foo.go",
             |metric| {
+                // nspace = 2 (file unit + func), each base 1.
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r###"
                     {
-                      "sum": 6.0,
-                      "average": 3.0,
+                      "sum": 2.0,
+                      "average": 1.0,
                       "min": 1.0,
-                      "max": 5.0
+                      "max": 1.0
                     }"###
                 );
             },
@@ -604,23 +597,48 @@ mod tests {
     }
 
     #[test]
-    fn go_switch_and_select() {
+    fn go_if_else() {
         check_metrics::<GoParser>(
             "package main
-            func f(x int, c chan int) { // +1 (function space base)
-                switch x {
-                case 1: // +1
-                case 2: // +1
-                default: // not counted
-                }
-                select {
-                case <-c: // +1
-                default: // not counted
+            func f(x bool) { // +2 (+1 unit)
+                if x { // +1
+                } else {
                 }
             }",
             "foo.go",
             |metric| {
-                // nspace = 2 (func and unit)
+                // `else` clause attaches to the same if_statement node and is
+                // not counted again.
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 1.5,
+                      "min": 1.0,
+                      "max": 2.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_else_if_chain() {
+        check_metrics::<GoParser>(
+            "package main
+            func f(x int) { // +2 (+1 unit)
+                if x > 0 { // +1
+                } else if x < 0 { // +1 (nested if_statement)
+                } else if x == 0 { // +1 (nested if_statement)
+                } else {
+                }
+            }",
+            "foo.go",
+            |metric| {
+                // tree-sitter-go represents `else if` as a nested
+                // if_statement under the parent's `else` clause; each nested
+                // if contributes +1.
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r###"
@@ -636,17 +654,11 @@ mod tests {
     }
 
     #[test]
-    fn go_type_switch_and_for() {
+    fn go_for_loop() {
         check_metrics::<GoParser>(
             "package main
-            func f(x interface{}, n int) { // +2 (+1 unit space)
-                switch x.(type) {
-                case int: // +1
-                case string: // +1
-                }
-                for i := 0; i < n; i++ { // +1
-                }
-                for range []int{} { // +1
+            func f() { // +2 (+1 unit)
+                for i := 0; i < 10; i++ { // +1
                 }
             }",
             "foo.go",
@@ -655,10 +667,10 @@ mod tests {
                     metric.cyclomatic,
                     @r###"
                     {
-                      "sum": 6.0,
-                      "average": 3.0,
+                      "sum": 3.0,
+                      "average": 1.5,
                       "min": 1.0,
-                      "max": 5.0
+                      "max": 2.0
                     }"###
                 );
             },
@@ -666,18 +678,42 @@ mod tests {
     }
 
     #[test]
-    fn go_else_if_and_defer() {
+    fn go_for_range() {
         check_metrics::<GoParser>(
             "package main
-            func f(x int) int { // +2 (+1 unit space)
-                defer cleanup()
-                go work()
-                if x > 0 { // +1
-                    return 1
-                } else if x < 0 { // +1
-                    return -1
+            func f(xs []int) { // +2 (+1 unit)
+                for _, v := range xs { // +1
+                    _ = v
                 }
-                return 0
+            }",
+            "foo.go",
+            |metric| {
+                // range_clause is a child of for_statement; only the
+                // for_statement contributes.
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 1.5,
+                      "min": 1.0,
+                      "max": 2.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_switch() {
+        check_metrics::<GoParser>(
+            "package main
+            func f(x int) { // +2 (+1 unit)
+                switch x {
+                case 1: // +1
+                case 2: // +1
+                default: // not counted
+                }
             }",
             "foo.go",
             |metric| {
@@ -689,6 +725,108 @@ mod tests {
                       "average": 2.0,
                       "min": 1.0,
                       "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_type_switch() {
+        check_metrics::<GoParser>(
+            "package main
+            func f(x interface{}) { // +2 (+1 unit)
+                switch x.(type) {
+                case int: // +1
+                case string: // +1
+                }
+            }",
+            "foo.go",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 2.0,
+                      "min": 1.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_select() {
+        check_metrics::<GoParser>(
+            "package main
+            func f(c1, c2 chan int) { // +2 (+1 unit)
+                select {
+                case <-c1: // +1
+                case <-c2: // +1
+                default: // not counted
+                }
+            }",
+            "foo.go",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 2.0,
+                      "min": 1.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_logical_operators() {
+        check_metrics::<GoParser>(
+            "package main
+            func f(a, b, c bool) { // +2 (+1 unit)
+                if a && b || c { // +1 if, +1 &&, +1 ||
+                }
+            }",
+            "foo.go",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 5.0,
+                      "average": 2.5,
+                      "min": 1.0,
+                      "max": 4.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_defer_and_go_do_not_count() {
+        check_metrics::<GoParser>(
+            "package main
+            func f() { // +2 (+1 unit)
+                defer cleanup()
+                go work()
+            }",
+            "foo.go",
+            |metric| {
+                // defer_statement and go_statement are not branches.
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 1.0,
+                      "min": 1.0,
+                      "max": 1.0
                     }"###
                 );
             },
