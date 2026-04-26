@@ -402,27 +402,36 @@ mod tests {
     }
 
     #[test]
-    fn go_no_exit() {
-        check_metrics::<GoParser>("package main\nvar a = 42", "foo.go", |metric| {
-            insta::assert_json_snapshot!(
-                metric.nexits,
-                @r###"
+    fn go_no_return() {
+        check_metrics::<GoParser>(
+            "package main
+            func f() {
+                x := 1
+                _ = x
+            }",
+            "foo.go",
+            |metric| {
+                // No return_statement → exit_sum = 0.
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
                     {
                       "sum": 0.0,
-                      "average": null,
+                      "average": 0.0,
                       "min": 0.0,
                       "max": 0.0
                     }"###
-            );
-        });
+                );
+            },
+        );
     }
 
     #[test]
-    fn go_simple_function() {
+    fn go_single_return() {
         check_metrics::<GoParser>(
             "package main
-            func sum(x, y int) int {
-                return x + y
+            func f() int {
+                return 1
             }",
             "foo.go",
             |metric| {
@@ -441,26 +450,29 @@ mod tests {
     }
 
     #[test]
-    fn go_multi_value_return() {
+    fn go_multiple_returns() {
         check_metrics::<GoParser>(
             "package main
-            func f(a int) (int, error) {
-                if a < 0 {
-                    return 0, fmt.Errorf(\"bad\")
+            func f(x int) int {
+                if x > 0 {
+                    return 1
                 }
-                return a, nil
+                if x < 0 {
+                    return -1
+                }
+                return 0
             }",
             "foo.go",
             |metric| {
-                // multi-value return is still one ReturnStatement
+                // 3 distinct return_statements across branches.
                 insta::assert_json_snapshot!(
                     metric.nexits,
                     @r###"
                     {
-                      "sum": 2.0,
-                      "average": 2.0,
+                      "sum": 3.0,
+                      "average": 3.0,
                       "min": 0.0,
-                      "max": 2.0
+                      "max": 3.0
                     }"###
                 );
             },
@@ -468,26 +480,48 @@ mod tests {
     }
 
     #[test]
-    fn go_method_with_receiver() {
+    fn go_naked_return() {
         check_metrics::<GoParser>(
             "package main
-            type T struct{}
-            func (t *T) Greet(name string) string {
-                if name == \"\" {
-                    return \"hello\"
-                }
-                return \"hello, \" + name
+            func f() (x int) {
+                x = 1
+                return
             }",
             "foo.go",
             |metric| {
+                // Bare `return` with named results is still a return_statement.
                 insta::assert_json_snapshot!(
                     metric.nexits,
                     @r###"
                     {
-                      "sum": 2.0,
-                      "average": 2.0,
+                      "sum": 1.0,
+                      "average": 1.0,
                       "min": 0.0,
-                      "max": 2.0
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_multivalue_return() {
+        check_metrics::<GoParser>(
+            "package main
+            func f() (int, error) {
+                return 0, nil
+            }",
+            "foo.go",
+            |metric| {
+                // `return a, b` is one return_statement (Go has no comma operator).
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
                     }"###
                 );
             },

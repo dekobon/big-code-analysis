@@ -710,27 +710,116 @@ mod tests {
     }
 
     #[test]
-    fn go_nom() {
+    fn go_top_level_funcs() {
         check_metrics::<GoParser>(
             "package main
-            func f() {}
-            func g() {}
-            type T struct{}
-            func (t *T) M() {}
-            var c = func() {}",
+            func a() {}
+            func b() {}
+            func c() {}",
             "foo.go",
             |metric| {
-                // 3 functions (f, g, M) + 1 closure (func literal)
+                // Number of spaces = 4 (file unit + 3 funcs).
                 insta::assert_json_snapshot!(
                     metric.nom,
                     @r###"
                     {
                       "functions": 3.0,
+                      "closures": 0.0,
+                      "functions_average": 0.75,
+                      "closures_average": 0.0,
+                      "total": 3.0,
+                      "average": 0.75,
+                      "functions_min": 0.0,
+                      "functions_max": 1.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_method_declaration() {
+        check_metrics::<GoParser>(
+            "package main
+            type T struct{}
+            func (r *T) M() {}",
+            "foo.go",
+            |metric| {
+                // method_declaration is counted as a function.
+                insta::assert_json_snapshot!(
+                    metric.nom,
+                    @r###"
+                    {
+                      "functions": 1.0,
+                      "closures": 0.0,
+                      "functions_average": 0.5,
+                      "closures_average": 0.0,
+                      "total": 1.0,
+                      "average": 0.5,
+                      "functions_min": 0.0,
+                      "functions_max": 1.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_func_literal_is_closure() {
+        check_metrics::<GoParser>(
+            "package main
+            var f = func() {}",
+            "foo.go",
+            |metric| {
+                // func_literal increments closure count, not function count.
+                insta::assert_json_snapshot!(
+                    metric.nom,
+                    @r###"
+                    {
+                      "functions": 0.0,
                       "closures": 1.0,
-                      "functions_average": 0.6,
-                      "closures_average": 0.2,
-                      "total": 4.0,
-                      "average": 0.8,
+                      "functions_average": 0.0,
+                      "closures_average": 0.5,
+                      "total": 1.0,
+                      "average": 0.5,
+                      "functions_min": 0.0,
+                      "functions_max": 0.0,
+                      "closures_min": 0.0,
+                      "closures_max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_nested_closures() {
+        check_metrics::<GoParser>(
+            "package main
+            func f() {
+                inner := func() {
+                    deeper := func() {}
+                    _ = deeper
+                }
+                _ = inner
+            }",
+            "foo.go",
+            |metric| {
+                // 1 function (f) + 2 closures (inner, deeper).
+                insta::assert_json_snapshot!(
+                    metric.nom,
+                    @r###"
+                    {
+                      "functions": 1.0,
+                      "closures": 2.0,
+                      "functions_average": 0.25,
+                      "closures_average": 0.5,
+                      "total": 3.0,
+                      "average": 0.75,
                       "functions_min": 0.0,
                       "functions_max": 1.0,
                       "closures_min": 0.0,
