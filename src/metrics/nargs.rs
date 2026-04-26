@@ -230,28 +230,25 @@ impl NArgs for CppCode {
 }
 
 // Go's `parameter_declaration` allows multiple names to share one type
-// (`func f(a, b int)` is one ParameterDeclaration with two `name` children
+// (`func f(a, b int)` is one parameter_declaration with two `name` children
 // but two formal parameters). Count names rather than declarations so the
 // reported nargs matches Go's parameter count.
 fn compute_go_args(node: &Node, nargs: &mut usize) {
     let Some(params) = node.child_by_field_name("parameters") else {
         return;
     };
-    for child in params.children() {
-        match child.kind_id().into() {
-            Go::ParameterDeclaration => {
-                let names = child
-                    .children()
-                    .filter(|c| c.kind_id() == Go::Identifier)
-                    .count();
-                *nargs += names.max(1);
-            }
-            Go::VariadicParameterDeclaration => {
-                *nargs += 1;
-            }
-            _ => {}
-        }
-    }
+    *nargs += params
+        .children()
+        .map(|child| match child.kind_id().into() {
+            Go::ParameterDeclaration => child
+                .children()
+                .filter(|c| c.kind_id() == Go::Identifier)
+                .count()
+                .max(1),
+            Go::VariadicParameterDeclaration => 1,
+            _ => 0,
+        })
+        .sum::<usize>();
 }
 
 impl NArgs for GoCode {
