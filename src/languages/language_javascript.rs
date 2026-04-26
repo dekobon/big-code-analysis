@@ -270,7 +270,6 @@ pub enum Javascript {
     ShorthandPropertyIdentifierPattern = 263,
     StatementIdentifier = 264,
     Error = 265,
-    
 }
 
 impl From<Javascript> for &'static str {
@@ -540,10 +539,11 @@ impl From<Javascript> for &'static str {
             Javascript::FormalParametersRepeat1 => "formal_parameters_repeat1",
             Javascript::PropertyIdentifier => "property_identifier",
             Javascript::ShorthandPropertyIdentifier => "shorthand_property_identifier",
-            Javascript::ShorthandPropertyIdentifierPattern => "shorthand_property_identifier_pattern",
+            Javascript::ShorthandPropertyIdentifierPattern => {
+                "shorthand_property_identifier_pattern"
+            }
             Javascript::StatementIdentifier => "statement_identifier",
             Javascript::Error => "ERROR",
-            
         }
     }
 }

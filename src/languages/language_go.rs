@@ -224,7 +224,6 @@ pub enum Go {
     TypeConstraint = 217,
     TypeIdentifier = 218,
     Error = 219,
-    
 }
 
 impl From<Go> for &'static str {
@@ -451,7 +450,6 @@ impl From<Go> for &'static str {
             Go::TypeConstraint => "type_constraint",
             Go::TypeIdentifier => "type_identifier",
             Go::Error => "ERROR",
-            
         }
     }
 }

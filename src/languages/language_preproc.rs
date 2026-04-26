@@ -41,7 +41,6 @@ pub enum Preproc {
     DefineRepeat1 = 34,
     PreprocIfRepeat1 = 35,
     Error = 36,
-    
 }
 
 impl From<Preproc> for &'static str {
@@ -85,7 +84,6 @@ impl From<Preproc> for &'static str {
             Preproc::DefineRepeat1 => "define_repeat1",
             Preproc::PreprocIfRepeat1 => "preproc_if_repeat1",
             Preproc::Error => "ERROR",
-            
         }
     }
 }

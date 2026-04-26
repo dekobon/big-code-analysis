@@ -284,6 +284,58 @@ mod tests {
     }
 
     #[test]
+    fn javascript_simple_function() {
+        check_metrics::<JavascriptParser>(
+            "function f(a, b) {
+                 if (a) {
+                     return a;
+                 }
+                 return b;
+             }",
+            "foo.js",
+            |metric| {
+                // 1 function with 2 return statements
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 2.0,
+                      "min": 0.0,
+                      "max": 2.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_nested_functions() {
+        check_metrics::<JavascriptParser>(
+            "function outer() {
+                 function inner() {
+                     return 1;
+                 }
+                 return inner();
+             }",
+            "foo.js",
+            |metric| {
+                // 2 functions, each with 1 return
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
     fn python_simple_function() {
         check_metrics::<PythonParser>(
             "def f(a, b):
