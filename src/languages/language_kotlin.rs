@@ -294,6 +294,7 @@ pub enum Kotlin {
     TypeParameterModifiersRepeat1 = 287,
     QualifiedIdentifierRepeat1 = 288,
     Error = 289,
+    
 }
 
 impl From<Kotlin> for &'static str {
@@ -590,6 +591,7 @@ impl From<Kotlin> for &'static str {
             Kotlin::TypeParameterModifiersRepeat1 => "type_parameter_modifiers_repeat1",
             Kotlin::QualifiedIdentifierRepeat1 => "qualified_identifier_repeat1",
             Kotlin::Error => "ERROR",
+            
         }
     }
 }
