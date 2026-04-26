@@ -6,6 +6,9 @@ pub use language_ccomment::*;
 pub mod language_cpp;
 pub use language_cpp::*;
 
+pub mod language_go;
+pub use language_go::*;
+
 pub mod language_java;
 pub use language_java::*;
 
