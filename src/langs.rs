@@ -48,6 +48,16 @@ mk_langs!(
         ["java"]
     ),
     (
+        Go,
+        "The `Go` language",
+        "go",
+        GoCode,
+        GoParser,
+        tree_sitter_go,
+        [go],
+        ["go"]
+    ),
+    (
         Kotlin,
         "The `Kotlin` language",
         "kotlin",
