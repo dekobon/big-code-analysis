@@ -221,6 +221,27 @@ impl Cyclomatic for JavaCode {
     }
 }
 
+impl Cyclomatic for GoCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        // Aliased because `Go::Go` (the `go` keyword variant) collides with
+        // the bare enum name in pattern position under `use Go::*;`.
+        use Go as G;
+
+        match node.kind_id().into() {
+            G::IfStatement
+            | G::ForStatement
+            | G::ExpressionCase
+            | G::TypeCase
+            | G::CommunicationCase
+            | G::AMPAMP
+            | G::PIPEPIPE => {
+                stats.cyclomatic += 1.;
+            }
+            _ => {}
+        }
+    }
+}
+
 implement_metric_trait!(Cyclomatic, KotlinCode, PreprocCode, CcommentCode);
 
 #[cfg(test)]
@@ -547,6 +568,265 @@ mod tests {
                       "average": 2.2,
                       "min": 1.0,
                       "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_simple_function() {
+        check_metrics::<GoParser>(
+            "package main
+            func f() {}",
+            "foo.go",
+            |metric| {
+                // nspace = 2 (file unit + func), each base 1.
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 1.0,
+                      "min": 1.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_if_else() {
+        check_metrics::<GoParser>(
+            "package main
+            func f(x bool) { // +2 (+1 unit)
+                if x { // +1
+                } else {
+                }
+            }",
+            "foo.go",
+            |metric| {
+                // `else` clause attaches to the same if_statement node and is
+                // not counted again.
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 1.5,
+                      "min": 1.0,
+                      "max": 2.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_else_if_chain() {
+        check_metrics::<GoParser>(
+            "package main
+            func f(x int) { // +2 (+1 unit)
+                if x > 0 { // +1
+                } else if x < 0 { // +1 (nested if_statement)
+                } else if x == 0 { // +1 (nested if_statement)
+                } else {
+                }
+            }",
+            "foo.go",
+            |metric| {
+                // tree-sitter-go represents `else if` as a nested
+                // if_statement under the parent's `else` clause; each nested
+                // if contributes +1.
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 5.0,
+                      "average": 2.5,
+                      "min": 1.0,
+                      "max": 4.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_for_loop() {
+        check_metrics::<GoParser>(
+            "package main
+            func f() { // +2 (+1 unit)
+                for i := 0; i < 10; i++ { // +1
+                }
+            }",
+            "foo.go",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 1.5,
+                      "min": 1.0,
+                      "max": 2.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_for_range() {
+        check_metrics::<GoParser>(
+            "package main
+            func f(xs []int) { // +2 (+1 unit)
+                for _, v := range xs { // +1
+                    _ = v
+                }
+            }",
+            "foo.go",
+            |metric| {
+                // range_clause is a child of for_statement; only the
+                // for_statement contributes.
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 1.5,
+                      "min": 1.0,
+                      "max": 2.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_switch() {
+        check_metrics::<GoParser>(
+            "package main
+            func f(x int) { // +2 (+1 unit)
+                switch x {
+                case 1: // +1
+                case 2: // +1
+                default: // not counted
+                }
+            }",
+            "foo.go",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 2.0,
+                      "min": 1.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_type_switch() {
+        check_metrics::<GoParser>(
+            "package main
+            func f(x interface{}) { // +2 (+1 unit)
+                switch x.(type) {
+                case int: // +1
+                case string: // +1
+                }
+            }",
+            "foo.go",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 2.0,
+                      "min": 1.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_select() {
+        check_metrics::<GoParser>(
+            "package main
+            func f(c1, c2 chan int) { // +2 (+1 unit)
+                select {
+                case <-c1: // +1
+                case <-c2: // +1
+                default: // not counted
+                }
+            }",
+            "foo.go",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 2.0,
+                      "min": 1.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_logical_operators() {
+        check_metrics::<GoParser>(
+            "package main
+            func f(a, b, c bool) { // +2 (+1 unit)
+                if a && b || c { // +1 if, +1 &&, +1 ||
+                }
+            }",
+            "foo.go",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 5.0,
+                      "average": 2.5,
+                      "min": 1.0,
+                      "max": 4.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_defer_and_go_do_not_count() {
+        check_metrics::<GoParser>(
+            "package main
+            func f() { // +2 (+1 unit)
+                defer cleanup()
+                go work()
+            }",
+            "foo.go",
+            |metric| {
+                // defer_statement and go_statement are not branches.
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 1.0,
+                      "min": 1.0,
+                      "max": 1.0
                     }"###
                 );
             },

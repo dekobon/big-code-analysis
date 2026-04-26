@@ -136,7 +136,10 @@ pub fn get_token_names(language: &Language, escape: bool) -> Vec<(String, bool, 
             let kind = language.node_kind_for_id(i as u16).unwrap();
             let name = sanitize_identifier(kind);
             let ts_name = sanitize_string(kind, escape);
-            let name = camel_case(name);
+            let mut name = camel_case(name);
+            if name.is_empty() {
+                name = format!("Anon{i}");
+            }
             let e = match name_count.entry(name.clone()) {
                 Entry::Occupied(mut e) => {
                     *e.get_mut() += 1;

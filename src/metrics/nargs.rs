@@ -229,6 +229,41 @@ impl NArgs for CppCode {
     }
 }
 
+// Go's `parameter_declaration` allows multiple names to share one type
+// (`func f(a, b int)` is one parameter_declaration with two `name` children
+// but two formal parameters). Count names rather than declarations so the
+// reported nargs matches Go's parameter count.
+fn compute_go_args(node: &Node, nargs: &mut usize) {
+    let Some(params) = node.child_by_field_name("parameters") else {
+        return;
+    };
+    *nargs += params
+        .children()
+        .map(|child| match child.kind_id().into() {
+            Go::ParameterDeclaration => child
+                .children()
+                .filter(|c| c.kind_id() == Go::Identifier)
+                .count()
+                .max(1),
+            Go::VariadicParameterDeclaration => 1,
+            _ => 0,
+        })
+        .sum::<usize>();
+}
+
+impl NArgs for GoCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        if Self::is_func(node) {
+            compute_go_args(node, &mut stats.fn_nargs);
+            return;
+        }
+
+        if Self::is_closure(node) {
+            compute_go_args(node, &mut stats.closure_nargs);
+        }
+    }
+}
+
 implement_metric_trait!(
     [NArgs],
     PythonCode,
@@ -908,6 +943,175 @@ mod tests {
                       "functions_max": 3.0,
                       "closures_min": 0.0,
                       "closures_max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_zero_args() {
+        check_metrics::<GoParser>(
+            "package main
+            func f() {}",
+            "foo.go",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r###"
+                    {
+                      "total_functions": 0.0,
+                      "total_closures": 0.0,
+                      "average_functions": 0.0,
+                      "average_closures": 0.0,
+                      "total": 0.0,
+                      "average": 0.0,
+                      "functions_min": 0.0,
+                      "functions_max": 0.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_multiple_args() {
+        check_metrics::<GoParser>(
+            "package main
+            func f(a int, b string, c bool) {}",
+            "foo.go",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r###"
+                    {
+                      "total_functions": 3.0,
+                      "total_closures": 0.0,
+                      "average_functions": 3.0,
+                      "average_closures": 0.0,
+                      "total": 3.0,
+                      "average": 3.0,
+                      "functions_min": 0.0,
+                      "functions_max": 3.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_method_excludes_receiver() {
+        check_metrics::<GoParser>(
+            "package main
+            type T struct{}
+            func (t *T) Greet(name string) string {
+                return name
+            }",
+            "foo.go",
+            |metric| {
+                // Receiver is in a separate `receiver` field and is not counted.
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r###"
+                    {
+                      "total_functions": 1.0,
+                      "total_closures": 0.0,
+                      "average_functions": 1.0,
+                      "average_closures": 0.0,
+                      "total": 1.0,
+                      "average": 1.0,
+                      "functions_min": 0.0,
+                      "functions_max": 1.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_variadic() {
+        check_metrics::<GoParser>(
+            "package main
+            func f(args ...int) {}",
+            "foo.go",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r###"
+                    {
+                      "total_functions": 1.0,
+                      "total_closures": 0.0,
+                      "average_functions": 1.0,
+                      "average_closures": 0.0,
+                      "total": 1.0,
+                      "average": 1.0,
+                      "functions_min": 0.0,
+                      "functions_max": 1.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_grouped_params() {
+        check_metrics::<GoParser>(
+            "package main
+            func f(a, b int, c string) {}",
+            "foo.go",
+            |metric| {
+                // `a, b int` is one parameter_declaration with two `name`
+                // children — semantically two parameters.
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r###"
+                    {
+                      "total_functions": 3.0,
+                      "total_closures": 0.0,
+                      "average_functions": 3.0,
+                      "average_closures": 0.0,
+                      "total": 3.0,
+                      "average": 3.0,
+                      "functions_min": 0.0,
+                      "functions_max": 3.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_func_literal_args() {
+        check_metrics::<GoParser>(
+            "package main
+            var f = func(x, y int) int { return x + y }",
+            "foo.go",
+            |metric| {
+                // Closure with grouped params: `x, y int` -> 2 closure args.
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r###"
+                    {
+                      "total_functions": 0.0,
+                      "total_closures": 2.0,
+                      "average_functions": 0.0,
+                      "average_closures": 2.0,
+                      "total": 2.0,
+                      "average": 2.0,
+                      "functions_min": 0.0,
+                      "functions_max": 0.0,
+                      "closures_min": 0.0,
+                      "closures_max": 2.0
                     }"###
                 );
             },

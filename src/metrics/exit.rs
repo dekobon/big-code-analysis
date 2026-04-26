@@ -182,6 +182,14 @@ impl Exit for JavaCode {
     }
 }
 
+impl Exit for GoCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        if matches!(node.kind_id().into(), Go::ReturnStatement) {
+            stats.exit += 1;
+        }
+    }
+}
+
 implement_metric_trait!(Exit, KotlinCode, PreprocCode, CcommentCode);
 
 #[cfg(test)]
@@ -379,6 +387,133 @@ mod tests {
             "foo.java",
             |metric| {
                 // 1 exit / 1 space
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_no_return() {
+        check_metrics::<GoParser>(
+            "package main
+            func f() {
+                x := 1
+                _ = x
+            }",
+            "foo.go",
+            |metric| {
+                // No return_statement → exit_sum = 0.
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 0.0,
+                      "average": 0.0,
+                      "min": 0.0,
+                      "max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_single_return() {
+        check_metrics::<GoParser>(
+            "package main
+            func f() int {
+                return 1
+            }",
+            "foo.go",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_multiple_returns() {
+        check_metrics::<GoParser>(
+            "package main
+            func f(x int) int {
+                if x > 0 {
+                    return 1
+                }
+                if x < 0 {
+                    return -1
+                }
+                return 0
+            }",
+            "foo.go",
+            |metric| {
+                // 3 distinct return_statements across branches.
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 3.0,
+                      "min": 0.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_naked_return() {
+        check_metrics::<GoParser>(
+            "package main
+            func f() (x int) {
+                x = 1
+                return
+            }",
+            "foo.go",
+            |metric| {
+                // Bare `return` with named results is still a return_statement.
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_multivalue_return() {
+        check_metrics::<GoParser>(
+            "package main
+            func f() (int, error) {
+                return 0, nil
+            }",
+            "foo.go",
+            |metric| {
+                // `return a, b` is one return_statement (Go has no comma operator).
                 insta::assert_json_snapshot!(
                     metric.nexits,
                     @r###"

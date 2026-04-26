@@ -662,6 +662,61 @@ impl Checker for RustCode {
     }
 }
 
+impl Checker for GoCode {
+    fn is_comment(node: &Node) -> bool {
+        node.kind_id() == Go::Comment
+    }
+
+    fn is_useful_comment(_: &Node, _: &[u8]) -> bool {
+        false
+    }
+
+    fn is_func_space(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Go::SourceFile | Go::FunctionDeclaration | Go::MethodDeclaration | Go::FuncLiteral
+        )
+    }
+
+    fn is_func(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Go::FunctionDeclaration | Go::MethodDeclaration
+        )
+    }
+
+    fn is_closure(node: &Node) -> bool {
+        node.kind_id() == Go::FuncLiteral
+    }
+
+    fn is_call(node: &Node) -> bool {
+        node.kind_id() == Go::CallExpression
+    }
+
+    fn is_non_arg(node: &Node) -> bool {
+        matches!(node.kind_id().into(), Go::LPAREN | Go::COMMA | Go::RPAREN)
+    }
+
+    fn is_string(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Go::InterpretedStringLiteral | Go::RawStringLiteral
+        )
+    }
+
+    #[inline(always)]
+    fn is_else_if(node: &Node) -> bool {
+        node.kind_id() == Go::IfStatement
+            && node
+                .parent()
+                .is_some_and(|p| p.kind_id() == Go::IfStatement)
+    }
+
+    fn is_primitive(_id: u16) -> bool {
+        false
+    }
+}
+
 impl Checker for KotlinCode {
     fn is_comment(_: &Node) -> bool {
         false

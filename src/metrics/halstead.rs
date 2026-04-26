@@ -328,6 +328,12 @@ impl Halstead for JavaCode {
     }
 }
 
+impl Halstead for GoCode {
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], halstead_maps: &mut HalsteadMaps<'a>) {
+        compute_halstead::<Self>(node, code, halstead_maps);
+    }
+}
+
 implement_metric_trait!(Halstead, KotlinCode, PreprocCode, CcommentCode);
 
 #[cfg(test)]
@@ -693,6 +699,39 @@ mod tests {
                       "effort": 1921.2717890295687,
                       "time": 106.73732161275382,
                       "bugs": 0.05151550353617788
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_operators_and_operands() {
+        check_metrics::<GoParser>(
+            "package main
+            func sum(a, b int) int {
+                return a + b
+            }",
+            "foo.go",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.halstead,
+                    @r###"
+                    {
+                      "n1": 7.0,
+                      "N1": 7.0,
+                      "n2": 5.0,
+                      "N2": 8.0,
+                      "length": 15.0,
+                      "estimated_program_length": 31.26112492884004,
+                      "purity_ratio": 2.0840749952560027,
+                      "vocabulary": 12.0,
+                      "volume": 53.77443751081734,
+                      "difficulty": 5.6,
+                      "level": 0.17857142857142858,
+                      "effort": 301.1368500605771,
+                      "time": 16.729825003365395,
+                      "bugs": 0.014975730436275946
                     }"###
                 );
             },
