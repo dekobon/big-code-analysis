@@ -714,12 +714,26 @@ mod tests {
             }",
             "foo.go",
             |metric| {
-                // Sanity check: operators and operands are non-zero now that
-                // the GoCode Halstead impl is wired through Getter::get_op_type.
-                assert!(metric.halstead.u_operators() > 0.0);
-                assert!(metric.halstead.u_operands() > 0.0);
-                assert!(metric.halstead.operators() >= metric.halstead.u_operators());
-                assert!(metric.halstead.operands() >= metric.halstead.u_operands());
+                insta::assert_json_snapshot!(
+                    metric.halstead,
+                    @r###"
+                    {
+                      "n1": 7.0,
+                      "N1": 7.0,
+                      "n2": 5.0,
+                      "N2": 8.0,
+                      "length": 15.0,
+                      "estimated_program_length": 31.26112492884004,
+                      "purity_ratio": 2.0840749952560027,
+                      "vocabulary": 12.0,
+                      "volume": 53.77443751081734,
+                      "difficulty": 5.6,
+                      "level": 0.17857142857142858,
+                      "effort": 301.1368500605771,
+                      "time": 16.729825003365395,
+                      "bugs": 0.014975730436275946
+                    }"###
+                );
             },
         );
     }

@@ -3553,16 +3553,36 @@ mod tests {
             }",
             "foo.go",
             |metric| {
-                // sloc: 8 lines (1 package + 1 blank + 1 line comment + 5 body lines)
-                // ploc: physical code lines = package, func main, for, fmt.Println, } x 2 -> 6
-                // lloc: for_statement (+1), expression statement fmt.Println (+1)
-                //       short var decl `i := 0` is in for_clause -> not counted
-                //       i++ in for-clause -> not counted (IncStatement isn't gated; OK)
-                // cloc: 2 comments (line + block)
-                assert_eq!(metric.loc.cloc(), 2.0);
-                assert!(metric.loc.lloc() >= 2.0);
-                assert!(metric.loc.ploc() >= 4.0);
-                assert!(metric.loc.sloc() >= 8.0);
+                // Spaces: 2 (unit + main).
+                // lloc: for_statement (+1), fmt.Println expression (+1).
+                //       `i := 0` and `i++` inside the for-clause are gated.
+                // cloc: 2 comments (line + block).
+                insta::assert_json_snapshot!(
+                    metric.loc,
+                    @r###"
+                    {
+                      "sloc": 9.0,
+                      "ploc": 6.0,
+                      "lloc": 2.0,
+                      "cloc": 2.0,
+                      "blank": 1.0,
+                      "sloc_average": 4.5,
+                      "ploc_average": 3.0,
+                      "lloc_average": 1.0,
+                      "cloc_average": 1.0,
+                      "blank_average": 0.5,
+                      "sloc_min": 6.0,
+                      "sloc_max": 6.0,
+                      "cloc_min": 1.0,
+                      "cloc_max": 1.0,
+                      "ploc_min": 5.0,
+                      "ploc_max": 5.0,
+                      "lloc_min": 2.0,
+                      "lloc_max": 2.0,
+                      "blank_min": 0.0,
+                      "blank_max": 0.0
+                    }"###
+                );
             },
         );
     }
