@@ -388,7 +388,6 @@ pub enum Typescript {
     ThisType = 381,
     TypeIdentifier = 382,
     Error = 383,
-    
 }
 
 impl From<Typescript> for &'static str {
@@ -559,7 +558,9 @@ impl From<Typescript> for &'static str {
             Typescript::QMARK2 => "?",
             Typescript::HtmlComment => "html_comment",
             Typescript::JsxText => "jsx_text",
-            Typescript::FunctionSignatureAutomaticSemicolon => "_function_signature_automatic_semicolon",
+            Typescript::FunctionSignatureAutomaticSemicolon => {
+                "_function_signature_automatic_semicolon"
+            }
             Typescript::ErrorRecovery => "__error_recovery",
             Typescript::Program => "program",
             Typescript::ExportStatement => "export_statement",
@@ -774,12 +775,13 @@ impl From<Typescript> for &'static str {
             Typescript::InterfaceBody => "interface_body",
             Typescript::PropertyIdentifier => "property_identifier",
             Typescript::ShorthandPropertyIdentifier => "shorthand_property_identifier",
-            Typescript::ShorthandPropertyIdentifierPattern => "shorthand_property_identifier_pattern",
+            Typescript::ShorthandPropertyIdentifierPattern => {
+                "shorthand_property_identifier_pattern"
+            }
             Typescript::StatementIdentifier => "statement_identifier",
             Typescript::ThisType => "this_type",
             Typescript::TypeIdentifier => "type_identifier",
             Typescript::Error => "ERROR",
-            
         }
     }
 }

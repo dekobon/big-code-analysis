@@ -279,7 +279,6 @@ pub enum Python {
     AsPatternTarget = 272,
     FormatExpression = 273,
     Error = 274,
-    
 }
 
 impl From<Python> for &'static str {
@@ -561,7 +560,6 @@ impl From<Python> for &'static str {
             Python::AsPatternTarget => "as_pattern_target",
             Python::FormatExpression => "format_expression",
             Python::Error => "ERROR",
-            
         }
     }
 }
