@@ -18,7 +18,7 @@ use crate::langs::*;
 /// ```
 /// use std::path::Path;
 ///
-/// use rust_code_analysis::read_file;
+/// use big_code_analysis::read_file;
 ///
 /// let path = Path::new("Cargo.toml");
 /// read_file(&path).unwrap();
@@ -40,7 +40,7 @@ pub fn read_file(path: &Path) -> std::io::Result<Vec<u8>> {
 /// ```
 /// use std::path::Path;
 ///
-/// use rust_code_analysis::read_file_with_eol;
+/// use big_code_analysis::read_file_with_eol;
 ///
 /// let path = Path::new("Cargo.toml");
 /// read_file_with_eol(&path).unwrap();
@@ -94,7 +94,7 @@ pub fn read_file_with_eol(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
 /// ```no_run
 /// use std::path::Path;
 ///
-/// use rust_code_analysis::write_file;
+/// use big_code_analysis::write_file;
 ///
 /// let path = Path::new("foo.txt");
 /// let data: [u8; 4] = [0; 4];
@@ -115,7 +115,7 @@ pub fn write_file(path: &Path, data: &[u8]) -> std::io::Result<()> {
 /// ```
 /// use std::path::Path;
 ///
-/// use rust_code_analysis::get_language_for_file;
+/// use big_code_analysis::get_language_for_file;
 ///
 /// let path = Path::new("build.rs");
 /// get_language_for_file(&path).unwrap();
@@ -192,7 +192,7 @@ fn get_emacs_mode(buf: &[u8]) -> Option<String> {
 /// ```
 /// use std::path::PathBuf;
 ///
-/// use rust_code_analysis::guess_language;
+/// use big_code_analysis::guess_language;
 ///
 /// let source_code = "int a = 42;";
 ///

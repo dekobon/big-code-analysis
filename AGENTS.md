@@ -4,7 +4,7 @@ Universal project instructions for AI coding assistants.
 
 ## Project Overview
 
-`rust-code-analysis` is a Mozilla-maintained Rust library that extracts
+`big-code-analysis` is a Mozilla-maintained Rust library that extracts
 maintainability metrics from source code in many languages. It is built on
 [tree-sitter](https://tree-sitter.github.io/tree-sitter/) and is published on
 crates.io as a library plus two binaries.
@@ -13,9 +13,9 @@ The repository is a Cargo workspace:
 
 | Crate | Path | Purpose |
 |-------|------|---------|
-| `rust-code-analysis` | `./` (root) | Library: parsers, AST traversal, metric computation |
-| `rust-code-analysis-cli` | `rust-code-analysis-cli/` | CLI for invoking the library on files / trees |
-| `rust-code-analysis-web` | `rust-code-analysis-web/` | REST API server wrapping the library |
+| `big-code-analysis` | `./` (root) | Library: parsers, AST traversal, metric computation |
+| `big-code-analysis-cli` | `big-code-analysis-cli/` | CLI for invoking the library on files / trees |
+| `big-code-analysis-web` | `big-code-analysis-web/` | REST API server wrapping the library |
 | `enums` | `enums/` (excluded from default workspace) | Code-generation helper for language enums |
 
 Vendored / path-dependent grammar crates also live in the repo:
@@ -41,7 +41,7 @@ The default branch is **`master`**, not `main`.
   `src/getter.rs`, `src/alterator.rs`, `src/traits.rs` — core AST plumbing.
 - `tests/` — integration tests, including `insta` snapshot tests
   (`*.snap` / `*.snap.new`).
-- `rust-code-analysis-book/` — mdBook documentation source.
+- `big-code-analysis-book/` — mdBook documentation source.
 - `enums/` — separate workspace member (excluded from the root workspace)
   that generates language enum tables.
 - Helper scripts: `check-grammar-crate.py`, `check-grammars-crates.sh`,
@@ -50,7 +50,7 @@ The default branch is **`master`**, not `main`.
 
 ## Editing principles
 
-- This is a published library (`rust-code-analysis` on crates.io). Treat
+- This is a published library (`big-code-analysis` on crates.io). Treat
   `lib.rs` re-exports, public traits (`ParserTrait`, `LanguageInfo`, etc.),
   and public types (`Metrics`, `FuncSpace`, language enums) as a stable API
   surface — break them only with an intentional version bump.

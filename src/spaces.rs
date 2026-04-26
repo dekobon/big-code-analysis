@@ -269,7 +269,7 @@ struct State<'a> {
 /// ```
 /// use std::path::Path;
 ///
-/// use rust_code_analysis::{CppParser, metrics, ParserTrait};
+/// use big_code_analysis::{CppParser, metrics, ParserTrait};
 ///
 /// let source_code = "int a = 42;";
 ///

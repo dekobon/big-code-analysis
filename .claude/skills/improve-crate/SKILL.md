@@ -13,16 +13,16 @@ applies fixes in parallel worktrees, and integrates successful changes.
 
 Parse `$ARGUMENTS` as: `<crate-name> [--dry-run]`
 
-- `<crate-name>` (required): one of `rust-code-analysis`,
-  `rust-code-analysis-cli`, `rust-code-analysis-web`
+- `<crate-name>` (required): one of `big-code-analysis`,
+  `big-code-analysis-cli`, `big-code-analysis-web`
 - `--dry-run` (optional): stop after Step 2 (analysis) and print the change
   areas without spawning worktree agents
 
 ## File Scope
 
 - All `.rs` files in the crate's directory
-- For the root `rust-code-analysis` crate, scope is `src/` and `tests/`
-- For `rust-code-analysis-cli` / `rust-code-analysis-web`, scope is the
+- For the root `big-code-analysis` crate, scope is `src/` and `tests/`
+- For `big-code-analysis-cli` / `big-code-analysis-web`, scope is the
   matching subdirectory's `src/` and `tests/`
 
 ## Constraints
@@ -111,8 +111,8 @@ This project is itself a code-metrics tool. Use its CLI to measure the
 crate under improvement:
 
 ```bash
-cargo build -p rust-code-analysis-cli >/dev/null 2>&1
-./target/debug/rust-code-analysis-cli -m -O json -p "$CRATE_DIR" \
+cargo build -p big-code-analysis-cli >/dev/null 2>&1
+./target/debug/big-code-analysis-cli -m -O json -p "$CRATE_DIR" \
   > /tmp/improve-metrics.json || true
 ```
 
@@ -401,7 +401,7 @@ git commit -m "<conventional commit message>"
 ```
 
 Commit format: `<type>(<scope>): <subject>`, e.g.
-`refactor(rust-code-analysis): simplify halstead operator classification`.
+`refactor(big-code-analysis): simplify halstead operator classification`.
 
 ### 3g: Report result
 

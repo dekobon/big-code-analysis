@@ -10,9 +10,9 @@ names across the Rust source under audit. Distinct from `audit` (logic,
 security, complexity) -- this focuses exclusively on whether names tell the
 truth.
 
-If `$ARGUMENTS` is empty, default to `rust-code-analysis` — the root library
-crate. Other crates in this workspace are `rust-code-analysis-cli` and
-`rust-code-analysis-web`. `$ARGUMENTS` may also be a directory path; in that
+If `$ARGUMENTS` is empty, default to `big-code-analysis` — the root library
+crate. Other crates in this workspace are `big-code-analysis-cli` and
+`big-code-analysis-web`. `$ARGUMENTS` may also be a directory path; in that
 case the audit is scoped to that directory.
 
 **Resolve `$ARGUMENTS` once at the very start of the run** and use the
@@ -209,7 +209,7 @@ detect.
 |-------|----------|
 | A — Library core | `src/lib.rs`, `src/languages/`, `src/metrics/`, `src/output/`, `src/parser.rs`, `src/checker.rs`, `src/getter.rs`, `src/alterator.rs`, `src/spaces.rs`, `src/node.rs`, `src/traits.rs`, etc. |
 | B — Tests | `tests/` directory and `#[cfg(test)]` modules |
-| C — Workspace binaries | `rust-code-analysis-cli/src/`, `rust-code-analysis-web/src/` (when those are the audit target) |
+| C — Workspace binaries | `big-code-analysis-cli/src/`, `big-code-analysis-web/src/` (when those are the audit target) |
 
 Per-language modules under `src/languages/` deliberately mirror each other —
 naming inconsistency *between* languages (same concept named differently)
@@ -272,7 +272,7 @@ Severity definitions:
 | R7 | Struct/enum field names match their types semantically (no `count: String`) |
 | R8 | Plural names hold collections; singular names hold single values |
 
-### Project-Specific Checks (rust-code-analysis)
+### Project-Specific Checks (big-code-analysis)
 
 | ID | Check |
 |----|-------|

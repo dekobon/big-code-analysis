@@ -2,7 +2,7 @@
 
 """check-grammar-crate
 This script checks whether breaking changes could be introduced in
-rust-code-analysis code after the update of a tree-sitter-grammar crate.
+big-code-analysis code after the update of a tree-sitter-grammar crate.
 To do so, it compares the differences between the metrics, computed on a
 chosen repository, before and after a tree-sitter-grammar update.
 
@@ -69,7 +69,7 @@ def run_subprocess(cmd: str, *args: T.Union[str, pathlib.Path]) -> None:
     subprocess.run([cmd, *args])
 
 
-# Run rust-code-analysis on the chosen repository to compute metrics.
+# Run big-code-analysis on the chosen repository to compute metrics.
 def run_rca(
     repo_dir: pathlib.Path,
     output_dir: pathlib.Path,
@@ -83,7 +83,7 @@ def run_rca(
         manifest_path / "Cargo.toml" if manifest_path else "Cargo.toml",
         "--release",
         "--package",
-        "rust-code-analysis-cli",
+        "big-code-analysis-cli",
         "--",
         "--metrics",
         "--output-format=json",
@@ -115,8 +115,8 @@ def compute_ci_metrics(args: argparse.Namespace) -> None:
     # Repository passed as input
     repo_dir = pathlib.Path(args.path)
 
-    # Create rust-code-analysis repository path
-    rca_path = WORKDIR / "rust-code-analysis"
+    # Create big-code-analysis repository path
+    rca_path = WORKDIR / "big-code-analysis"
 
     # Old metrics directory
     old_dir = WORKDIR / (args.grammar + OLD_SUFFIX)
@@ -127,14 +127,14 @@ def compute_ci_metrics(args: argparse.Namespace) -> None:
     old_dir.mkdir(parents=True, exist_ok=True)
     new_dir.mkdir(parents=True, exist_ok=True)
 
-    # Git clone rust-code-analysis master branch repository
-    print(f"Cloning rust-code-analysis master branch into /tmp")
+    # Git clone big-code-analysis master branch repository
+    print(f"Cloning big-code-analysis master branch into /tmp")
     run_subprocess(
         "git",
         "clone",
         "--depth=1",
         "-j8",
-        "https://github.com/mozilla/rust-code-analysis",
+        "https://github.com/dekobon/big-code-analysis",
         rca_path,
     )
 
@@ -209,7 +209,7 @@ def main() -> None:
         description="This tool computes the metrics of a chosen repository "
         "before and after a tree-sitter grammar update.",
         epilog="The source code of this program can be found on "
-        "GitHub at https://github.com/mozilla/rust-code-analysis",
+        "GitHub at https://github.com/dekobon/big-code-analysis",
     )
 
     # Subcommands parsers
@@ -269,7 +269,7 @@ def main() -> None:
         "--path",
         type=str,
         required=True,
-        help="Path where the rust-code-analysis repository is saved on the "
+        help="Path where the big-code-analysis repository is saved on the "
         "continuous integration system",
     )
     compute_ci_metrics_cmd.add_argument(

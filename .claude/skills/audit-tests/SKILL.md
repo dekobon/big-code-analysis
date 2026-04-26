@@ -32,7 +32,7 @@ Determine what to audit based on `$ARGUMENTS`:
 3. For path scopes: include all test functions reachable through `tests/*.rs`
    integration files and `#[cfg(test)] mod tests { ... }` blocks inside
    `src/`. Remember the workspace also has tests under
-   `rust-code-analysis-cli/` and `rust-code-analysis-web/`.
+   `big-code-analysis-cli/` and `big-code-analysis-web/`.
 4. Read each test file **in full** — context around the test (helpers,
    constants, imports, fixtures) is essential.
 5. If `docs/development/lessons_learned.md` exists, read it and note any

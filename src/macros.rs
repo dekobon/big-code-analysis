@@ -79,7 +79,7 @@ macro_rules! mk_lang {
             /// # Examples
             ///
             /// ```
-            /// use rust_code_analysis::LANG;
+            /// use big_code_analysis::LANG;
             ///
             /// for lang in LANG::into_enum_iter() {
             ///     println!("{:?}", lang);
@@ -95,7 +95,7 @@ macro_rules! mk_lang {
             /// # Examples
             ///
             /// ```
-            /// use rust_code_analysis::LANG;
+            /// use big_code_analysis::LANG;
             ///
             /// println!("{}", LANG::Rust.get_name());
             /// ```
@@ -133,7 +133,7 @@ macro_rules! mk_action {
         /// ```
         /// use std::path::PathBuf;
         ///
-        /// use rust_code_analysis::{action, Callback, LANG, Metrics, MetricsCfg};
+        /// use big_code_analysis::{action, Callback, LANG, Metrics, MetricsCfg};
         ///
         /// let source_code = "int a = 42;";
         /// let language = LANG::Cpp;
@@ -170,7 +170,7 @@ macro_rules! mk_action {
         /// ```
         /// use std::path::PathBuf;
         ///
-        /// use rust_code_analysis::{get_function_spaces, LANG};
+        /// use big_code_analysis::{get_function_spaces, LANG};
         ///
         /// let source_code = "int a = 42;";
         /// let language = LANG::Cpp;
@@ -200,7 +200,7 @@ macro_rules! mk_action {
         /// ```
         /// use std::path::PathBuf;
         ///
-        /// use rust_code_analysis::{get_ops, LANG};
+        /// use big_code_analysis::{get_ops, LANG};
         ///
         /// # fn main() {
         /// let source_code = "int a = 42;";
@@ -234,7 +234,7 @@ macro_rules! mk_extensions {
         /// # Examples
         ///
         /// ```
-        /// use rust_code_analysis::get_from_ext;
+        /// use big_code_analysis::get_from_ext;
         ///
         /// let ext = "rs";
         ///
@@ -263,7 +263,7 @@ macro_rules! mk_emacs_mode {
         /// # Examples
         ///
         /// ```
-        /// use rust_code_analysis::get_from_emacs_mode;
+        /// use big_code_analysis::get_from_emacs_mode;
         ///
         /// let emacs_mode = "rust";
         ///
