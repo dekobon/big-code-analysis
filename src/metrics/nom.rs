@@ -710,6 +710,38 @@ mod tests {
     }
 
     #[test]
+    fn go_nom() {
+        check_metrics::<GoParser>(
+            "package main
+            func f() {}
+            func g() {}
+            type T struct{}
+            func (t *T) M() {}
+            var c = func() {}",
+            "foo.go",
+            |metric| {
+                // 3 functions (f, g, M) + 1 closure (func literal)
+                insta::assert_json_snapshot!(
+                    metric.nom,
+                    @r###"
+                    {
+                      "functions": 3.0,
+                      "closures": 1.0,
+                      "functions_average": 0.6,
+                      "closures_average": 0.2,
+                      "total": 4.0,
+                      "average": 0.8,
+                      "functions_min": 0.0,
+                      "functions_max": 1.0,
+                      "closures_min": 0.0,
+                      "closures_max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
     fn java_closure_nom() {
         check_metrics::<JavaParser>(
             "interface printable{

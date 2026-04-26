@@ -328,7 +328,13 @@ impl Halstead for JavaCode {
     }
 }
 
-implement_metric_trait!(Halstead, KotlinCode, PreprocCode, CcommentCode, GoCode);
+impl Halstead for GoCode {
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], halstead_maps: &mut HalsteadMaps<'a>) {
+        compute_halstead::<Self>(node, code, halstead_maps);
+    }
+}
+
+implement_metric_trait!(Halstead, KotlinCode, PreprocCode, CcommentCode);
 
 #[cfg(test)]
 mod tests {
@@ -695,6 +701,25 @@ mod tests {
                       "bugs": 0.05151550353617788
                     }"###
                 );
+            },
+        );
+    }
+
+    #[test]
+    fn go_operators_and_operands() {
+        check_metrics::<GoParser>(
+            "package main
+            func sum(a, b int) int {
+                return a + b
+            }",
+            "foo.go",
+            |metric| {
+                // Sanity check: operators and operands are non-zero now that
+                // the GoCode Halstead impl is wired through Getter::get_op_type.
+                assert!(metric.halstead.u_operators() > 0.0);
+                assert!(metric.halstead.u_operands() > 0.0);
+                assert!(metric.halstead.operators() >= metric.halstead.u_operators());
+                assert!(metric.halstead.operands() >= metric.halstead.u_operands());
             },
         );
     }

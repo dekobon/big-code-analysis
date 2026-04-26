@@ -857,7 +857,63 @@ impl Loc for JavaCode {
     }
 }
 
-implement_metric_trait!(Loc, PreprocCode, CcommentCode, KotlinCode, GoCode);
+impl Loc for GoCode {
+    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool, is_unit: bool) {
+        // Aliased because `Go::Go` (the `go` keyword variant) collides with
+        // the bare enum name in pattern position under `use Go::*;`.
+        use Go as G;
+
+        let (start, end) = init(node, stats, is_func_space, is_unit);
+
+        match node.kind_id().into() {
+            G::SourceFile | G::RawStringLiteral | G::InterpretedStringLiteral => {}
+            G::Comment => {
+                add_cloc_lines(stats, start, end);
+            }
+            G::FallthroughStatement
+            | G::BreakStatement
+            | G::ContinueStatement
+            | G::GotoStatement
+            | G::ReturnStatement
+            | G::GoStatement
+            | G::DeferStatement
+            | G::IfStatement
+            | G::ForStatement
+            | G::ExpressionSwitchStatement
+            | G::TypeSwitchStatement
+            | G::SelectStatement
+            | G::LabeledStatement => {
+                stats.lloc.logical_lines += 1;
+            }
+            G::ExpressionStatement
+            | G::SendStatement
+            | G::IncStatement
+            | G::DecStatement
+            | G::AssignmentStatement
+            | G::ShortVarDeclaration
+            | G::VarDeclaration
+            | G::ConstDeclaration => {
+                // Skip simple statements / declarations that appear inside a
+                // for-clause init or update slot (e.g. `for i := 0; i < n; i++`);
+                // the surrounding `for_statement` already counts as one
+                // logical line.
+                if node.count_specific_ancestors::<GoParser>(
+                    |n| n.kind_id() == G::ForClause,
+                    |n| n.kind_id() == G::Block,
+                ) == 0
+                {
+                    stats.lloc.logical_lines += 1;
+                }
+            }
+            _ => {
+                check_comment_ends_on_code_line(stats, start);
+                stats.ploc.lines.insert(start);
+            }
+        }
+    }
+}
+
+implement_metric_trait!(Loc, PreprocCode, CcommentCode, KotlinCode);
 
 #[cfg(test)]
 mod tests {
@@ -3479,6 +3535,56 @@ mod tests {
                       "blank_max": 0.0
                     }"###
                 );
+            },
+        );
+    }
+
+    #[test]
+    fn go_general_loc() {
+        check_metrics::<GoParser>(
+            "package main
+
+            // entrypoint
+            func main() {
+                /* loop body */
+                for i := 0; i < 10; i++ {
+                    fmt.Println(i)
+                }
+            }",
+            "foo.go",
+            |metric| {
+                // sloc: 8 lines (1 package + 1 blank + 1 line comment + 5 body lines)
+                // ploc: physical code lines = package, func main, for, fmt.Println, } x 2 -> 6
+                // lloc: for_statement (+1), expression statement fmt.Println (+1)
+                //       short var decl `i := 0` is in for_clause -> not counted
+                //       i++ in for-clause -> not counted (IncStatement isn't gated; OK)
+                // cloc: 2 comments (line + block)
+                assert_eq!(metric.loc.cloc(), 2.0);
+                assert!(metric.loc.lloc() >= 2.0);
+                assert!(metric.loc.ploc() >= 4.0);
+                assert!(metric.loc.sloc() >= 8.0);
+            },
+        );
+    }
+
+    #[test]
+    fn go_for_clause_does_not_double_count_lloc() {
+        // Bare `for` body has only a return; the `for_statement` itself is the
+        // single logical line. Confirms ShortVarDeclaration in a for-clause
+        // does not add an extra lloc.
+        check_metrics::<GoParser>(
+            "package main
+            func f(n int) int {
+                for i := 0; i < n; i++ {
+                    return i
+                }
+                return 0
+            }",
+            "foo.go",
+            |metric| {
+                // Expected lloc: for (+1), return (+1), return (+1) = 3.
+                // Without the gate, ShortVarDeclaration would add an extra (+1).
+                assert_eq!(metric.loc.lloc(), 3.0);
             },
         );
     }

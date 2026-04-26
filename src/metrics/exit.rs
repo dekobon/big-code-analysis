@@ -182,7 +182,15 @@ impl Exit for JavaCode {
     }
 }
 
-implement_metric_trait!(Exit, KotlinCode, PreprocCode, CcommentCode, GoCode);
+impl Exit for GoCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        if matches!(node.kind_id().into(), Go::ReturnStatement) {
+            stats.exit += 1;
+        }
+    }
+}
+
+implement_metric_trait!(Exit, KotlinCode, PreprocCode, CcommentCode);
 
 #[cfg(test)]
 mod tests {
@@ -387,6 +395,99 @@ mod tests {
                       "average": 1.0,
                       "min": 0.0,
                       "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_no_exit() {
+        check_metrics::<GoParser>("package main\nvar a = 42", "foo.go", |metric| {
+            insta::assert_json_snapshot!(
+                metric.nexits,
+                @r###"
+                    {
+                      "sum": 0.0,
+                      "average": null,
+                      "min": 0.0,
+                      "max": 0.0
+                    }"###
+            );
+        });
+    }
+
+    #[test]
+    fn go_simple_function() {
+        check_metrics::<GoParser>(
+            "package main
+            func sum(x, y int) int {
+                return x + y
+            }",
+            "foo.go",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_multi_value_return() {
+        check_metrics::<GoParser>(
+            "package main
+            func f(a int) (int, error) {
+                if a < 0 {
+                    return 0, fmt.Errorf(\"bad\")
+                }
+                return a, nil
+            }",
+            "foo.go",
+            |metric| {
+                // multi-value return is still one ReturnStatement
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 2.0,
+                      "min": 0.0,
+                      "max": 2.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_method_with_receiver() {
+        check_metrics::<GoParser>(
+            "package main
+            type T struct{}
+            func (t *T) Greet(name string) string {
+                if name == \"\" {
+                    return \"hello\"
+                }
+                return \"hello, \" + name
+            }",
+            "foo.go",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 2.0,
+                      "min": 0.0,
+                      "max": 2.0
                     }"###
                 );
             },
