@@ -8,6 +8,7 @@ This is the list of programming languages parsed by
 - [x] Mozcpp
 - [x] Ccomment
 - [x] Preproc
+- [x] Go
 - [x] Java
 - [x] JavaScript
 - [x] Mozjs
