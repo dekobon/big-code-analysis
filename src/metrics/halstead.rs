@@ -334,6 +334,12 @@ impl Halstead for GoCode {
     }
 }
 
+impl Halstead for PerlCode {
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], halstead_maps: &mut HalsteadMaps<'a>) {
+        compute_halstead::<Self>(node, code, halstead_maps);
+    }
+}
+
 implement_metric_trait!(Halstead, KotlinCode, PreprocCode, CcommentCode);
 
 #[cfg(test)]
@@ -733,6 +739,40 @@ mod tests {
                       "time": 16.729825003365395,
                       "bugs": 0.014975730436275946
                     }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn perl_operators_and_operands() {
+        check_metrics::<PerlParser>(
+            "sub sum {
+                my ($a, $b) = @_;
+                return $a + $b;
+            }",
+            "foo.pl",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.halstead,
+                    @r#"
+                {
+                  "n1": 10.0,
+                  "N1": 14.0,
+                  "n2": 4.0,
+                  "N2": 6.0,
+                  "length": 20.0,
+                  "estimated_program_length": 41.219280948873624,
+                  "purity_ratio": 2.0609640474436812,
+                  "vocabulary": 14.0,
+                  "volume": 76.14709844115208,
+                  "difficulty": 7.5,
+                  "level": 0.13333333333333333,
+                  "effort": 571.1032383086406,
+                  "time": 31.727957683813365,
+                  "bugs": 0.02294502281013948
+                }
+                "#
                 );
             },
         );

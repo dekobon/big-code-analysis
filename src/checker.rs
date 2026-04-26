@@ -758,3 +758,78 @@ impl Checker for KotlinCode {
         false
     }
 }
+
+impl Checker for PerlCode {
+    fn is_comment(node: &Node) -> bool {
+        matches!(node.kind_id().into(), Perl::Comments | Perl::PodStatement)
+    }
+
+    fn is_useful_comment(_: &Node, _: &[u8]) -> bool {
+        false
+    }
+
+    fn is_func_space(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Perl::SourceFile
+                | Perl::FunctionDefinition
+                | Perl::FunctionDefinitionWithoutSub
+                | Perl::AnonymousFunction
+        )
+    }
+
+    fn is_func(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Perl::FunctionDefinition | Perl::FunctionDefinitionWithoutSub
+        )
+    }
+
+    fn is_closure(node: &Node) -> bool {
+        node.kind_id() == Perl::AnonymousFunction
+    }
+
+    fn is_call(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Perl::CallExpressionWithSpacedArgs
+                | Perl::CallExpressionWithSub
+                | Perl::CallExpressionWithArgsWithBrackets
+                | Perl::CallExpressionWithVariable
+                | Perl::CallExpressionWithBareword
+                | Perl::CallExpressionRecursive
+                | Perl::MethodInvocation
+        )
+    }
+
+    fn is_non_arg(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Perl::LPAREN | Perl::COMMA | Perl::RPAREN | Perl::FatComma
+        )
+    }
+
+    fn is_string(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Perl::StringSingleQuoted
+                | Perl::StringDoubleQuoted
+                | Perl::StringQQuoted
+                | Perl::StringQqQuoted
+                | Perl::BacktickQuoted
+                | Perl::CommandQxQuoted
+        )
+    }
+
+    #[inline(always)]
+    fn is_else_if(node: &Node) -> bool {
+        // tree-sitter-perl emits `elsif_clause` as a direct child of the
+        // surrounding `if_statement` (not as a wrapper around a nested
+        // `if`), so the clause node itself is the else-if.
+        node.kind_id() == Perl::ElsifClause
+    }
+
+    fn is_primitive(_id: u16) -> bool {
+        false
+    }
+}

@@ -190,6 +190,14 @@ impl Exit for GoCode {
     }
 }
 
+impl Exit for PerlCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        if node.kind_id() == Perl::ReturnExpression {
+            stats.exit += 1;
+        }
+    }
+}
+
 implement_metric_trait!(Exit, KotlinCode, PreprocCode, CcommentCode);
 
 #[cfg(test)]
@@ -603,6 +611,67 @@ mod tests {
                       "min": 0.0,
                       "max": 2.0
                     }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn perl_no_exit() {
+        check_metrics::<PerlParser>(
+            "sub f {
+                print 'hi';
+            }",
+            "foo.pl",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r#"
+                {
+                  "sum": 0.0,
+                  "average": 0.0,
+                  "min": 0.0,
+                  "max": 0.0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn perl_no_function_no_exit() {
+        check_metrics::<PerlParser>("my $x = 1;\nprint $x;\n", "foo.pl", |metric| {
+            insta::assert_json_snapshot!(metric.nexits, @r#"
+            {
+              "sum": 0.0,
+              "average": null,
+              "min": 0.0,
+              "max": 0.0
+            }
+            "#);
+        });
+    }
+
+    #[test]
+    fn perl_multiple_returns() {
+        check_metrics::<PerlParser>(
+            "sub f {
+                return 1 if $_[0];
+                return 0;
+            }",
+            "foo.pl",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r#"
+                {
+                  "sum": 2.0,
+                  "average": 2.0,
+                  "min": 0.0,
+                  "max": 2.0
+                }
+                "#
                 );
             },
         );

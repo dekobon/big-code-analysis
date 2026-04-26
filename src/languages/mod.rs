@@ -21,6 +21,9 @@ pub use language_mozjs::*;
 pub mod language_javascript;
 pub use language_javascript::*;
 
+pub mod language_perl;
+pub use language_perl::*;
+
 pub mod language_python;
 pub use language_python::*;
 

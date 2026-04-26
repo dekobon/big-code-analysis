@@ -147,6 +147,22 @@ fn compute_booleans<T: std::cmp::PartialEq + std::convert::From<u16>>(
     }
 }
 
+/// Folds a Perl `binary_expression`'s short-circuit operator children into
+/// the boolean-sequence counter. `compute_booleans` only takes two operator
+/// kinds; Perl needs five (`&&`, `||`, `//`, `and`, `or`).
+fn compute_perl_booleans(node: &Node, stats: &mut Stats) {
+    for child in node.children() {
+        if matches!(
+            child.kind_id().into(),
+            Perl::AMPAMP | Perl::PIPEPIPE | Perl::SLASHSLASH | Perl::And | Perl::Or
+        ) {
+            stats.structural = stats
+                .boolean_seq
+                .eval_based_on_prev(child.kind_id(), stats.structural);
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone)]
 struct BoolSequence {
     boolean_op: Option<u16>,
@@ -482,6 +498,77 @@ impl Cognitive for JavaCode {
                 compute_booleans::<language_java::Java>(node, stats, AMPAMP, PIPEPIPE);
             }
             LambdaExpression => {
+                lambda += 1;
+            }
+            _ => {}
+        }
+        nesting_map.insert(node.id(), (nesting, depth, lambda));
+    }
+}
+
+impl Cognitive for PerlCode {
+    fn compute(
+        node: &Node,
+        stats: &mut Stats,
+        nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
+    ) {
+        use Perl as P;
+
+        let (mut nesting, mut depth, mut lambda) = get_nesting_from_map(node, nesting_map);
+
+        match node.kind_id().into() {
+            // tree-sitter-perl parses `elsif_clause` as a direct child of
+            // the surrounding `if_statement` (not as a nested `if`), so the
+            // `IfStatement` arm here always increases nesting and the
+            // `Else | ElsifClause` arm below carries the flat +1.
+            P::IfStatement
+            | P::UnlessStatement
+            | P::WhileStatement
+            | P::UntilStatement
+            | P::ForStatement1
+            | P::ForStatement2
+            | P::TernaryExpression
+            // Postfix conditional / loop forms (`return 1 if $cond;`) — the
+            // condition is a real cognitive branch and contributes nesting
+            // even though the body is a single expression.
+            | P::IfSimpleStatement
+            | P::UnlessSimpleStatement
+            | P::WhileSimpleStatement
+            | P::UntilSimpleStatement
+            | P::ForSimpleStatement => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
+            }
+            // `else` and `elsif` each contribute a flat +1.
+            P::Else | P::ElsifClause => {
+                increment_by_one(stats);
+            }
+            // `goto` is a non-local control transfer.
+            P::Goto | P::GotoExpression => {
+                increment_by_one(stats);
+            }
+            // `last LABEL` / `next LABEL` / `redo LABEL` — only the
+            // labeled forms count, since the bare forms are subsumed by
+            // the surrounding loop's nesting.
+            P::LoopControlStatement => {
+                if node.children().any(|c| c.kind_id() == P::Label) {
+                    increment_by_one(stats);
+                }
+            }
+            P::UnaryExpression => {
+                stats.boolean_seq.not_operator(node.kind_id());
+            }
+            P::BinaryExpression => {
+                compute_perl_booleans(node, stats);
+            }
+            P::FunctionDefinition | P::FunctionDefinitionWithoutSub => {
+                nesting = 0;
+                increment_function_depth::<language_perl::Perl>(
+                    &mut depth,
+                    node,
+                    P::FunctionDefinition,
+                );
+            }
+            P::AnonymousFunction => {
                 lambda += 1;
             }
             _ => {}
@@ -1924,6 +2011,208 @@ mod tests {
                       "max": 3.0
                     }"###
                 );
+            },
+        );
+    }
+
+    #[test]
+    fn perl_no_cognitive() {
+        check_metrics::<PerlParser>("my $a = 42;", "foo.pl", |metric| {
+            insta::assert_json_snapshot!(metric.cognitive, @r#"
+            {
+              "sum": 0.0,
+              "average": null,
+              "min": 0.0,
+              "max": 0.0
+            }
+            "#);
+        });
+    }
+
+    #[test]
+    fn perl_simple_function() {
+        check_metrics::<PerlParser>(
+            "sub f {
+                return 1;
+            }",
+            "foo.pl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive, @r#"
+                {
+                  "sum": 0.0,
+                  "average": 0.0,
+                  "min": 0.0,
+                  "max": 0.0
+                }
+                "#);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_sequence_same_booleans() {
+        check_metrics::<PerlParser>(
+            "sub f {
+                if ($a && $b && $c) { # +1 if, +1 first &&-chain
+                    print 'x';
+                }
+            }",
+            "foo.pl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive, @r#"
+                {
+                  "sum": 2.0,
+                  "average": 2.0,
+                  "min": 0.0,
+                  "max": 2.0
+                }
+                "#);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_sequence_different_booleans() {
+        check_metrics::<PerlParser>(
+            "sub f {
+                if ($a && $b || $c) { # +1 if, +1 &&, +1 ||
+                    print 'x';
+                }
+            }",
+            "foo.pl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive, @r#"
+                {
+                  "sum": 3.0,
+                  "average": 3.0,
+                  "min": 0.0,
+                  "max": 3.0
+                }
+                "#);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_not_booleans() {
+        check_metrics::<PerlParser>(
+            "sub f {
+                if ($a && !($b && $c)) { # +1 if, +1 &&, +1 inner &&
+                    print 'x';
+                }
+            }",
+            "foo.pl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive, @r#"
+                {
+                  "sum": 3.0,
+                  "average": 3.0,
+                  "min": 0.0,
+                  "max": 3.0
+                }
+                "#);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_1_level_nesting() {
+        check_metrics::<PerlParser>(
+            "sub f {
+                for my $i (1..3) { # +1 for
+                    if ($i % 2) { # +2 if (nested 1)
+                        print $i;
+                    }
+                }
+            }",
+            "foo.pl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive, @r#"
+                {
+                  "sum": 3.0,
+                  "average": 3.0,
+                  "min": 0.0,
+                  "max": 3.0
+                }
+                "#);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_2_level_nesting() {
+        check_metrics::<PerlParser>(
+            "sub f {
+                for my $i (1..3) { # +1 for
+                    while ($n > 0) { # +2 while (nested 1)
+                        if ($n % 2) { # +3 if (nested 2)
+                            $n--;
+                        }
+                    }
+                }
+            }",
+            "foo.pl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive, @r#"
+                {
+                  "sum": 6.0,
+                  "average": 6.0,
+                  "min": 0.0,
+                  "max": 6.0
+                }
+                "#);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_break_continue() {
+        // Perl's `last`/`next` are loop-control statements; per Sonar's
+        // cognitive rule, they do not add complexity in their bare form
+        // (the surrounding loop already contributes +1).
+        check_metrics::<PerlParser>(
+            "sub f {
+                while (1) { # +1 while (nesting becomes 1)
+                    last if $done; # +2 postfix-if at nesting=1
+                    next; # +0 bare loop control
+                }
+            }",
+            "foo.pl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive, @r#"
+                {
+                  "sum": 3.0,
+                  "average": 3.0,
+                  "min": 0.0,
+                  "max": 3.0
+                }
+                "#);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_if_elsif_else() {
+        check_metrics::<PerlParser>(
+            "sub f {
+                if ($x) { # +1 if
+                    print 'a';
+                } elsif ($y) { # +1 elsif
+                    print 'b';
+                } else { # +1 else
+                    print 'c';
+                }
+            }",
+            "foo.pl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive, @r#"
+                {
+                  "sum": 3.0,
+                  "average": 3.0,
+                  "min": 0.0,
+                  "max": 3.0
+                }
+                "#);
             },
         );
     }

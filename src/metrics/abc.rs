@@ -354,7 +354,8 @@ implement_metric_trait!(
     PreprocCode,
     CcommentCode,
     KotlinCode,
-    GoCode
+    GoCode,
+    PerlCode
 );
 
 // Fitzpatrick, Jerry (1997). "Applying the ABC metric to C, C++ and Java". C++ Report.

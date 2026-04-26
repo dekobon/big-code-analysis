@@ -12,6 +12,7 @@ This is the list of programming languages parsed by
 - [x] Java
 - [x] JavaScript
 - [x] Mozjs
+- [x] Perl
 - [x] Python
 - [x] Rust
 - [x] Typescript

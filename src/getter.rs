@@ -622,3 +622,58 @@ impl Getter for GoCode {
 
     get_operator!(Go);
 }
+
+impl Getter for PerlCode {
+    fn get_space_kind(node: &Node) -> SpaceKind {
+        match node.kind_id().into() {
+            Perl::FunctionDefinition
+            | Perl::FunctionDefinitionWithoutSub
+            | Perl::AnonymousFunction => SpaceKind::Function,
+            Perl::SourceFile => SpaceKind::Unit,
+            _ => SpaceKind::Unknown,
+        }
+    }
+
+    fn get_op_type(node: &Node) -> HalsteadType {
+        use Perl as P;
+
+        match node.kind_id().into() {
+            // Control-flow and declaration keywords. `Perl::Sub` is the
+            // `sub` keyword (token id 16); `Perl::SUB` is the `__SUB__`
+            // literal (token id 7) — that one is an operand, not an
+            // operator. Same split for `Package` (keyword) vs `PACKAGE`
+            // (`__PACKAGE__` literal).
+            P::If | P::Unless | P::Else | P::Elsif | P::While | P::Until | P::For
+            | P::Foreach | P::When | P::Continue | P::Next | P::Last | P::Redo | P::Goto
+            | P::Return | P::Sub | P::Package | P::My | P::Our
+            | P::Local | P::State | P::Use | P::No | P::Require | P::Bless | P::And | P::Or
+            | P::Xor | P::Not | P::Eq | P::Ne | P::Lt | P::Gt | P::Le | P::Ge | P::Cmp
+            // Punctuation acting as operators
+            | P::SEMI | P::COMMA | P::COLON | P::COLONCOLON | P::LBRACE | P::LBRACK
+            | P::LPAREN | P::DOT | P::DOTDOT | P::DOTDOTDOT | P::FatComma | P::DASHGT
+            | P::QMARK | P::BSLASH | P::DOLLAR | P::DOLLARHASH | P::AT | P::PERCENT | P::HASH
+            // Arithmetic / comparison / logical / bitwise / assignment operators
+            | P::EQ | P::PLUS | P::DASH | P::STAR | P::SLASH | P::STARSTAR | P::BANG
+            | P::TILDE | P::EQTILDE | P::BANGTILDE | P::EQEQ | P::BANGEQ | P::LT | P::GT
+            | P::LTEQ | P::GTEQ | P::AMPAMP | P::PIPEPIPE | P::SLASHSLASH | P::PIPE
+            | P::CARET | P::LTLT | P::GTGT | P::TILDETILDE | P::PLUSPLUS | P::DASHDASH
+            | P::PLUSEQ | P::DASHEQ | P::STAREQ | P::SLASHEQ | P::PERCENTEQ | P::STARSTAREQ
+            | P::AMPEQ | P::PIPEEQ | P::CARETEQ | P::LTLTEQ | P::GTGTEQ | P::AMPAMPEQ
+            | P::PIPEPIPEEQ | P::SLASHSLASHEQ | P::DOTEQ | P::XEQ
+                => HalsteadType::Operator,
+            // Operands: identifiers and literals
+            P::Identifier | P::ScalarVariable | P::ArrayVariable | P::HashVariable
+            | P::PackageVariable | P::SpecialScalarVariable | P::PackageName | P::ModuleName
+            | P::BarewordImport | P::Typeglob | P::FileHandle
+            | P::Integer | P::FloatingPoint | P::ScientificNotation | P::Hexadecimal | P::Octal
+            | P::True | P::False | P::SpecialLiteral
+            | P::StringSingleQuoted | P::StringDoubleQuoted | P::StringQQuoted
+            | P::StringQqQuoted | P::BacktickQuoted | P::CommandQxQuoted
+            | P::FILE | P::LINE | P::SUB | P::PACKAGE
+                => HalsteadType::Operand,
+            _ => HalsteadType::Unknown,
+        }
+    }
+
+    get_operator!(Perl);
+}

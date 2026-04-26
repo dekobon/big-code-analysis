@@ -160,3 +160,20 @@ impl Alterator for RustCode {
         }
     }
 }
+
+impl Alterator for PerlCode {
+    fn alterate(node: &Node, code: &[u8], span: bool, children: Vec<AstNode>) -> AstNode {
+        match Perl::from(node.kind_id()) {
+            Perl::StringSingleQuoted
+            | Perl::StringDoubleQuoted
+            | Perl::StringQQuoted
+            | Perl::StringQqQuoted
+            | Perl::BacktickQuoted
+            | Perl::CommandQxQuoted => {
+                let (text, span) = Self::get_text_span(node, code, span, true);
+                AstNode::new(node.kind(), text, span, Vec::new())
+            }
+            _ => Self::get_default(node, code, span, children),
+        }
+    }
+}
