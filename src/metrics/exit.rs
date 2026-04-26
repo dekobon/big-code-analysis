@@ -671,7 +671,117 @@ mod tests {
                   "min": 0.0,
                   "max": 2.0
                 }
-                "#
+                 "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_function_with_returns() {
+        check_metrics::<TsxParser>(
+            "function clamp(val: number, min: number, max: number) {
+                 if (val < min) {
+                     return min;
+                 }
+                 if (val > max) {
+                     return max;
+                 }
+                 return val;
+             }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 3.0,
+                      "min": 0.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_no_exit() {
+        check_metrics::<TypescriptParser>("const x: number = 42;", "foo.ts", |metric| {
+            insta::assert_json_snapshot!(
+                metric.nexits,
+                @r###"
+                    {
+                      "sum": 0.0,
+                      "average": null,
+                      "min": 0.0,
+                      "max": 0.0
+                    }"###
+            );
+        });
+    }
+
+    #[test]
+    fn typescript_function_with_returns() {
+        check_metrics::<TypescriptParser>(
+            "function safeDivide(a: number, b: number): number | null {
+                 if (b === 0) {
+                     return null;
+                 }
+                 return a / b;
+             }",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 2.0,
+                      "min": 0.0,
+                      "max": 2.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_no_exit() {
+        check_metrics::<MozjsParser>("var a = 42;", "foo.js", |metric| {
+            insta::assert_json_snapshot!(
+                metric.nexits,
+                @r###"
+                    {
+                      "sum": 0.0,
+                      "average": null,
+                      "min": 0.0,
+                      "max": 0.0
+                    }"###
+            );
+        });
+    }
+
+    #[test]
+    fn mozjs_function_with_returns() {
+        check_metrics::<MozjsParser>(
+            "function f(a, b) {
+                 if (a) {
+                     return a;
+                 }
+                 return b;
+             }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 2.0,
+                      "min": 0.0,
+                      "max": 2.0
+                    }"###
                 );
             },
         );
