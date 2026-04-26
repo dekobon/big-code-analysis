@@ -1326,4 +1326,272 @@ mod tests {
             },
         );
     }
+
+    #[test]
+    fn java_no_functions() {
+        check_metrics::<JavaParser>(
+            "class Foo {
+                 int x = 42;
+                 String name = \"hello\";
+             }",
+            "foo.java",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r#"
+                    {
+                      "total_functions": 0.0,
+                      "total_closures": 0.0,
+                      "average_functions": 0.0,
+                      "average_closures": 0.0,
+                      "total": 0.0,
+                      "average": 0.0,
+                      "functions_min": 0.0,
+                      "functions_max": 0.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }
+                    "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn java_single_method() {
+        // Counts are inflated because Java's `is_non_arg` does not filter
+        // syntax tokens (`(`, `)`, `,`).  These snapshots capture current
+        // behaviour; fixing `is_non_arg` is tracked separately.
+        check_metrics::<JavaParser>(
+            "class Foo {
+                 void greet(String name, int count) {
+                     return;
+                 }
+             }",
+            "foo.java",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r#"
+                    {
+                      "total_functions": 5.0,
+                      "total_closures": 0.0,
+                      "average_functions": 5.0,
+                      "average_closures": 0.0,
+                      "total": 5.0,
+                      "average": 5.0,
+                      "functions_min": 0.0,
+                      "functions_max": 5.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }
+                    "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn java_multiple_methods() {
+        check_metrics::<JavaParser>(
+            "class Foo {
+                 void a(int x) {
+                     return;
+                 }
+                 void b(int x, int y, int z) {
+                     return;
+                 }
+             }",
+            "foo.java",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r#"
+                    {
+                      "total_functions": 10.0,
+                      "total_closures": 0.0,
+                      "average_functions": 5.0,
+                      "average_closures": 0.0,
+                      "total": 10.0,
+                      "average": 5.0,
+                      "functions_min": 0.0,
+                      "functions_max": 7.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }
+                    "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn java_constructor_args() {
+        check_metrics::<JavaParser>(
+            "class Foo {
+                 Foo(String name, int age) {
+                     return;
+                 }
+             }",
+            "foo.java",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r#"
+                    {
+                      "total_functions": 5.0,
+                      "total_closures": 0.0,
+                      "average_functions": 5.0,
+                      "average_closures": 0.0,
+                      "total": 5.0,
+                      "average": 5.0,
+                      "functions_min": 0.0,
+                      "functions_max": 5.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }
+                    "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn java_lambda_args() {
+        check_metrics::<JavaParser>(
+            "class Foo {
+                 void run() {
+                     Runnable r = (int a, int b) -> a + b;
+                 }
+             }",
+            "foo.java",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r#"
+                    {
+                      "total_functions": 2.0,
+                      "total_closures": 5.0,
+                      "average_functions": 2.0,
+                      "average_closures": 5.0,
+                      "total": 7.0,
+                      "average": 3.5,
+                      "functions_min": 0.0,
+                      "functions_max": 2.0,
+                      "closures_min": 0.0,
+                      "closures_max": 5.0
+                    }
+                     "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_function_and_arrow() {
+        check_metrics::<TsxParser>(
+            "function add(a: number, b: number): number {
+                 return a + b;
+             }
+             const multiply = (x: number, y: number) => x * y;",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r###"
+                    {
+                      "total_functions": 4.0,
+                      "total_closures": 0.0,
+                      "average_functions": 2.0,
+                      "average_closures": 0.0,
+                      "total": 4.0,
+                      "average": 2.0,
+                      "functions_min": 0.0,
+                      "functions_max": 2.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_typed_and_optional_params() {
+        check_metrics::<TypescriptParser>(
+            "function format(value: number, prefix?: string, suffix?: string): string {
+                 return (prefix ?? '') + value.toString() + (suffix ?? '');
+             }
+             const identity = (x: number): number => x;",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r###"
+                    {
+                      "total_functions": 4.0,
+                      "total_closures": 0.0,
+                      "average_functions": 2.0,
+                      "average_closures": 0.0,
+                      "total": 4.0,
+                      "average": 2.0,
+                      "functions_min": 0.0,
+                      "functions_max": 3.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_single_function() {
+        check_metrics::<MozjsParser>(
+            "function f(a, b) {
+                 return a * b;
+             }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r###"
+                    {
+                      "total_functions": 2.0,
+                      "total_closures": 0.0,
+                      "average_functions": 2.0,
+                      "average_closures": 0.0,
+                      "total": 2.0,
+                      "average": 2.0,
+                      "functions_min": 0.0,
+                      "functions_max": 2.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_closure_args() {
+        check_metrics::<MozjsParser>("function (a, b) {return a + b};", "foo.js", |metric| {
+            insta::assert_json_snapshot!(
+                metric.nargs,
+                @r###"
+                    {
+                      "total_functions": 0.0,
+                      "total_closures": 2.0,
+                      "average_functions": 0.0,
+                      "average_closures": 2.0,
+                      "total": 2.0,
+                      "average": 2.0,
+                      "functions_min": 0.0,
+                      "functions_max": 0.0,
+                      "closures_min": 0.0,
+                      "closures_max": 2.0
+                    }"###
+            );
+        });
+    }
 }

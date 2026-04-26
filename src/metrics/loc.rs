@@ -2768,6 +2768,47 @@ mod tests {
     }
 
     #[test]
+    fn mozjs_blank_and_comment_loc() {
+        check_metrics::<MozjsParser>(
+            "// a comment
+             function f() {
+
+                 var x = 1;
+
+             }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.loc,
+                    @r###"
+                    {
+                      "sloc": 6.0,
+                      "ploc": 3.0,
+                      "lloc": 1.0,
+                      "cloc": 1.0,
+                      "blank": 2.0,
+                      "sloc_average": 3.0,
+                      "ploc_average": 1.5,
+                      "lloc_average": 0.5,
+                      "cloc_average": 0.5,
+                      "blank_average": 1.0,
+                      "sloc_min": 5.0,
+                      "sloc_max": 5.0,
+                      "cloc_min": 0.0,
+                      "cloc_max": 0.0,
+                      "ploc_min": 3.0,
+                      "ploc_max": 3.0,
+                      "lloc_min": 1.0,
+                      "lloc_max": 1.0,
+                      "blank_min": 2.0,
+                      "blank_max": 2.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
     fn cpp_namespace_loc() {
         check_metrics::<CppParser>(
             "namespace mozilla::dom::quota {} // namespace mozilla::dom::quota",
@@ -3707,6 +3748,423 @@ mod tests {
     }
 
     #[test]
+    fn go_blank() {
+        check_metrics::<GoParser>(
+            "package main
+
+            func foo() {
+                x := 1
+
+                y := 2
+            }",
+            "foo.go",
+            |metric| {
+                // Spaces: 2 (unit + foo).
+                // blank: 2 (lines 2 and 5 are empty).
+                insta::assert_json_snapshot!(
+                    metric.loc,
+                    @r#"
+                {
+                  "sloc": 7.0,
+                  "ploc": 5.0,
+                  "lloc": 2.0,
+                  "cloc": 0.0,
+                  "blank": 2.0,
+                  "sloc_average": 3.5,
+                  "ploc_average": 2.5,
+                  "lloc_average": 1.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 1.0,
+                  "sloc_min": 5.0,
+                  "sloc_max": 5.0,
+                  "cloc_min": 0.0,
+                  "cloc_max": 0.0,
+                  "ploc_min": 4.0,
+                  "ploc_max": 4.0,
+                  "lloc_min": 2.0,
+                  "lloc_max": 2.0,
+                  "blank_min": 1.0,
+                  "blank_max": 1.0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_cloc_line_comments() {
+        check_metrics::<GoParser>(
+            "package main
+
+            // helper adds two numbers.
+            // It returns their sum.
+            func add(a, b int) int {
+                // compute the result
+                return a + b
+            }",
+            "foo.go",
+            |metric| {
+                // Spaces: 2 (unit + add).
+                // cloc: 3 lines with `//` comments.
+                insta::assert_json_snapshot!(
+                    metric.loc,
+                    @r#"
+                {
+                  "sloc": 8.0,
+                  "ploc": 4.0,
+                  "lloc": 1.0,
+                  "cloc": 3.0,
+                  "blank": 1.0,
+                  "sloc_average": 4.0,
+                  "ploc_average": 2.0,
+                  "lloc_average": 0.5,
+                  "cloc_average": 1.5,
+                  "blank_average": 0.5,
+                  "sloc_min": 4.0,
+                  "sloc_max": 4.0,
+                  "cloc_min": 1.0,
+                  "cloc_max": 1.0,
+                  "ploc_min": 3.0,
+                  "ploc_max": 3.0,
+                  "lloc_min": 1.0,
+                  "lloc_max": 1.0,
+                  "blank_min": 0.0,
+                  "blank_max": 0.0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_cloc_block_comments() {
+        check_metrics::<GoParser>(
+            "package main
+
+            /* block comment
+               spanning two lines */
+            func foo() {
+                x := 1 /* inline block */
+            }",
+            "foo.go",
+            |metric| {
+                // Spaces: 2 (unit + foo).
+                // cloc: 2-line block comment + inline block = 3 comment lines.
+                insta::assert_json_snapshot!(
+                    metric.loc,
+                    @r#"
+                {
+                  "sloc": 7.0,
+                  "ploc": 4.0,
+                  "lloc": 1.0,
+                  "cloc": 3.0,
+                  "blank": 1.0,
+                  "sloc_average": 3.5,
+                  "ploc_average": 2.0,
+                  "lloc_average": 0.5,
+                  "cloc_average": 1.5,
+                  "blank_average": 0.5,
+                  "sloc_min": 3.0,
+                  "sloc_max": 3.0,
+                  "cloc_min": 1.0,
+                  "cloc_max": 1.0,
+                  "ploc_min": 3.0,
+                  "ploc_max": 3.0,
+                  "lloc_min": 1.0,
+                  "lloc_max": 1.0,
+                  "blank_min": 0.0,
+                  "blank_max": 0.0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_lloc_if_for_switch() {
+        check_metrics::<GoParser>(
+            "package main
+
+            func foo(n int) int {
+                if n > 0 {
+                    for i := 0; i < n; i++ {
+                        switch i {
+                        }
+                    }
+                }
+                return n
+            }",
+            "foo.go",
+            |metric| {
+                // Spaces: 2 (unit + foo).
+                // lloc: if (+1), for (+1), switch (+1), return (+1) = 4.
+                insta::assert_json_snapshot!(
+                    metric.loc,
+                    @r#"
+                {
+                  "sloc": 11.0,
+                  "ploc": 10.0,
+                  "lloc": 4.0,
+                  "cloc": 0.0,
+                  "blank": 1.0,
+                  "sloc_average": 5.5,
+                  "ploc_average": 5.0,
+                  "lloc_average": 2.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.5,
+                  "sloc_min": 9.0,
+                  "sloc_max": 9.0,
+                  "cloc_min": 0.0,
+                  "cloc_max": 0.0,
+                  "ploc_min": 9.0,
+                  "ploc_max": 9.0,
+                  "lloc_min": 4.0,
+                  "lloc_max": 4.0,
+                  "blank_min": 0.0,
+                  "blank_max": 0.0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_lloc_go_defer() {
+        check_metrics::<GoParser>(
+            "package main
+
+            func foo() {
+                go run()
+                defer cleanup()
+            }",
+            "foo.go",
+            |metric| {
+                // Spaces: 2 (unit + foo).
+                // lloc: go (+1), defer (+1) = 2.
+                insta::assert_json_snapshot!(
+                    metric.loc,
+                    @r#"
+                {
+                  "sloc": 6.0,
+                  "ploc": 5.0,
+                  "lloc": 2.0,
+                  "cloc": 0.0,
+                  "blank": 1.0,
+                  "sloc_average": 3.0,
+                  "ploc_average": 2.5,
+                  "lloc_average": 1.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.5,
+                  "sloc_min": 4.0,
+                  "sloc_max": 4.0,
+                  "cloc_min": 0.0,
+                  "cloc_max": 0.0,
+                  "ploc_min": 4.0,
+                  "ploc_max": 4.0,
+                  "lloc_min": 2.0,
+                  "lloc_max": 2.0,
+                  "blank_min": 0.0,
+                  "blank_max": 0.0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_lloc_var_const_declarations() {
+        check_metrics::<GoParser>(
+            "package main
+
+            func foo() {
+                var x int
+                var y = 10
+                const z = 42
+                a := 3
+                a = 4
+            }",
+            "foo.go",
+            |metric| {
+                // Spaces: 2 (unit + foo).
+                // lloc: var (+1), var (+1), const (+1),
+                //       short_var_decl (+1), assignment (+1) = 5.
+                insta::assert_json_snapshot!(
+                    metric.loc,
+                    @r#"
+                {
+                  "sloc": 9.0,
+                  "ploc": 8.0,
+                  "lloc": 5.0,
+                  "cloc": 0.0,
+                  "blank": 1.0,
+                  "sloc_average": 4.5,
+                  "ploc_average": 4.0,
+                  "lloc_average": 2.5,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.5,
+                  "sloc_min": 7.0,
+                  "sloc_max": 7.0,
+                  "cloc_min": 0.0,
+                  "cloc_max": 0.0,
+                  "ploc_min": 7.0,
+                  "ploc_max": 7.0,
+                  "lloc_min": 5.0,
+                  "lloc_max": 5.0,
+                  "blank_min": 0.0,
+                  "blank_max": 0.0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_lloc_select() {
+        check_metrics::<GoParser>(
+            "package main
+
+            func foo(ch chan int) {
+                select {
+                case v := <-ch:
+                    _ = v
+                }
+            }",
+            "foo.go",
+            |metric| {
+                // Spaces: 2 (unit + foo).
+                // lloc: select (+1), assignment `_ = v` (+1) = 2.
+                // `case v := <-ch:` is a receive_statement inside a
+                // communication_case, not a ShortVarDeclaration.
+                insta::assert_json_snapshot!(
+                    metric.loc,
+                    @r#"
+                {
+                  "sloc": 8.0,
+                  "ploc": 7.0,
+                  "lloc": 2.0,
+                  "cloc": 0.0,
+                  "blank": 1.0,
+                  "sloc_average": 4.0,
+                  "ploc_average": 3.5,
+                  "lloc_average": 1.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.5,
+                  "sloc_min": 6.0,
+                  "sloc_max": 6.0,
+                  "cloc_min": 0.0,
+                  "cloc_max": 0.0,
+                  "ploc_min": 6.0,
+                  "ploc_max": 6.0,
+                  "lloc_min": 2.0,
+                  "lloc_max": 2.0,
+                  "blank_min": 0.0,
+                  "blank_max": 0.0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_sloc_multiline_function() {
+        check_metrics::<GoParser>(
+            "package main
+
+            func add(
+                a int,
+                b int,
+            ) int {
+                return a + b
+            }",
+            "foo.go",
+            |metric| {
+                // Spaces: 2 (unit + add).
+                // The multi-line signature should count each line as sloc.
+                insta::assert_json_snapshot!(
+                    metric.loc,
+                    @r#"
+                {
+                  "sloc": 8.0,
+                  "ploc": 7.0,
+                  "lloc": 1.0,
+                  "cloc": 0.0,
+                  "blank": 1.0,
+                  "sloc_average": 4.0,
+                  "ploc_average": 3.5,
+                  "lloc_average": 0.5,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.5,
+                  "sloc_min": 6.0,
+                  "sloc_max": 6.0,
+                  "cloc_min": 0.0,
+                  "cloc_max": 0.0,
+                  "ploc_min": 6.0,
+                  "ploc_max": 6.0,
+                  "lloc_min": 1.0,
+                  "lloc_max": 1.0,
+                  "blank_min": 0.0,
+                  "blank_max": 0.0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn go_code_comment_same_line() {
+        check_metrics::<GoParser>(
+            "package main
+
+            func foo() {
+                x := 1 // initialize x
+                y := 2 // initialize y
+            }",
+            "foo.go",
+            |metric| {
+                // Spaces: 2 (unit + foo).
+                // cloc: 2 (inline comments on code lines).
+                // blank: 1 (line between package and func).
+                // The code+comment lines should count for both ploc and cloc.
+                insta::assert_json_snapshot!(
+                    metric.loc,
+                    @r#"
+                {
+                  "sloc": 6.0,
+                  "ploc": 5.0,
+                  "lloc": 2.0,
+                  "cloc": 2.0,
+                  "blank": 1.0,
+                  "sloc_average": 3.0,
+                  "ploc_average": 2.5,
+                  "lloc_average": 1.0,
+                  "cloc_average": 1.0,
+                  "blank_average": 0.5,
+                  "sloc_min": 4.0,
+                  "sloc_max": 4.0,
+                  "cloc_min": 2.0,
+                  "cloc_max": 2.0,
+                  "ploc_min": 4.0,
+                  "ploc_max": 4.0,
+                  "lloc_min": 2.0,
+                  "lloc_max": 2.0,
+                  "blank_min": 0.0,
+                  "blank_max": 0.0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
     fn perl_grammar_smoke() {
         // Pin the contract that tree-sitter-perl 1.1.2 cleanly parses every
         // Perl construct exercised by the rest of the `perl_*` test suite.
@@ -4201,7 +4659,95 @@ my $x = 1;",
                   "blank_min": 0.0,
                   "blank_max": 0.0
                 }
-                "#);
+                 "#);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_basic_loc() {
+        check_metrics::<TsxParser>(
+            "// A simple utility function
+            function add(a: number, b: number): number {
+                /* multi-line
+                   comment */
+                return a + b;
+            }
+
+            const greet = (name: string) => {
+                return `Hello, ${name}`;
+            };",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.loc,
+                    @r###"
+                    {
+                      "sloc": 10.0,
+                      "ploc": 6.0,
+                      "lloc": 4.0,
+                      "cloc": 3.0,
+                      "blank": 1.0,
+                      "sloc_average": 3.3333333333333335,
+                      "ploc_average": 2.0,
+                      "lloc_average": 1.3333333333333333,
+                      "cloc_average": 1.0,
+                      "blank_average": 0.3333333333333333,
+                      "sloc_min": 3.0,
+                      "sloc_max": 5.0,
+                      "cloc_min": 0.0,
+                      "cloc_max": 2.0,
+                      "ploc_min": 3.0,
+                      "ploc_max": 3.0,
+                      "lloc_min": 2.0,
+                      "lloc_max": 2.0,
+                      "blank_min": 0.0,
+                      "blank_max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_basic_loc() {
+        check_metrics::<TypescriptParser>(
+            "// Line comment
+            /* Block
+               comment */
+            function greet(name: string): string {
+                return `Hello, ${name}`;
+            }
+
+            const add = (a: number, b: number): number => a + b;",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.loc,
+                    @r###"
+                    {
+                      "sloc": 8.0,
+                      "ploc": 4.0,
+                      "lloc": 2.0,
+                      "cloc": 3.0,
+                      "blank": 1.0,
+                      "sloc_average": 2.6666666666666665,
+                      "ploc_average": 1.3333333333333333,
+                      "lloc_average": 0.6666666666666666,
+                      "cloc_average": 1.0,
+                      "blank_average": 0.3333333333333333,
+                      "sloc_min": 1.0,
+                      "sloc_max": 3.0,
+                      "cloc_min": 0.0,
+                      "cloc_max": 0.0,
+                      "ploc_min": 1.0,
+                      "ploc_max": 3.0,
+                      "lloc_min": 0.0,
+                      "lloc_max": 2.0,
+                      "blank_min": 0.0,
+                      "blank_max": 0.0
+                    }"###
+                );
             },
         );
     }

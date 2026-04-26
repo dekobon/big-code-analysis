@@ -902,7 +902,140 @@ mod tests {
                   "closures_min": 0.0,
                   "closures_max": 1.0
                 }
-                "#
+                 "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_named_and_arrow_functions() {
+        check_metrics::<TsxParser>(
+            "function greet(name: string): string {
+                 return `Hello, ${name}`;
+             }
+             const add = (a: number, b: number) => a + b;
+             const log = () => { console.log('done'); };",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nom,
+                    @r###"
+                    {
+                      "functions": 3.0,
+                      "closures": 0.0,
+                      "functions_average": 0.75,
+                      "closures_average": 0.0,
+                      "total": 3.0,
+                      "average": 0.75,
+                      "functions_min": 0.0,
+                      "functions_max": 1.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_named_arrow_and_class_methods() {
+        check_metrics::<TypescriptParser>(
+            "function compute(x: number): number {
+                 return x * 2;
+             }
+             const double = (n: number): number => n * 2;
+             class Calculator {
+                 add(a: number, b: number): number {
+                     return a + b;
+                 }
+             }",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nom,
+                    @r###"
+                    {
+                      "functions": 3.0,
+                      "closures": 0.0,
+                      "functions_average": 0.6,
+                      "closures_average": 0.0,
+                      "total": 3.0,
+                      "average": 0.6,
+                      "functions_min": 0.0,
+                      "functions_max": 1.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_nom() {
+        check_metrics::<MozjsParser>(
+            "function f(a, b) {
+                 function foo(a) {
+                     return a;
+                 }
+                 var bar = (function () {
+                     var counter = 0;
+                     return function () {
+                         counter += 1;
+                         return counter
+                     }
+                 })();
+                 return bar(foo(a), a);
+             }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nom,
+                    @r###"
+                    {
+                      "functions": 3.0,
+                      "closures": 1.0,
+                      "functions_average": 0.6,
+                      "closures_average": 0.2,
+                      "total": 4.0,
+                      "average": 0.8,
+                      "functions_min": 0.0,
+                      "functions_max": 1.0,
+                      "closures_min": 0.0,
+                      "closures_max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_arrow_and_method() {
+        check_metrics::<MozjsParser>(
+            "let add = (a, b) => a + b;
+             class Counter {
+                 increment() {
+                     this.count++;
+                 }
+             }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nom,
+                    @r###"
+                    {
+                      "functions": 2.0,
+                      "closures": 0.0,
+                      "functions_average": 0.5,
+                      "closures_average": 0.0,
+                      "total": 2.0,
+                      "average": 0.5,
+                      "functions_min": 0.0,
+                      "functions_max": 1.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }"###
                 );
             },
         );
