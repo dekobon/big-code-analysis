@@ -28,7 +28,7 @@ Parse `$ARGUMENTS` as: `[target] [--dry-run]`
 | *(empty)* | Unstaged + staged changes (`git diff HEAD`) |
 | `staged` | Staged changes only (`git diff --cached`) |
 | `branch` | All commits on current branch vs `master` (`git diff master...HEAD`) |
-| *crate name* | All `.rs` files in the crate (e.g. `rust-code-analysis`, `rust-code-analysis-cli`, `rust-code-analysis-web`) |
+| *crate name* | All `.rs` files in the crate (e.g. `big-code-analysis`, `big-code-analysis-cli`, `big-code-analysis-web`) |
 | *file or directory path* | Specific file or directory |
 | `--dry-run` | Stop after presenting the plan — do not apply changes |
 

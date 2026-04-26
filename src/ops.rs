@@ -139,7 +139,7 @@ fn finalize<T: ParserTrait>(state_stack: &mut Vec<State>, diff_level: usize) {
 /// ```
 /// use std::path::PathBuf;
 ///
-/// use rust_code_analysis::{operands_and_operators, CppParser, ParserTrait};
+/// use big_code_analysis::{operands_and_operators, CppParser, ParserTrait};
 ///
 /// # fn main() {
 /// let source_code = "int a = 42;";

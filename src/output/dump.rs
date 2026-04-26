@@ -16,7 +16,7 @@ use crate::traits::*;
 /// ```
 /// use std::path::PathBuf;
 ///
-/// use rust_code_analysis::{dump_node, CppParser, ParserTrait};
+/// use big_code_analysis::{dump_node, CppParser, ParserTrait};
 ///
 /// let source_code = "int a = 42;";
 ///

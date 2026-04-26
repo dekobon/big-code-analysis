@@ -12,8 +12,8 @@ creation, modification, or closing.
 
 - Empty → all qualifying open issues
 - `<crate-name>` → filter to issues whose title starts with that crate name
-  (one of `rust-code-analysis`, `rust-code-analysis-cli`,
-  `rust-code-analysis-web`)
+  (one of `big-code-analysis`, `big-code-analysis-cli`,
+  `big-code-analysis-web`)
 - `<language>` → filter to issues whose title or body references a
   specific language module (e.g., `python`, `rust`, `java`)
 
@@ -126,7 +126,7 @@ Two-pass approach.
 ### Pass 1 — By crate
 
 Group mechanically by the crate name prefix in the title (e.g.,
-`rust-code-analysis:`, `rust-code-analysis-cli:`). A group requires 2+
+`big-code-analysis:`, `big-code-analysis-cli:`). A group requires 2+
 issues.
 
 ### Pass 2 — By theme

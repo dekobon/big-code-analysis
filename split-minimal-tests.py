@@ -23,8 +23,8 @@ import shutil
 import typing as T
 
 # List of metrics
-# TODO: Implement a command into rust-code-analysis-cli that returns all
-# computed metrics https://github.com/mozilla/rust-code-analysis/issues/478
+# TODO: Implement a command into big-code-analysis-cli that returns all
+# computed metrics https://github.com/dekobon/big-code-analysis/issues/478
 METRICS = [
     "cognitive",
     "sloc",
@@ -47,7 +47,7 @@ def main() -> None:
         "a software called `json-minimal-tests`, into distinct directories "
         "depending on metric differences.",
         epilog="The source code of this program can be found on "
-        "GitHub at https://github.com/mozilla/rust-code-analysis",
+        "GitHub at https://github.com/dekobon/big-code-analysis",
     )
 
     # Arguments

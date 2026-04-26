@@ -4,8 +4,8 @@ use std::process;
 
 use globset::{Glob, GlobSetBuilder};
 
-use rust_code_analysis::LANG;
-use rust_code_analysis::*;
+use big_code_analysis::LANG;
+use big_code_analysis::*;
 
 const REPO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/", "repositories");
 const SNAPSHOT_PATH: &str = concat!(

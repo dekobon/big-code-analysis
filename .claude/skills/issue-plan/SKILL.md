@@ -35,8 +35,8 @@ Before planning, understand the relevant code:
    `gh label create resolved --description "Issue already resolved" --color 0E8A16`),
    and stop. Do NOT close the issue — leave that for a human.
 2. Identify which crate(s), modules, or files the issue relates to. The
-   workspace contains `rust-code-analysis` (root library),
-   `rust-code-analysis-cli`, and `rust-code-analysis-web`. Per-language
+   workspace contains `big-code-analysis` (root library),
+   `big-code-analysis-cli`, and `big-code-analysis-web`. Per-language
    logic lives under `src/languages/` (one `language_<lang>.rs` per
    supported language) and metric implementations under `src/metrics/`.
 3. Use Serena LSP tools (`find_symbol`, `get_symbols_overview`,

@@ -79,7 +79,7 @@ gh issue view <N> --json comments
 ### 3b: Git commits since boundary
 
 ```bash
-git log --since="$BOUNDARY" --format="%H %s" -- src/ tests/ rust-code-analysis-cli/ rust-code-analysis-web/ docs/
+git log --since="$BOUNDARY" --format="%H %s" -- src/ tests/ big-code-analysis-cli/ big-code-analysis-web/ docs/
 ```
 
 Look for:
@@ -99,7 +99,7 @@ are most likely to contain lesson-worthy material.
 ### 3d: Documentation changes (skip when hint provided)
 
 ```bash
-git log --since="$BOUNDARY" --name-only --format="" -- docs/ rust-code-analysis-book/ README.md CLAUDE.md
+git log --since="$BOUNDARY" --name-only --format="" -- docs/ big-code-analysis-book/ README.md CLAUDE.md
 ```
 
 Look for new or substantially updated documentation that may reflect

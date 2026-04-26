@@ -49,7 +49,7 @@ tasks:
               curl -L https://github.com/est31/cargo-udeps/releases/download/v0.1.55/cargo-udeps-v0.1.55-x86_64-unknown-linux-gnu.tar.gz | tar xz -C /usr/local/cargo/bin --strip-components 2
               curl -L https://github.com/rustsec/rustsec/releases/download/cargo-audit%2Fv0.21.2/cargo-audit-x86_64-unknown-linux-musl-v0.21.2.tgz | tar xzv -C /usr/local/cargo/bin --strip-components 1
               git clone --quiet ${repository}
-              cd rust-code-analysis
+              cd big-code-analysis
               git -c advice.detachedHead=false checkout ${head_rev}
               git submodule update --init
               python3 -m venv myenv
@@ -63,8 +63,8 @@ tasks:
               cd enums
               cargo build --verbose --all-features
         metadata:
-          name: rust-code-analysis lint and test
-          description: rust-code-analysis lint and test
+          name: big-code-analysis lint and test
+          description: big-code-analysis lint and test
           owner: cdenizet@mozilla.com
           source: ${repository}/raw/${head_rev}/.taskcluster.yml
 
@@ -81,11 +81,11 @@ tasks:
             - "-cxe"
             - |-
               git clone --quiet ${repository}
-              cd rust-code-analysis
+              cd big-code-analysis
               git -c advice.detachedHead=false checkout ${head_rev}
               cargo install mdbook
               cargo doc --release
-              cd rust-code-analysis-book
+              cd big-code-analysis-book
               mdbook build
               tar -zvcf /book.tar.gz book/
           artifacts:
@@ -94,8 +94,8 @@ tasks:
               path: /book.tar.gz
               type: file
         metadata:
-          name: rust-code-analysis documentation
-          description: rust-code-analysis build documentation
+          name: big-code-analysis documentation
+          description: big-code-analysis build documentation
           owner: cdenizet@mozilla.com
           source: ${repository}/raw/${head_rev}/.taskcluster.yml
 
@@ -112,7 +112,7 @@ tasks:
             CARGO_INCREMENTAL: "0"
             RUSTFLAGS: -Cinstrument-coverage -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off
             RUSTDOCFLAGS: -Cinstrument-coverage -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off
-            LLVM_PROFILE_FILE: rust-code-analysis-%p-%m.profraw
+            LLVM_PROFILE_FILE: big-code-analysis-%p-%m.profraw
           command:
             - "/bin/bash"
             - "-cxe"
@@ -122,15 +122,15 @@ tasks:
               curl -L https://github.com/mozilla/grcov/releases/download/v0.8.6/grcov-v0.8.6-x86_64-unknown-linux-gnu.tar.gz | tar xz
               rustup component add llvm-tools-preview
               git clone --quiet ${repository}
-              cd rust-code-analysis
+              cd big-code-analysis
               git -c advice.detachedHead=false checkout ${head_rev}
               git submodule update --init
               cargo test --workspace --verbose --all-features --target x86_64-unknown-linux-gnu
               ../grcov . --binary-path ./target/ -s . -t lcov --llvm --branch --ignore-not-existing --ignore '/*' -o lcov.info
               bash <(curl -s https://codecov.io/bash) -f lcov.info
         metadata:
-          name: rust-code-analysis grcov test
-          description: rust-code-analysis grcov test
+          name: big-code-analysis grcov test
+          description: big-code-analysis grcov test
           owner: cdenizet@mozilla.com
           source: ${repository}/raw/${head_rev}/.taskcluster.yml
 
@@ -154,7 +154,7 @@ tasks:
                               --default-host x86_64-pc-windows-msvc
             - git config --global core.autocrlf input
             - git clone --quiet ${repository}
-            - cd rust-code-analysis
+            - cd big-code-analysis
             - git -c advice.detachedHead=false checkout ${head_rev}
             - git submodule update --init
             - cargo test --workspace --verbose --all-features --no-fail-fast -- --nocapture
@@ -163,8 +163,8 @@ tasks:
                 url: https://win.rustup.rs/
               file: rustup-init\rustup-init.exe
         metadata:
-          name: rust-code-analysis windows test
-          description: rust-code-analysis windows test
+          name: big-code-analysis windows test
+          description: big-code-analysis windows test
           owner: cdenizet@mozilla.com
           source: ${repository}/raw/${head_rev}/.taskcluster.yml
 
@@ -184,21 +184,21 @@ tasks:
             - "-cxe"
             - |-
               git clone --quiet ${repository}
-              cd rust-code-analysis
+              cd big-code-analysis
               git -c advice.detachedHead=false checkout ${head_rev}
               ./check-grammars-crates.sh tree-sitter-mozcpp
           cache:
-            rust-code-analysis-mozilla-central-repository: /cache
+            big-code-analysis-mozilla-central-repository: /cache
           artifacts:
             public/json-diffs-and-minimal-tests-mozcpp.tar.gz:
               expires: {$fromNow: '2 weeks'}
               path: /tmp/json-diffs-and-minimal-tests-mozcpp.tar.gz
               type: file
         scopes:
-          - "docker-worker:cache:rust-code-analysis-mozilla-central-repository"
+          - "docker-worker:cache:big-code-analysis-mozilla-central-repository"
         metadata:
-          name: rust-code-analysis check tree-sitter-mozcpp
-          description: rust-code-analysis check tree-sitter-mozcpp grammar
+          name: big-code-analysis check tree-sitter-mozcpp
+          description: big-code-analysis check tree-sitter-mozcpp grammar
           owner: cdenizet@mozilla.com
           source: ${repository}/raw/${head_rev}/.taskcluster.yml
 
@@ -218,21 +218,21 @@ tasks:
             - "-cxe"
             - |-
               git clone --quiet ${repository}
-              cd rust-code-analysis
+              cd big-code-analysis
               git -c advice.detachedHead=false checkout ${head_rev}
               ./check-grammars-crates.sh tree-sitter-mozjs
           cache:
-            rust-code-analysis-mozilla-central-repository: /cache
+            big-code-analysis-mozilla-central-repository: /cache
           artifacts:
             public/json-diffs-and-minimal-tests-mozjs.tar.gz:
               expires: {$fromNow: '2 weeks'}
               path: /tmp/json-diffs-and-minimal-tests-mozjs.tar.gz
               type: file
         scopes:
-          - "docker-worker:cache:rust-code-analysis-mozilla-central-repository"
+          - "docker-worker:cache:big-code-analysis-mozilla-central-repository"
         metadata:
-          name: rust-code-analysis check tree-sitter-mozjs
-          description: rust-code-analysis check tree-sitter-mozjs grammar
+          name: big-code-analysis check tree-sitter-mozjs
+          description: big-code-analysis check tree-sitter-mozjs grammar
           owner: cdenizet@mozilla.com
           source: ${repository}/raw/${head_rev}/.taskcluster.yml
 
@@ -252,21 +252,21 @@ tasks:
             - "-cxe"
             - |-
               git clone --quiet ${repository}
-              cd rust-code-analysis
+              cd big-code-analysis
               git -c advice.detachedHead=false checkout ${head_rev}
               ./check-grammars-crates.sh tree-sitter-rust
           cache:
-            rust-code-analysis-mozilla-central-repository: /cache
+            big-code-analysis-mozilla-central-repository: /cache
           artifacts:
             public/json-diffs-and-minimal-tests-rust.tar.gz:
               expires: {$fromNow: '2 weeks'}
               path: /tmp/json-diffs-and-minimal-tests-rust.tar.gz
               type: file
         scopes:
-          - "docker-worker:cache:rust-code-analysis-mozilla-central-repository"
+          - "docker-worker:cache:big-code-analysis-mozilla-central-repository"
         metadata:
-          name: rust-code-analysis check tree-sitter-rust
-          description: rust-code-analysis check tree-sitter-rust grammar
+          name: big-code-analysis check tree-sitter-rust
+          description: big-code-analysis check tree-sitter-rust grammar
           owner: cdenizet@mozilla.com
           source: ${repository}/raw/${head_rev}/.taskcluster.yml
 
@@ -286,21 +286,21 @@ tasks:
             - "-cxe"
             - |-
               git clone --quiet ${repository}
-              cd rust-code-analysis
+              cd big-code-analysis
               git -c advice.detachedHead=false checkout ${head_rev}
               ./check-grammars-crates.sh tree-sitter-java
           cache:
-            rust-code-analysis-mozilla-central-repository: /cache
+            big-code-analysis-mozilla-central-repository: /cache
           artifacts:
             public/json-diffs-and-minimal-tests-java.tar.gz:
               expires: {$fromNow: '2 weeks'}
               path: /tmp/json-diffs-and-minimal-tests-java.tar.gz
               type: file
         scopes:
-          - "docker-worker:cache:rust-code-analysis-mozilla-central-repository"
+          - "docker-worker:cache:big-code-analysis-mozilla-central-repository"
         metadata:
-          name: rust-code-analysis check tree-sitter-java
-          description: rust-code-analysis check tree-sitter-java grammar
+          name: big-code-analysis check tree-sitter-java
+          description: big-code-analysis check tree-sitter-java grammar
           owner: cdenizet@mozilla.com
           source: ${repository}/raw/${head_rev}/.taskcluster.yml
 
@@ -320,21 +320,21 @@ tasks:
             - "-cxe"
             - |-
               git clone --quiet ${repository}
-              cd rust-code-analysis
+              cd big-code-analysis
               git -c advice.detachedHead=false checkout ${head_rev}
               ./check-grammars-crates.sh tree-sitter-kotlin
           cache:
-            rust-code-analysis-mozilla-central-repository: /cache
+            big-code-analysis-mozilla-central-repository: /cache
           artifacts:
             public/json-diffs-and-minimal-tests-kotlin.tar.gz:
               expires: {$fromNow: '2 weeks'}
               path: /tmp/json-diffs-and-minimal-tests-kotlin.tar.gz
               type: file
         scopes:
-          - "docker-worker:cache:rust-code-analysis-mozilla-central-repository"
+          - "docker-worker:cache:big-code-analysis-mozilla-central-repository"
         metadata:
-          name: rust-code-analysis check tree-sitter-kotlin
-          description: rust-code-analysis check tree-sitter-kotlin grammar
+          name: big-code-analysis check tree-sitter-kotlin
+          description: big-code-analysis check tree-sitter-kotlin grammar
           owner: cdenizet@mozilla.com
           source: ${repository}/raw/${head_rev}/.taskcluster.yml
 
@@ -354,21 +354,21 @@ tasks:
             - "-cxe"
             - |-
               git clone --quiet ${repository}
-              cd rust-code-analysis
+              cd big-code-analysis
               git -c advice.detachedHead=false checkout ${head_rev}
               ./check-grammars-crates.sh tree-sitter-python
           cache:
-            rust-code-analysis-mozilla-central-repository: /cache
+            big-code-analysis-mozilla-central-repository: /cache
           artifacts:
             public/json-diffs-and-minimal-tests-python.tar.gz:
               expires: {$fromNow: '2 weeks'}
               path: /tmp/json-diffs-and-minimal-tests-python.tar.gz
               type: file
         scopes:
-          - "docker-worker:cache:rust-code-analysis-mozilla-central-repository"
+          - "docker-worker:cache:big-code-analysis-mozilla-central-repository"
         metadata:
-          name: rust-code-analysis check tree-sitter-python
-          description: rust-code-analysis check tree-sitter-python grammar
+          name: big-code-analysis check tree-sitter-python
+          description: big-code-analysis check tree-sitter-python grammar
           owner: cdenizet@mozilla.com
           source: ${repository}/raw/${head_rev}/.taskcluster.yml
 
@@ -388,21 +388,21 @@ tasks:
             - "-cxe"
             - |-
               git clone --quiet ${repository}
-              cd rust-code-analysis
+              cd big-code-analysis
               git -c advice.detachedHead=false checkout ${head_rev}
               ./check-grammars-crates.sh tree-sitter-typescript
           cache:
-            rust-code-analysis-mozilla-central-repository: /cache
+            big-code-analysis-mozilla-central-repository: /cache
           artifacts:
             public/json-diffs-and-minimal-tests-typescript.tar.gz:
               expires: {$fromNow: '2 weeks'}
               path: /tmp/json-diffs-and-minimal-tests-typescript.tar.gz
               type: file
         scopes:
-          - "docker-worker:cache:rust-code-analysis-mozilla-central-repository"
+          - "docker-worker:cache:big-code-analysis-mozilla-central-repository"
         metadata:
-          name: rust-code-analysis check tree-sitter-typescript
-          description: rust-code-analysis check tree-sitter-typescript grammar
+          name: big-code-analysis check tree-sitter-typescript
+          description: big-code-analysis check tree-sitter-typescript grammar
           owner: cdenizet@mozilla.com
           source: ${repository}/raw/${head_rev}/.taskcluster.yml
 
@@ -430,18 +430,18 @@ tasks:
                 git pull origin master
                 popd
                 mkdir -p /tmp/mozilla_central_output
-                cd rust-code-analysis
+                cd big-code-analysis
                 git -c advice.detachedHead=false checkout ${head_rev}
                 cargo build --release --workspace --all-features
-                cargo run --release -p rust-code-analysis-cli -- -p /cache/gecko-dev \
+                cargo run --release -p big-code-analysis-cli -- -p /cache/gecko-dev \
                     -j4 --metrics -O json -o /tmp/mozilla_central_output
             cache:
-              rust-code-analysis-mozilla-central-repository: /cache
+              big-code-analysis-mozilla-central-repository: /cache
           scopes:
-            - "docker-worker:cache:rust-code-analysis-mozilla-central-repository"
+            - "docker-worker:cache:big-code-analysis-mozilla-central-repository"
           metadata:
-            name: rust-code-analysis mozilla-central test
-            description: rust-code-analysis-cli tested on mozilla-central
+            name: big-code-analysis mozilla-central test
+            description: big-code-analysis-cli tested on mozilla-central
             owner: cdenizet@mozilla.com
             source: ${repository}/raw/${head_rev}/.taskcluster.yml
 
@@ -458,14 +458,14 @@ tasks:
           provisionerId: proj-relman
           workerType: ci
           scopes:
-              - secrets:get:project/relman/rust-code-analysis/deploy
+              - secrets:get:project/relman/big-code-analysis/deploy
           payload:
             features:
               taskclusterProxy: true
             maxRunTime: 3600
             image: "${taskboot_image}"
             env:
-                TASKCLUSTER_SECRET: project/relman/rust-code-analysis/deploy
+                TASKCLUSTER_SECRET: project/relman/big-code-analysis/deploy
             command:
               - "/bin/sh"
               - "-cxe"
@@ -473,15 +473,15 @@ tasks:
                 git config --global user.email moz-tools-bot@moz.tools
                 git config --global user.name moz.tools Bot
                 git clone --quiet ${repository}
-                cd rust-code-analysis
+                cd big-code-analysis
                 taskboot retrieve-artifact --output-path=. --artifacts=public/book.tar.gz
-                tar xfz book.tar.gz -C rust-code-analysis-book
-                ./rust-code-analysis-book/deploy-to-GitHub-Pages
-                taskboot git-push --force-push github.com/mozilla/rust-code-analysis moz-tools-bot gh-pages
+                tar xfz book.tar.gz -C big-code-analysis-book
+                ./big-code-analysis-book/deploy-to-GitHub-Pages
+                taskboot git-push --force-push github.com/dekobon/big-code-analysis moz-tools-bot gh-pages
                 rm -rf book.tar.gz
           metadata:
-            name: "rust-code-analysis book deployment"
-            description: rust-code-analysis book deployment on GitHub Pages
+            name: "big-code-analysis book deployment"
+            description: big-code-analysis book deployment on GitHub Pages
             owner: cdenizet@mozilla.com
             source: ${repository}/raw/${head_rev}/.taskcluster.yml
 
@@ -496,14 +496,14 @@ tasks:
             provisionerId: proj-relman
             workerType: ci
             scopes:
-              - secrets:get:project/relman/rust-code-analysis/deploy
+              - secrets:get:project/relman/big-code-analysis/deploy
             payload:
               features:
                 taskclusterProxy: true
               maxRunTime: 3600
               image: "${taskboot_image}"
               env:
-                TASKCLUSTER_SECRET: project/relman/rust-code-analysis/deploy
+                TASKCLUSTER_SECRET: project/relman/big-code-analysis/deploy
               command:
                 - "/bin/sh"
                 - "-cxe"
@@ -511,17 +511,17 @@ tasks:
                   git config --global user.email moz-tools-bot@moz.tools
                   git config --global user.name moz.tools Bot
                   git clone --quiet ${repository}
-                  cd rust-code-analysis
+                  cd big-code-analysis
                   cd tree-sitter-ccomment && taskboot cargo-publish --ignore-published && cd ..
                   cd tree-sitter-preproc && taskboot cargo-publish --ignore-published && cd ..
                   cd tree-sitter-mozjs && taskboot cargo-publish --ignore-published && cd ..
                   cd tree-sitter-mozcpp && taskboot cargo-publish --ignore-published && cd ..
                   taskboot cargo-publish --ignore-published
-                  cd rust-code-analysis-cli && taskboot cargo-publish --ignore-published && cd ..
-                  cd rust-code-analysis-web && taskboot cargo-publish --igoure-published
+                  cd big-code-analysis-cli && taskboot cargo-publish --ignore-published && cd ..
+                  cd big-code-analysis-web && taskboot cargo-publish --igoure-published
             metadata:
-              name: "rust-code-analysis crates publishing on crates.io ${head_branch[10:]}"
-              description: rust-code-analysis crates publishing on crates.io
+              name: "big-code-analysis crates publishing on crates.io ${head_branch[10:]}"
+              description: big-code-analysis crates publishing on crates.io
               owner: cdenizet@mozilla.com
               source: ${repository}/raw/${head_rev}/.taskcluster.yml
 
@@ -542,32 +542,32 @@ tasks:
               - "-cxe"
               - |-
                 git clone --quiet ${repository}
-                cd rust-code-analysis
+                cd big-code-analysis
                 git -c advice.detachedHead=false checkout ${head_rev}
                 cargo update
                 cargo build --workspace --release
                 cargo package --all-features
-                pushd rust-code-analysis-cli && cargo package --all-features && popd
-                pushd rust-code-analysis-web && cargo package --all-features && popd
+                pushd big-code-analysis-cli && cargo package --all-features && popd
+                pushd big-code-analysis-web && cargo package --all-features && popd
                 cd target/release
-                tar -zvcf /rust-code-analysis-linux-cli-x86_64.tar.gz rust-code-analysis-cli
-                tar -zvcf /rust-code-analysis-linux-web-x86_64.tar.gz rust-code-analysis-web
+                tar -zvcf /big-code-analysis-linux-cli-x86_64.tar.gz big-code-analysis-cli
+                tar -zvcf /big-code-analysis-linux-web-x86_64.tar.gz big-code-analysis-web
             artifacts:
-              public/rust-code-analysis-linux-cli-x86_64.tar.gz:
+              public/big-code-analysis-linux-cli-x86_64.tar.gz:
                 expires: {$fromNow: '2 weeks'}
-                path: /rust-code-analysis-linux-cli-x86_64.tar.gz
+                path: /big-code-analysis-linux-cli-x86_64.tar.gz
                 type: file
-              public/rust-code-analysis-linux-web-x86_64.tar.gz:
+              public/big-code-analysis-linux-web-x86_64.tar.gz:
                 expires: {$fromNow: '2 weeks'}
-                path: /rust-code-analysis-linux-web-x86_64.tar.gz
+                path: /big-code-analysis-linux-web-x86_64.tar.gz
                 type: file
               public/Cargo.lock:
                 expires: {$fromNow: '2 weeks'}
-                path: /rust-code-analysis/Cargo.lock
+                path: /big-code-analysis/Cargo.lock
                 type: file
           metadata:
-            name: rust-code-analysis linux release build
-            description: rust-code-analysis linux release build
+            name: big-code-analysis linux release build
+            description: big-code-analysis linux release build
             owner: cdenizet@mozilla.com
             source: ${repository}/raw/${head_rev}/.taskcluster.yml
 
@@ -595,37 +595,37 @@ tasks:
               - rustup-init -yv --default-toolchain stable ^
                                 --default-host x86_64-pc-windows-msvc
               - git clone --quiet ${repository}
-              - cd rust-code-analysis
+              - cd big-code-analysis
               - git -c advice.detachedHead=false checkout ${head_rev}
               - cargo build --workspace --release
-              - 7z a rust-code-analysis-win-cli-x86_64.zip "target\release\rust-code-analysis-cli.exe"
-              - 7z a rust-code-analysis-win-web-x86_64.zip "target\release\rust-code-analysis-web.exe"
+              - 7z a big-code-analysis-win-cli-x86_64.zip "target\release\big-code-analysis-cli.exe"
+              - 7z a big-code-analysis-win-web-x86_64.zip "target\release\big-code-analysis-web.exe"
             mounts:
               - content:
                   url: https://win.rustup.rs/
                 file: rustup-init\rustup-init.exe
             artifacts:
-              - name: public/rust-code-analysis-win-cli-x86_64.zip
+              - name: public/big-code-analysis-win-cli-x86_64.zip
                 expires: {$fromNow: '2 weeks'}
-                path: rust-code-analysis\rust-code-analysis-win-cli-x86_64.zip
+                path: big-code-analysis\big-code-analysis-win-cli-x86_64.zip
                 type: file
-              - name: public/rust-code-analysis-win-web-x86_64.zip
+              - name: public/big-code-analysis-win-web-x86_64.zip
                 expires: {$fromNow: '2 weeks'}
-                path: rust-code-analysis\rust-code-analysis-win-web-x86_64.zip
+                path: big-code-analysis\big-code-analysis-win-web-x86_64.zip
                 type: file
           metadata:
-            name: rust-code-analysis windows release build
-            description: rust-code-analysis windows release build
+            name: big-code-analysis windows release build
+            description: big-code-analysis windows release build
             owner: cdenizet@mozilla.com
             source: ${repository}/raw/${head_rev}/.taskcluster.yml
 
       - $if: 'tasks_for == "github-push" && head_branch[:10] == "refs/tags/"'
         then:
           $let:
-            linux_cli: rust-code-analysis-linux-cli-x86_64.tar.gz
-            linux_web: rust-code-analysis-linux-web-x86_64.tar.gz
-            win_cli: rust-code-analysis-win-cli-x86_64.zip
-            win_web: rust-code-analysis-win-web-x86_64.zip
+            linux_cli: big-code-analysis-linux-cli-x86_64.tar.gz
+            linux_web: big-code-analysis-linux-web-x86_64.tar.gz
+            win_cli: big-code-analysis-win-cli-x86_64.zip
+            win_web: big-code-analysis-win-web-x86_64.zip
           in:
             taskId: {$eval: as_slugid("deploy_release")}
             dependencies:
@@ -638,21 +638,21 @@ tasks:
             provisionerId: proj-relman
             workerType: ci
             scopes:
-              - secrets:get:project/relman/rust-code-analysis/deploy
+              - secrets:get:project/relman/big-code-analysis/deploy
             payload:
               features:
                 taskclusterProxy: true
               maxRunTime: 3600
               image: "${taskboot_image}"
               env:
-                TASKCLUSTER_SECRET: project/relman/rust-code-analysis/deploy
+                TASKCLUSTER_SECRET: project/relman/big-code-analysis/deploy
               command:
                 - "/bin/sh"
                 - "-cxe"
                 - |-
-                  taskboot github-release mozilla/rust-code-analysis ${head_branch[10:]} --asset Cargo.lock:public/Cargo.lock ${linux_cli}:public/${linux_cli} ${linux_web}:public/${linux_web} ${win_cli}:public/${win_cli} ${win_web}:public/${win_web}
+                  taskboot github-release dekobon/big-code-analysis ${head_branch[10:]} --asset Cargo.lock:public/Cargo.lock ${linux_cli}:public/${linux_cli} ${linux_web}:public/${linux_web} ${win_cli}:public/${win_cli} ${win_web}:public/${win_web}
             metadata:
-              name: "rust-code-analysis release publication ${head_branch[10:]}"
-              description: rust-code-analysis release publication on Github
+              name: "big-code-analysis release publication ${head_branch[10:]}"
+              description: big-code-analysis release publication on Github
               owner: cdenizet@mozilla.com
               source: ${repository}/raw/${head_rev}/.taskcluster.yml

@@ -103,7 +103,7 @@ description: Complete workflow for fixing GitHub issues including investigation,
       Changed, Fixed) if the project keeps one.
     - `README.md` — if user-facing behavior, install steps, or supported
       languages changed.
-    - `rust-code-analysis-book/` — if the change affects documented metrics,
+    - `big-code-analysis-book/` — if the change affects documented metrics,
       output formats, or CLI behavior.
     - Crate-level or module-level doc comments (`//!`) — if module intent or
       architecture changed.
