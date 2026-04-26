@@ -21,6 +21,7 @@ pub enum Ccomment {
     TranslationUnitRepeat1 = 14,
     DefineRepeat1 = 15,
     Error = 16,
+    
 }
 
 impl From<Ccomment> for &'static str {
@@ -44,6 +45,7 @@ impl From<Ccomment> for &'static str {
             Ccomment::TranslationUnitRepeat1 => "translation_unit_repeat1",
             Ccomment::DefineRepeat1 => "define_repeat1",
             Ccomment::Error => "ERROR",
+            
         }
     }
 }
