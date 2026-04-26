@@ -650,6 +650,22 @@ mod tests {
     }
 
     #[test]
+    fn javascript_no_cognitive() {
+        check_metrics::<JavascriptParser>("var a = 42;", "foo.js", |metric| {
+            insta::assert_json_snapshot!(
+                metric.cognitive,
+                @r###"
+                    {
+                      "sum": 0.0,
+                      "average": null,
+                      "min": 0.0,
+                      "max": 0.0
+                    }"###
+            );
+        });
+    }
+
+    #[test]
     fn python_simple_function() {
         check_metrics::<PythonParser>(
             "def f(a, b):
@@ -836,6 +852,33 @@ mod tests {
                  }
                  if (c && d) { // +2 (+1 &&)
                      window.print(\"test\");
+                 }
+             }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 4.0,
+                      "min": 0.0,
+                      "max": 4.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_simple_function() {
+        check_metrics::<JavascriptParser>(
+            "function f() {
+                 if (a && b) { // +2 (+1 &&)
+                     console.log(\"test\");
+                 }
+                 if (c || d) { // +2 (+1 ||)
+                     console.log(\"test\");
                  }
              }",
             "foo.js",
@@ -1436,6 +1479,34 @@ mod tests {
     }
 
     #[test]
+    fn javascript_nesting() {
+        check_metrics::<JavascriptParser>(
+            "function f() {
+                 if (a) { // +1
+                     for (let i = 0; i < 10; i++) { // +2 (nesting = 1)
+                         while (b) { // +3 (nesting = 2)
+                             console.log(\"test\");
+                         }
+                     }
+                 }
+             }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 6.0,
+                      "average": 6.0,
+                      "min": 0.0,
+                      "max": 6.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
     fn python_2_level_nesting() {
         check_metrics::<PythonParser>(
             "def f(a, b):
@@ -1540,6 +1611,38 @@ mod tests {
                       "average": 3.0,
                       "min": 0.0,
                       "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_try_construct() {
+        check_metrics::<JavascriptParser>(
+            "function f() {
+                 for (let i = 0; i < 10; i++) { // +1
+                     try {
+                         doSomething(i);
+                     } catch (ex) { // +2 (nesting = 1)
+                         if (ex instanceof TypeError) { // +3 (nesting = 2)
+                             console.error(\"type error\");
+                         }
+                     } finally {
+                         cleanup();
+                     }
+                 }
+             }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 6.0,
+                      "average": 6.0,
+                      "min": 0.0,
+                      "max": 6.0
                     }"###
                 );
             },
@@ -1660,6 +1763,38 @@ mod tests {
                          break;
                      default:
                          window.print(\"all\");
+                         break;
+                 }
+             }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_switch() {
+        check_metrics::<JavascriptParser>(
+            "function f() {
+                 switch (x) { // +1
+                     case 1:
+                         console.log(\"one\");
+                         break;
+                     case 2:
+                         console.log(\"two\");
+                         break;
+                     default:
+                         console.log(\"other\");
                          break;
                  }
              }",
@@ -2212,7 +2347,94 @@ mod tests {
                   "min": 0.0,
                   "max": 3.0
                 }
-                "#);
+                 "#);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_nested_if_for_with_booleans() {
+        check_metrics::<TsxParser>(
+            "function process(items: number[]) {
+                 if (items.length > 0) { // +1
+                     for (let i = 0; i < items.length; i++) { // +2 (nesting=1)
+                         if (items[i] > 0 && items[i] < 100) { // +3 (nesting=2) +1 (&&)
+                             console.log(items[i]);
+                         }
+                     }
+                 }
+             }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 7.0,
+                      "average": 7.0,
+                      "min": 0.0,
+                      "max": 7.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_nested_if_with_boolean_sequence() {
+        check_metrics::<TypescriptParser>(
+            "function validate(input: string, strict: boolean): boolean {
+                 if (input.length > 0) { // +1
+                     if (strict && input.trim() === input) { // +2 (nesting=1) +1 (&&)
+                         return true;
+                     }
+                 }
+                 return false;
+             }",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 4.0,
+                      "min": 0.0,
+                      "max": 4.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_try_catch_with_nesting() {
+        check_metrics::<TypescriptParser>(
+            "function fetchData(url: string): string {
+                 try {
+                     if (url.length === 0) { // +1
+                         throw new Error('empty url');
+                     }
+                     return url;
+                 } catch (e) { // +1
+                     if (e instanceof Error) { // +2 (nesting=1)
+                         return e.message;
+                     }
+                     return 'unknown error';
+                 }
+             }",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 4.0,
+                      "min": 0.0,
+                      "max": 4.0
+                    }"###
+                );
             },
         );
     }

@@ -609,6 +609,68 @@ mod tests {
     }
 
     #[test]
+    fn javascript_simple_function() {
+        check_metrics::<JavascriptParser>(
+            "function f(a, b) { // +2 (+1 unit space)
+                 if (a) { // +1
+                     return a;
+                 } else if (b) { // +1
+                     return b;
+                 }
+                 return 0;
+             }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 2.0,
+                      "min": 1.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_switch() {
+        check_metrics::<JavascriptParser>(
+            "function f() { // +2 (+1 unit space)
+                 switch (x) {
+                     case 1: // +1
+                         console.log(\"one\");
+                         break;
+                     case 2: // +1
+                         console.log(\"two\");
+                         break;
+                     case 3: // +1
+                         console.log(\"three\");
+                         break;
+                     default:
+                         console.log(\"other\");
+                         break;
+                 }
+             }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 5.0,
+                      "average": 2.5,
+                      "min": 1.0,
+                      "max": 4.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
     fn go_simple_function() {
         check_metrics::<GoParser>(
             "package main
@@ -1089,7 +1151,102 @@ mod tests {
                   "min": 1.0,
                   "max": 3.0
                 }
-                "#
+                 "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_simple_function() {
+        check_metrics::<TsxParser>(
+            "function f(a: number, b: number) { // +2 (+1 unit space)
+                 if (a > 0) { // +1
+                     return a;
+                 } else if (b > 0) { // +1
+                     return b;
+                 }
+                 return 0;
+             }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 2.0,
+                      "min": 1.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_if_else_and_switch() {
+        check_metrics::<TypescriptParser>(
+            "function classify(value: number): string {
+                 if (value < 0) { // +1
+                     return 'negative';
+                 } else if (value === 0) { // +1
+                     return 'zero';
+                 }
+                 switch (value) {
+                     case 1: // +1
+                         return 'one';
+                     case 2: // +1
+                         return 'two';
+                     default:
+                         return 'other';
+                 }
+             }",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 6.0,
+                      "average": 3.0,
+                      "min": 1.0,
+                      "max": 5.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_if_else_and_switch() {
+        check_metrics::<MozjsParser>(
+            "function f(x) { // +2 (+1 unit space)
+                 if (x > 0) { // +1
+                     return 1;
+                 } else if (x < 0) { // +1
+                     return -1;
+                 }
+                 switch (x) {
+                     case 0: // +1
+                         return 0;
+                     case 42: // +1
+                         return 42;
+                     default:
+                         return -2;
+                 }
+             }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 6.0,
+                      "average": 3.0,
+                      "min": 1.0,
+                      "max": 5.0
+                    }"###
                 );
             },
         );
