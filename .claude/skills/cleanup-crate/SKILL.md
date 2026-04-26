@@ -13,8 +13,8 @@ parallel worktrees, and integrates successful changes.
 
 Parse `$ARGUMENTS` as: `<crate-name> [--dry-run] [--aggressive]`
 
-- `<crate-name>` (required): one of `rust-code-analysis`,
-  `rust-code-analysis-cli`, `rust-code-analysis-web`
+- `<crate-name>` (required): one of `big-code-analysis`,
+  `big-code-analysis-cli`, `big-code-analysis-web`
 - `--dry-run` (optional): stop after Step 2 (analysis) and print the removal
   candidates without spawning worktree agents
 - `--aggressive` (optional): also flag items that require user approval
@@ -39,7 +39,7 @@ Parse `$ARGUMENTS` as: `<crate-name> [--dry-run] [--aggressive]`
 - Test utilities and fixtures (in `#[cfg(test)]` or `tests/` directories)
 - Code with `#[allow(dead_code)]` annotations (explicit developer intent)
 - Items referenced in doc comments, examples, or the mdBook under
-  `rust-code-analysis-book/`
+  `big-code-analysis-book/`
 
 ## Auto-remove vs Approval Required
 
@@ -61,8 +61,8 @@ Parse `$ARGUMENTS` as: `<crate-name> [--dry-run] [--aggressive]`
 ## File Scope
 
 - All `.rs` files in the crate's directory
-- For the root `rust-code-analysis` crate, scope is `src/` and `tests/`
-- For `rust-code-analysis-cli` / `rust-code-analysis-web`, scope is the
+- For the root `big-code-analysis` crate, scope is `src/` and `tests/`
+- For `big-code-analysis-cli` / `big-code-analysis-web`, scope is the
   matching subdirectory's `src/` and `tests/`
 
 ## Constraints
@@ -365,7 +365,7 @@ git commit -m "<conventional commit message>"
 ```
 
 Commit message: `<type>(<scope>): <subject>`, typically `refactor` or
-`chore`, scope is the crate (e.g., `refactor(rust-code-analysis): remove
+`chore`, scope is the crate (e.g., `refactor(big-code-analysis): remove
 unused traversal helpers`).
 
 ### 3g: Report result

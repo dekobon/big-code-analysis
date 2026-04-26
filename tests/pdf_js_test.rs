@@ -4,7 +4,7 @@ use common::compare_rca_output_with_files;
 
 #[test]
 fn test_pdfjs() {
-    // FIXME: Ignoring these files temporarily due to a parse error (see issue: https://github.com/mozilla/rust-code-analysis/issues/1143),
+    // FIXME: Ignoring these files temporarily due to a parse error (see issue: https://github.com/mozilla/big-code-analysis/issues/1143),
     // in order to allow CI to pass until the issue is resolved.
     let exclude = &[
         "**/pdf.js/extensions/firefox/tools/l10n.js",

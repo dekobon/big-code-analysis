@@ -136,7 +136,7 @@ EFFORT: trivial | small | medium
 32. Are new types/structs using appropriate visibility (`pub`, `pub(crate)`,
     private)?
 33. Does the change maintain backward compatibility where required, or is the
-    break intentional and documented? (`rust-code-analysis` is published as a
+    break intentional and documented? (`big-code-analysis` is published as a
     library on crates.io — public API breaks affect downstream users.)
 
 ### Tests

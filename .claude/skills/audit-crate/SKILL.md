@@ -1,6 +1,6 @@
 ---
 name: audit-crate
-description: Audit a Rust crate in the rust-code-analysis workspace for logic errors, complexity, bugs, security issues, and code smells. Operates at the crate level via `cargo -p`. Use when asked to audit or review a crate.
+description: Audit a Rust crate in the big-code-analysis workspace for logic errors, complexity, bugs, security issues, and code smells. Operates at the crate level via `cargo -p`. Use when asked to audit or review a crate.
 ---
 
 # Audit Crate
@@ -8,9 +8,9 @@ description: Audit a Rust crate in the rust-code-analysis workspace for logic er
 Audit the Rust crate `$ARGUMENTS` for logic errors, unnecessary complexity,
 bugs, security issues, incorrect comments, and code smells.
 
-If `$ARGUMENTS` is empty, default to `rust-code-analysis` — the root library
-crate. The other crates in this workspace are `rust-code-analysis-cli` and
-`rust-code-analysis-web`. The crate root is the directory containing the
+If `$ARGUMENTS` is empty, default to `big-code-analysis` — the root library
+crate. The other crates in this workspace are `big-code-analysis-cli` and
+`big-code-analysis-web`. The crate root is the directory containing the
 crate's `Cargo.toml`.
 
 **Resolve `$ARGUMENTS` once at the very start of the run** and use the
@@ -175,7 +175,7 @@ If the memory does not exist, treat all files as priority 1 (first audit).
 
 ### 2a: Build baseline
 
-`rust-code-analysis` is a Cargo workspace, so always pass `-p $ARGUMENTS` to
+`big-code-analysis` is a Cargo workspace, so always pass `-p $ARGUMENTS` to
 scope build/test/clippy commands to the crate under audit.
 
 ```bash
@@ -190,7 +190,7 @@ Anything already broken is NOT your problem to fix — note it as context only.
 ### 2b: Collect code metrics
 
 If a code-metrics tool is available (this project itself is one — the
-`rust-code-analysis-cli` binary computes the same metrics on any source tree),
+`big-code-analysis-cli` binary computes the same metrics on any source tree),
 run it scoped to the crate directory. The output highlights cyclomatic /
 cognitive complexity hotspots, Halstead defect estimates, function-size
 outliers, and maintainability-index scores — all of which direct the audit to
@@ -203,8 +203,8 @@ CRATE_DIR=$(cargo metadata --format-version 1 --no-deps \
   | xargs dirname)
 
 # Self-host: use this project's own CLI to measure the crate under audit.
-if cargo build -p rust-code-analysis-cli >/dev/null 2>&1; then
-  ./target/debug/rust-code-analysis-cli -m -O json -p "$CRATE_DIR" > /tmp/audit-metrics.json || true
+if cargo build -p big-code-analysis-cli >/dev/null 2>&1; then
+  ./target/debug/big-code-analysis-cli -m -O json -p "$CRATE_DIR" > /tmp/audit-metrics.json || true
 fi
 ```
 
@@ -250,9 +250,9 @@ Group every file into one of these categories before auditing:
 | Group | Contents |
 |-------|----------|
 | A — Library core | `src/lib.rs` and the modules it exports (`src/languages/`, `src/metrics/`, `src/output/`, `src/spaces.rs`, `src/parser.rs`, `src/checker.rs`, `src/getter.rs`, `src/alterator.rs`, `src/node.rs`, `src/traits.rs`, etc.) |
-| B — Binaries | `src/bin/` entries plus the workspace crates `rust-code-analysis-cli` and `rust-code-analysis-web` when those are the audit target |
+| B — Binaries | `src/bin/` entries plus the workspace crates `big-code-analysis-cli` and `big-code-analysis-web` when those are the audit target |
 | C — Tests | `tests/` directory |
-| D — Supporting files | `README.md`, examples, `Cargo.toml`, `rust-code-analysis-book/`, helper scripts, `.claude/rules/` if present |
+| D — Supporting files | `README.md`, examples, `Cargo.toml`, `big-code-analysis-book/`, helper scripts, `.claude/rules/` if present |
 
 **Use the priority table from Step 1** to order files within each group. Audit
 highest-priority files first. For a focused session, you may skip priority-5
@@ -351,7 +351,7 @@ will apply, so the vocabulary must match end-to-end. Mapping rules:
 26. Is `default-features = false` used where the full default feature set is
     not needed?
 
-### Project-Specific (rust-code-analysis)
+### Project-Specific (big-code-analysis)
 
 27. Per-language modules under `src/languages/` deliberately mirror each
     other. Does any change introduce a discrepancy that one language exhibits

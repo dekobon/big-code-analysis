@@ -98,8 +98,8 @@ Clarity beats performance for non-critical paths.
 
 ## Project Conventions
 
-This project is the `rust-code-analysis` Rust workspace (root crate plus
-`rust-code-analysis-cli` and `rust-code-analysis-web`). Key Rust principles to
+This project is the `big-code-analysis` Rust workspace (root crate plus
+`big-code-analysis-cli` and `big-code-analysis-web`). Key Rust principles to
 enforce:
 
 - Never write `unsafe` code

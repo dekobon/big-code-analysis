@@ -4,7 +4,7 @@ use common::compare_rca_output_with_files;
 
 #[test]
 fn test_deepspeech() {
-    // FIXME: Ignoring these files temporarily due to parsing errors (see issue: https://github.com/mozilla/rust-code-analysis/issues/1142),
+    // FIXME: Ignoring these files temporarily due to parsing errors (see issue: https://github.com/mozilla/big-code-analysis/issues/1142),
     // in order to allow CI to pass until the issue is resolved.
     let exclude = &[
         "**/DeepSpeech/native_client/deepspeech.cc",

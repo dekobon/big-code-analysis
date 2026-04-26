@@ -1,10 +1,10 @@
 [package]
-name = "rust-code-analysis"
+name = "big-code-analysis"
 version = "0.0.25"
 authors = ["Calixte Denizet <cdenizet@mozilla.com>"]
 edition = "2024"
-repository = "https://github.com/mozilla/rust-code-analysis"
-documentation = "https://docs.rs/rust-code-analysis/"
+repository = "https://github.com/mozilla/big-code-analysis"
+documentation = "https://docs.rs/big-code-analysis/"
 readme = "README.md"
 keywords = ["metrics"]
 description = "Tool to compute and export code metrics"
@@ -48,7 +48,7 @@ opt-level = 3
 opt-level = 3
 
 [workspace]
-members = ["rust-code-analysis-cli", "rust-code-analysis-web"]
+members = ["big-code-analysis-cli", "big-code-analysis-web"]
 exclude = ["enums"]
 
 [profile.release]

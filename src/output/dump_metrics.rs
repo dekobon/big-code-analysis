@@ -27,7 +27,7 @@ use crate::tools::{color, intense_color};
 /// ```
 /// use std::path::PathBuf;
 ///
-/// use rust_code_analysis::{dump_root, metrics, CppParser, ParserTrait};
+/// use big_code_analysis::{dump_root, metrics, CppParser, ParserTrait};
 ///
 /// let source_code = "int a = 42;";
 ///
