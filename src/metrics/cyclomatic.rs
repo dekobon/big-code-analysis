@@ -242,6 +242,40 @@ impl Cyclomatic for GoCode {
     }
 }
 
+impl Cyclomatic for PerlCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        use Perl as P;
+
+        match node.kind_id().into() {
+            // Branching control-flow constructs
+            P::IfStatement
+            | P::UnlessStatement
+            | P::ElsifClause
+            | P::WhileStatement
+            | P::UntilStatement
+            | P::ForStatement1
+            | P::ForStatement2
+            | P::WhenSimpleStatement
+            // Postfix conditional / loop forms (`do_thing() if cond;`)
+            | P::IfSimpleStatement
+            | P::UnlessSimpleStatement
+            | P::WhileSimpleStatement
+            | P::UntilSimpleStatement
+            | P::ForSimpleStatement
+            // Short-circuit boolean operators and ternary
+            | P::AMPAMP
+            | P::PIPEPIPE
+            | P::SLASHSLASH
+            | P::And
+            | P::Or
+            | P::TernaryExpression => {
+                stats.cyclomatic += 1.;
+            }
+            _ => {}
+        }
+    }
+}
+
 implement_metric_trait!(Cyclomatic, KotlinCode, PreprocCode, CcommentCode);
 
 #[cfg(test)]
@@ -876,6 +910,186 @@ mod tests {
                       "min": 1.0,
                       "max": 2.0
                     }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn perl_nested_control_flow() {
+        check_metrics::<PerlParser>(
+            "sub f { # +1 (unit) +1 (sub)
+                for my $i (1..10) { # +1 for_statement_2
+                    if ($i % 2) { # +1 if_statement
+                        print $i;
+                    }
+                }
+            }",
+            "foo.pl",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 2.0,
+                  "min": 1.0,
+                  "max": 3.0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn perl_postfix_conditionals() {
+        check_metrics::<PerlParser>(
+            "sub f { # +1 (unit) +1 (sub)
+                return 1 if $_[0]; # +1 if_simple_statement
+                return 0 unless $_[1]; # +1 unless_simple_statement
+            }",
+            "foo.pl",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 2.0,
+                  "min": 1.0,
+                  "max": 3.0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn perl_unless_and_until() {
+        check_metrics::<PerlParser>(
+            "sub f { # +1 (unit) +1 (sub)
+                unless ($x) { # +1 unless_statement
+                    print 'a';
+                }
+                until ($n == 0) { # +1 until_statement
+                    $n--;
+                }
+            }",
+            "foo.pl",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 2.0,
+                  "min": 1.0,
+                  "max": 3.0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn perl_logical_operators_and_ternary() {
+        check_metrics::<PerlParser>(
+            "sub f { # +1 (unit) +1 (sub)
+                my $x = $a && $b; # +1 (&&)
+                my $y = $c || $d; # +1 (||)
+                my $z = $e // $f; # +1 (//)
+                my $t = $g ? 1 : 0; # +1 ternary
+            }",
+            "foo.pl",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r#"
+                {
+                  "sum": 6.0,
+                  "average": 3.0,
+                  "min": 1.0,
+                  "max": 5.0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn perl_word_logical_operators() {
+        check_metrics::<PerlParser>(
+            "sub f { # +1 (unit) +1 (sub)
+                my $x = $a and $b; # +1 (and)
+                my $y = $c or $d; # +1 (or)
+            }",
+            "foo.pl",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 2.0,
+                  "min": 1.0,
+                  "max": 3.0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn perl_foreach_loop() {
+        check_metrics::<PerlParser>(
+            "sub f { # +1 (unit) +1 (sub)
+                foreach my $i (@list) { # +1 for_statement_2
+                    print $i;
+                }
+            }",
+            "foo.pl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cyclomatic, @r#"
+                {
+                  "sum": 3.0,
+                  "average": 1.5,
+                  "min": 1.0,
+                  "max": 2.0
+                }
+                "#);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_else_does_not_count_but_elsif_does() {
+        check_metrics::<PerlParser>(
+            "sub f { # +1 (unit) +1 (sub)
+                if ($x) { # +1 if_statement
+                    print 'a';
+                } elsif ($y) { # +1 elsif_clause
+                    print 'b';
+                } else {
+                    print 'c';
+                }
+            }",
+            "foo.pl",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 2.0,
+                  "min": 1.0,
+                  "max": 3.0
+                }
+                "#
                 );
             },
         );

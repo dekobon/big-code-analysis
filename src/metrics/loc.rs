@@ -913,6 +913,82 @@ impl Loc for GoCode {
     }
 }
 
+impl Loc for PerlCode {
+    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool, is_unit: bool) {
+        use Perl as P;
+
+        let (start, end) = init(node, stats, is_func_space, is_unit);
+
+        match node.kind_id().into() {
+            P::SourceFile
+            | P::Block
+            | P::StandaloneBlock
+            | P::HeredocBodyStatement
+            | P::HeredocContent
+            | P::PodContent
+            | P::StringSingleQuoted
+            | P::StringDoubleQuoted
+            | P::StringQQuoted
+            | P::StringQqQuoted
+            | P::BacktickQuoted
+            | P::CommandQxQuoted
+            // Internal string tokens — already accounted for by the
+            // parent string node's start row.
+            | P::SQUOTE
+            | P::DQUOTE
+            | P::StringContent
+            | P::StringSingleQuotedContent
+            | P::StringSingleQQuotedContent
+            | P::StringQqQuotedContent
+            | P::StringDoubleQuotedContent
+            | P::EscapeSequence
+            | P::EscapeSequenceToken1
+            | P::Interpolation => {}
+            P::Comments | P::PodStatement => {
+                add_cloc_lines(stats, start, end);
+            }
+            P::SingleLineStatement
+            | P::IfStatement
+            | P::UnlessStatement
+            | P::WhileStatement
+            | P::UntilStatement
+            | P::ForStatement1
+            | P::ForStatement2
+            | P::LoopControlStatement
+            | P::PackageStatement
+            | P::RequireStatement
+            | P::UseNoStatement
+            | P::UseNoFeatureStatement
+            | P::UseNoIfStatement
+            | P::UseNoSubsStatement
+            | P::UseConstantStatement
+            | P::UseParentStatement
+            | P::UseNoVersion
+            | P::EllipsisStatement => {
+                stats.lloc.logical_lines += 1;
+            }
+            P::SEMI => {
+                // A `;` at top of `source_file` / a function `block` ends a
+                // statement (Perl wraps simple expressions in semicolons
+                // rather than emitting a dedicated statement kind), so it
+                // contributes one LLOC. Then fall through to the same PLOC
+                // bookkeeping the catch-all arm does.
+                if let Some(parent) = node.parent()
+                    && matches!(parent.kind_id().into(), P::SourceFile | P::Block)
+                {
+                    stats.lloc.logical_lines += 1;
+                }
+                check_comment_ends_on_code_line(stats, start);
+                stats.ploc.lines.insert(start);
+            }
+            _ => {
+                check_comment_ends_on_code_line(stats, start);
+                stats.ploc.lines.insert(start);
+            }
+        }
+    }
+}
+
 implement_metric_trait!(Loc, PreprocCode, CcommentCode, KotlinCode);
 
 #[cfg(test)]
@@ -920,6 +996,27 @@ mod tests {
     use crate::tools::check_metrics;
 
     use super::*;
+
+    /// Parses `source` with `PerlParser` and asserts the resulting tree has
+    /// no `ERROR` nodes. Use alongside metric assertions whose expected
+    /// values would happen to match what an error tree produces — a parse
+    /// regression in tree-sitter-perl could otherwise leave such tests
+    /// silently green.
+    #[cfg(test)]
+    fn assert_perl_parses_cleanly(source: &str) {
+        use crate::traits::ParserTrait;
+        // Mirror the trailing-newline normalisation `check_func_space` does
+        // before handing input to the parser, so this helper sees the same
+        // bytes the metric tests do.
+        let path = std::path::PathBuf::from("foo.pl");
+        let mut bytes = source.trim_end_matches('\n').as_bytes().to_vec();
+        bytes.push(b'\n');
+        let parser = PerlParser::new(bytes, &path, None);
+        assert!(
+            !parser.get_root().has_error(),
+            "tree-sitter-perl returned an error tree for snippet:\n{source}"
+        );
+    }
 
     #[test]
     fn python_sloc() {
@@ -3605,6 +3702,506 @@ mod tests {
                 // Expected lloc: for (+1), return (+1), return (+1) = 3.
                 // Without the gate, ShortVarDeclaration would add an extra (+1).
                 assert_eq!(metric.loc.lloc(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_grammar_smoke() {
+        // Pin the contract that tree-sitter-perl 1.1.2 cleanly parses every
+        // Perl construct exercised by the rest of the `perl_*` test suite.
+        // If a future grammar bump turns one of these into an error tree,
+        // the metric assertions might still pass numerically by coincidence;
+        // this test fails loudly instead.
+        assert_perl_parses_cleanly(
+            "use strict;
+use warnings;
+
+# line comment
+
+=pod
+multi-line POD
+=cut
+
+sub factorial {
+    my ($n) = @_;
+    return 1 if $n <= 1;
+    return $n * factorial($n - 1);
+}
+
+my @arr = (1, 2, 3);
+my %hash = (a => 1, b => 2);
+my $closure = sub { return $_[0] + 1; };
+
+for my $i (1..3) {
+    if ($i % 2 == 0) {
+        print \"even\\n\";
+    } elsif ($i == 1) {
+        print \"one\\n\";
+    } else {
+        print \"odd\\n\";
+    }
+}
+
+while ($x > 0) {
+    last if $x == 0;
+    $x--;
+}
+
+unless ($done) {
+    next;
+}
+
+my $heredoc = <<END;
+hello
+END
+",
+        );
+    }
+
+    #[test]
+    fn perl_blank() {
+        check_metrics::<PerlParser>(
+            "
+
+my $a = 42;
+
+my $b = 43;
+
+",
+            "foo.pl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc, @r#"
+                {
+                  "sloc": 3.0,
+                  "ploc": 2.0,
+                  "lloc": 2.0,
+                  "cloc": 0.0,
+                  "blank": 1.0,
+                  "sloc_average": 3.0,
+                  "ploc_average": 2.0,
+                  "lloc_average": 2.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 1.0,
+                  "sloc_min": 3.0,
+                  "sloc_max": 3.0,
+                  "cloc_min": 0.0,
+                  "cloc_max": 0.0,
+                  "ploc_min": 2.0,
+                  "ploc_max": 2.0,
+                  "lloc_min": 2.0,
+                  "lloc_max": 2.0,
+                  "blank_min": 1.0,
+                  "blank_max": 1.0
+                }
+                "#);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_no_zero_blank() {
+        check_metrics::<PerlParser>(
+            "my $a = 1;
+my $b = 2;",
+            "foo.pl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc, @r#"
+                {
+                  "sloc": 2.0,
+                  "ploc": 2.0,
+                  "lloc": 2.0,
+                  "cloc": 0.0,
+                  "blank": 0.0,
+                  "sloc_average": 2.0,
+                  "ploc_average": 2.0,
+                  "lloc_average": 2.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 2.0,
+                  "sloc_max": 2.0,
+                  "cloc_min": 0.0,
+                  "cloc_max": 0.0,
+                  "ploc_min": 2.0,
+                  "ploc_max": 2.0,
+                  "lloc_min": 2.0,
+                  "lloc_max": 2.0,
+                  "blank_min": 0.0,
+                  "blank_max": 0.0
+                }
+                "#);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_cloc_line_comments() {
+        check_metrics::<PerlParser>(
+            "# top comment
+my $a = 1; # trailing
+my $b = 2;",
+            "foo.pl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc, @r#"
+                {
+                  "sloc": 3.0,
+                  "ploc": 3.0,
+                  "lloc": 2.0,
+                  "cloc": 2.0,
+                  "blank": 0.0,
+                  "sloc_average": 3.0,
+                  "ploc_average": 3.0,
+                  "lloc_average": 2.0,
+                  "cloc_average": 2.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 3.0,
+                  "sloc_max": 3.0,
+                  "cloc_min": 2.0,
+                  "cloc_max": 2.0,
+                  "ploc_min": 3.0,
+                  "ploc_max": 3.0,
+                  "lloc_min": 2.0,
+                  "lloc_max": 2.0,
+                  "blank_min": 0.0,
+                  "blank_max": 0.0
+                }
+                "#);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_cloc_pod_block() {
+        check_metrics::<PerlParser>(
+            "my $x = 1;
+=pod
+multi-line
+pod block
+=cut
+my $y = 2;",
+            "foo.pl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc, @r#"
+                {
+                  "sloc": 6.0,
+                  "ploc": 2.0,
+                  "lloc": 2.0,
+                  "cloc": 4.0,
+                  "blank": 0.0,
+                  "sloc_average": 6.0,
+                  "ploc_average": 2.0,
+                  "lloc_average": 2.0,
+                  "cloc_average": 4.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 6.0,
+                  "sloc_max": 6.0,
+                  "cloc_min": 4.0,
+                  "cloc_max": 4.0,
+                  "ploc_min": 2.0,
+                  "ploc_max": 2.0,
+                  "lloc_min": 2.0,
+                  "lloc_max": 2.0,
+                  "blank_min": 0.0,
+                  "blank_max": 0.0
+                }
+                "#);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_lloc_simple_statements() {
+        check_metrics::<PerlParser>(
+            "my $a = 1;
+my $b = 2;
+my $c = 3;",
+            "foo.pl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc, @r#"
+                {
+                  "sloc": 3.0,
+                  "ploc": 3.0,
+                  "lloc": 3.0,
+                  "cloc": 0.0,
+                  "blank": 0.0,
+                  "sloc_average": 3.0,
+                  "ploc_average": 3.0,
+                  "lloc_average": 3.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 3.0,
+                  "sloc_max": 3.0,
+                  "cloc_min": 0.0,
+                  "cloc_max": 0.0,
+                  "ploc_min": 3.0,
+                  "ploc_max": 3.0,
+                  "lloc_min": 3.0,
+                  "lloc_max": 3.0,
+                  "blank_min": 0.0,
+                  "blank_max": 0.0
+                }
+                "#);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_lloc_compound_statements() {
+        check_metrics::<PerlParser>(
+            "if ($x) {
+    print 'a';
+}
+while ($n > 0) {
+    $n--;
+}",
+            "foo.pl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc, @r#"
+                {
+                  "sloc": 6.0,
+                  "ploc": 6.0,
+                  "lloc": 4.0,
+                  "cloc": 0.0,
+                  "blank": 0.0,
+                  "sloc_average": 6.0,
+                  "ploc_average": 6.0,
+                  "lloc_average": 4.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 6.0,
+                  "sloc_max": 6.0,
+                  "cloc_min": 0.0,
+                  "cloc_max": 0.0,
+                  "ploc_min": 6.0,
+                  "ploc_max": 6.0,
+                  "lloc_min": 4.0,
+                  "lloc_max": 4.0,
+                  "blank_min": 0.0,
+                  "blank_max": 0.0
+                }
+                "#);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_lloc_postfix_form_counts_once() {
+        // `do_thing() if cond;` is one logical line — wrapped in
+        // single_line_statement; the inner if_simple_statement does not
+        // add a second LLOC.
+        check_metrics::<PerlParser>(
+            "sub f {
+    return 1 if $_[0];
+}",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.loc.lloc(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_lloc_use_statement() {
+        check_metrics::<PerlParser>(
+            "use strict;
+use warnings;
+my $x = 1;",
+            "foo.pl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc, @r#"
+                {
+                  "sloc": 3.0,
+                  "ploc": 3.0,
+                  "lloc": 3.0,
+                  "cloc": 0.0,
+                  "blank": 0.0,
+                  "sloc_average": 3.0,
+                  "ploc_average": 3.0,
+                  "lloc_average": 3.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 3.0,
+                  "sloc_max": 3.0,
+                  "cloc_min": 0.0,
+                  "cloc_max": 0.0,
+                  "ploc_min": 3.0,
+                  "ploc_max": 3.0,
+                  "lloc_min": 3.0,
+                  "lloc_max": 3.0,
+                  "blank_min": 0.0,
+                  "blank_max": 0.0
+                }
+                "#);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_lloc_for_loop() {
+        check_metrics::<PerlParser>(
+            "for my $i (1..3) {
+    print $i;
+}",
+            "foo.pl",
+            |metric| {
+                // `for_statement_2` (+1) and `print …;` SEMI in block (+1) → 2
+                assert_eq!(metric.loc.lloc(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_lloc_loop_control_statement() {
+        check_metrics::<PerlParser>(
+            "while (1) {
+    last if $done;
+}",
+            "foo.pl",
+            |metric| {
+                // while_statement (+1) + loop_control_statement (+1) = 2
+                assert_eq!(metric.loc.lloc(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_lloc_no_double_count_inside_single_line_statement() {
+        // SEMI inside a single_line_statement (postfix form) is a child of
+        // if_simple_statement, not Block — so it must not add a second LLOC.
+        check_metrics::<PerlParser>(
+            "sub f {
+    print 'a' unless $_[0];
+}",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.loc.lloc(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_lloc_function_definition_not_counted() {
+        // `sub f { ... }` itself is a function space, not an LLOC; only its
+        // body statements count.
+        check_metrics::<PerlParser>(
+            "sub f {
+    my $x = 1;
+}",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.loc.lloc(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_lloc_anonymous_function() {
+        // `my $f = sub { return 1; };` — the assignment is one LLOC at the
+        // top level (the SEMI after `};`); the `return 1;` inside the
+        // anonymous function block is a second LLOC inside the closure.
+        check_metrics::<PerlParser>("my $f = sub { return 1; };", "foo.pl", |metric| {
+            assert_eq!(metric.loc.lloc(), 2.0);
+        });
+    }
+
+    #[test]
+    fn perl_lloc_string_content_excluded_from_ploc() {
+        // The body of a multi-line double-quoted string is data, not code:
+        // intermediate rows that contain only string contents should not be
+        // added to PLOC. Row 0 holds `my $s = "line1`; row 2 holds `line3";`
+        // (both have code); row 1 is purely string content.
+        check_metrics::<PerlParser>(
+            "my $s = \"line1
+line2
+line3\";",
+            "foo.pl",
+            |metric| {
+                // PLOC = {row 0, row 2} = 2. Without the gate, row 1 would
+                // also leak in as a leaf-row of the string body.
+                assert_eq!(metric.loc.ploc(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_lloc_unless_until() {
+        check_metrics::<PerlParser>(
+            "unless ($x) {
+    print 'a';
+}
+until ($n == 0) {
+    $n--;
+}",
+            "foo.pl",
+            |metric| {
+                // unless_statement (+1) + print SEMI (+1) + until_statement (+1)
+                // + $n-- SEMI (+1) = 4
+                assert_eq!(metric.loc.lloc(), 4.0);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_lloc_heredoc_body_not_counted() {
+        // Heredoc body content is data, not code: the body lines should not
+        // contribute LLOC or PLOC.
+        check_metrics::<PerlParser>(
+            "my $s = <<END;
+line1
+line2
+END
+my $x = 1;",
+            "foo.pl",
+            |metric| {
+                // Two top-level statements: the heredoc-using `my $s = …;`
+                // and `my $x = 1;`.
+                assert_eq!(metric.loc.lloc(), 2.0);
+            },
+        );
+        // Independent confirmation that the snippet is a valid heredoc and
+        // not silently parsed as an error tree (which could otherwise yield
+        // the same `lloc == 2.0` and mask a grammar regression).
+        assert_perl_parses_cleanly(
+            "my $s = <<END;
+line1
+line2
+END
+my $x = 1;",
+        );
+    }
+
+    #[test]
+    fn perl_lloc_package_and_require() {
+        check_metrics::<PerlParser>(
+            "package Foo;
+require 5.010;
+my $x = 1;",
+            "foo.pl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc, @r#"
+                {
+                  "sloc": 3.0,
+                  "ploc": 3.0,
+                  "lloc": 3.0,
+                  "cloc": 0.0,
+                  "blank": 0.0,
+                  "sloc_average": 3.0,
+                  "ploc_average": 3.0,
+                  "lloc_average": 3.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 3.0,
+                  "sloc_max": 3.0,
+                  "cloc_min": 0.0,
+                  "cloc_max": 0.0,
+                  "ploc_min": 3.0,
+                  "ploc_max": 3.0,
+                  "lloc_min": 3.0,
+                  "lloc_max": 3.0,
+                  "blank_min": 0.0,
+                  "blank_max": 0.0
+                }
+                "#);
             },
         );
     }

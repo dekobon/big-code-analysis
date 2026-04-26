@@ -275,7 +275,8 @@ implement_metric_trait!(
     PreprocCode,
     CcommentCode,
     JavaCode,
-    KotlinCode
+    KotlinCode,
+    PerlCode
 );
 
 #[cfg(test)]
@@ -1147,6 +1148,180 @@ mod tests {
                       "closures_min": 0.0,
                       "closures_max": 1.0
                     }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn perl_no_functions_and_closures() {
+        check_metrics::<PerlParser>(
+            "my $x = 1;
+             print $x;",
+            "foo.pl",
+            |metric| {
+                // Cross-check via nom that no spurious sub/closure was
+                // recognised — symmetric with the other `perl_*` nargs
+                // tests, and would catch a regression that miscounted
+                // `print` (or similar) as a function.
+                assert_eq!(metric.nom.functions_sum(), 0.0);
+                assert_eq!(metric.nom.closures_sum(), 0.0);
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r#"
+                {
+                  "total_functions": 0.0,
+                  "total_closures": 0.0,
+                  "average_functions": 0.0,
+                  "average_closures": 0.0,
+                  "total": 0.0,
+                  "average": 0.0,
+                  "functions_min": 0.0,
+                  "functions_max": 0.0,
+                  "closures_min": 0.0,
+                  "closures_max": 0.0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn perl_single_function() {
+        // Perl args arrive via `@_` rather than as formal parameters in the
+        // `sub` signature, so nargs is always 0. To make sure the test still
+        // discriminates "function parsed" from "function silently dropped",
+        // also assert nom recognised exactly one function.
+        check_metrics::<PerlParser>(
+            "sub greet {
+                my ($name) = @_;
+                print \"hi $name\";
+            }",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 1.0);
+                assert_eq!(metric.nom.closures_sum(), 0.0);
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r#"
+                {
+                  "total_functions": 0.0,
+                  "total_closures": 0.0,
+                  "average_functions": 0.0,
+                  "average_closures": 0.0,
+                  "total": 0.0,
+                  "average": 0.0,
+                  "functions_min": 0.0,
+                  "functions_max": 0.0,
+                  "closures_min": 0.0,
+                  "closures_max": 0.0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn perl_single_closure() {
+        // Same caveat as `perl_single_function`: closures take their
+        // arguments through `@_`, so nargs stays 0. Assert via nom that the
+        // anonymous function was actually identified as a closure.
+        check_metrics::<PerlParser>(
+            "my $f = sub {
+                my ($x) = @_;
+                return $x + 1;
+            };",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 0.0);
+                assert_eq!(metric.nom.closures_sum(), 1.0);
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r#"
+                {
+                  "total_functions": 0.0,
+                  "total_closures": 0.0,
+                  "average_functions": 0.0,
+                  "average_closures": 0.0,
+                  "total": 0.0,
+                  "average": 0.0,
+                  "functions_min": 0.0,
+                  "functions_max": 0.0,
+                  "closures_min": 0.0,
+                  "closures_max": 0.0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn perl_multiple_functions() {
+        // Same caveat as `perl_single_function`. Assert nom counted both
+        // top-level subs so the test fails if either sub is dropped.
+        check_metrics::<PerlParser>(
+            "sub a { return 1; }
+             sub b {
+                 my ($x, $y) = @_;
+                 return $x + $y;
+             }",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 2.0);
+                assert_eq!(metric.nom.closures_sum(), 0.0);
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r#"
+                {
+                  "total_functions": 0.0,
+                  "total_closures": 0.0,
+                  "average_functions": 0.0,
+                  "average_closures": 0.0,
+                  "total": 0.0,
+                  "average": 0.0,
+                  "functions_min": 0.0,
+                  "functions_max": 0.0,
+                  "closures_min": 0.0,
+                  "closures_max": 0.0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn perl_nested_closure() {
+        // Same caveat as `perl_single_function`. Assert nom recognised one
+        // outer sub plus one nested closure.
+        check_metrics::<PerlParser>(
+            "sub outer {
+                my $inner = sub { return 42; };
+                return $inner->();
+            }",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 1.0);
+                assert_eq!(metric.nom.closures_sum(), 1.0);
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r#"
+                {
+                  "total_functions": 0.0,
+                  "total_closures": 0.0,
+                  "average_functions": 0.0,
+                  "average_closures": 0.0,
+                  "total": 0.0,
+                  "average": 0.0,
+                  "functions_min": 0.0,
+                  "functions_max": 0.0,
+                  "closures_min": 0.0,
+                  "closures_max": 0.0
+                }
+                "#
                 );
             },
         );

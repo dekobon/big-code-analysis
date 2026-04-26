@@ -136,6 +136,16 @@ mk_langs!(
         tree_sitter_preproc,
         [],
         []
+    ),
+    (
+        Perl,
+        "The `Perl` language",
+        "perl",
+        PerlCode,
+        PerlParser,
+        tree_sitter_perl,
+        [pl, pm, t],
+        ["perl", "cperl"]
     )
 );
 

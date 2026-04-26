@@ -214,7 +214,8 @@ implement_metric_trait!(
     CcommentCode,
     JavaCode,
     KotlinCode,
-    GoCode
+    GoCode,
+    PerlCode
 );
 
 #[cfg(test)]
@@ -869,6 +870,39 @@ mod tests {
                       "closures_min": 0.0,
                       "closures_max": 1.0
                     }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn perl_nom() {
+        check_metrics::<PerlParser>(
+            "sub a { 1 }
+             sub b { 2 }
+             my $c = sub { 3 };
+             sub outer {
+                 my $inner = sub { 4 };
+                 return $inner;
+             }",
+            "foo.pl",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nom,
+                    @r#"
+                {
+                  "functions": 3.0,
+                  "closures": 2.0,
+                  "functions_average": 0.5,
+                  "closures_average": 0.3333333333333333,
+                  "total": 5.0,
+                  "average": 0.8333333333333334,
+                  "functions_min": 0.0,
+                  "functions_max": 1.0,
+                  "closures_min": 0.0,
+                  "closures_max": 1.0
+                }
+                "#
                 );
             },
         );
