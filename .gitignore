@@ -3,4 +3,3 @@ enums/target
 *~
 Cargo.lock
 .claude/settings.local.json
-tests/repositories/rca-output

@@ -1,6 +1,3 @@
-[submodule "tests/repositories/rca-output"]
-	path = tests/repositories/rca-output
-	url = https://github.com/dekobon/big-code-analysis-output
 [submodule "tests/repositories/DeepSpeech"]
 	path = tests/repositories/DeepSpeech
 	url = https://github.com/mozilla/DeepSpeech
@@ -10,3 +7,6 @@
 [submodule "tests/repositories/serde"]
 	path = tests/repositories/serde
 	url = https://github.com/serde-rs/serde
+[submodule "tests/repositories/big-code-analysis-output"]
+	path = tests/repositories/big-code-analysis-output
+	url = https://github.com/dekobon/big-code-analysis-output
