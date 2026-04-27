@@ -328,7 +328,7 @@ pub fn metrics<'a, T: ParserTrait>(parser: &'a T, path: &'a Path) -> Option<Func
             T::Loc::compute(&node, &mut last.metrics.loc, func_space, unit);
             T::Nom::compute(&node, &mut last.metrics.nom);
             T::NArgs::compute(&node, &mut last.metrics.nargs);
-            T::Exit::compute(&node, &mut last.metrics.nexits);
+            T::Exit::compute(&node, code, &mut last.metrics.nexits);
             T::Abc::compute(&node, &mut last.metrics.abc);
             T::Npm::compute(&node, &mut last.metrics.npm);
             T::Npa::compute(&node, &mut last.metrics.npa);

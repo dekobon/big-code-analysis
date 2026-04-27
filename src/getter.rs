@@ -721,3 +721,60 @@ impl Getter for PerlCode {
 
     get_operator!(Perl);
 }
+
+impl Getter for BashCode {
+    fn get_space_kind(node: &Node) -> SpaceKind {
+        match node.kind_id().into() {
+            Bash::FunctionDefinition => SpaceKind::Function,
+            Bash::Program => SpaceKind::Unit,
+            _ => SpaceKind::Unknown,
+        }
+    }
+
+    fn get_op_type(node: &Node) -> HalsteadType {
+        match node.kind_id().into() {
+            // Control flow and declaration keywords
+            Bash::If | Bash::Then | Bash::Fi | Bash::Elif | Bash::Else
+            | Bash::For | Bash::In | Bash::While | Bash::Until | Bash::Do | Bash::Done
+            | Bash::Case | Bash::Esac
+            | Bash::Function | Bash::Local | Bash::Declare | Bash::Typeset
+            | Bash::Export | Bash::Readonly | Bash::Unset | Bash::Unsetenv
+            // Punctuation acting as operators
+            | Bash::LPAREN | Bash::RPAREN | Bash::LBRACE | Bash::RBRACE
+            | Bash::LBRACK | Bash::RBRACK | Bash::LBRACKLBRACK | Bash::RBRACKRBRACK
+            | Bash::SEMI | Bash::SEMISEMI | Bash::SEMIAMP | Bash::SEMISEMIAMP
+            | Bash::COMMA | Bash::COLON
+            // Assignment, arithmetic, and comparison operators
+            | Bash::EQ | Bash::PLUSEQ | Bash::DASHEQ | Bash::STAREQ | Bash::SLASHEQ
+            | Bash::PERCENTEQ | Bash::STARSTAREQ | Bash::LTLTEQ | Bash::GTGTEQ
+            | Bash::AMPEQ | Bash::CARETEQ | Bash::PIPEEQ
+            | Bash::PLUS | Bash::DASH | Bash::STAR | Bash::SLASH | Bash::PERCENT | Bash::STARSTAR
+            | Bash::PLUSPLUS | Bash::DASHDASH
+            | Bash::EQEQ | Bash::BANGEQ | Bash::LT | Bash::GT | Bash::LTEQ | Bash::GTEQ
+            | Bash::EQTILDE
+            // Logical and bitwise operators
+            | Bash::AMPAMP | Bash::PIPEPIPE | Bash::PIPE | Bash::PIPEAMP
+            | Bash::AMP | Bash::CARET | Bash::TILDE | Bash::BANG
+            | Bash::LTLT | Bash::GTGT
+            // Test operators (prefix)
+            | Bash::DASHa | Bash::DASHo
+            // Redirection operators
+            | Bash::AMPGT | Bash::GTAMP | Bash::LTAMP | Bash::GTPIPE
+            | Bash::LTAMPDASH | Bash::GTAMPDASH | Bash::LTLTDASH | Bash::AMPGTGT
+            | Bash::LTLTLT
+            // Ternary operator
+            | Bash::QMARK | Bash::QMARK2
+                => HalsteadType::Operator,
+            // Operands: identifiers, literals, variables
+            Bash::Word | Bash::Word2 | Bash::Word3 | Bash::Word4
+            | Bash::Number | Bash::Number2 | Bash::NumberToken1 | Bash::NumberToken2
+            | Bash::String | Bash::RawString | Bash::AnsiCString | Bash::TranslatedString
+            | Bash::SimpleExpansion | Bash::SpecialVariableName | Bash::VariableName
+            | Bash::CommandName | Bash::Concat
+                => HalsteadType::Operand,
+            _ => HalsteadType::Unknown,
+        }
+    }
+
+    get_operator!(Bash);
+}

@@ -118,6 +118,16 @@ mk_langs!(
         ["typescript"]
     ),
     (
+        Bash,
+        "The `Bash` language",
+        "bash",
+        BashCode,
+        BashParser,
+        tree_sitter_bash,
+        [sh, bash],
+        ["sh"]
+    ),
+    (
         Ccomment,
         "The `Ccomment` language is a variant of the `C` language focused on comments",
         "ccomment",

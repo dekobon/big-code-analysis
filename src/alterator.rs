@@ -177,3 +177,15 @@ impl Alterator for PerlCode {
         }
     }
 }
+
+impl Alterator for BashCode {
+    fn alterate(node: &Node, code: &[u8], span: bool, children: Vec<AstNode>) -> AstNode {
+        match Bash::from(node.kind_id()) {
+            Bash::String | Bash::RawString | Bash::AnsiCString | Bash::TranslatedString => {
+                let (text, span) = Self::get_text_span(node, code, span, true);
+                AstNode::new(node.kind(), text, span, Vec::new())
+            }
+            _ => Self::get_default(node, code, span, children),
+        }
+    }
+}
