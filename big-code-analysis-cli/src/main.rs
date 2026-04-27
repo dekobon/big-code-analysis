@@ -1,7 +1,9 @@
 mod formats;
+mod markdown_report;
 
 use std::cmp::Ordering;
 use std::collections::{HashMap, hash_map};
+use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::{Arc, Mutex};
@@ -12,6 +14,7 @@ use clap::builder::{PossibleValuesParser, TypedValueParser};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 
 use formats::Format;
+use markdown_report::{FunctionSummary, extract_summaries, generate_report};
 
 // Enums
 use big_code_analysis::LANG;
@@ -51,6 +54,11 @@ struct Config {
     preproc_lock: Option<Arc<Mutex<PreprocResults>>>,
     preproc: Option<Arc<PreprocResults>>,
     count_lock: Option<Arc<Mutex<Count>>>,
+    /// Sender for streaming `FunctionSummary` records when `-O markdown` is active.
+    /// Wrapped in `Mutex` because `mpsc::Sender` is `Send` but not `Sync`.
+    markdown_tx: Option<Mutex<std::sync::mpsc::Sender<FunctionSummary>>>,
+    /// Path prefix stripped from file paths in the markdown report.
+    strip_prefix: String,
 }
 
 fn mk_globset(elems: Vec<String>) -> GlobSet {
@@ -92,6 +100,25 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
     } else if cfg.metrics {
         if let Some(output_format) = &cfg.output_format {
             if let Some(space) = get_function_spaces(&language, source, &path, pr) {
+                // Skip internal pseudo-languages that don't produce standalone metrics.
+                if let Some(ref tx) = cfg.markdown_tx
+                    && !matches!(language, LANG::Preproc | LANG::Ccomment)
+                    && let Some(file_str) = path.to_str()
+                {
+                    let mut summaries = Vec::new();
+                    extract_summaries(
+                        &space,
+                        file_str,
+                        language,
+                        &cfg.strip_prefix,
+                        &mut summaries,
+                    );
+                    if let Ok(sender) = tx.lock() {
+                        for s in summaries {
+                            let _ = sender.send(s);
+                        }
+                    }
+                }
                 output_format.dump_formats(space, path, cfg.output.as_ref(), cfg.pretty);
             }
             Ok(())
@@ -132,17 +159,17 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
             line_end: cfg.line_end,
         };
         action::<Find>(&language, source, &path, pr, cfg)
-    } else if cfg.count_lock.is_some() {
+    } else if let Some(count_lock) = &cfg.count_lock {
         let cfg = CountCfg {
             filters: cfg.count_filter.clone(),
-            stats: cfg.count_lock.as_ref().unwrap().clone(),
+            stats: count_lock.clone(),
         };
         action::<Count>(&language, source, &path, pr, cfg)
-    } else if cfg.preproc_lock.is_some() {
+    } else if let Some(preproc_lock) = &cfg.preproc_lock {
         if let Some(language) = guess_language(&source, &path).0
             && language == LANG::Cpp
         {
-            let mut results = cfg.preproc_lock.as_ref().unwrap().lock().unwrap();
+            let mut results = preproc_lock.lock().unwrap();
             preprocess(
                 &PreprocParser::new(source, &path, None),
                 &path,
@@ -238,6 +265,12 @@ struct Opts {
     /// Print the warnings.
     #[clap(long, short)]
     warning: bool,
+    /// Maximum number of functions to include in the markdown report.
+    #[clap(long, default_value_t = 20, value_parser = clap::value_parser!(u32).range(1..))]
+    top: u32,
+    /// Path prefix to strip from file paths in the markdown report.
+    #[clap(long, default_value = "")]
+    strip_prefix: String,
 }
 
 fn main() {
@@ -266,8 +299,51 @@ fn main() {
         Ordering::Less => (None, None),
     };
 
-    let output_is_dir = opts.output.as_ref().map(|p| p.is_dir()).unwrap_or(false);
-    if (opts.metrics || opts.ops) && opts.output.is_some() && !output_is_dir {
+    let is_markdown = matches!(opts.output_format, Some(Format::Markdown));
+
+    // Pre-run validation for markdown format.
+    // Check incompatible flags before requiring --metrics so the user sees
+    // the most specific error first.
+    if is_markdown {
+        for (flag, active) in [
+            ("--ops", opts.ops),
+            ("--dump", opts.dump),
+            ("--comments", opts.comments),
+            ("--function", opts.function),
+            ("--find", !opts.find.is_empty()),
+            ("--count", !opts.count.is_empty()),
+        ] {
+            if active {
+                eprintln!("Error: -O markdown is incompatible with {flag}");
+                process::exit(1);
+            }
+        }
+        if !opts.metrics {
+            eprintln!("Error: -O markdown requires --metrics");
+            process::exit(1);
+        }
+
+        // Validate --output for markdown: must be a file path, not a directory.
+        if let Some(ref output) = opts.output {
+            if output.is_dir() {
+                eprintln!("Error: --output must be a file path when -O markdown is used");
+                process::exit(1);
+            }
+            if let Some(parent) = output.parent()
+                && !parent.as_os_str().is_empty()
+                && !parent.exists()
+            {
+                eprintln!(
+                    "Error: parent directory of --output does not exist: {}",
+                    parent.display()
+                );
+                process::exit(1);
+            }
+        }
+    }
+
+    let output_is_dir = opts.output.as_ref().is_some_and(|p| p.is_dir());
+    if !is_markdown && (opts.metrics || opts.ops) && opts.output.is_some() && !output_is_dir {
         eprintln!("Error: The output parameter must be a directory");
         process::exit(1);
     }
@@ -300,6 +376,13 @@ fn main() {
     let include = mk_globset(opts.include);
     let exclude = mk_globset(opts.exclude);
 
+    let (markdown_tx, markdown_rx) = if is_markdown {
+        let (tx, rx) = std::sync::mpsc::channel::<FunctionSummary>();
+        (Some(Mutex::new(tx)), Some(rx))
+    } else {
+        (None, None)
+    };
+
     let cfg = Config {
         dump: opts.dump,
         in_place: opts.in_place,
@@ -318,6 +401,8 @@ fn main() {
         preproc_lock: preproc_lock.clone(),
         preproc,
         count_lock: count_lock.clone(),
+        markdown_tx,
+        strip_prefix: opts.strip_prefix,
     };
 
     let files_data = FilesData {
@@ -340,6 +425,30 @@ fn main() {
     if let Some(count) = count_lock {
         let count = Arc::try_unwrap(count).unwrap().into_inner().unwrap();
         println!("{count}");
+    }
+
+    if is_markdown {
+        // ConcurrentRunner::run() consumed Config (and thus the Sender).
+        // All worker threads have joined, so the Sender is dropped and
+        // rx.into_iter() will terminate.
+        let summaries: Vec<FunctionSummary> = markdown_rx
+            .map(|rx| rx.into_iter().collect())
+            .unwrap_or_default();
+
+        let report = generate_report(&summaries, opts.top as usize);
+        if let Some(ref output_path) = opts.output {
+            if let Err(e) = std::fs::write(output_path, &report) {
+                eprintln!("Error: failed to write to {}: {e}", output_path.display());
+                process::exit(1);
+            }
+        } else if let Err(e) = std::io::stdout().lock().write_all(report.as_bytes()) {
+            if e.kind() == ErrorKind::BrokenPipe {
+                return;
+            }
+            eprintln!("Error: {e}");
+            process::exit(1);
+        }
+        return;
     }
 
     if let Some(preproc) = preproc_lock {
