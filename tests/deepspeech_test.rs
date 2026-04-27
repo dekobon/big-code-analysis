@@ -15,6 +15,10 @@ fn test_deepspeech() {
         "**/DeepSpeech/native_client/kenlm/lm/left_test.cc",
         "**/DeepSpeech/native_client/ctcdecode/third_party/openfst-1.6.7/src/test/fst_test.h",
         "**/DeepSpeech/native_client/ctcdecode/third_party/openfst-1.6.9-win/src/include/fst/test/fst_test.h",
+        // Vendored third-party directories with no snapshot coverage (8500+ files).
+        // Only native_client/ has accepted snapshots in the big-code-analysis-output submodule.
+        "**/DeepSpeech/tensorflow/**",
+        "**/DeepSpeech/kenlm/**",
     ];
 
     compare_rca_output_with_files("DeepSpeech", &["*.cc", "*.cpp", "*.h", "*.hh"], exclude);
