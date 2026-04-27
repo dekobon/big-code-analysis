@@ -599,6 +599,9 @@ impl Cognitive for KotlinCode {
             Else => {
                 increment_by_one(stats);
             }
+            UnaryExpression => {
+                stats.boolean_seq.not_operator(node.kind_id());
+            }
             BinaryExpression => {
                 compute_booleans::<language_kotlin::Kotlin>(node, stats, AMPAMP, PIPEPIPE);
             }
@@ -648,6 +651,9 @@ impl Cognitive for GoCode {
                 if node.children().any(|c| c.kind_id() == G::LabelName) {
                     increment_by_one(stats);
                 }
+            }
+            G::UnaryExpression => {
+                stats.boolean_seq.not_operator(node.kind_id());
             }
             G::BinaryExpression => {
                 compute_booleans::<language_go::Go>(node, stats, G::AMPAMP, G::PIPEPIPE);
