@@ -5,17 +5,18 @@ use std::str::FromStr;
 
 use serde::Serialize;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Format {
     Cbor,
     Json,
+    Markdown,
     Toml,
     Yaml,
 }
 
 impl Format {
     pub const fn all() -> &'static [&'static str] {
-        &["cbor", "json", "toml", "yaml"]
+        &["cbor", "json", "markdown", "toml", "yaml"]
     }
 
     pub fn dump_formats<T: Serialize>(
@@ -25,12 +26,18 @@ impl Format {
         output_path: Option<&PathBuf>,
         pretty: bool,
     ) {
+        // Markdown has no per-file output; post-walk handling lives in main.rs.
+        if matches!(self, Self::Markdown) {
+            return;
+        }
+
         if let Some(output_path) = output_path {
             match self {
                 Self::Cbor => Cbor::with_writer(space, path, output_path),
                 Self::Json => Json::with_pretty_writer(space, path, output_path, pretty),
                 Self::Toml => Toml::with_pretty_writer(space, path, output_path, pretty),
                 Self::Yaml => Yaml::with_writer(space, path, output_path),
+                Self::Markdown => (),
             }
         } else {
             match self {
@@ -38,6 +45,7 @@ impl Format {
                 Self::Toml => Toml::write_on_stdout_pretty(space, pretty),
                 Self::Yaml => Yaml::write_on_stdout(space),
                 Self::Cbor => panic!("Cbor format cannot be printed to stdout"),
+                Self::Markdown => (),
             }
         }
     }
@@ -50,6 +58,7 @@ impl FromStr for Format {
         match format {
             "cbor" => Ok(Self::Cbor),
             "json" => Ok(Self::Json),
+            "markdown" => Ok(Self::Markdown),
             "toml" => Ok(Self::Toml),
             "yaml" => Ok(Self::Yaml),
             format => Err(format!("{format:?} is not a supported format")),
