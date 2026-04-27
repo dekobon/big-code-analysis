@@ -3,6 +3,9 @@
 pub mod language_ccomment;
 pub use language_ccomment::*;
 
+pub mod language_bash;
+pub use language_bash::*;
+
 pub mod language_cpp;
 pub use language_cpp::*;
 

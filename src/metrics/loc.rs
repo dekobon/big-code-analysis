@@ -1015,6 +1015,34 @@ impl Loc for KotlinCode {
 
 implement_metric_trait!(Loc, PreprocCode, CcommentCode);
 
+impl Loc for BashCode {
+    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool, is_unit: bool) {
+        use Bash::*;
+
+        let (start, end) = init(node, stats, is_func_space, is_unit);
+
+        match node.kind_id().into() {
+            Program => {}
+            Comment => {
+                add_cloc_lines(stats, start, end);
+            }
+            // LLOC: leaf statement nodes. Pipeline, Subshell, and
+            // RedirectedStatement are excluded because they wrap inner
+            // Command nodes that are already counted here.
+            Command | VariableAssignment | DeclarationCommand | UnsetCommand | IfStatement
+            | ForStatement | CStyleForStatement | WhileStatement | CaseStatement
+            | FunctionDefinition => {
+                stats.lloc.logical_lines += 1;
+            }
+            _ => {
+                if node.child_count() == 0 {
+                    stats.ploc.lines.insert(start);
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::tools::check_metrics;
@@ -4816,6 +4844,24 @@ my $x = 1;",
                     }
                     "###
                 );
+            },
+        );
+    }
+
+    #[test]
+    fn bash_loc() {
+        check_metrics::<BashParser>(
+            "#!/bin/bash
+# This is a comment
+f() {
+    echo 'hello'
+}
+
+# Another comment
+f",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
             },
         );
     }

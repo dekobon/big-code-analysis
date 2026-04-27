@@ -358,6 +358,40 @@ implement_metric_trait!(
     PerlCode
 );
 
+impl Abc for BashCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        match node.kind_id().into() {
+            // Each `variable_assignment` is one assignment regardless of
+            // operator (`=`, `+=`, `-=`, …) — counting the parent node
+            // avoids double-counting `Bash::EQ`, which is also produced
+            // for the `=` inside `[ a = b ]` test expressions.
+            Bash::VariableAssignment | Bash::VariableAssignment2 => {
+                stats.assignments += 1.;
+            }
+            // Every command invocation is a branch in the ABC sense
+            // (function-call / message-pass). `return` and `exit` builtins
+            // are also `Bash::Command` nodes and count here too.
+            Bash::Command => {
+                stats.branches += 1.;
+            }
+            // Comparison operators inside `[[ … ]]` and `(( … ))`, plus
+            // the prefix test operators `-z`, `-n`, `-eq`, `-lt`, … which
+            // the grammar emits as `Bash::TestOperator`.
+            Bash::EQEQ
+            | Bash::BANGEQ
+            | Bash::LT
+            | Bash::GT
+            | Bash::LTEQ
+            | Bash::GTEQ
+            | Bash::EQTILDE
+            | Bash::TestOperator => {
+                stats.conditions += 1.;
+            }
+            _ => {}
+        }
+    }
+}
+
 // Fitzpatrick, Jerry (1997). "Applying the ABC metric to C, C++ and Java". C++ Report.
 // Source: https://www.softwarerenovation.com/Articles.aspx
 // ABC Java rules: (page 8, figure 4)
@@ -1144,6 +1178,153 @@ mod tests {
                       "branches_max": 4.0,
                       "conditions_min": 24.0,
                       "conditions_max": 24.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn bash_assignments_only() {
+        check_metrics::<BashParser>(
+            "f() {
+                 a=1
+                 b=2
+                 c+=3
+             }",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.abc,
+                    @r###"
+                    {
+                      "assignments": 3.0,
+                      "branches": 0.0,
+                      "conditions": 0.0,
+                      "magnitude": 3.0,
+                      "assignments_average": 1.5,
+                      "branches_average": 0.0,
+                      "conditions_average": 0.0,
+                      "assignments_min": 0.0,
+                      "assignments_max": 3.0,
+                      "branches_min": 0.0,
+                      "branches_max": 0.0,
+                      "conditions_min": 0.0,
+                      "conditions_max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn bash_commands_only() {
+        check_metrics::<BashParser>(
+            "f() {
+                 echo a
+                 ls
+             }",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.abc,
+                    @r###"
+                    {
+                      "assignments": 0.0,
+                      "branches": 2.0,
+                      "conditions": 0.0,
+                      "magnitude": 2.0,
+                      "assignments_average": 0.0,
+                      "branches_average": 1.0,
+                      "conditions_average": 0.0,
+                      "assignments_min": 0.0,
+                      "assignments_max": 0.0,
+                      "branches_min": 0.0,
+                      "branches_max": 2.0,
+                      "conditions_min": 0.0,
+                      "conditions_max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn bash_conditions_mix() {
+        // Exercises every condition path: `==` and `!=` inside `[[ ]]`,
+        // arithmetic `<` inside `(( ))`, and the prefix `-z` test operator
+        // inside `[ ]`. Each `if` body's `echo` contributes a branch.
+        check_metrics::<BashParser>(
+            "f() {
+                 if [[ \"$a\" == \"$b\" ]]; then
+                     echo eq
+                 fi
+                 if [[ \"$x\" != \"$y\" ]]; then
+                     echo ne
+                 fi
+                 if (( $a < $b )); then
+                     echo lt
+                 fi
+                 if [ -z \"$x\" ]; then
+                     echo empty
+                 fi
+             }",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.abc,
+                    @r###"
+                    {
+                      "assignments": 0.0,
+                      "branches": 4.0,
+                      "conditions": 4.0,
+                      "magnitude": 5.656854249492381,
+                      "assignments_average": 0.0,
+                      "branches_average": 2.0,
+                      "conditions_average": 2.0,
+                      "assignments_min": 0.0,
+                      "assignments_max": 0.0,
+                      "branches_min": 0.0,
+                      "branches_max": 4.0,
+                      "conditions_min": 0.0,
+                      "conditions_max": 4.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn bash_magnitude() {
+        // Combined assignments + branches + conditions: magnitude must
+        // equal sqrt(2² + 1² + 1²) = sqrt(6).
+        check_metrics::<BashParser>(
+            "f() {
+                 a=1
+                 b=2
+                 if [[ \"$a\" == \"$b\" ]]; then
+                     echo eq
+                 fi
+             }",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.abc,
+                    @r###"
+                    {
+                      "assignments": 2.0,
+                      "branches": 1.0,
+                      "conditions": 1.0,
+                      "magnitude": 2.449489742783178,
+                      "assignments_average": 1.0,
+                      "branches_average": 0.5,
+                      "conditions_average": 0.5,
+                      "assignments_min": 0.0,
+                      "assignments_max": 2.0,
+                      "branches_min": 0.0,
+                      "branches_max": 1.0,
+                      "conditions_min": 0.0,
+                      "conditions_max": 1.0
                     }"###
                 );
             },

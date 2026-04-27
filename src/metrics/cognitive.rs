@@ -675,6 +675,52 @@ impl Cognitive for GoCode {
     }
 }
 
+impl Cognitive for BashCode {
+    fn compute(
+        node: &Node,
+        stats: &mut Stats,
+        nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
+    ) {
+        use Bash::*;
+
+        let (mut nesting, mut depth, lambda) = get_nesting_from_map(node, nesting_map);
+
+        match node.kind_id().into() {
+            // `WhileStatement` covers both `while` and `until`; `ForStatement`
+            // covers both `for` and `select`. `CStyleForStatement` is the
+            // `for ((…))` arithmetic form. `ElifClause` is a dedicated node,
+            // not a nested `if`, so no `is_else_if` check is needed.
+            IfStatement | WhileStatement | ForStatement | CStyleForStatement | CaseStatement => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
+            }
+            ElifClause | ElseClause => {
+                increment_by_one(stats);
+                stats.boolean_seq.reset();
+            }
+            // `&&` / `||` appear in two places: as direct children of
+            // `Bash::List` (command level: `cmd && cmd`) and as direct
+            // children of `Bash::BinaryExpression3` (inside `[[ … ]]`,
+            // `(( … ))`, c-style `for ((…))` conditions, and
+            // parenthesized sub-expressions). Verified empirically
+            // against tree-sitter-bash 0.25.1 — the other four
+            // `BinaryExpression*` enum variants never wrap `&&` / `||`.
+            List | BinaryExpression3 => {
+                compute_booleans::<language_bash::Bash>(node, stats, AMPAMP, PIPEPIPE);
+            }
+            FunctionDefinition => {
+                nesting = 0;
+                increment_function_depth::<language_bash::Bash>(
+                    &mut depth,
+                    node,
+                    FunctionDefinition,
+                );
+            }
+            _ => {}
+        }
+        nesting_map.insert(node.id(), (nesting, depth, lambda));
+    }
+}
+
 implement_metric_trait!(Cognitive, PreprocCode, CcommentCode);
 
 #[cfg(test)]
@@ -2887,6 +2933,187 @@ mod tests {
                       "max": 7.0
                     }
                     "###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn bash_no_cognitive() {
+        check_metrics::<BashParser>("a=42", "foo.sh", |metric| {
+            insta::assert_json_snapshot!(
+                metric.cognitive,
+                @r###"
+                {
+                  "sum": 0.0,
+                  "average": null,
+                  "min": 0.0,
+                  "max": 0.0
+                }"###
+            );
+        });
+    }
+
+    #[test]
+    fn bash_simple_if() {
+        check_metrics::<BashParser>(
+            "f() {
+                 if [ -z \"$1\" ]; then  # +1
+                     echo empty
+                 fi
+             }",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn bash_if_elif_else() {
+        check_metrics::<BashParser>(
+            "f() {
+                 if [ \"$1\" = a ]; then     # +1
+                     echo a
+                 elif [ \"$1\" = b ]; then   # +1
+                     echo b
+                 else                         # +1
+                     echo other
+                 fi
+             }",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 3.0,
+                      "min": 0.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn bash_nested_loops() {
+        check_metrics::<BashParser>(
+            "f() {
+                 for i in 1 2 3; do            # +1
+                     while [ \"$x\" -lt 10 ]; do  # +2 (nested)
+                         x=$((x+1))
+                     done
+                 done
+             }",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 3.0,
+                      "min": 0.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn bash_until_loop() {
+        // `until` parses to `Bash::WhileStatement`; this test pins that
+        // assumption so a future grammar bump that adds a dedicated
+        // `UntilStatement` variant is caught.
+        check_metrics::<BashParser>(
+            "f() {
+                 until [ -z \"$x\" ]; do  # +1
+                     x=$(pop)
+                 done
+             }",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn bash_case() {
+        // `case` adds +1 nesting; case arms do not contribute extra cognitive
+        // cost (matching Kotlin's `WhenExpression` treatment).
+        check_metrics::<BashParser>(
+            "f() {
+                 case \"$1\" in       # +1
+                     a) echo a ;;
+                     b) echo b ;;
+                     *) echo other ;;
+                 esac
+             }",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn bash_boolean_sequence() {
+        // First if: a chain of `&&` is one boolean increment regardless of
+        // length (consecutive same-operator chain). Second if: `&& … ||` is
+        // two operator transitions, so two boolean increments.
+        check_metrics::<BashParser>(
+            "f() {
+                 if [[ -n \"$x\" ]] && [[ -n \"$y\" ]] && [[ -n \"$z\" ]]; then
+                     # +1 if, +1 boolean (one && chain)
+                     echo all
+                 fi
+                 if [[ -n \"$x\" ]] && [[ -n \"$y\" ]] || [[ -n \"$z\" ]]; then
+                     # +1 if, +2 boolean (&& then ||)
+                     echo mixed
+                 fi
+             }",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 5.0,
+                      "average": 5.0,
+                      "min": 0.0,
+                      "max": 5.0
+                    }"###
                 );
             },
         );

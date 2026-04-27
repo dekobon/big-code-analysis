@@ -111,11 +111,11 @@ pub trait Exit
 where
     Self: Checker,
 {
-    fn compute(node: &Node, stats: &mut Stats);
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats);
 }
 
 impl Exit for PythonCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         if matches!(node.kind_id().into(), Python::ReturnStatement) {
             stats.exit += 1;
         }
@@ -123,7 +123,7 @@ impl Exit for PythonCode {
 }
 
 impl Exit for MozjsCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         if matches!(node.kind_id().into(), Mozjs::ReturnStatement) {
             stats.exit += 1;
         }
@@ -131,7 +131,7 @@ impl Exit for MozjsCode {
 }
 
 impl Exit for JavascriptCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         if matches!(node.kind_id().into(), Javascript::ReturnStatement) {
             stats.exit += 1;
         }
@@ -139,7 +139,7 @@ impl Exit for JavascriptCode {
 }
 
 impl Exit for TypescriptCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         if matches!(node.kind_id().into(), Typescript::ReturnStatement) {
             stats.exit += 1;
         }
@@ -147,7 +147,7 @@ impl Exit for TypescriptCode {
 }
 
 impl Exit for TsxCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         if matches!(node.kind_id().into(), Tsx::ReturnStatement) {
             stats.exit += 1;
         }
@@ -155,7 +155,7 @@ impl Exit for TsxCode {
 }
 
 impl Exit for RustCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         if matches!(
             node.kind_id().into(),
             Rust::ReturnExpression | Rust::TryExpression
@@ -167,7 +167,7 @@ impl Exit for RustCode {
 }
 
 impl Exit for CppCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         if matches!(node.kind_id().into(), Cpp::ReturnStatement) {
             stats.exit += 1;
         }
@@ -175,7 +175,7 @@ impl Exit for CppCode {
 }
 
 impl Exit for JavaCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         if matches!(node.kind_id().into(), Java::ReturnStatement) {
             stats.exit += 1;
         }
@@ -183,7 +183,7 @@ impl Exit for JavaCode {
 }
 
 impl Exit for GoCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         if matches!(node.kind_id().into(), Go::ReturnStatement) {
             stats.exit += 1;
         }
@@ -191,7 +191,7 @@ impl Exit for GoCode {
 }
 
 impl Exit for PerlCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         if node.kind_id() == Perl::ReturnExpression {
             stats.exit += 1;
         }
@@ -199,11 +199,26 @@ impl Exit for PerlCode {
 }
 
 impl Exit for KotlinCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         if matches!(
             node.kind_id().into(),
             Kotlin::ReturnExpression | Kotlin::ThrowExpression
         ) {
+            stats.exit += 1;
+        }
+    }
+}
+
+impl Exit for BashCode {
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+        // Bash has no `return_statement` node: `return` and `exit` are
+        // ordinary builtins parsed as `Bash::Command` whose `name` field
+        // points at a `Bash::CommandName`. Identify them by comparing the
+        // command-name text against the literal builtins.
+        if matches!(node.kind_id().into(), Bash::Command)
+            && let Some(name) = node.child_by_field_name("name")
+            && matches!(name.utf8_text(code), Some("return" | "exit"))
+        {
             stats.exit += 1;
         }
     }
@@ -819,6 +834,122 @@ mod tests {
                       "max": 2.0
                     }
                     "###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn bash_no_exit() {
+        check_metrics::<BashParser>("echo \"no exits\"", "foo.sh", |metric| {
+            insta::assert_json_snapshot!(
+                metric.nexits,
+                @r###"
+                {
+                  "sum": 0.0,
+                  "average": null,
+                  "min": 0.0,
+                  "max": 0.0
+                }"###
+            );
+        });
+    }
+
+    #[test]
+    fn bash_explicit_return() {
+        check_metrics::<BashParser>(
+            "f() {
+                 if [ -z \"$1\" ]; then
+                     return 1
+                 fi
+                 echo ok
+             }",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn bash_explicit_exit() {
+        check_metrics::<BashParser>(
+            "f() {
+                 exit 0
+             }",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn bash_multiple_exits() {
+        check_metrics::<BashParser>(
+            "f() {
+                 if [ \"$1\" = die ]; then
+                     exit 1
+                 fi
+                 return 0
+             }",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 2.0,
+                      "min": 0.0,
+                      "max": 2.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn bash_returnish_names_are_not_exits() {
+        // `returncode=1` is a `variable_assignment`, not a Command. The
+        // function `returns` is invoked via a Command whose CommandName is
+        // the literal "returns" — it must NOT be matched as a return/exit
+        // builtin (whole-token match, no prefix collision).
+        check_metrics::<BashParser>(
+            "returncode=1
+             returns() {
+                 echo named
+             }
+             returns",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 0.0,
+                      "average": 0.0,
+                      "min": 0.0,
+                      "max": 0.0
+                    }"###
                 );
             },
         );
