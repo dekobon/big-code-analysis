@@ -351,7 +351,10 @@ impl Checker for JavaCode {
     }
 
     fn is_string(node: &Node) -> bool {
-        node.kind_id() == Java::StringLiteral
+        matches!(
+            node.kind_id().into(),
+            Java::StringLiteral | Java::MultilineStringLiteral
+        )
     }
 
     fn is_else_if(_: &Node) -> bool {
@@ -463,14 +466,10 @@ impl Checker for JavascriptCode {
 
     #[inline(always)]
     fn is_else_if(node: &Node) -> bool {
-        if node.kind_id() != Javascript::IfStatement {
-            return false;
-        }
-        if let Some(parent) = node.parent() {
-            return node.kind_id() == Javascript::IfStatement
-                && parent.kind_id() == Javascript::IfStatement;
-        }
-        false
+        node.kind_id() == Javascript::IfStatement
+            && node
+                .parent()
+                .is_some_and(|p| p.kind_id() == Javascript::ElseClause)
     }
 
     fn is_primitive(_id: u16) -> bool {
@@ -580,13 +579,10 @@ impl Checker for TsxCode {
     }
 
     fn is_else_if(node: &Node) -> bool {
-        if node.kind_id() != Tsx::IfStatement {
-            return false;
-        }
-        if let Some(parent) = node.parent() {
-            return node.kind_id() == Tsx::IfStatement && parent.kind_id() == Tsx::IfStatement;
-        }
-        false
+        node.kind_id() == Tsx::IfStatement
+            && node
+                .parent()
+                .is_some_and(|p| p.kind_id() == Tsx::ElseClause)
     }
 
     #[inline(always)]
@@ -658,7 +654,26 @@ impl Checker for RustCode {
 
     #[inline(always)]
     fn is_primitive(id: u16) -> bool {
-        id == Rust::PrimitiveType
+        matches!(
+            id.into(),
+            Rust::PrimitiveType
+                | Rust::PrimitiveType2
+                | Rust::PrimitiveType3
+                | Rust::PrimitiveType4
+                | Rust::PrimitiveType5
+                | Rust::PrimitiveType6
+                | Rust::PrimitiveType7
+                | Rust::PrimitiveType8
+                | Rust::PrimitiveType9
+                | Rust::PrimitiveType10
+                | Rust::PrimitiveType11
+                | Rust::PrimitiveType12
+                | Rust::PrimitiveType13
+                | Rust::PrimitiveType14
+                | Rust::PrimitiveType15
+                | Rust::PrimitiveType16
+                | Rust::PrimitiveType17
+        )
     }
 }
 
