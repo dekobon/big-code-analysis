@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -48,7 +47,7 @@ impl Ops {
             _ => (node.start_row() + 1, node.end_row() + 1),
         };
         Self {
-            name: T::get_func_space_name(node, code).map(|name| name.to_string()),
+            name: T::get_func_space_name(node, code).map(str::to_owned),
             spaces: Vec::new(),
             kind,
             start_line: start_position,
@@ -57,18 +56,21 @@ impl Ops {
             operands: Vec::new(),
         }
     }
-
-    pub(crate) fn merge_ops(&mut self, other: &Ops) {
-        self.operands.extend_from_slice(&other.operands);
-        self.operators.extend_from_slice(&other.operators);
-    }
 }
 
 #[derive(Debug, Clone)]
 struct State<'a> {
     ops: Ops,
     halstead_maps: HalsteadMaps<'a>,
-    primitive_types: HashSet<String>,
+}
+
+/// Convert `&[u8]` source text to an owned `String`.
+/// Tree-sitter sources are expected to be valid UTF-8; non-UTF-8 bytes
+/// are replaced with the Unicode replacement character to keep the entry
+/// visible (rather than silently dropping it or using a sentinel string
+/// that could collide with a real identifier).
+fn bytes_to_string(b: &[u8]) -> String {
+    String::from_utf8_lossy(b).into_owned()
 }
 
 fn compute_operators_and_operands<T: ParserTrait>(state: &mut State) {
@@ -76,21 +78,23 @@ fn compute_operators_and_operands<T: ParserTrait>(state: &mut State) {
         .halstead_maps
         .operators
         .keys()
-        .filter(|k| !T::Checker::is_primitive(**k))
         .map(|k| T::Getter::get_operator_id_as_str(*k).to_owned())
         .collect();
 
-    // Add primitive types to operators
-    let v: Vec<_> = state.primitive_types.iter().cloned().collect();
-    state.ops.operators.extend_from_slice(&v);
-    println!("{:?}", state.ops.operators);
-    println!("{:?}", state.halstead_maps.operators);
+    // Add primitive-type operators (stored by text in HalsteadMaps)
+    state.ops.operators.extend(
+        state
+            .halstead_maps
+            .primitive_operators
+            .keys()
+            .map(|k| bytes_to_string(k)),
+    );
 
     state.ops.operands = state
         .halstead_maps
         .operands
         .keys()
-        .map(|k| String::from_utf8(k.to_vec()).unwrap_or_else(|_| String::from("wrong_operands")))
+        .map(|k| bytes_to_string(k))
         .collect();
 }
 
@@ -99,33 +103,31 @@ fn finalize<T: ParserTrait>(state_stack: &mut Vec<State>, diff_level: usize) {
         return;
     }
 
-    // If there is only the unit space
-    if state_stack.len() == 1 {
-        let last_state = state_stack.last_mut().unwrap();
-        // Compute last_state operators and operands
-        compute_operators_and_operands::<T>(last_state);
-    }
-
     for _ in 0..diff_level {
         if state_stack.len() == 1 {
             break;
-        } else {
-            let mut state = state_stack.pop().unwrap();
-            let last_state = state_stack.last_mut().unwrap();
-
-            // Compute state operators and operands
-            compute_operators_and_operands::<T>(&mut state);
-
-            // Compute last_state operators and operands
-            compute_operators_and_operands::<T>(last_state);
-
-            // Merge Halstead maps
-            last_state.halstead_maps.merge(&state.halstead_maps);
-
-            // Merge operands and operators between spaces
-            last_state.ops.merge_ops(&state.ops);
-            last_state.ops.spaces.push(state.ops);
         }
+        let mut state = state_stack
+            .pop()
+            .expect("state_stack verified to have len >= 2");
+        let last_state = state_stack
+            .last_mut()
+            .expect("state_stack verified to have len >= 1 after pop");
+
+        // Populate the child's ops from its HalsteadMaps before
+        // recording it as a sub-space of the parent.
+        compute_operators_and_operands::<T>(&mut state);
+
+        // Merge child's Halstead maps into parent and record child space.
+        last_state.halstead_maps.merge(&state.halstead_maps);
+        last_state.ops.spaces.push(state.ops);
+    }
+
+    // Compute ops for the remaining parent from its fully-merged
+    // HalsteadMaps. This runs once instead of per-iteration, and
+    // produces the deduplicated union of all operators/operands.
+    if let Some(last_state) = state_stack.last_mut() {
+        compute_operators_and_operands::<T>(last_state);
     }
 }
 
@@ -180,7 +182,6 @@ pub fn operands_and_operators<'a, T: ParserTrait>(parser: &'a T, path: &'a Path)
             let state = State {
                 ops: Ops::new::<T::Getter>(&node, code, kind),
                 halstead_maps: HalsteadMaps::new(),
-                primitive_types: HashSet::new(),
             };
             state_stack.push(state);
             last_level = level + 1;
@@ -191,12 +192,6 @@ pub fn operands_and_operators<'a, T: ParserTrait>(parser: &'a T, path: &'a Path)
 
         if let Some(state) = state_stack.last_mut() {
             T::Halstead::compute(&node, code, &mut state.halstead_maps);
-            if T::Checker::is_primitive(node.kind_id()) {
-                let code = &code[node.start_byte()..node.end_byte()];
-                let primitive_string = String::from_utf8(code.to_vec())
-                    .unwrap_or_else(|_| String::from("primitive_type"));
-                state.primitive_types.insert(primitive_string);
-            }
         }
 
         cursor.reset(&node);
@@ -216,7 +211,7 @@ pub fn operands_and_operators<'a, T: ParserTrait>(parser: &'a T, path: &'a Path)
     finalize::<T>(&mut state_stack, usize::MAX);
 
     state_stack.pop().map(|mut state| {
-        state.ops.name = path.to_str().map(|name| name.to_string());
+        state.ops.name = path.to_str().map(str::to_owned);
         state.ops
     })
 }
@@ -661,7 +656,9 @@ mod tests {
                     }
                 }",
             "foo.java",
-            &mut ["{}", "void", "()", "[]", ",", ";", "int", "=", "+", "/"],
+            &mut [
+                "{}", "void", "()", "[]", ",", ".", ";", "int", "=", "+", "/",
+            ],
             &mut [
                 "Main",
                 "main",
@@ -675,6 +672,44 @@ mod tests {
                 "MessageFormat",
                 "format",
                 "\"{0}\"",
+            ],
+        );
+    }
+
+    #[test]
+    fn java_primitive_ops() {
+        check_ops(
+            LANG::Java,
+            "public class Prims {
+                byte a = 1;
+                short b = 2;
+                int c = 3;
+                long d = 4;
+                char e = 'x';
+                float f = 1.0f;
+                double g = 2.0;
+                boolean h = true;
+                boolean i = false;
+            }",
+            "foo.java",
+            // All 8 primitive-type keywords must appear as distinct operators.
+            // true/false appear as operands.
+            &mut [
+                "{}",
+                ";",
+                "=",
+                "byte",
+                "short",
+                "int",
+                "long",
+                "char",
+                "float",
+                "double",
+                "boolean_type",
+            ],
+            &mut [
+                "Prims", "a", "b", "c", "d", "e", "f", "g", "h", "i", "1", "2", "3", "4", "'x'",
+                "1.0f", "2.0", "true", "false",
             ],
         );
     }

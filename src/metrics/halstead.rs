@@ -32,20 +32,24 @@ pub enum HalsteadType {
 #[derive(Debug, Default, Clone)]
 pub struct HalsteadMaps<'a> {
     pub(crate) operators: HashMap<u16, u64>,
+    /// Primitive-type operators stored by text so each distinct primitive
+    /// (e.g. `int` vs `double`) counts as a separate distinct operator,
+    /// even when the grammar maps them all to a single kind_id.
+    pub(crate) primitive_operators: HashMap<&'a [u8], u64>,
     pub(crate) operands: HashMap<&'a [u8], u64>,
 }
 
 impl<'a> HalsteadMaps<'a> {
     pub(crate) fn new() -> Self {
-        HalsteadMaps {
-            operators: HashMap::default(),
-            operands: HashMap::default(),
-        }
+        Self::default()
     }
 
     pub(crate) fn merge(&mut self, other: &HalsteadMaps<'a>) {
         for (k, v) in other.operators.iter() {
             *self.operators.entry(*k).or_insert(0) += v;
+        }
+        for (k, v) in other.primitive_operators.iter() {
+            *self.primitive_operators.entry(*k).or_insert(0) += v;
         }
         for (k, v) in other.operands.iter() {
             *self.operands.entry(*k).or_insert(0) += v;
@@ -53,8 +57,9 @@ impl<'a> HalsteadMaps<'a> {
     }
 
     pub(crate) fn finalize(&self, stats: &mut Stats) {
-        stats.u_operators = self.operators.len() as u64;
-        stats.operators = self.operators.values().sum::<u64>();
+        stats.u_operators = (self.operators.len() + self.primitive_operators.len()) as u64;
+        stats.operators =
+            self.operators.values().sum::<u64>() + self.primitive_operators.values().sum::<u64>();
         stats.u_operands = self.operands.len() as u64;
         stats.operands = self.operands.values().sum::<u64>();
     }
@@ -250,7 +255,7 @@ impl Stats {
 
 pub trait Halstead
 where
-    Self: Checker,
+    Self: Checker + Getter,
 {
     fn compute<'a>(node: &Node<'a>, code: &'a [u8], halstead_maps: &mut HalsteadMaps<'a>);
 }
@@ -261,14 +266,24 @@ fn get_id<'a>(node: &Node<'a>, code: &'a [u8]) -> &'a [u8] {
 }
 
 #[inline(always)]
-fn compute_halstead<'a, T: Getter>(
+fn compute_halstead<'a, T: Getter + Checker>(
     node: &Node<'a>,
     code: &'a [u8],
     halstead_maps: &mut HalsteadMaps<'a>,
 ) {
     match T::get_op_type(node) {
         HalsteadType::Operator => {
-            *halstead_maps.operators.entry(node.kind_id()).or_insert(0) += 1;
+            if T::is_primitive(node.kind_id()) {
+                // Store primitive-type operators by text so distinct
+                // primitives (e.g. `int` vs `double`) that share a
+                // single kind_id are counted separately in n1/N1.
+                *halstead_maps
+                    .primitive_operators
+                    .entry(get_id(node, code))
+                    .or_insert(0) += 1;
+            } else {
+                *halstead_maps.operators.entry(node.kind_id()).or_insert(0) += 1;
+            }
         }
         HalsteadType::Operand => {
             *halstead_maps
@@ -697,27 +712,72 @@ mod tests {
             }",
             "foo.java",
             |metric| {
-                // { void ; ( String [ ] ) , int = + / format . }
-                // Main main args a b c avg 5 3 MessageFormat format "{0}"
+                // Operators (n1=11): {} void () [] , . ; int = + /
+                // Operands (n2=12): Main main args a b c avg 5 3 MessageFormat format "{0}"
                 insta::assert_json_snapshot!(
                     metric.halstead,
-                    @r###"
-                    {
-                      "n1": 10.0,
-                      "N1": 25.0,
-                      "n2": 12.0,
-                      "N2": 22.0,
-                      "length": 47.0,
-                      "estimated_program_length": 76.2388309575275,
-                      "purity_ratio": 1.6221027863303723,
-                      "vocabulary": 22.0,
-                      "volume": 209.59328607595296,
-                      "difficulty": 9.166666666666666,
-                      "level": 0.1090909090909091,
-                      "effort": 1921.2717890295687,
-                      "time": 106.73732161275382,
-                      "bugs": 0.05151550353617788
-                    }"###
+                    @r#"
+                {
+                  "n1": 11.0,
+                  "N1": 26.0,
+                  "n2": 12.0,
+                  "N2": 22.0,
+                  "length": 48.0,
+                  "estimated_program_length": 81.07329781366414,
+                  "purity_ratio": 1.6890270377846697,
+                  "vocabulary": 23.0,
+                  "volume": 217.13097389073664,
+                  "difficulty": 10.083333333333334,
+                  "level": 0.09917355371900825,
+                  "effort": 2189.4039867315946,
+                  "time": 121.63355481842193,
+                  "bugs": 0.05620341201461669
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn java_primitive_types_and_booleans() {
+        check_metrics::<JavaParser>(
+            "public class Prims {
+                byte a = 1;
+                short b = 2;
+                int c = 3;
+                long d = 4;
+                char e = 'x';
+                float f = 1.0f;
+                double g = 2.0;
+                boolean h = true;
+                boolean i = false;
+            }",
+            "foo.java",
+            |metric| {
+                // Verifies all 8 Java primitive-type keywords (byte, short, int, long,
+                // char, float, double, boolean) are counted as distinct operators, and
+                // that true/false are counted as operands.
+                insta::assert_json_snapshot!(
+                    metric.halstead,
+                    @r#"
+                {
+                  "n1": 11.0,
+                  "N1": 28.0,
+                  "n2": 19.0,
+                  "N2": 19.0,
+                  "length": 47.0,
+                  "estimated_program_length": 118.76437056043838,
+                  "purity_ratio": 2.526901501285923,
+                  "vocabulary": 30.0,
+                  "volume": 230.62385799360038,
+                  "difficulty": 5.5,
+                  "level": 0.18181818181818182,
+                  "effort": 1268.4312189648022,
+                  "time": 70.46840105360012,
+                  "bugs": 0.03905920146699976
+                }
+                "#
                 );
             },
         );

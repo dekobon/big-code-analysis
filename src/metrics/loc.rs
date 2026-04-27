@@ -1005,6 +1005,24 @@ impl Loc for KotlinCode {
             | PropertyDeclaration => {
                 stats.lloc.logical_lines += 1;
             }
+            // Bare expression statements (e.g. `println(x)`) have no
+            // ExpressionStatement wrapper in tree-sitter-kotlin-ng. Count
+            // them as lloc when they appear as direct children of a block;
+            // otherwise fall through to ploc so nested calls still count
+            // as physical lines.
+            CallExpression | NavigationExpression => {
+                if let Some(parent) = node.parent()
+                    && matches!(
+                        parent.kind_id().into(),
+                        Block | FunctionBody | SourceFile | CatchBlock | FinallyBlock
+                    )
+                {
+                    stats.lloc.logical_lines += 1;
+                } else {
+                    check_comment_ends_on_code_line(stats, start);
+                    stats.ploc.lines.insert(start);
+                }
+            }
             _ => {
                 check_comment_ends_on_code_line(stats, start);
                 stats.ploc.lines.insert(start);
@@ -4843,6 +4861,50 @@ my $x = 1;",
                       "blank_max": 0.0
                     }
                     "###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_loc_bare_expression() {
+        check_metrics::<KotlinParser>(
+            "fun main() {
+                val x = 42
+                println(x)
+                listOf(1, 2, 3).forEach { println(it) }
+            }",
+            "foo.kt",
+            |metric| {
+                // lloc should count: val x = 42 (PropertyDeclaration, +1)
+                // + println(x) (CallExpression, parent=Block, +1)
+                // + listOf(1, 2, 3).forEach { ... } (CallExpression, parent=Block, +1) = 3
+                insta::assert_json_snapshot!(
+                    metric.loc,
+                    @r#"
+                {
+                  "sloc": 5.0,
+                  "ploc": 5.0,
+                  "lloc": 3.0,
+                  "cloc": 0.0,
+                  "blank": 0.0,
+                  "sloc_average": 2.5,
+                  "ploc_average": 2.5,
+                  "lloc_average": 1.5,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 5.0,
+                  "sloc_max": 5.0,
+                  "cloc_min": 0.0,
+                  "cloc_max": 0.0,
+                  "ploc_min": 5.0,
+                  "ploc_max": 5.0,
+                  "lloc_min": 3.0,
+                  "lloc_max": 3.0,
+                  "blank_min": 0.0,
+                  "blank_max": 0.0
+                }
+                "#
                 );
             },
         );

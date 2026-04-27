@@ -142,16 +142,17 @@ impl Getter for MozjsCode {
         match node.kind_id().into() {
             Export | Import | Import2 | Extends | DOT | From | LPAREN | COMMA | As | STAR
             | GTGT | GTGTGT | COLON | Return | Delete | Throw | Break | Continue | If | Else
-            | Switch | Case | Default | Async | For | In | Of | While | Try | Catch | Finally
-            | With | EQ | AT | AMPAMP | PIPEPIPE | PLUS | DASH | DASHDASH | PLUSPLUS | SLASH
-            | PERCENT | STARSTAR | PIPE | AMP | LTLT | TILDE | LT | LTEQ | EQEQ | BANGEQ | GTEQ
-            | GT | PLUSEQ | BANG | BANGEQEQ | EQEQEQ | DASHEQ | STAREQ | SLASHEQ | PERCENTEQ
-            | STARSTAREQ | GTGTEQ | GTGTGTEQ | LTLTEQ | AMPEQ | CARET | CARETEQ | PIPEEQ
-            | Yield | LBRACK | LBRACE | Await | QMARK | QMARKQMARK | New | Let | Var | Const
-            | Function | FunctionExpression | SEMI => HalsteadType::Operator,
-            Identifier | Identifier2 | MemberExpression | MemberExpression2
-            | PropertyIdentifier | String | String2 | Number | True | False | Null | Void
-            | This | Super | Undefined | Set | Get | Typeof | Instanceof => HalsteadType::Operand,
+            | Switch | Case | Default | Async | Do | For | In | Of | While | Try | Catch
+            | Finally | With | EQ | AT | AMPAMP | PIPEPIPE | PLUS | DASH | DASHDASH | PLUSPLUS
+            | SLASH | PERCENT | STARSTAR | PIPE | AMP | LTLT | TILDE | LT | LTEQ | EQEQ
+            | BANGEQ | GTEQ | GT | PLUSEQ | BANG | BANGEQEQ | EQEQEQ | DASHEQ | STAREQ
+            | SLASHEQ | PERCENTEQ | STARSTAREQ | GTGTEQ | GTGTGTEQ | LTLTEQ | AMPEQ | CARET
+            | CARETEQ | PIPEEQ | Yield | LBRACK | LBRACE | Await | QMARK | QMARKQMARK
+            | OptionalChain | EQGT | DOTDOTDOT | New | Let | Var | Const | Function
+            | FunctionExpression | SEMI | Typeof | Instanceof | Void => HalsteadType::Operator,
+            Identifier | Identifier2 | MemberExpression | MemberExpression2 | MemberExpression3
+            | PropertyIdentifier | String | String2 | Number | True | False | Null | This
+            | Super | Undefined | Set | Get => HalsteadType::Operand,
             _ => HalsteadType::Unknown,
         }
     }
@@ -185,13 +186,13 @@ impl Getter for JavascriptCode {
             // Or in a variable declaration: var aFun = function() {}
             if let Some(parent) = node.parent() {
                 match parent.kind_id().into() {
-                    Mozjs::Pair => {
+                    Javascript::Pair => {
                         if let Some(name) = parent.child_by_field_name("key") {
                             let code = &code[name.start_byte()..name.end_byte()];
                             return std::str::from_utf8(code).ok();
                         }
                     }
-                    Mozjs::VariableDeclarator => {
+                    Javascript::VariableDeclarator => {
                         if let Some(name) = parent.child_by_field_name("name") {
                             let code = &code[name.start_byte()..name.end_byte()];
                             return std::str::from_utf8(code).ok();
@@ -210,16 +211,17 @@ impl Getter for JavascriptCode {
         match node.kind_id().into() {
             Export | Import | Import2 | Extends | DOT | From | LPAREN | COMMA | As | STAR
             | GTGT | GTGTGT | COLON | Return | Delete | Throw | Break | Continue | If | Else
-            | Switch | Case | Default | Async | For | In | Of | While | Try | Catch | Finally
-            | With | EQ | AT | AMPAMP | PIPEPIPE | PLUS | DASH | DASHDASH | PLUSPLUS | SLASH
-            | PERCENT | STARSTAR | PIPE | AMP | LTLT | TILDE | LT | LTEQ | EQEQ | BANGEQ | GTEQ
-            | GT | PLUSEQ | BANG | BANGEQEQ | EQEQEQ | DASHEQ | STAREQ | SLASHEQ | PERCENTEQ
-            | STARSTAREQ | GTGTEQ | GTGTGTEQ | LTLTEQ | AMPEQ | CARET | CARETEQ | PIPEEQ
-            | Yield | LBRACK | LBRACE | Await | QMARK | QMARKQMARK | New | Let | Var | Const
-            | Function | FunctionExpression | SEMI => HalsteadType::Operator,
-            Identifier | Identifier2 | MemberExpression | MemberExpression2
-            | PropertyIdentifier | String | String2 | Number | True | False | Null | Void
-            | This | Super | Undefined | Set | Get | Typeof | Instanceof => HalsteadType::Operand,
+            | Switch | Case | Default | Async | Do | For | In | Of | While | Try | Catch
+            | Finally | With | EQ | AT | AMPAMP | PIPEPIPE | PLUS | DASH | DASHDASH | PLUSPLUS
+            | SLASH | PERCENT | STARSTAR | PIPE | AMP | LTLT | TILDE | LT | LTEQ | EQEQ
+            | BANGEQ | GTEQ | GT | PLUSEQ | BANG | BANGEQEQ | EQEQEQ | DASHEQ | STAREQ
+            | SLASHEQ | PERCENTEQ | STARSTAREQ | GTGTEQ | GTGTGTEQ | LTLTEQ | AMPEQ | CARET
+            | CARETEQ | PIPEEQ | Yield | LBRACK | LBRACE | Await | QMARK | QMARKQMARK
+            | OptionalChain | EQGT | DOTDOTDOT | New | Let | Var | Const | Function
+            | FunctionExpression | SEMI | Typeof | Instanceof | Void => HalsteadType::Operator,
+            Identifier | Identifier2 | MemberExpression | MemberExpression2 | MemberExpression3
+            | PropertyIdentifier | String | String2 | Number | True | False | Null | This
+            | Super | Undefined | Set | Get => HalsteadType::Operand,
             _ => HalsteadType::Unknown,
         }
     }
@@ -254,13 +256,13 @@ impl Getter for TypescriptCode {
             // Or in a variable declaration: var aFun = function() {}
             if let Some(parent) = node.parent() {
                 match parent.kind_id().into() {
-                    Mozjs::Pair => {
+                    Typescript::Pair => {
                         if let Some(name) = parent.child_by_field_name("key") {
                             let code = &code[name.start_byte()..name.end_byte()];
                             return std::str::from_utf8(code).ok();
                         }
                     }
-                    Mozjs::VariableDeclarator => {
+                    Typescript::VariableDeclarator => {
                         if let Some(name) = parent.child_by_field_name("name") {
                             let code = &code[name.start_byte()..name.end_byte()];
                             return std::str::from_utf8(code).ok();
@@ -279,16 +281,19 @@ impl Getter for TypescriptCode {
         match node.kind_id().into() {
             Export | Import | Import2 | Extends | DOT | From | LPAREN | COMMA | As | STAR
             | GTGT | GTGTGT | COLON | Return | Delete | Throw | Break | Continue | If | Else
-            | Switch | Case | Default | Async | For | In | Of | While | Try | Catch | Finally
-            | With | EQ | AT | AMPAMP | PIPEPIPE | PLUS | DASH | DASHDASH | PLUSPLUS | SLASH
-            | PERCENT | STARSTAR | PIPE | AMP | LTLT | TILDE | LT | LTEQ | EQEQ | BANGEQ | GTEQ
-            | GT | PLUSEQ | BANG | BANGEQEQ | EQEQEQ | DASHEQ | STAREQ | SLASHEQ | PERCENTEQ
-            | STARSTAREQ | GTGTEQ | GTGTGTEQ | LTLTEQ | AMPEQ | CARET | CARETEQ | PIPEEQ
-            | Yield | LBRACK | LBRACE | Await | QMARK | QMARKQMARK | New | Let | Var | Const
-            | Function | FunctionExpression | SEMI => HalsteadType::Operator,
-            Identifier | NestedIdentifier | MemberExpression | PropertyIdentifier | String
-            | Number | True | False | Null | Void | This | Super | Undefined | Set | Get
-            | Typeof | Instanceof => HalsteadType::Operand,
+            | Switch | Case | Default | Async | Do | For | In | Of | While | Try | Catch
+            | Finally | With | EQ | AT | AMPAMP | PIPEPIPE | PLUS | DASH | DASHDASH | PLUSPLUS
+            | SLASH | PERCENT | STARSTAR | PIPE | AMP | LTLT | TILDE | LT | LTEQ | EQEQ
+            | BANGEQ | GTEQ | GT | PLUSEQ | BANG | BANGEQEQ | EQEQEQ | DASHEQ | STAREQ
+            | SLASHEQ | PERCENTEQ | STARSTAREQ | GTGTEQ | GTGTGTEQ | LTLTEQ | AMPEQ | CARET
+            | CARETEQ | PIPEEQ | Yield | LBRACK | LBRACE | Await | QMARK | QMARKQMARK
+            | QMARKDOT | OptionalChain | EQGT | DOTDOTDOT | New | Let | Var | Const | Function
+            | FunctionExpression | SEMI | Typeof | Instanceof | Void | PredefinedType => {
+                HalsteadType::Operator
+            }
+            Identifier | NestedIdentifier | MemberExpression | MemberExpression2
+            | MemberExpression3 | MemberExpression4 | PropertyIdentifier | String | Number
+            | True | False | Null | This | Super | Undefined | Set | Get => HalsteadType::Operand,
             _ => HalsteadType::Unknown,
         }
     }
@@ -323,13 +328,13 @@ impl Getter for TsxCode {
             // Or in a variable declaration: var aFun = function() {}
             if let Some(parent) = node.parent() {
                 match parent.kind_id().into() {
-                    Mozjs::Pair => {
+                    Tsx::Pair => {
                         if let Some(name) = parent.child_by_field_name("key") {
                             let code = &code[name.start_byte()..name.end_byte()];
                             return std::str::from_utf8(code).ok();
                         }
                     }
-                    Mozjs::VariableDeclarator => {
+                    Tsx::VariableDeclarator => {
                         if let Some(name) = parent.child_by_field_name("name") {
                             let code = &code[name.start_byte()..name.end_byte()];
                             return std::str::from_utf8(code).ok();
@@ -348,16 +353,21 @@ impl Getter for TsxCode {
         match node.kind_id().into() {
             Export | Import | Import2 | Extends | DOT | From | LPAREN | COMMA | As | STAR
             | GTGT | GTGTGT | COLON | Return | Delete | Throw | Break | Continue | If | Else
-            | Switch | Case | Default | Async | For | In | Of | While | Try | Catch | Finally
-            | With | EQ | AT | AMPAMP | PIPEPIPE | PLUS | DASH | DASHDASH | PLUSPLUS | SLASH
-            | PERCENT | STARSTAR | PIPE | AMP | LTLT | TILDE | LT | LTEQ | EQEQ | BANGEQ | GTEQ
-            | GT | PLUSEQ | BANG | BANGEQEQ | EQEQEQ | DASHEQ | STAREQ | SLASHEQ | PERCENTEQ
-            | STARSTAREQ | GTGTEQ | GTGTGTEQ | LTLTEQ | AMPEQ | CARET | CARETEQ | PIPEEQ
-            | Yield | LBRACK | LBRACE | Await | QMARK | QMARKQMARK | New | Let | Var | Const
-            | Function | FunctionExpression | SEMI => HalsteadType::Operator,
-            Identifier | NestedIdentifier | MemberExpression | PropertyIdentifier | String
-            | String2 | Number | True | False | Null | Void | This | Super | Undefined | Set
-            | Get | Typeof | Instanceof => HalsteadType::Operand,
+            | Switch | Case | Default | Async | Do | For | In | Of | While | Try | Catch
+            | Finally | With | EQ | AT | AMPAMP | PIPEPIPE | PLUS | DASH | DASHDASH | PLUSPLUS
+            | SLASH | PERCENT | STARSTAR | PIPE | AMP | LTLT | TILDE | LT | LTEQ | EQEQ
+            | BANGEQ | GTEQ | GT | PLUSEQ | BANG | BANGEQEQ | EQEQEQ | DASHEQ | STAREQ
+            | SLASHEQ | PERCENTEQ | STARSTAREQ | GTGTEQ | GTGTGTEQ | LTLTEQ | AMPEQ | CARET
+            | CARETEQ | PIPEEQ | Yield | LBRACK | LBRACE | Await | QMARK | QMARKQMARK
+            | QMARKDOT | OptionalChain | EQGT | DOTDOTDOT | New | Let | Var | Const | Function
+            | FunctionExpression | SEMI | Typeof | Instanceof | Void | PredefinedType => {
+                HalsteadType::Operator
+            }
+            Identifier | Identifier2 | NestedIdentifier | MemberExpression | MemberExpression2
+            | MemberExpression3 | MemberExpression4 | PropertyIdentifier | String | String2
+            | Number | True | False | Null | This | Super | Undefined | Set | Get => {
+                HalsteadType::Operand
+            }
             _ => HalsteadType::Unknown,
         }
     }
@@ -414,12 +424,18 @@ impl Getter for RustCode {
                 }
                 _ => HalsteadType::Unknown,
             },
-            LPAREN | LBRACE | LBRACK | EQGT | PLUS | STAR | Async | Await | Continue | For | If
-            | Let | Loop | Match | Return | Unsafe | While | EQ | COMMA | DASHGT | QMARK | LT
-            | GT | AMP | MutableSpecifier | DOTDOT | DOTDOTEQ | DASH | AMPAMP | PIPE | CARET
-            | EQEQ | BANGEQ | LTEQ | GTEQ | LTLT | GTGT | PERCENT | PLUSEQ | DASHEQ | STAREQ
-            | SLASHEQ | PERCENTEQ | AMPEQ | PIPEEQ | CARETEQ | LTLTEQ | GTGTEQ | Move | DOT
-            | PrimitiveType | Fn | SEMI => HalsteadType::Operator,
+            LPAREN | LBRACE | LBRACK | As | EQGT | PLUS | STAR | Async | Await | Break
+            | Continue | Else | For | If | In | Let | Loop | Match | Return | Unsafe | While
+            | EQ | COMMA | DASHGT | QMARK | LT | GT | AMP | MutableSpecifier | DOTDOT
+            | DOTDOTEQ | DASH | AMPAMP | PIPE | CARET | EQEQ | BANGEQ | LTEQ | GTEQ | LTLT
+            | GTGT | PERCENT | PLUSEQ | DASHEQ | STAREQ | SLASHEQ | PERCENTEQ | AMPEQ | PIPEEQ
+            | CARETEQ | LTLTEQ | GTGTEQ | Move | DOT | PrimitiveType | PrimitiveType2
+            | PrimitiveType3 | PrimitiveType4 | PrimitiveType5 | PrimitiveType6
+            | PrimitiveType7 | PrimitiveType8 | PrimitiveType9 | PrimitiveType10
+            | PrimitiveType11 | PrimitiveType12 | PrimitiveType13 | PrimitiveType14
+            | PrimitiveType15 | PrimitiveType16 | PrimitiveType17 | Fn | SEMI => {
+                HalsteadType::Operator
+            }
             Identifier | StringLiteral | RawStringLiteral | IntegerLiteral | FloatLiteral
             | BooleanLiteral | Zelf | CharLiteral | UNDERSCORE => HalsteadType::Operand,
             _ => HalsteadType::Unknown,
@@ -542,19 +558,19 @@ impl Getter for JavaCode {
             // Operator: keywords
             | New | Return | Default | Abstract | Assert | Instanceof | Extends | Final | Implements | Transient | Synchronized | Super | This | VoidType
             // Operator: brackets and comma and terminators (separators)
-            | SEMI | COMMA | COLONCOLON | LBRACE | LBRACK | LPAREN // | RBRACE | RBRACK | RPAREN | DOTDOTDOT | DOT
+            | SEMI | COMMA | COLONCOLON | DOT | DASHGT | LBRACE | LBRACK | LPAREN
             // Operator: operators
-            | EQ | LT | GT | BANG | TILDE | QMARK | COLON // no grammar for lambda operator ->
+            | EQ | LT | GT | BANG | TILDE | QMARK | COLON
             | EQEQ | LTEQ | GTEQ | BANGEQ | AMPAMP | PIPEPIPE | PLUSPLUS | DASHDASH
             | PLUS | DASH | STAR | SLASH | AMP | PIPE | CARET | PERCENT| LTLT | GTGT | GTGTGT
             | PLUSEQ | DASHEQ | STAREQ | SLASHEQ | AMPEQ | PIPEEQ | CARETEQ | PERCENTEQ | LTLTEQ | GTGTEQ | GTGTGTEQ
             // primitive types
-            | Int | Float
+            | Byte | Short | Int | Long | Char | Float | Double | BooleanType
             => {
                 HalsteadType::Operator
             },
             // Operands: variables, constants, literals
-            Identifier | NullLiteral | ClassLiteral | StringLiteral | CharacterLiteral | HexIntegerLiteral | OctalIntegerLiteral | BinaryIntegerLiteral | DecimalIntegerLiteral | HexFloatingPointLiteral | DecimalFloatingPointLiteral  => {
+            Identifier | NullLiteral | ClassLiteral | True | False | StringLiteral | CharacterLiteral | HexIntegerLiteral | OctalIntegerLiteral | BinaryIntegerLiteral | DecimalIntegerLiteral | HexFloatingPointLiteral | DecimalFloatingPointLiteral  => {
                 HalsteadType::Operand
             },
             _ => {
@@ -600,7 +616,7 @@ impl Getter for KotlinCode {
             | Class | Fun | Object | Val | Var | In | Is | As | AsQMARK | BANGis | BANGin
             | This | Super | Constructor
             // Operator: brackets, separators, terminators
-            | SEMI | COMMA | COLONCOLON | LBRACE | LBRACK | LPAREN
+            | SEMI | COMMA | COLONCOLON | DOT | LBRACE | LBRACK | LPAREN
             // Operator: assignment and arithmetic
             | EQ | PLUS | DASH | STAR | SLASH | PERCENT
             | PLUSEQ | DASHEQ | STAREQ | SLASHEQ | PERCENTEQ
@@ -655,7 +671,8 @@ impl Getter for GoCode {
             | G::PIPEEQ | G::CARETEQ | G::LTLTEQ | G::GTGTEQ | G::AMPCARETEQ
                 => HalsteadType::Operator,
             // Operands: identifiers and literals
-            G::Identifier | G::FieldIdentifier | G::PackageIdentifier | G::TypeIdentifier
+            G::Identifier | G::Identifier2 | G::Identifier3 | G::BlankIdentifier
+            | G::FieldIdentifier | G::PackageIdentifier | G::TypeIdentifier
             | G::LabelName | G::IntLiteral | G::FloatLiteral | G::ImaginaryLiteral
             | G::RuneLiteral | G::InterpretedStringLiteral | G::RawStringLiteral | G::Nil
             | G::True | G::False | G::Iota
@@ -704,6 +721,7 @@ impl Getter for PerlCode {
             | P::PLUSEQ | P::DASHEQ | P::STAREQ | P::SLASHEQ | P::PERCENTEQ | P::STARSTAREQ
             | P::AMPEQ | P::PIPEEQ | P::CARETEQ | P::LTLTEQ | P::GTGTEQ | P::AMPAMPEQ
             | P::PIPEPIPEEQ | P::SLASHSLASHEQ | P::DOTEQ | P::XEQ
+            | P::LTEQGT | P::AMPDOTEQ | P::PIPEDOTEQ | P::CARETDOTEQ | P::Isa
                 => HalsteadType::Operator,
             // Operands: identifiers and literals
             P::Identifier | P::ScalarVariable | P::ArrayVariable | P::HashVariable
