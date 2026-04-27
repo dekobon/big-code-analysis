@@ -35,6 +35,13 @@ macro_rules! implement_metric_trait {
            }
         )+
     );
+    (Exit, $($code:ident),+) => (
+        $(
+           impl Exit for $code {
+               fn compute<'a>(_node: &Node<'a>, _code: &'a [u8], _stats: &mut Stats) {}
+           }
+        )+
+    );
     (Loc, $($code:ident),+) => (
         $(
            impl Loc for $code {

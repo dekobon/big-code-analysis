@@ -215,7 +215,8 @@ implement_metric_trait!(
     JavaCode,
     KotlinCode,
     GoCode,
-    PerlCode
+    PerlCode,
+    BashCode
 );
 
 #[cfg(test)]
@@ -1070,6 +1071,41 @@ mod tests {
                       "closures_max": 0.0
                     }
                     "###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn bash_nom() {
+        check_metrics::<BashParser>(
+            "#!/bin/bash
+foo() {
+    echo 'hello'
+}
+bar() {
+    echo 'world'
+}
+foo
+bar",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nom,
+                    @r#"
+                    {
+                      "functions": 2.0,
+                      "closures": 0.0,
+                      "functions_average": 0.6666666666666666,
+                      "closures_average": 0.0,
+                      "total": 2.0,
+                      "average": 0.6666666666666666,
+                      "functions_min": 0.0,
+                      "functions_max": 1.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }
+                    "#
                 );
             },
         );

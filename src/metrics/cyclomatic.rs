@@ -292,6 +292,32 @@ impl Cyclomatic for KotlinCode {
 
 implement_metric_trait!(Cyclomatic, PreprocCode, CcommentCode);
 
+impl Cyclomatic for BashCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        match node.kind_id().into() {
+            // Control flow: +1 each (WhileStatement covers both while and until;
+            // ForStatement covers both for and select)
+            Bash::IfStatement
+            | Bash::ElifClause
+            | Bash::ForStatement
+            | Bash::CStyleForStatement
+            | Bash::WhileStatement
+            | Bash::CaseStatement
+            // Case arms: +1 each
+            | Bash::CaseItem
+            | Bash::CaseItem2
+            // Logical operators: count the tokens directly so we catch
+            // both command-level (inside List) and expression-level
+            // (inside [[ ]] / (( ))) uses.
+            | Bash::AMPAMP
+            | Bash::PIPEPIPE => {
+                stats.cyclomatic += 1.;
+            }
+            _ => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::tools::check_metrics;
@@ -1302,6 +1328,29 @@ mod tests {
                       "max": 8.0
                     }
                     "###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn bash_nested_control_flow() {
+        check_metrics::<BashParser>(
+            "#!/bin/bash
+f() {
+    if [ $1 -eq 1 ]; then
+        for i in 1 2 3; do
+            echo $i
+        done
+    elif [ $1 -eq 2 ]; then
+        echo 'two'
+    fi
+}",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    {".sum" => insta::rounded_redaction(2)}
                 );
             },
         );

@@ -857,3 +857,143 @@ impl Checker for PerlCode {
         false
     }
 }
+
+impl Checker for BashCode {
+    fn is_comment(node: &Node) -> bool {
+        node.kind_id() == Bash::Comment
+    }
+
+    fn is_useful_comment(_: &Node, _: &[u8]) -> bool {
+        false
+    }
+
+    fn is_func_space(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Bash::Program | Bash::FunctionDefinition
+        )
+    }
+
+    fn is_func(node: &Node) -> bool {
+        node.kind_id() == Bash::FunctionDefinition
+    }
+
+    fn is_closure(_node: &Node) -> bool {
+        false
+    }
+
+    fn is_call(node: &Node) -> bool {
+        node.kind_id() == Bash::Command
+    }
+
+    fn is_non_arg(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Bash::LPAREN | Bash::RPAREN | Bash::COMMA | Bash::SEMI
+        )
+    }
+
+    fn is_string(node: &Node) -> bool {
+        // tree-sitter-bash 0.25.1 only emits the `heredoc_body`
+        // parser-node symbol (`HeredocBody2`) in observed parse trees;
+        // the duplicate `HeredocBody` entry plus the hidden
+        // `_heredoc_body` (`HeredocBody3`) and `_simple_heredoc_body`
+        // (`SimpleHeredocBody`) rules do not surface, so they are
+        // intentionally omitted here.
+        matches!(
+            node.kind_id().into(),
+            Bash::String
+                | Bash::RawString
+                | Bash::AnsiCString
+                | Bash::TranslatedString
+                | Bash::HeredocBody2
+        )
+    }
+
+    #[inline(always)]
+    fn is_else_if(node: &Node) -> bool {
+        node.kind_id() == Bash::ElifClause
+    }
+
+    fn is_primitive(_id: u16) -> bool {
+        false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::count::count;
+    use crate::langs::BashParser;
+    use std::path::PathBuf;
+
+    fn parse(source: &str) -> BashParser {
+        BashParser::new(source.as_bytes().to_vec(), &PathBuf::from("test.sh"), None)
+    }
+
+    fn count_strings(source: &str) -> usize {
+        count(&parse(source), &["string".to_string()]).0
+    }
+
+    // `count`'s filter parser accepts a numeric string as a `kind_id` match
+    // (parser.rs `get_filters`), so `has_kind` reuses the same primitive.
+    fn has_kind(source: &str, kind_id: u16) -> bool {
+        count(&parse(source), &[kind_id.to_string()]).0 > 0
+    }
+
+    #[test]
+    fn bash_is_string_excludes_word_tokens() {
+        // `echo hello world` produces three Word nodes — none of them are
+        // string literals. Regression for #44 (Word must not match
+        // is_string).
+        assert_eq!(count_strings("echo hello world\n"), 0);
+        assert_eq!(
+            count_strings("if [ -f file.txt ]; then cat file.txt; fi\n"),
+            0
+        );
+    }
+
+    #[test]
+    fn bash_is_string_matches_quoted_literals() {
+        // Regular double-quoted string -> `string` (Bash::String).
+        assert_eq!(count_strings("echo \"double\"\n"), 1);
+        // Single-quoted string -> `raw_string` (Bash::RawString).
+        assert_eq!(count_strings("echo 'single'\n"), 1);
+        // ANSI-C quoting -> `ansi_c_string` (Bash::AnsiCString).
+        assert_eq!(count_strings("echo $'ansi-c'\n"), 1);
+    }
+
+    #[test]
+    fn bash_is_string_matches_translated_string() {
+        // tree-sitter-bash only emits a visible `translated_string` node
+        // in assignment-style contexts; in command arguments the `$"..."`
+        // tokenizes as `$` plus a regular `string`. Use an assignment so
+        // the wrapper actually appears in the AST.
+        let src = "x=$\"translated\"\n";
+        assert!(
+            has_kind(src, Bash::TranslatedString as u16),
+            "expected a translated_string node in {src:?}"
+        );
+        // The wrapper plus its inner `string` child both match is_string,
+        // so count is 2.
+        assert_eq!(count_strings(src), 2);
+    }
+
+    #[test]
+    fn bash_is_string_matches_heredoc_bodies() {
+        // Plain heredoc body.
+        assert_eq!(
+            count_strings("cat <<EOF\nhello world\nEOF\n"),
+            1,
+            "heredoc body should be counted as a string literal"
+        );
+        // Quoted-tag heredoc disables expansions but is still a string.
+        assert_eq!(
+            count_strings("cat <<'EOF'\nliteral $not_expanded\nEOF\n"),
+            1
+        );
+        // Heredoc with an embedded expansion still yields exactly one
+        // body node (parallel to a JS template string with `${x}`).
+        assert_eq!(count_strings("cat <<EOF\nhi $name\nEOF\n"), 1);
+    }
+}

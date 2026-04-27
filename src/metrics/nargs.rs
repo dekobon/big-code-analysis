@@ -318,7 +318,8 @@ implement_metric_trait!(
     PreprocCode,
     CcommentCode,
     JavaCode,
-    PerlCode
+    PerlCode,
+    BashCode
 );
 
 #[cfg(test)]

@@ -259,7 +259,8 @@ implement_metric_trait!(
     CcommentCode,
     KotlinCode,
     GoCode,
-    PerlCode
+    PerlCode,
+    BashCode
 );
 
 #[cfg(test)]

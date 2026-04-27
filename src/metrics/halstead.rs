@@ -348,6 +348,12 @@ impl Halstead for KotlinCode {
 
 implement_metric_trait!(Halstead, PreprocCode, CcommentCode);
 
+impl Halstead for BashCode {
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], halstead_maps: &mut HalsteadMaps<'a>) {
+        compute_halstead::<Self>(node, code, halstead_maps);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::tools::check_metrics;
@@ -814,6 +820,23 @@ mod tests {
                     }
                     "###
                 );
+            },
+        );
+    }
+
+    #[test]
+    fn bash_operators_and_operands() {
+        check_metrics::<BashParser>(
+            "#!/bin/bash
+f() {
+    local x=1
+    if [ $x -eq 1 ]; then
+        echo 'one'
+    fi
+}",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(metric.halstead);
             },
         );
     }
