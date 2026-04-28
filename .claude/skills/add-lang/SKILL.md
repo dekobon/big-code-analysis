@@ -721,7 +721,12 @@ pre-commit run --all-files
 ```
 
 For any new or changed snapshot, `cargo insta test --review` and
-review each diff manually.
+review each diff manually. If the new language's Halstead operator/
+operand classification causes cascading metric shifts in existing
+snapshots, verify the diffs are metric-value-only (no structural
+changes), then use `cargo insta test --accept` per test file rather
+than accepting incrementally — incremental acceptance shifts
+`assertion_line` fields, causing further cascading mismatches.
 
 If validation fails, fix the root cause — do not paper over with
 `#[allow(...)]` or by loosening assertions.

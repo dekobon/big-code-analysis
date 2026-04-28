@@ -94,7 +94,14 @@ description: Complete workflow for fixing GitHub issues including investigation,
     - `cargo test --workspace`
     - `pre-commit run --all-files` (if pre-commit is installed)
     - `markdownlint-cli2` against any Markdown files touched
-    If any check fails, fix and re-run until clean.
+     If any check fails, fix and re-run until clean.
+     If snapshot tests fail (`*.snap.new` files generated), use
+     `cargo insta test --review` to inspect each diff. For bulk metric-value
+     shifts (grammar bumps, Halstead reclassification), verify the diff
+     pattern is metric-value-only, then accept per test file with
+     `cargo insta test --accept`. Do NOT accept incrementally with
+     `mv *.snap.new` — that shifts `assertion_line` fields and cascades
+     into further mismatches.
 12. Run integration / CLI tests against the NEW binary if applicable to the
     change (rebuild first; never test stale).
 13. **Update all documentation.** Review and update each of the following as
