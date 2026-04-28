@@ -597,7 +597,13 @@ impl Cognitive for KotlinCode {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
             Else => {
-                increment_by_one(stats);
+                // Per the SonarSource spec, `else ->` inside a `when`
+                // expression is the default arm of a switch-like construct
+                // and should be +0, not +1.
+                let in_when = node.parent().is_some_and(|p| p.kind_id() == WhenEntry);
+                if !in_when {
+                    increment_by_one(stats);
+                }
             }
             UnaryExpression => {
                 stats.boolean_seq.not_operator(node.kind_id());
@@ -2612,10 +2618,10 @@ mod tests {
                     metric.cognitive,
                     @r###"
                     {
-                      "sum": 15.0,
-                      "average": 15.0,
+                      "sum": 14.0,
+                      "average": 14.0,
                       "min": 0.0,
-                      "max": 15.0
+                      "max": 14.0
                     }
                     "###
                 );
@@ -2686,6 +2692,54 @@ mod tests {
     fn kotlin_when_expression() {
         check_metrics::<KotlinParser>(
             "fun test(x: Int) { when { x > 10 -> val a = 1; x > 5 -> val b = 2; else -> val c = 3 } }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive, @r#"
+                {
+                  "sum": 1.0,
+                  "average": 1.0,
+                  "min": 0.0,
+                  "max": 1.0
+                }
+                "#);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_when_else_no_increment() {
+        check_metrics::<KotlinParser>(
+            "fun test(x: Int) {
+                when (x) {
+                    1 -> println(\"one\")
+                    2 -> println(\"two\")
+                    else -> println(\"other\")
+                }
+            }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive, @r#"
+                {
+                  "sum": 1.0,
+                  "average": 1.0,
+                  "min": 0.0,
+                  "max": 1.0
+                }
+                "#);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_else_in_if_still_increments() {
+        check_metrics::<KotlinParser>(
+            "fun test(x: Int) {
+                if (x > 0) {
+                    println(\"positive\")
+                } else {
+                    println(\"non-positive\")
+                }
+            }",
             "foo.kt",
             |metric| {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
