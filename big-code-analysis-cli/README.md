@@ -46,7 +46,7 @@ big-code-analysis-cli [OPTIONS]
 - `--preproc <PREPROCESSOR>`: Get preprocessor directives for C/C++ files.
 - `--ls <LINE_START>`: Start line for the analysis.
 - `--le <LINE_END>`: End line for the analysis.
-- `-w, --warning`: Show warnings.
+- `-w, --warning`: Print diagnostic warnings to stderr (e.g. skipped empty files or unrecognized languages).
 - `-v, --version`: Show version information.
 - `-h, --help`: Show help information.
 

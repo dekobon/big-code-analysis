@@ -36,10 +36,10 @@ pub struct WebMetricsResponse {
 pub struct WebMetricsInfo {
     /// Source code filename.
     pub file_name: String,
-    /// Unit space code.
+    /// Flag to consider only unit space metrics.
     ///
-    ///
-    /// If `None`, the entire code is considered.
+    /// Accepted truthy values: `"1"`, `"true"`, `"yes"`, `"on"` (case-insensitive).
+    /// If `None` or a non-truthy value, the entire code is considered.
     pub unit: Option<String>,
 }
 
@@ -81,6 +81,6 @@ impl Callback for WebMetricsCallback {
             language: cfg.language,
             spaces,
         })
-        .unwrap()
+        .expect("WebMetricsResponse has a static, infallible Serialize impl")
     }
 }

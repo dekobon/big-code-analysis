@@ -262,7 +262,8 @@ fn java_inspect_container(container_node: &Node, conditions: &mut f64) {
     let mut node_kind = node.kind_id().into();
 
     // Initializes the flag to true if the container is known to contain a boolean value
-    let mut has_boolean_content = match node.parent().unwrap().kind_id().into() {
+    let Some(parent) = node.parent() else { return };
+    let mut has_boolean_content = match parent.kind_id().into() {
         BinaryExpression | IfStatement | WhileStatement | DoStatement | ForStatement => true,
         TernaryExpression => node
             .previous_sibling()
@@ -276,7 +277,9 @@ fn java_inspect_container(container_node: &Node, conditions: &mut f64) {
         // The child node of index 0 contains the unary expression operator (we look for the `!` operator)
         let is_parenthesised_exp = matches!(node_kind, ParenthesizedExpression);
         let is_not_operator = matches!(node_kind, UnaryExpression)
-            && matches!(node.child(0).unwrap().kind_id().into(), BANG);
+            && node
+                .child(0)
+                .is_some_and(|c| matches!(c.kind_id().into(), BANG));
 
         // Stops the exploration if the node is neither
         // a parenthesized expression nor a `Not` operator
@@ -295,7 +298,8 @@ fn java_inspect_container(container_node: &Node, conditions: &mut f64) {
         // always store their expressions in the children nodes of index one
         // https://github.com/tree-sitter/tree-sitter-java/blob/master/src/grammar.json#L2472
         // https://github.com/tree-sitter/tree-sitter-java/blob/master/src/grammar.json#L2150
-        node = node.child(1).unwrap();
+        let Some(child) = node.child(1) else { break };
+        node = child;
         node_kind = node.kind_id().into();
 
         // Stops the exploration when the content is found
@@ -1329,5 +1333,18 @@ mod tests {
                 );
             },
         );
+    }
+
+    #[test]
+    fn java_malformed_parenthesized_no_panic() {
+        check_metrics::<JavaParser>("class A { void m() { if (( }) }", "foo.java", |metric| {
+            // tree-sitter emits ERROR nodes for this malformed source, so no
+            // IfStatement, branch, or condition is recognised — all counts are 0.
+            // Primary goal: the unwrap-free path does not panic.
+            assert_eq!(metric.abc.assignments(), 0.0);
+            assert_eq!(metric.abc.branches(), 0.0);
+            assert_eq!(metric.abc.conditions(), 0.0);
+            assert_eq!(metric.abc.magnitude(), 0.0);
+        });
     }
 }

@@ -5,6 +5,10 @@ use std::str::FromStr;
 
 use serde::Serialize;
 
+fn ser_err(e: impl std::fmt::Display) -> std::io::Error {
+    std::io::Error::other(e.to_string())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Format {
     Cbor,
@@ -25,29 +29,35 @@ impl Format {
         path: PathBuf,
         output_path: Option<&PathBuf>,
         pretty: bool,
-    ) {
+    ) -> std::io::Result<()> {
         // Markdown has no per-file output; post-walk handling lives in main.rs.
         if matches!(self, Self::Markdown) {
-            return;
+            return Ok(());
         }
 
         if let Some(output_path) = output_path {
             match self {
-                Self::Cbor => Cbor::with_writer(space, path, output_path),
-                Self::Json => Json::with_pretty_writer(space, path, output_path, pretty),
-                Self::Toml => Toml::with_pretty_writer(space, path, output_path, pretty),
-                Self::Yaml => Yaml::with_writer(space, path, output_path),
+                Self::Cbor => Cbor::with_writer(space, path, output_path)?,
+                Self::Json => Json::with_pretty_writer(space, path, output_path, pretty)?,
+                Self::Toml => Toml::with_pretty_writer(space, path, output_path, pretty)?,
+                Self::Yaml => Yaml::with_writer(space, path, output_path)?,
                 Self::Markdown => (),
             }
         } else {
             match self {
-                Self::Json => Json::write_on_stdout_pretty(space, pretty),
-                Self::Toml => Toml::write_on_stdout_pretty(space, pretty),
-                Self::Yaml => Yaml::write_on_stdout(space),
-                Self::Cbor => panic!("Cbor format cannot be printed to stdout"),
+                Self::Json => Json::write_on_stdout_pretty(space, pretty)?,
+                Self::Toml => Toml::write_on_stdout_pretty(space, pretty)?,
+                Self::Yaml => Yaml::write_on_stdout(space)?,
+                Self::Cbor => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "CBOR is binary and cannot be printed to stdout; use --output",
+                    ));
+                }
                 Self::Markdown => (),
             }
         }
+        Ok(())
     }
 }
 
@@ -67,28 +77,28 @@ impl FromStr for Format {
 }
 
 #[inline(always)]
-fn print_on_stdout(content: String) {
-    writeln!(std::io::stdout().lock(), "{content}").unwrap();
+fn print_on_stdout(content: String) -> std::io::Result<()> {
+    writeln!(std::io::stdout().lock(), "{content}")
 }
 
 trait WriteOnStdout {
     #[inline(always)]
-    fn write_on_stdout<T: Serialize>(content: T) {
-        print_on_stdout(Self::format(content));
+    fn write_on_stdout<T: Serialize>(content: T) -> std::io::Result<()> {
+        print_on_stdout(Self::format(content)?)
     }
 
-    fn format<T: Serialize>(content: T) -> String;
+    fn format<T: Serialize>(content: T) -> std::io::Result<String>;
 }
 
 trait WritePrettyOnStdout: WriteOnStdout {
-    fn write_on_stdout_pretty<T: Serialize>(content: T, pretty: bool) {
+    fn write_on_stdout_pretty<T: Serialize>(content: T, pretty: bool) -> std::io::Result<()> {
         print_on_stdout(if pretty {
-            Self::format_pretty(content)
+            Self::format_pretty(content)?
         } else {
-            Self::format(content)
-        });
+            Self::format(content)?
+        })
     }
-    fn format_pretty<T: Serialize>(content: T) -> String;
+    fn format_pretty<T: Serialize>(content: T) -> std::io::Result<String>;
 }
 
 fn handle_path(path: PathBuf, output_path: &Path, extension: &str) -> PathBuf {
@@ -98,12 +108,12 @@ fn handle_path(path: PathBuf, output_path: &Path, extension: &str) -> PathBuf {
     // Remove root ./
     let path = path.strip_prefix("./").unwrap_or(path);
 
-    // Replace .. with . to keep files inside the output folder
+    // Replace .. with . to keep files inside the output folder, skip non-UTF-8 components
     let cleaned_path: Vec<&str> = path
         .iter()
-        .map(|os_str| {
-            let s_str = os_str.to_str().unwrap();
-            if s_str == ".." { "." } else { s_str }
+        .filter_map(|os_str| {
+            let s = os_str.to_str()?;
+            Some(if s == ".." { "." } else { s })
         })
         .collect();
 
@@ -117,17 +127,19 @@ fn handle_path(path: PathBuf, output_path: &Path, extension: &str) -> PathBuf {
 trait WriteFile {
     const EXTENSION: &'static str;
 
-    fn open_file(path: PathBuf, output_path: &Path) -> File {
-        // Handle output path
+    fn open_file(path: PathBuf, output_path: &Path) -> std::io::Result<File> {
         let format_path = handle_path(path, output_path, Self::EXTENSION);
-
-        // Create directories
-        create_dir_all(format_path.parent().unwrap()).unwrap();
-
-        File::create(format_path).unwrap()
+        if let Some(parent) = format_path.parent() {
+            create_dir_all(parent)?;
+        }
+        File::create(format_path)
     }
 
-    fn with_writer<T: Serialize>(content: T, path: PathBuf, output_path: &Path);
+    fn with_writer<T: Serialize>(
+        content: T,
+        path: PathBuf,
+        output_path: &Path,
+    ) -> std::io::Result<()>;
 }
 
 trait WritePrettyFile: WriteFile {
@@ -136,28 +148,32 @@ trait WritePrettyFile: WriteFile {
         path: PathBuf,
         output_path: &Path,
         pretty: bool,
-    );
+    ) -> std::io::Result<()>;
 }
 
 struct Json;
 
 impl WriteOnStdout for Json {
-    fn format<T: Serialize>(content: T) -> String {
-        serde_json::to_string(&content).unwrap()
+    fn format<T: Serialize>(content: T) -> std::io::Result<String> {
+        serde_json::to_string(&content).map_err(ser_err)
     }
 }
 
 impl WritePrettyOnStdout for Json {
-    fn format_pretty<T: Serialize>(content: T) -> String {
-        serde_json::to_string_pretty(&content).unwrap()
+    fn format_pretty<T: Serialize>(content: T) -> std::io::Result<String> {
+        serde_json::to_string_pretty(&content).map_err(ser_err)
     }
 }
 
 impl WriteFile for Json {
     const EXTENSION: &'static str = ".json";
 
-    fn with_writer<T: Serialize>(content: T, path: PathBuf, output_path: &Path) {
-        serde_json::to_writer(Self::open_file(path, output_path), &content).unwrap()
+    fn with_writer<T: Serialize>(
+        content: T,
+        path: PathBuf,
+        output_path: &Path,
+    ) -> std::io::Result<()> {
+        serde_json::to_writer(Self::open_file(path, output_path)?, &content).map_err(ser_err)
     }
 }
 
@@ -167,11 +183,12 @@ impl WritePrettyFile for Json {
         path: PathBuf,
         output_path: &Path,
         pretty: bool,
-    ) {
+    ) -> std::io::Result<()> {
         if pretty {
-            serde_json::to_writer_pretty(Self::open_file(path, output_path), &content).unwrap();
+            serde_json::to_writer_pretty(Self::open_file(path, output_path)?, &content)
+                .map_err(ser_err)
         } else {
-            Self::with_writer(content, path, output_path);
+            Self::with_writer(content, path, output_path)
         }
     }
 }
@@ -179,24 +196,26 @@ impl WritePrettyFile for Json {
 struct Toml;
 
 impl WriteOnStdout for Toml {
-    fn format<T: Serialize>(content: T) -> String {
-        toml::to_string(&content).unwrap()
+    fn format<T: Serialize>(content: T) -> std::io::Result<String> {
+        toml::to_string(&content).map_err(ser_err)
     }
 }
 
 impl WritePrettyOnStdout for Toml {
-    fn format_pretty<T: Serialize>(content: T) -> String {
-        toml::to_string_pretty(&content).unwrap()
+    fn format_pretty<T: Serialize>(content: T) -> std::io::Result<String> {
+        toml::to_string_pretty(&content).map_err(ser_err)
     }
 }
 
 impl WriteFile for Toml {
     const EXTENSION: &'static str = ".toml";
 
-    fn with_writer<T: Serialize>(content: T, path: PathBuf, output_path: &Path) {
-        Self::open_file(path, output_path)
-            .write_all(Self::format(content).as_bytes())
-            .unwrap();
+    fn with_writer<T: Serialize>(
+        content: T,
+        path: PathBuf,
+        output_path: &Path,
+    ) -> std::io::Result<()> {
+        Self::open_file(path, output_path)?.write_all(Self::format(content)?.as_bytes())
     }
 }
 
@@ -206,13 +225,11 @@ impl WritePrettyFile for Toml {
         path: PathBuf,
         output_path: &Path,
         pretty: bool,
-    ) {
+    ) -> std::io::Result<()> {
         if pretty {
-            Self::open_file(path, output_path)
-                .write_all(Self::format_pretty(&content).as_bytes())
-                .unwrap();
+            Self::open_file(path, output_path)?.write_all(Self::format_pretty(&content)?.as_bytes())
         } else {
-            Self::with_writer(content, path, output_path);
+            Self::with_writer(content, path, output_path)
         }
     }
 }
@@ -220,16 +237,20 @@ impl WritePrettyFile for Toml {
 struct Yaml;
 
 impl WriteOnStdout for Yaml {
-    fn format<T: Serialize>(content: T) -> String {
-        serde_yaml::to_string(&content).unwrap()
+    fn format<T: Serialize>(content: T) -> std::io::Result<String> {
+        serde_yaml::to_string(&content).map_err(ser_err)
     }
 }
 
 impl WriteFile for Yaml {
     const EXTENSION: &'static str = ".yml";
 
-    fn with_writer<T: Serialize>(content: T, path: PathBuf, output_path: &Path) {
-        serde_yaml::to_writer(Self::open_file(path, output_path), &content).unwrap()
+    fn with_writer<T: Serialize>(
+        content: T,
+        path: PathBuf,
+        output_path: &Path,
+    ) -> std::io::Result<()> {
+        serde_yaml::to_writer(Self::open_file(path, output_path)?, &content).map_err(ser_err)
     }
 }
 
@@ -238,7 +259,53 @@ struct Cbor;
 impl WriteFile for Cbor {
     const EXTENSION: &'static str = ".cbor";
 
-    fn with_writer<T: Serialize>(content: T, path: PathBuf, output_path: &Path) {
-        serde_cbor::to_writer(Self::open_file(path, output_path), &content).unwrap()
+    fn with_writer<T: Serialize>(
+        content: T,
+        path: PathBuf,
+        output_path: &Path,
+    ) -> std::io::Result<()> {
+        serde_cbor::to_writer(Self::open_file(path, output_path)?, &content).map_err(ser_err)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn handle_path_strips_root_slash() {
+        let result = handle_path(PathBuf::from("/foo/bar.rs"), Path::new("out"), ".json");
+        assert_eq!(result, PathBuf::from("out/foo/bar.rs.json"));
+    }
+
+    #[test]
+    fn handle_path_strips_dot_slash() {
+        let result = handle_path(PathBuf::from("./foo/bar.rs"), Path::new("out"), ".json");
+        assert_eq!(result, PathBuf::from("out/foo/bar.rs.json"));
+    }
+
+    #[test]
+    fn handle_path_replaces_dotdot_with_dot() {
+        let result = handle_path(PathBuf::from("a/../b.rs"), Path::new("out"), ".json");
+        assert_eq!(result, PathBuf::from("out/a/./b.rs.json"));
+    }
+
+    #[test]
+    fn handle_path_plain_relative() {
+        let result = handle_path(PathBuf::from("src/main.rs"), Path::new("out"), ".json");
+        assert_eq!(result, PathBuf::from("out/src/main.rs.json"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn handle_path_skips_non_utf8_components() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let bad_component = OsStr::from_bytes(b"\xff\xfe");
+        let path = PathBuf::from("src").join(bad_component).join("bar.rs");
+        let result = handle_path(path, Path::new("out"), ".json");
+        // The non-UTF-8 component is skipped, leaving only src and bar.rs
+        assert_eq!(result, PathBuf::from("out/src/bar.rs.json"));
     }
 }
