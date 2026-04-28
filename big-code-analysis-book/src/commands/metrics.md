@@ -43,3 +43,10 @@ big-code-analysis-cli -m -p /path/to/your/file/or/directory --pr -O json
 ```
 
 This command prints the formatted metrics to the console or the specified output path.
+
+### Markdown Report
+
+For a comprehensive, human-readable quality report use `-O markdown`.
+This format aggregates metrics across all analyzed files and produces
+per-language hotspot tables.  See the [Markdown Report](markdown.md) chapter
+for details.

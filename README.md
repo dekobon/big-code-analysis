@@ -21,6 +21,7 @@ This tool can be used to:
 - Call **big-code-analysis** API
 - Print nodes and metrics information
 - Export metrics in different formats
+- Generate a Markdown quality-metrics report (`-O markdown`)
 
 In addition, we provide a **big-code-analysis-web** tool to use the library through a REST API.
 
