@@ -127,6 +127,15 @@ and the test suite.
 For snapshot test changes, run `cargo insta test --review` and accept or
 reject each snapshot rather than blindly updating files.
 
+**Bulk snapshot refresh** (grammar bumps, metric computation changes,
+Halstead operator reclassification): these cause hundreds of snapshots
+to shift in metric values. Use `cargo insta test --accept` per test
+file to accept in batch after verifying the diff pattern is
+metric-value-only (no structural changes). Run `cargo insta test
+--accept` rather than incremental `mv *.snap.new` — accepting snapshots
+one at a time can shift `assertion_line` fields, causing a cascade
+where previously-matching snapshots become stale.
+
 ## Tree-sitter grammars
 
 External grammar crates are version-pinned (`=0.23.x`, etc.) in the root
