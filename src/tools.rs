@@ -122,7 +122,7 @@ pub fn write_file(path: &Path, data: &[u8]) -> std::io::Result<()> {
 /// ```
 pub fn get_language_for_file(path: &Path) -> Option<LANG> {
     if let Some(ext) = path.extension() {
-        let ext = ext.to_str().unwrap().to_lowercase();
+        let ext = ext.to_str()?.to_lowercase();
         get_from_ext(&ext)
     } else {
         None
@@ -209,9 +209,9 @@ pub fn guess_language<'a, P: AsRef<Path>>(buf: &[u8], path: P) -> (Option<LANG>,
     let ext = path
         .as_ref()
         .extension()
-        .map(|e| e.to_str().unwrap())
+        .and_then(|e| e.to_str())
         .map(|e| e.to_lowercase())
-        .unwrap_or_else(|| "".to_string());
+        .unwrap_or_default();
     let from_ext = get_from_ext(&ext);
 
     let mode = get_emacs_mode(buf).unwrap_or_default();
@@ -308,8 +308,13 @@ pub(crate) fn guess_file<S: ::std::hash::BuildHasher>(
         include_path
     };
     let include_path = normalize_path(include_path);
-    if let Some(possibilities) = all_files.get(include_path.file_name().unwrap().to_str().unwrap())
-    {
+    let Some(file_name) = include_path.file_name() else {
+        return vec![];
+    };
+    let Some(file_name) = file_name.to_str() else {
+        return vec![];
+    };
+    if let Some(possibilities) = all_files.get(file_name) {
         if possibilities.len() == 1 {
             // Only one file with this name
             return possibilities.clone();
@@ -426,6 +431,36 @@ mod tests {
             let res = read_file_with_eol(&tmp_path).unwrap();
             assert_eq!(res, expected);
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_get_language_for_file_non_utf8() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let path = Path::new(OsStr::from_bytes(b"foo.\xff"));
+        assert_eq!(get_language_for_file(path), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_guess_language_non_utf8() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+        use std::path::PathBuf;
+
+        let path = PathBuf::from(OsStr::from_bytes(b"foo.\xff"));
+        let (lang, _name) = guess_language(b"int a = 42;", &path);
+        assert_eq!(lang, None);
+    }
+
+    #[test]
+    fn test_guess_file_no_file_name() {
+        let all_files: HashMap<String, Vec<PathBuf>> = HashMap::new();
+        let current = Path::new("/some/file.c");
+        let result = guess_file(current, "..", &all_files);
+        assert!(result.is_empty());
     }
 
     #[test]

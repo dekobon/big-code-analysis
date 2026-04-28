@@ -138,9 +138,18 @@ pub fn fix_includes<S: ::std::hash::BuildHasher>(
                 g.add_edge(replacement, o, 0);
             }
             for c in component.drain(..) {
-                let path = g.remove_node(c).unwrap();
-                paths.insert(path.to_str().unwrap().to_string());
-                *nodes.get_mut(&path).unwrap() = replacement;
+                let path = g
+                    .remove_node(c)
+                    .expect("invariant: SCC component node must exist in graph");
+                if let Some(s) = path.to_str() {
+                    paths.insert(s.to_string());
+                } else {
+                    eprintln!("warning: skipping non-UTF-8 path in include cycle: {path:?}");
+                }
+                *nodes
+                    .get_mut(&path)
+                    .expect("invariant: every graph node must have a nodes map entry") =
+                    replacement;
             }
 
             eprintln!("Warning: possible include cycle:");
@@ -158,7 +167,9 @@ pub fn fix_includes<S: ::std::hash::BuildHasher>(
         if let Some(pf) = files.get_mut(&path) {
             let x_inc = &mut pf.indirect_includes;
             while let Some(node) = dfs.next(&g) {
-                let w = g.node_weight(node).unwrap();
+                let w = g
+                    .node_weight(node)
+                    .expect("invariant: DFS-visited node must have weight in graph");
                 if w == &PathBuf::from("") {
                     let paths = scc_map.get(&node);
                     if let Some(paths) = paths {
@@ -166,10 +177,16 @@ pub fn fix_includes<S: ::std::hash::BuildHasher>(
                             x_inc.insert(p.to_string());
                         }
                     } else {
-                        eprintln!("DEBUG: {path:?} {node:?}");
+                        unreachable!(
+                            "every empty-path node is an SCC replacement and must have a scc_map entry"
+                        );
                     }
                 } else {
-                    x_inc.insert(w.to_str().unwrap().to_string());
+                    let Some(s) = w.to_str() else {
+                        eprintln!("warning: skipping non-UTF-8 indirect include path: {w:?}");
+                        continue;
+                    };
+                    x_inc.insert(s.to_string());
                 }
             }
         } else {
@@ -214,9 +231,11 @@ pub fn preprocess(parser: &PreprocParser, path: &Path, results: &mut PreprocResu
                 let identifier = cursor.node();
 
                 if identifier.kind_id() == Preproc::Identifier {
-                    let r#macro = identifier.utf8_text(code).unwrap();
-                    if !is_specials(r#macro) {
-                        file_result.macros.insert(r#macro.to_string());
+                    let Some(macro_text) = identifier.utf8_text(code) else {
+                        continue;
+                    };
+                    if !is_specials(macro_text) {
+                        file_result.macros.insert(macro_text.to_string());
                     }
                 }
             }
@@ -228,11 +247,17 @@ pub fn preprocess(parser: &PreprocParser, path: &Path, results: &mut PreprocResu
                 if file.kind_id() == Preproc::StringLiteral {
                     // remove the starting/ending double quote
                     let file = &code[file.start_byte() + 1..file.end_byte() - 1];
-                    let start = file.iter().position(|&c| c != b' ' && c != b'\t').unwrap();
-                    let end = file.iter().rposition(|&c| c != b' ' && c != b'\t').unwrap();
+                    let Some(start) = file.iter().position(|&c| c != b' ' && c != b'\t') else {
+                        continue;
+                    };
+                    let Some(end) = file.iter().rposition(|&c| c != b' ' && c != b'\t') else {
+                        continue;
+                    };
                     let file = &file[start..=end];
-                    let file = String::from_utf8(file.to_vec()).unwrap();
-                    file_result.direct_includes.insert(file);
+                    let Ok(file) = std::str::from_utf8(file) else {
+                        continue;
+                    };
+                    file_result.direct_includes.insert(file.to_string());
                 }
             }
             _ => {}

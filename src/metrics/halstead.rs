@@ -161,14 +161,22 @@ impl Stats {
     /// Returns the calculated estimated program length
     #[inline(always)]
     pub fn estimated_program_length(&self) -> f64 {
-        self.u_operators() * self.u_operators().log2()
-            + self.u_operands() * self.u_operands().log2()
+        let uo = self.u_operators();
+        let ud = self.u_operands();
+        let uo_term = if uo == 0.0 { 0.0 } else { uo * uo.log2() };
+        let ud_term = if ud == 0.0 { 0.0 } else { ud * ud.log2() };
+        uo_term + ud_term
     }
 
     /// Returns the purity ratio
     #[inline(always)]
     pub fn purity_ratio(&self) -> f64 {
-        self.estimated_program_length() / self.length()
+        let len = self.length();
+        if len == 0.0 {
+            0.0
+        } else {
+            self.estimated_program_length() / len
+        }
     }
 
     /// Returns the program vocabulary
@@ -183,19 +191,30 @@ impl Stats {
     #[inline(always)]
     pub fn volume(&self) -> f64 {
         // Assumes a uniform binary encoding for the vocabulary is used.
-        self.length() * self.vocabulary().log2()
+        let vocab = self.vocabulary();
+        if vocab <= 1.0 {
+            0.0
+        } else {
+            self.length() * vocab.log2()
+        }
     }
 
     /// Returns the estimated difficulty required to program
     #[inline(always)]
     pub fn difficulty(&self) -> f64 {
-        self.u_operators() / 2. * self.operands() / self.u_operands()
+        let ud = self.u_operands();
+        if ud == 0.0 {
+            0.0
+        } else {
+            self.u_operators() / 2. * self.operands() / ud
+        }
     }
 
     /// Returns the estimated level of difficulty required to program
     #[inline(always)]
     pub fn level(&self) -> f64 {
-        1. / self.difficulty()
+        let d = self.difficulty();
+        if d == 0.0 { 0.0 } else { 1. / d }
     }
 
     /// Returns the estimated effort required to program
@@ -654,15 +673,15 @@ mod tests {
                       "n2": 0.0,
                       "N2": 0.0,
                       "length": 0.0,
-                      "estimated_program_length": null,
-                      "purity_ratio": null,
+                      "estimated_program_length": 0.0,
+                      "purity_ratio": 0.0,
                       "vocabulary": 0.0,
-                      "volume": null,
-                      "difficulty": null,
-                      "level": null,
-                      "effort": null,
-                      "time": null,
-                      "bugs": null
+                      "volume": 0.0,
+                      "difficulty": 0.0,
+                      "level": 0.0,
+                      "effort": 0.0,
+                      "time": 0.0,
+                      "bugs": 0.0
                     }"###
             );
         });
@@ -882,6 +901,23 @@ mod tests {
                 );
             },
         );
+    }
+
+    #[test]
+    fn python_empty_file_halstead() {
+        check_metrics::<PythonParser>("", "empty.py", |metric| {
+            let h = &metric.halstead;
+            assert_eq!(h.u_operators(), 0.0);
+            assert_eq!(h.operands(), 0.0);
+            assert_eq!(h.estimated_program_length(), 0.0);
+            assert_eq!(h.purity_ratio(), 0.0);
+            assert_eq!(h.volume(), 0.0);
+            assert_eq!(h.difficulty(), 0.0);
+            assert_eq!(h.level(), 0.0);
+            assert_eq!(h.effort(), 0.0);
+            assert_eq!(h.time(), 0.0);
+            assert_eq!(h.bugs(), 0.0);
+        });
     }
 
     #[test]

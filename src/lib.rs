@@ -8,22 +8,27 @@
 //!
 //! ## Supported Languages
 //!
+//! - Bash
 //! - C++
-//! - C#
-//! - CSS
 //! - Go
-//! - HTML
 //! - Java
 //! - JavaScript
-//! - The JavaScript used in Firefox internal
+//! - JavaScript (Firefox-internal, "MozJS")
+//! - Kotlin
+//! - Perl
 //! - Python
 //! - Rust
-//! - Typescript
+//! - TSX
+//! - TypeScript
 //!
 //! ## Supported Metrics
 //!
+//! - ABC: it measures the size of a source code based on
+//!   assignments, branches, and conditions.
 //! - CC: it calculates the code complexity examining the
 //!   control flow of a program.
+//! - Cognitive Complexity: it measures how difficult it is
+//!   to understand a unit of code.
 //! - SLOC: it counts the number of lines in a source file.
 //! - PLOC: it counts the number of physical lines (instructions)
 //!   contained in a source file.
@@ -43,6 +48,10 @@
 //! - NEXITS: it counts the number of possible exit points
 //!   from a method/function.
 //! - NARGS: it counts the number of arguments of a function/method.
+//! - NPA: it counts the number of public attributes of a class.
+//! - NPM: it counts the number of public methods of a class.
+//! - WMC: it is the sum of the complexities of all methods
+//!   in a class.
 
 #![allow(clippy::upper_case_acronyms)]
 

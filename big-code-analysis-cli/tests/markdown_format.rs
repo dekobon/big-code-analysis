@@ -256,6 +256,18 @@ fn markdown_determinism_five_runs() {
 }
 
 #[test]
+fn cbor_without_output_rejects_cleanly() {
+    let fp = fixture_path();
+    cli()
+        .args(["--metrics", "--paths", &fp, "-O", "cbor"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "CBOR is binary and cannot be printed to stdout; use --output",
+        ));
+}
+
+#[test]
 fn markdown_strip_prefix_removes_path_prefix() {
     let fp = fixture_path();
     // Strip everything up to and including "DeepSpeech/" so only "stats.py" remains.

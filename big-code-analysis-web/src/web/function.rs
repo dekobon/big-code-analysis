@@ -46,6 +46,7 @@ impl Callback for WebFunctionCallback {
 
     fn call<T: ParserTrait>(cfg: Self::Cfg, parser: &T) -> Self::Res {
         let spans = function(parser);
-        serde_json::to_value(WebFunctionResponse { id: cfg.id, spans }).unwrap()
+        serde_json::to_value(WebFunctionResponse { id: cfg.id, spans })
+            .expect("WebFunctionResponse has a static, infallible Serialize impl")
     }
 }

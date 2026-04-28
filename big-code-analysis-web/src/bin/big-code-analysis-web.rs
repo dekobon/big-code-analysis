@@ -29,8 +29,11 @@ async fn main() {
 
     let num_jobs = opts.num_jobs.unwrap_or_else(|| {
         available_parallelism()
-            .expect("Unrecoverable: Failed to get thread count")
-            .get()
+            .map(|n| n.get())
+            .unwrap_or_else(|e| {
+                eprintln!("Failed to get available parallelism: {e}; defaulting to 4 workers");
+                4
+            })
     });
 
     if let Err(e) = run(&opts.host, opts.port, num_jobs).await {
