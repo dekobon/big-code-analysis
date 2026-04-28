@@ -59,26 +59,33 @@ struct Config {
     markdown_tx: Option<Mutex<std::sync::mpsc::Sender<FunctionSummary>>>,
     /// Path prefix stripped from file paths in the markdown report.
     strip_prefix: String,
+    warning: bool,
 }
 
-fn mk_globset(elems: Vec<String>) -> GlobSet {
+fn mk_globset(elems: Vec<String>) -> Result<GlobSet, String> {
     if elems.is_empty() {
-        return GlobSet::empty();
+        return Ok(GlobSet::empty());
     }
 
     let mut globset = GlobSetBuilder::new();
-    elems.iter().filter(|e| !e.is_empty()).for_each(|e| {
-        if let Ok(glob) = Glob::new(e) {
-            globset.add(glob);
+    for e in &elems {
+        if e.is_empty() {
+            continue;
         }
-    });
-    globset.build().map_or(GlobSet::empty(), |globset| globset)
+        globset.add(Glob::new(e).map_err(|err| format!("invalid glob pattern {e:?}: {err}"))?);
+    }
+    globset
+        .build()
+        .map_err(|err| format!("failed to build glob set: {err}"))
 }
 
 fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
     let source = if let Some(source) = read_file_with_eol(&path)? {
         source
     } else {
+        if cfg.warning {
+            eprintln!("warning: skipping empty file: {}", path.display());
+        }
         return Ok(());
     };
 
@@ -87,6 +94,12 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
     } else if let Some(language) = guess_language(&source, &path).0 {
         language
     } else {
+        if cfg.warning {
+            eprintln!(
+                "warning: skipping file with unrecognized language: {}",
+                path.display()
+            );
+        }
         return Ok(());
     };
 
@@ -119,7 +132,7 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
                         }
                     }
                 }
-                output_format.dump_formats(space, path, cfg.output.as_ref(), cfg.pretty);
+                output_format.dump_formats(space, path, cfg.output.as_ref(), cfg.pretty)?;
             }
             Ok(())
         } else {
@@ -129,8 +142,9 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
         }
     } else if cfg.ops {
         if let Some(output_format) = &cfg.output_format {
-            let ops = get_ops(&language, source, &path, pr).unwrap();
-            output_format.dump_formats(ops, path, cfg.output.as_ref(), cfg.pretty);
+            if let Some(ops) = get_ops(&language, source, &path, pr) {
+                output_format.dump_formats(ops, path, cfg.output.as_ref(), cfg.pretty)?;
+            }
             Ok(())
         } else {
             let cfg = OpsCfg { path };
@@ -169,7 +183,7 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
         if let Some(language) = guess_language(&source, &path).0
             && language == LANG::Cpp
         {
-            let mut results = preproc_lock.lock().unwrap();
+            let mut results = preproc_lock.lock().expect("mutex not poisoned");
             preprocess(
                 &PreprocParser::new(source, &path, None),
                 &path,
@@ -184,7 +198,10 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
 
 fn process_dir_path(all_files: &mut HashMap<String, Vec<PathBuf>>, path: &Path, cfg: &Config) {
     if cfg.preproc_lock.is_some() {
-        let file_name = path.file_name().unwrap().to_str().unwrap().to_string();
+        let Some(fname) = path.file_name().and_then(|n| n.to_str()) else {
+            return;
+        };
+        let file_name = fname.to_string();
         match all_files.entry(file_name) {
             hash_map::Entry::Occupied(l) => {
                 l.into_mut().push(path.to_path_buf());
@@ -245,7 +262,7 @@ struct Opts {
     language_type: Option<String>,
     /// Output metrics as different formats.
     #[clap(long, short = 'O', value_parser = PossibleValuesParser::new(Format::all())
-        .map(|s| s.parse::<Format>().unwrap()))]
+        .map(|s| s.parse::<Format>().expect("PossibleValuesParser already validated the format string")))]
     output_format: Option<Format>,
     /// Dump a pretty json file.
     #[clap(long = "pr")]
@@ -284,14 +301,28 @@ fn main() {
 
     let (preproc_lock, preproc) = match opts.preproc.len().cmp(&1) {
         Ordering::Equal => {
-            let data = read_file(&opts.preproc[0]).unwrap();
+            let data = match read_file(&opts.preproc[0]) {
+                Ok(data) => data,
+                Err(e) => {
+                    eprintln!(
+                        "Error: failed to read preproc file {}: {e}",
+                        opts.preproc[0].display()
+                    );
+                    process::exit(1);
+                }
+            };
             eprintln!("Load preproc data");
-            let x = (
-                None,
-                Some(Arc::new(
-                    serde_json::from_slice::<PreprocResults>(&data).unwrap(),
-                )),
-            );
+            let preproc_results = match serde_json::from_slice::<PreprocResults>(&data) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!(
+                        "Error: failed to parse preproc JSON from {}: {e}",
+                        opts.preproc[0].display()
+                    );
+                    process::exit(1);
+                }
+            };
+            let x = (None, Some(Arc::new(preproc_results)));
             eprintln!("Load preproc data: finished");
             x
         }
@@ -342,6 +373,12 @@ fn main() {
         }
     }
 
+    // Pre-run validation for CBOR format: binary output requires --output.
+    if matches!(opts.output_format, Some(Format::Cbor)) && opts.output.is_none() {
+        eprintln!("Error: CBOR is binary and cannot be printed to stdout; use --output");
+        process::exit(1);
+    }
+
     let output_is_dir = opts.output.as_ref().is_some_and(|p| p.is_dir());
     if !is_markdown && (opts.metrics || opts.ops) && opts.output.is_some() && !output_is_dir {
         eprintln!("Error: The output parameter must be a directory");
@@ -373,8 +410,14 @@ fn main() {
             ) - 1
         });
 
-    let include = mk_globset(opts.include);
-    let exclude = mk_globset(opts.exclude);
+    let include = mk_globset(opts.include).unwrap_or_else(|e| {
+        eprintln!("Error: {e}");
+        process::exit(1);
+    });
+    let exclude = mk_globset(opts.exclude).unwrap_or_else(|e| {
+        eprintln!("Error: {e}");
+        process::exit(1);
+    });
 
     let (markdown_tx, markdown_rx) = if is_markdown {
         let (tx, rx) = std::sync::mpsc::channel::<FunctionSummary>();
@@ -403,6 +446,7 @@ fn main() {
         count_lock: count_lock.clone(),
         markdown_tx,
         strip_prefix: opts.strip_prefix,
+        warning: opts.warning,
     };
 
     let files_data = FilesData {
@@ -423,7 +467,10 @@ fn main() {
     };
 
     if let Some(count) = count_lock {
-        let count = Arc::try_unwrap(count).unwrap().into_inner().unwrap();
+        let count = Arc::try_unwrap(count)
+            .expect("all worker threads have joined; Arc refcount is 1")
+            .into_inner()
+            .expect("mutex not poisoned");
         println!("{count}");
     }
 
@@ -452,14 +499,106 @@ fn main() {
     }
 
     if let Some(preproc) = preproc_lock {
-        let mut data = Arc::try_unwrap(preproc).unwrap().into_inner().unwrap();
+        let mut data = Arc::try_unwrap(preproc)
+            .expect("all worker threads have joined; Arc refcount is 1")
+            .into_inner()
+            .expect("mutex not poisoned");
         fix_includes(&mut data.files, &all_files);
 
-        let data = serde_json::to_string(&data).unwrap();
+        let data = match serde_json::to_string(&data) {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("Error: failed to serialize preproc data: {e}");
+                process::exit(1);
+            }
+        };
         if let Some(output_path) = opts.output {
-            write_file(&output_path, data.as_bytes()).unwrap();
+            if let Err(e) = write_file(&output_path, data.as_bytes()) {
+                eprintln!(
+                    "Error: failed to write output to {}: {e}",
+                    output_path.display()
+                );
+                process::exit(1);
+            }
         } else {
             println!("{data}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_config(preproc_lock: Option<Arc<Mutex<PreprocResults>>>) -> Config {
+        Config {
+            dump: false,
+            in_place: false,
+            comments: false,
+            find_filter: Vec::new(),
+            count_filter: Vec::new(),
+            language: None,
+            function: false,
+            metrics: false,
+            ops: false,
+            output_format: None,
+            output: None,
+            pretty: false,
+            line_start: None,
+            line_end: None,
+            preproc_lock,
+            preproc: None,
+            count_lock: None,
+            markdown_tx: None,
+            strip_prefix: String::new(),
+            warning: false,
+        }
+    }
+
+    #[test]
+    fn process_dir_path_noop_without_preproc() {
+        let cfg = test_config(None);
+        let mut all_files = HashMap::new();
+        process_dir_path(&mut all_files, Path::new("/some/file.cpp"), &cfg);
+        assert!(all_files.is_empty());
+    }
+
+    #[test]
+    fn process_dir_path_inserts_valid_utf8_filename() {
+        let cfg = test_config(Some(Arc::new(Mutex::new(PreprocResults::default()))));
+        let mut all_files = HashMap::new();
+        process_dir_path(&mut all_files, Path::new("/some/dir/foo.cpp"), &cfg);
+        assert_eq!(all_files.len(), 1);
+        assert_eq!(
+            all_files["foo.cpp"],
+            vec![PathBuf::from("/some/dir/foo.cpp")]
+        );
+    }
+
+    #[test]
+    fn process_dir_path_groups_duplicate_filenames() {
+        let cfg = test_config(Some(Arc::new(Mutex::new(PreprocResults::default()))));
+        let mut all_files = HashMap::new();
+        process_dir_path(&mut all_files, Path::new("/a/foo.cpp"), &cfg);
+        process_dir_path(&mut all_files, Path::new("/b/foo.cpp"), &cfg);
+        assert_eq!(all_files.len(), 1);
+        assert_eq!(
+            all_files["foo.cpp"],
+            vec![PathBuf::from("/a/foo.cpp"), PathBuf::from("/b/foo.cpp")]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_dir_path_skips_non_utf8_filename() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let cfg = test_config(Some(Arc::new(Mutex::new(PreprocResults::default()))));
+        let mut all_files = HashMap::new();
+        let bad_name = OsStr::from_bytes(b"\xff\xfe");
+        let path = PathBuf::from("/some/dir").join(bad_name);
+        process_dir_path(&mut all_files, &path, &cfg);
+        assert!(all_files.is_empty());
     }
 }

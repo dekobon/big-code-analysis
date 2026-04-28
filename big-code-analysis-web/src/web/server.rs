@@ -12,6 +12,15 @@ use super::metrics::{WebMetricsCallback, WebMetricsCfg, WebMetricsInfo, WebMetri
 
 use big_code_analysis::{AstCallback, AstCfg, AstPayload, LANG, action, guess_language};
 
+/// Swaps C++ to the `Ccomment` grammar for comment-removal endpoints.
+fn comment_language(language: LANG) -> LANG {
+    if language == LANG::Cpp {
+        LANG::Ccomment
+    } else {
+        language
+    }
+}
+
 const INVALID_LANGUAGE: &str = "The file extension doesn't correspond to a valid language";
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -64,11 +73,7 @@ async fn comment_removal_json(item: web::Json<WebCommentPayload>) -> HttpRespons
     let (language, _) = guess_language(&buf, path);
     if let Some(language) = language {
         let cfg = WebCommentCfg { id: payload.id };
-        let language = if language == LANG::Cpp {
-            LANG::Ccomment
-        } else {
-            language
-        };
+        let language = comment_language(language);
         HttpResponse::Ok().json(action::<WebCommentCallback>(
             &language,
             buf,
@@ -92,6 +97,7 @@ async fn comment_removal_plain(
     let path = PathBuf::from(&info.file_name);
     let (language, _) = guess_language(&buf, path);
     if let Some(language) = language {
+        let language = comment_language(language);
         let cfg = WebCommentCfg { id: "".to_string() };
         let res = action::<WebCommentCallback>(&language, buf, &PathBuf::from(""), None, cfg);
         if let Some(res_code) = res.code {
@@ -615,6 +621,28 @@ mod tests {
         let res = test::read_body(resp).await;
 
         assert_eq!(res, output_vec);
+    }
+
+    #[actix_rt::test]
+    async fn test_web_comment_plain_cpp() {
+        let app = test::init_service(
+            App::new()
+                .service(web::resource("/comment").route(web::post().to(comment_removal_plain))),
+        )
+        .await;
+        let req = test::TestRequest::post()
+            .uri("/comment?file_name=foo.cpp")
+            .insert_header(ContentType::plaintext())
+            .set_payload("int x = 1; // hello")
+            .to_request();
+
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let res = test::read_body(resp).await;
+        let expected = Bytes::from_static(b"int x = 1; ");
+
+        assert_eq!(res, expected);
     }
 
     #[actix_rt::test]

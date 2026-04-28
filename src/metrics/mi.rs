@@ -50,11 +50,19 @@ impl fmt::Display for Stats {
 impl Stats {
     pub(crate) fn merge(&mut self, _other: &Stats) {}
 
+    #[inline(always)]
+    fn inputs_are_empty(&self) -> bool {
+        self.halstead_volume <= 0.0 || self.sloc <= 0.0
+    }
+
     /// Returns the `Mi` metric calculated using the original formula.
     ///
     /// Its value can be negative.
     #[inline(always)]
     pub fn mi_original(&self) -> f64 {
+        if self.inputs_are_empty() {
+            return 0.0;
+        }
         // http://www.projectcodemeter.com/cost_estimation/help/GL_maintainability.htm
         171.0 - 5.2 * (self.halstead_volume).ln() - 0.23 * self.cyclomatic - 16.2 * self.sloc.ln()
     }
@@ -65,6 +73,9 @@ impl Stats {
     /// Its value can be negative.
     #[inline(always)]
     pub fn mi_sei(&self) -> f64 {
+        if self.inputs_are_empty() {
+            return 0.0;
+        }
         // http://www.projectcodemeter.com/cost_estimation/help/GL_maintainability.htm
         171.0 - 5.2 * self.halstead_volume.log2() - 0.23 * self.cyclomatic - 16.2 * self.sloc.log2()
             + 50.0 * (self.comments_percentage * 2.4).sqrt().sin()
@@ -74,6 +85,9 @@ impl Stats {
     /// employed by Microsoft Visual Studio.
     #[inline(always)]
     pub fn mi_visual_studio(&self) -> f64 {
+        if self.inputs_are_empty() {
+            return 0.0;
+        }
         // http://www.projectcodemeter.com/cost_estimation/help/GL_maintainability.htm
         let formula = 171.0
             - 5.2 * self.halstead_volume.ln()
@@ -98,7 +112,11 @@ where
         stats.halstead_volume = halstead.volume();
         stats.cyclomatic = cyclomatic.cyclomatic_sum();
         stats.sloc = loc.sloc();
-        stats.comments_percentage = loc.cloc() / stats.sloc;
+        stats.comments_percentage = if stats.sloc == 0.0 {
+            0.0
+        } else {
+            loc.cloc() / stats.sloc
+        };
     }
 }
 
@@ -125,6 +143,16 @@ mod tests {
     use crate::tools::check_metrics;
 
     use super::*;
+
+    #[test]
+    fn mi_empty_file() {
+        check_metrics::<PythonParser>("", "empty.py", |metric| {
+            let mi = &metric.mi;
+            assert_eq!(mi.mi_original(), 0.0);
+            assert_eq!(mi.mi_sei(), 0.0);
+            assert_eq!(mi.mi_visual_studio(), 0.0);
+        });
+    }
 
     #[test]
     fn check_mi_metrics() {

@@ -68,7 +68,7 @@ impl Callback for Find {
         if let Some(good) = find(parser, &cfg.filters)
             && !good.is_empty()
         {
-            println!("In file {}", cfg.path.to_str().unwrap());
+            println!("In file {}", cfg.path.display());
             for node in good {
                 dump_node(parser.get_code(), &node, 1, cfg.line_start, cfg.line_end)?;
             }
