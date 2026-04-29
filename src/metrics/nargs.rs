@@ -307,6 +307,26 @@ impl NArgs for KotlinCode {
     }
 }
 
+fn compute_lua_args(node: &Node, nargs: &mut usize) {
+    let Some(params) = node.child_by_field_name("parameters") else {
+        return;
+    };
+    *nargs += params
+        .children()
+        .filter(|c| matches!(c.kind_id().into(), Lua::Identifier | Lua::VarargExpression))
+        .count();
+}
+
+impl NArgs for LuaCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        if Self::is_func(node) {
+            compute_lua_args(node, &mut stats.fn_nargs);
+        } else if Self::is_closure(node) {
+            compute_lua_args(node, &mut stats.closure_nargs);
+        }
+    }
+}
+
 implement_metric_trait!(
     [NArgs],
     PythonCode,
@@ -1664,6 +1684,64 @@ mod tests {
                     }
                     "###
                 );
+            },
+        );
+    }
+
+    #[test]
+    fn lua_no_functions_and_closures() {
+        check_metrics::<LuaParser>("local x = 1", "foo.lua", |metric| {
+            insta::assert_json_snapshot!(metric.nargs);
+        });
+    }
+
+    #[test]
+    fn lua_single_function() {
+        check_metrics::<LuaParser>("function f(a, b) return a + b end", "foo.lua", |metric| {
+            insta::assert_json_snapshot!(metric.nargs);
+        });
+    }
+
+    #[test]
+    fn lua_single_closure() {
+        check_metrics::<LuaParser>(
+            "local f = function(a, b) return a + b end",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nargs);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_functions() {
+        check_metrics::<LuaParser>(
+            "function f(a) return a end
+function g(x, y, z) return x + y + z end",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nargs);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_vararg_function() {
+        // `...` is a vararg_expression node and counts as one argument.
+        check_metrics::<LuaParser>("function f(a, ...) return a end", "foo.lua", |metric| {
+            insta::assert_json_snapshot!(metric.nargs);
+        });
+    }
+
+    #[test]
+    fn lua_colon_method_nargs() {
+        // Colon syntax: `self` is implicit and NOT in the `parameters` node.
+        // Only explicit params (a, b) are counted.
+        check_metrics::<LuaParser>(
+            "function obj:method(a, b) return a + b end",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nargs);
             },
         );
     }

@@ -359,7 +359,8 @@ implement_metric_trait!(
     CcommentCode,
     KotlinCode,
     GoCode,
-    PerlCode
+    PerlCode,
+    LuaCode
 );
 
 impl Abc for BashCode {

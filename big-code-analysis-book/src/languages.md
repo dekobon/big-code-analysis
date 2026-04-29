@@ -12,6 +12,7 @@ This is the list of programming languages parsed by
 - [x] Go
 - [x] Java
 - [x] JavaScript
+- [x] Lua
 - [x] Mozjs
 - [x] Perl
 - [x] Python

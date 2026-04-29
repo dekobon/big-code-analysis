@@ -68,6 +68,16 @@ mk_langs!(
         ["kotlin"]
     ),
     (
+        Lua,
+        "The `Lua` language",
+        "lua",
+        LuaCode,
+        LuaParser,
+        tree_sitter_lua,
+        [lua],
+        ["lua"]
+    ),
+    (
         Rust,
         "The `Rust` language",
         "rust",
