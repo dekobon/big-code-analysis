@@ -1,15 +1,19 @@
 use std::fs::{File, create_dir_all};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 
+use clap::ValueEnum;
 use serde::Serialize;
 
-fn ser_err(e: impl std::fmt::Display) -> std::io::Error {
-    std::io::Error::other(e.to_string())
+pub(crate) const CBOR_STDOUT_ERROR: &str =
+    "CBOR is binary and cannot be printed to stdout; use --output";
+
+fn ser_err(e: impl std::error::Error + Send + Sync + 'static) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidData, e)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, ValueEnum)]
+#[clap(rename_all = "lower")]
 pub enum Format {
     Cbor,
     Json,
@@ -19,10 +23,6 @@ pub enum Format {
 }
 
 impl Format {
-    pub const fn all() -> &'static [&'static str] {
-        &["cbor", "json", "markdown", "toml", "yaml"]
-    }
-
     pub fn dump_formats<T: Serialize>(
         &self,
         space: T,
@@ -51,28 +51,13 @@ impl Format {
                 Self::Cbor => {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::InvalidInput,
-                        "CBOR is binary and cannot be printed to stdout; use --output",
+                        CBOR_STDOUT_ERROR,
                     ));
                 }
                 Self::Markdown => (),
             }
         }
         Ok(())
-    }
-}
-
-impl FromStr for Format {
-    type Err = String;
-
-    fn from_str(format: &str) -> Result<Self, Self::Err> {
-        match format {
-            "cbor" => Ok(Self::Cbor),
-            "json" => Ok(Self::Json),
-            "markdown" => Ok(Self::Markdown),
-            "toml" => Ok(Self::Toml),
-            "yaml" => Ok(Self::Yaml),
-            format => Err(format!("{format:?} is not a supported format")),
-        }
     }
 }
 
@@ -109,18 +94,17 @@ fn handle_path(path: PathBuf, output_path: &Path, extension: &str) -> PathBuf {
     let path = path.strip_prefix("./").unwrap_or(path);
 
     // Replace .. with . to keep files inside the output folder, skip non-UTF-8 components
-    let cleaned_path: Vec<&str> = path
-        .iter()
-        .filter_map(|os_str| {
-            let s = os_str.to_str()?;
-            Some(if s == ".." { "." } else { s })
-        })
-        .collect();
+    let mut cleaned = PathBuf::new();
+    for component in path.iter() {
+        let Some(s) = component.to_str() else {
+            continue;
+        };
+        cleaned.push(if s == ".." { "." } else { s });
+    }
 
-    // Create the filename
-    let filename = cleaned_path.join("/") + extension;
-
-    // Build the file path
+    // Append the extension and build the final path
+    let mut filename = cleaned.into_os_string();
+    filename.push(extension);
     output_path.join(filename)
 }
 
