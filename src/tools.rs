@@ -11,7 +11,7 @@ use termcolor::{Color, ColorSpec, StandardStreamLock, WriteColor};
 use crate::langs::fake;
 use crate::langs::*;
 
-/// Reads a file.
+/// Reads a file, normalising all CR-only and CRLF line endings to LF.
 ///
 /// # Examples
 ///
@@ -28,12 +28,14 @@ pub fn read_file(path: &Path) -> std::io::Result<Vec<u8>> {
     let mut data = Vec::new();
     file.read_to_end(&mut data)?;
 
-    remove_blank_lines(&mut data);
+    normalize_line_endings(&mut data);
 
     Ok(data)
 }
 
-/// Reads a file and adds an `EOL` at its end.
+/// Reads a file, normalising all CR-only and CRLF line endings to LF, and ensures
+/// the buffer ends with exactly one `\n`. Returns `None` for files ≤ 3 bytes or
+/// files that appear to be non-UTF-8.
 ///
 /// # Examples
 ///
@@ -82,7 +84,7 @@ pub fn read_file_with_eol(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
 
     file.read_to_end(&mut data)?;
 
-    remove_blank_lines(&mut data);
+    normalize_line_endings(&mut data);
 
     Ok(Some(data))
 }
@@ -245,16 +247,30 @@ pub fn guess_language<'a, P: AsRef<Path>>(buf: &[u8], path: P) -> (Option<LANG>,
     }
 }
 
-/// Replaces \n and \r ending characters with a single generic \n
-pub(crate) fn remove_blank_lines(data: &mut Vec<u8>) {
-    let count_trailing = data
-        .iter()
-        .rev()
-        .take_while(|&c| *c == b'\n' || *c == b'\r')
-        .count();
-    if count_trailing > 0 {
-        data.truncate(data.len() - count_trailing);
+/// Normalises all CR-only and CRLF line endings to LF throughout the buffer,
+/// then ensures the buffer ends with exactly one `\n`.
+pub(crate) fn normalize_line_endings(data: &mut Vec<u8>) {
+    // In-place compaction: write pointer stays ≤ read pointer, so no extra allocation.
+    let mut w = 0;
+    let mut r = 0;
+    while r < data.len() {
+        if data[r] == b'\r' {
+            data[w] = b'\n';
+            w += 1;
+            r += if data.get(r + 1).copied() == Some(b'\n') {
+                2
+            } else {
+                1
+            };
+        } else {
+            data[w] = data[r];
+            w += 1;
+            r += 1;
+        }
     }
+    data.truncate(w);
+    let trailing = data.iter().rev().take_while(|&&c| c == b'\n').count();
+    data.truncate(data.len() - trailing);
     data.push(b'\n');
 }
 
@@ -390,7 +406,9 @@ pub(crate) fn check_func_space<T: crate::ParserTrait, F: Fn(crate::FuncSpace)>(
     check: F,
 ) {
     let path = std::path::PathBuf::from(filename);
-    let mut trimmed_bytes = source.trim_end().trim_matches('\n').as_bytes().to_vec();
+    // Mirror the CRLF/CR normalisation that read_file_with_eol applies via normalize_line_endings
+    let normalized = source.replace("\r\n", "\n").replace('\r', "\n");
+    let mut trimmed_bytes = normalized.trim_end().trim_matches('\n').as_bytes().to_vec();
     trimmed_bytes.push(b'\n');
     let parser = T::new(trimmed_bytes, &path, None);
     let func_space = crate::metrics(&parser, &path).unwrap();
@@ -425,6 +443,13 @@ mod tests {
             (b"\xEF\xBBabc\n".to_vec(), None),
             (b"abcdef\n".to_vec(), Some(b"abcdef\n".to_vec())),
             (b"abcdef".to_vec(), Some(b"abcdef\n".to_vec())),
+            // CRLF throughout should be normalised to LF
+            (b"abc\r\ndef\r\n".to_vec(), Some(b"abc\ndef\n".to_vec())),
+            // UTF-8 BOM + CRLF
+            (
+                b"\xEF\xBB\xBFabc\r\ndef\r\n".to_vec(),
+                Some(b"abc\ndef\n".to_vec()),
+            ),
         ];
         for (d, expected) in data {
             write_file(&tmp_path, &d).unwrap();
@@ -491,5 +516,49 @@ mod tests {
             guess_language(buf, "foo.mm"),
             (Some(LANG::Cpp), "obj-c/c++")
         );
+    }
+
+    #[test]
+    fn normalize_line_endings_normalizes_crlf() {
+        let mut d = b"code\r\n# comment\r\n".to_vec();
+        normalize_line_endings(&mut d);
+        assert_eq!(d, b"code\n# comment\n");
+    }
+
+    #[test]
+    fn normalize_line_endings_normalizes_lone_cr() {
+        let mut d = b"code\r# comment\r".to_vec();
+        normalize_line_endings(&mut d);
+        assert_eq!(d, b"code\n# comment\n");
+    }
+
+    #[test]
+    fn normalize_line_endings_normalizes_cr_before_crlf() {
+        // lone CR followed immediately by CRLF → two separate line breaks
+        let mut d = b"a\r\r\nb".to_vec();
+        normalize_line_endings(&mut d);
+        assert_eq!(d, b"a\n\nb\n");
+    }
+
+    #[test]
+    fn normalize_line_endings_normalizes_crlf_blank_line() {
+        let mut d = b"a\r\n\r\nb\r\n".to_vec();
+        normalize_line_endings(&mut d);
+        assert_eq!(d, b"a\n\nb\n");
+    }
+
+    #[test]
+    fn normalize_line_endings_empty_buffer() {
+        let mut d = b"".to_vec();
+        normalize_line_endings(&mut d);
+        assert_eq!(d, b"\n");
+    }
+
+    #[test]
+    fn normalize_line_endings_mixed_endings() {
+        // LF + lone-CR + CRLF in one buffer — each is converted independently.
+        let mut d = b"a\nb\rc\r\nd".to_vec();
+        normalize_line_endings(&mut d);
+        assert_eq!(d, b"a\nb\nc\nd\n");
     }
 }
