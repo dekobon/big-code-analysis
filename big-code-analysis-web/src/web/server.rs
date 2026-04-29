@@ -1,16 +1,22 @@
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
+
 use actix_web::{
     App, HttpRequest, HttpResponse, HttpServer, guard, http,
     web::{self, BytesMut, Query},
 };
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use tokio::sync::Semaphore;
 
 use super::comment::{WebCommentCallback, WebCommentCfg, WebCommentInfo, WebCommentPayload};
 use super::function::{WebFunctionCallback, WebFunctionCfg, WebFunctionInfo, WebFunctionPayload};
 use super::metrics::{WebMetricsCallback, WebMetricsCfg, WebMetricsInfo, WebMetricsPayload};
 
 use big_code_analysis::{AstCallback, AstCfg, AstPayload, LANG, action, guess_language};
+
+const INVALID_LANGUAGE: &str = "The file extension doesn't correspond to a valid language";
 
 /// Swaps C++ to the `Ccomment` grammar for comment-removal endpoints.
 fn comment_language(language: LANG) -> LANG {
@@ -21,7 +27,46 @@ fn comment_language(language: LANG) -> LANG {
     }
 }
 
-const INVALID_LANGUAGE: &str = "The file extension doesn't correspond to a valid language";
+struct ParseConfig {
+    /// `None` means no timeout (`parse_timeout_secs = 0`).
+    timeout: Option<Duration>,
+    semaphore: Arc<Semaphore>,
+}
+
+const PARSE_TIMEOUT: &str = "Parse timed out";
+
+/// Default parse timeout used by [`run`].
+pub const DEFAULT_PARSE_TIMEOUT_SECS: u64 = 30;
+
+/// Offloads a CPU-bound parse to the blocking thread pool, bounded by a
+/// semaphore and wrapped in a deadline.
+///
+/// The permit is held for the lifetime of this future (until the task
+/// completes or the deadline fires), then released. A timed-out blocking task
+/// continues running on the thread pool but no longer holds a permit, so new
+/// requests can proceed immediately.
+async fn run_parse<T: Send + 'static>(
+    config: &web::Data<ParseConfig>,
+    f: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, actix_web::Error> {
+    let permit = Arc::clone(&config.semaphore)
+        .acquire_owned()
+        .await
+        .map_err(|_| actix_web::error::ErrorServiceUnavailable("parse pool shut down"))?;
+    let task = web::block(f);
+    let result = if let Some(deadline) = config.timeout {
+        match tokio::time::timeout(deadline, task).await {
+            Ok(Ok(result)) => Ok(result),
+            Ok(Err(e)) => Err(actix_web::error::ErrorInternalServerError(e)),
+            Err(_) => Err(actix_web::error::ErrorGatewayTimeout(PARSE_TIMEOUT)),
+        }
+    } else {
+        task.await
+            .map_err(actix_web::error::ErrorInternalServerError)
+    };
+    drop(permit);
+    result
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 struct Error {
@@ -38,7 +83,10 @@ async fn get_code(mut body: web::Payload) -> Result<Vec<u8>, actix_web::Error> {
     Ok(code.to_vec())
 }
 
-async fn ast_parser(item: web::Json<AstPayload>) -> HttpResponse {
+async fn ast_parser(
+    item: web::Json<AstPayload>,
+    config: web::Data<ParseConfig>,
+) -> Result<HttpResponse, actix_web::Error> {
     let path = PathBuf::from(&item.file_name);
     let payload = item.into_inner();
     let buf = payload.code.into_bytes();
@@ -49,24 +97,23 @@ async fn ast_parser(item: web::Json<AstPayload>) -> HttpResponse {
             comment: payload.comment,
             span: payload.span,
         };
-
-        // TODO: the 4th arg should be preproc data
-        HttpResponse::Ok().json(action::<AstCallback>(
-            &language,
-            buf,
-            &PathBuf::from(""),
-            None,
-            cfg,
-        ))
+        let result = run_parse(&config, move || {
+            action::<AstCallback>(&language, buf, Path::new(""), None, cfg)
+        })
+        .await?;
+        Ok(HttpResponse::Ok().json(result))
     } else {
-        HttpResponse::NotFound().json(Error {
+        Ok(HttpResponse::NotFound().json(Error {
             id: payload.id,
             error: INVALID_LANGUAGE,
-        })
+        }))
     }
 }
 
-async fn comment_removal_json(item: web::Json<WebCommentPayload>) -> HttpResponse {
+async fn comment_removal_json(
+    item: web::Json<WebCommentPayload>,
+    config: web::Data<ParseConfig>,
+) -> Result<HttpResponse, actix_web::Error> {
     let path = PathBuf::from(&item.file_name);
     let payload = item.into_inner();
     let buf = payload.code.into_bytes();
@@ -74,32 +121,34 @@ async fn comment_removal_json(item: web::Json<WebCommentPayload>) -> HttpRespons
     if let Some(language) = language {
         let cfg = WebCommentCfg { id: payload.id };
         let language = comment_language(language);
-        HttpResponse::Ok().json(action::<WebCommentCallback>(
-            &language,
-            buf,
-            &PathBuf::from(""),
-            None,
-            cfg,
-        ))
+        let result = run_parse(&config, move || {
+            action::<WebCommentCallback>(&language, buf, Path::new(""), None, cfg)
+        })
+        .await?;
+        Ok(HttpResponse::Ok().json(result))
     } else {
-        HttpResponse::NotFound().json(Error {
+        Ok(HttpResponse::NotFound().json(Error {
             id: payload.id,
             error: INVALID_LANGUAGE,
-        })
+        }))
     }
 }
 
 async fn comment_removal_plain(
     body: web::Payload,
     info: Query<WebCommentInfo>,
+    config: web::Data<ParseConfig>,
 ) -> Result<HttpResponse, actix_web::Error> {
     let buf = get_code(body).await?;
     let path = PathBuf::from(&info.file_name);
     let (language, _) = guess_language(&buf, path);
     if let Some(language) = language {
         let language = comment_language(language);
-        let cfg = WebCommentCfg { id: "".to_string() };
-        let res = action::<WebCommentCallback>(&language, buf, &PathBuf::from(""), None, cfg);
+        let cfg = WebCommentCfg { id: String::new() };
+        let res = run_parse(&config, move || {
+            action::<WebCommentCallback>(&language, buf, Path::new(""), None, cfg)
+        })
+        .await?;
         if let Some(res_code) = res.code {
             Ok(HttpResponse::Ok()
                 .append_header((http::header::CONTENT_TYPE, "application/octet-stream"))
@@ -116,7 +165,10 @@ async fn comment_removal_plain(
     }
 }
 
-async fn metrics_json(item: web::Json<WebMetricsPayload>) -> HttpResponse {
+async fn metrics_json(
+    item: web::Json<WebMetricsPayload>,
+    config: web::Data<ParseConfig>,
+) -> Result<HttpResponse, actix_web::Error> {
     let path = PathBuf::from(&item.file_name);
     let payload = item.into_inner();
     let buf = payload.code.into_bytes();
@@ -128,42 +180,44 @@ async fn metrics_json(item: web::Json<WebMetricsPayload>) -> HttpResponse {
             unit: payload.unit,
             language: name.to_string(),
         };
-        HttpResponse::Ok().json(action::<WebMetricsCallback>(
-            &language,
-            buf,
-            &PathBuf::from(""),
-            None,
-            cfg,
-        ))
+        let result = run_parse(&config, move || {
+            action::<WebMetricsCallback>(&language, buf, Path::new(""), None, cfg)
+        })
+        .await?;
+        Ok(HttpResponse::Ok().json(result))
     } else {
-        HttpResponse::NotFound().json(Error {
+        Ok(HttpResponse::NotFound().json(Error {
             id: payload.id,
             error: INVALID_LANGUAGE,
-        })
+        }))
     }
 }
 
 async fn metrics_plain(
     body: web::Payload,
     info: Query<WebMetricsInfo>,
+    config: web::Data<ParseConfig>,
 ) -> Result<HttpResponse, actix_web::Error> {
     let buf = get_code(body).await?;
     let path = PathBuf::from(&info.file_name);
     let (language, name) = guess_language(&buf, &path);
     if let Some(language) = language {
         let cfg = WebMetricsCfg {
-            id: "".to_string(),
+            id: String::new(),
             path,
-            unit: info.unit.as_ref().is_some_and(|s| s == "1" || s == "true"),
+            unit: info.unit.as_ref().is_some_and(|s| {
+                s == "1"
+                    || s.eq_ignore_ascii_case("true")
+                    || s.eq_ignore_ascii_case("yes")
+                    || s.eq_ignore_ascii_case("on")
+            }),
             language: name.to_string(),
         };
-        Ok(HttpResponse::Ok().json(action::<WebMetricsCallback>(
-            &language,
-            buf,
-            &PathBuf::from(""),
-            None,
-            cfg,
-        )))
+        let result = run_parse(&config, move || {
+            action::<WebMetricsCallback>(&language, buf, Path::new(""), None, cfg)
+        })
+        .await?;
+        Ok(HttpResponse::Ok().json(result))
     } else {
         Ok(HttpResponse::NotFound()
             .append_header((http::header::CONTENT_TYPE, "text/plain"))
@@ -171,44 +225,45 @@ async fn metrics_plain(
     }
 }
 
-async fn function_json(item: web::Json<WebFunctionPayload>, _req: HttpRequest) -> HttpResponse {
+async fn function_json(
+    item: web::Json<WebFunctionPayload>,
+    _req: HttpRequest,
+    config: web::Data<ParseConfig>,
+) -> Result<HttpResponse, actix_web::Error> {
     let path = PathBuf::from(&item.file_name);
     let payload = item.into_inner();
     let buf = payload.code.into_bytes();
     let (language, _) = guess_language(&buf, path);
     if let Some(language) = language {
         let cfg = WebFunctionCfg { id: payload.id };
-        HttpResponse::Ok().json(action::<WebFunctionCallback>(
-            &language,
-            buf,
-            &PathBuf::from(""),
-            None,
-            cfg,
-        ))
+        let result = run_parse(&config, move || {
+            action::<WebFunctionCallback>(&language, buf, Path::new(""), None, cfg)
+        })
+        .await?;
+        Ok(HttpResponse::Ok().json(result))
     } else {
-        HttpResponse::NotFound().json(Error {
+        Ok(HttpResponse::NotFound().json(Error {
             id: payload.id,
             error: INVALID_LANGUAGE,
-        })
+        }))
     }
 }
 
 async fn function_plain(
     body: web::Payload,
     info: Query<WebFunctionInfo>,
+    config: web::Data<ParseConfig>,
 ) -> Result<HttpResponse, actix_web::Error> {
     let buf = get_code(body).await?;
     let path = PathBuf::from(&info.file_name);
     let (language, _) = guess_language(&buf, path);
     if let Some(language) = language {
-        let cfg = WebFunctionCfg { id: "".to_string() };
-        Ok(HttpResponse::Ok().json(action::<WebFunctionCallback>(
-            &language,
-            buf,
-            &PathBuf::from(""),
-            None,
-            cfg,
-        )))
+        let cfg = WebFunctionCfg { id: String::new() };
+        let result = run_parse(&config, move || {
+            action::<WebFunctionCallback>(&language, buf, Path::new(""), None, cfg)
+        })
+        .await?;
+        Ok(HttpResponse::Ok().json(result))
     } else {
         Ok(HttpResponse::NotFound()
             .append_header((http::header::CONTENT_TYPE, "text/plain"))
@@ -220,10 +275,15 @@ async fn ping() -> HttpResponse {
     HttpResponse::Ok().body(())
 }
 
-/// Runs an HTTP Server which provides a series of services.
+/// Runs an HTTP server with the default parse timeout (30 s).
 ///
-/// Each service corresponds to a functionality of the main library and can be
-/// accessed through a different route.
+/// Convenience wrapper around [`run_with_timeout`]. Each service corresponds
+/// to a functionality of the main library and can be accessed through a
+/// different route.
+///
+/// # Errors
+///
+/// Returns an error if the server fails to bind or encounters an I/O error.
 ///
 /// # Examples
 ///
@@ -236,19 +296,41 @@ async fn ping() -> HttpResponse {
 ///     let port = 8080;
 ///     let num_threads = 4;
 ///
-///     // Runs a server on a determined host with a specific port and using a
-///     // certain number of threads.
-///     // If the server does not run correctly, an error will be shown.
 ///     if let Err(e) = run(host, port, num_threads).await {
 ///        eprintln!("Cannot run the server at {host}:{port}: {e}");
 ///     }
 /// }
 /// ```
 pub async fn run(host: &str, port: u16, n_threads: usize) -> std::io::Result<()> {
-    let max_size = 1024 * 1024 * 4;
+    run_with_timeout(host, port, n_threads, DEFAULT_PARSE_TIMEOUT_SECS).await
+}
+
+/// Runs an HTTP server with a configurable parse timeout.
+///
+/// `parse_timeout_secs = 0` disables the deadline (no timeout).
+///
+/// # Errors
+///
+/// Returns an error if the server fails to bind or encounters an I/O error.
+pub async fn run_with_timeout(
+    host: &str,
+    port: u16,
+    n_threads: usize,
+    parse_timeout_secs: u64,
+) -> std::io::Result<()> {
+    let max_size = 1_024 * 1_024 * 4;
+    let config = web::Data::new(ParseConfig {
+        timeout: if parse_timeout_secs == 0 {
+            None
+        } else {
+            Some(Duration::from_secs(parse_timeout_secs))
+        },
+        semaphore: Arc::new(Semaphore::new(n_threads)),
+    });
 
     HttpServer::new(move || {
         App::new()
+            .app_data(config.clone())
             .app_data(web::JsonConfig::default().limit(max_size))
             .service(
                 web::resource("/ast")
@@ -312,6 +394,13 @@ mod tests {
 
     use super::*;
 
+    fn test_config() -> web::Data<ParseConfig> {
+        web::Data::new(ParseConfig {
+            timeout: None,
+            semaphore: Arc::new(Semaphore::new(4)),
+        })
+    }
+
     #[actix_rt::test]
     async fn test_web_ping() {
         let app = test::init_service(
@@ -327,7 +416,9 @@ mod tests {
     #[actix_rt::test]
     async fn test_web_ast() {
         let app = test::init_service(
-            App::new().service(web::resource("/ast").route(web::post().to(ast_parser))),
+            App::new()
+                .app_data(test_config())
+                .service(web::resource("/ast").route(web::post().to(ast_parser))),
         )
         .await;
         let req = test::TestRequest::post()
@@ -402,7 +493,9 @@ mod tests {
     #[actix_rt::test]
     async fn test_web_ast_string() {
         let app = test::init_service(
-            App::new().service(web::resource("/ast").route(web::post().to(ast_parser))),
+            App::new()
+                .app_data(test_config())
+                .service(web::resource("/ast").route(web::post().to(ast_parser))),
         )
         .await;
         let req = test::TestRequest::post()
@@ -456,6 +549,7 @@ mod tests {
     async fn test_web_comment_json() {
         let app = test::init_service(
             App::new()
+                .app_data(test_config())
                 .service(web::resource("/comment").route(web::post().to(comment_removal_json))),
         )
         .await;
@@ -481,6 +575,7 @@ mod tests {
     async fn test_web_comment_json_invalid() {
         let app = test::init_service(
             App::new()
+                .app_data(test_config())
                 .service(web::resource("/comment").route(web::post().to(comment_removal_json))),
         )
         .await;
@@ -506,6 +601,7 @@ mod tests {
     async fn test_web_comment_json_no_comment() {
         let app = test::init_service(
             App::new()
+                .app_data(test_config())
                 .service(web::resource("/comment").route(web::post().to(comment_removal_json))),
         )
         .await;
@@ -533,6 +629,7 @@ mod tests {
     async fn test_web_comment_plain() {
         let app = test::init_service(
             App::new()
+                .app_data(test_config())
                 .service(web::resource("/comment").route(web::post().to(comment_removal_plain))),
         )
         .await;
@@ -555,6 +652,7 @@ mod tests {
     async fn test_web_comment_plain_invalid() {
         let app = test::init_service(
             App::new()
+                .app_data(test_config())
                 .service(web::resource("/comment").route(web::post().to(comment_removal_plain))),
         )
         .await;
@@ -577,6 +675,7 @@ mod tests {
     async fn test_web_comment_plain_no_comment() {
         let app = test::init_service(
             App::new()
+                .app_data(test_config())
                 .service(web::resource("/comment").route(web::post().to(comment_removal_plain))),
         )
         .await;
@@ -606,6 +705,7 @@ mod tests {
 
         let app = test::init_service(
             App::new()
+                .app_data(test_config())
                 .service(web::resource("/comment").route(web::post().to(comment_removal_plain))),
         )
         .await;
@@ -627,6 +727,7 @@ mod tests {
     async fn test_web_comment_plain_cpp() {
         let app = test::init_service(
             App::new()
+                .app_data(test_config())
                 .service(web::resource("/comment").route(web::post().to(comment_removal_plain))),
         )
         .await;
@@ -648,7 +749,9 @@ mod tests {
     #[actix_rt::test]
     async fn test_web_metrics_json() {
         let app = test::init_service(
-            App::new().service(web::resource("/metrics").route(web::post().to(metrics_json))),
+            App::new()
+                .app_data(test_config())
+                .service(web::resource("/metrics").route(web::post().to(metrics_json))),
         )
         .await;
         let req = test::TestRequest::post()
@@ -730,7 +833,9 @@ mod tests {
     #[actix_rt::test]
     async fn test_web_metrics_json_unit() {
         let app = test::init_service(
-            App::new().service(web::resource("/metrics").route(web::post().to(metrics_json))),
+            App::new()
+                .app_data(test_config())
+                .service(web::resource("/metrics").route(web::post().to(metrics_json))),
         )
         .await;
         let req = test::TestRequest::post()
@@ -784,7 +889,9 @@ mod tests {
     #[actix_rt::test]
     async fn test_web_metrics_plain() {
         let app = test::init_service(
-            App::new().service(web::resource("/metrics").route(web::post().to(metrics_plain))),
+            App::new()
+                .app_data(test_config())
+                .service(web::resource("/metrics").route(web::post().to(metrics_plain))),
         )
         .await;
         let req = test::TestRequest::post()
@@ -862,7 +969,9 @@ mod tests {
     #[actix_rt::test]
     async fn test_web_function_json() {
         let app = test::init_service(
-            App::new().service(web::resource("/function").route(web::post().to(function_json))),
+            App::new()
+                .app_data(test_config())
+                .service(web::resource("/function").route(web::post().to(function_json))),
         )
         .await;
         let req = test::TestRequest::post()
@@ -899,7 +1008,9 @@ mod tests {
     #[actix_rt::test]
     async fn test_web_function_plain() {
         let app = test::init_service(
-            App::new().service(web::resource("/function").route(web::post().to(function_plain))),
+            App::new()
+                .app_data(test_config())
+                .service(web::resource("/function").route(web::post().to(function_plain))),
         )
         .await;
         let req = test::TestRequest::post()
