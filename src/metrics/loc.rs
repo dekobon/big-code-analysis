@@ -4927,4 +4927,76 @@ f",
             },
         );
     }
+
+    // CRLF regression tests: metrics must be identical regardless of line ending style.
+    // These also serve as canaries for tree-sitter row-counting behaviour with \r bytes.
+
+    #[test]
+    fn python_cloc_crlf_matches_lf() {
+        check_metrics::<PythonParser>("# comment\nx = 1", "foo.py", |m| {
+            assert_eq!(m.loc.cloc(), 1.0);
+            assert_eq!(m.loc.ploc(), 1.0);
+            assert_eq!(m.loc.sloc(), 2.0);
+            assert_eq!(m.loc.blank(), 0.0);
+        });
+        check_metrics::<PythonParser>("# comment\r\nx = 1", "foo.py", |m| {
+            assert_eq!(m.loc.cloc(), 1.0);
+            assert_eq!(m.loc.ploc(), 1.0);
+            assert_eq!(m.loc.sloc(), 2.0);
+            assert_eq!(m.loc.blank(), 0.0);
+        });
+        // Lone-CR (old Mac line endings) is the true canary: without CR normalisation,
+        // tree-sitter 0.26.8 only advances its row counter on \n, collapsing all content
+        // onto row 0 and producing wrong sloc/cloc metrics.
+        check_metrics::<PythonParser>("# comment\rx = 1", "foo.py", |m| {
+            assert_eq!(m.loc.cloc(), 1.0);
+            assert_eq!(m.loc.ploc(), 1.0);
+            assert_eq!(m.loc.sloc(), 2.0);
+            assert_eq!(m.loc.blank(), 0.0);
+        });
+    }
+
+    #[test]
+    fn python_blank_crlf_matches_lf() {
+        check_metrics::<PythonParser>("# comment\n\nx = 1", "foo.py", |m| {
+            assert_eq!(m.loc.blank(), 1.0);
+        });
+        check_metrics::<PythonParser>("# comment\r\n\r\nx = 1", "foo.py", |m| {
+            assert_eq!(m.loc.blank(), 1.0);
+        });
+        // Lone-CR: without normalisation the blank \r line stays on row 0 and is not counted.
+        check_metrics::<PythonParser>("# comment\r\rx = 1", "foo.py", |m| {
+            assert_eq!(m.loc.blank(), 1.0);
+        });
+    }
+
+    #[test]
+    fn rust_cloc_crlf_matches_lf() {
+        check_metrics::<RustParser>(
+            "fn f() {\n    // comment\n    let x = 1;\n}",
+            "foo.rs",
+            |m| {
+                assert_eq!(m.loc.cloc(), 1.0);
+                assert_eq!(m.loc.sloc(), 4.0);
+            },
+        );
+        check_metrics::<RustParser>(
+            "fn f() {\r\n    // comment\r\n    let x = 1;\r\n}",
+            "foo.rs",
+            |m| {
+                assert_eq!(m.loc.cloc(), 1.0);
+                assert_eq!(m.loc.sloc(), 4.0);
+            },
+        );
+        // Lone-CR: without normalisation, tree-sitter 0.26.8 only advances its row counter on
+        // \n, so all content collapses onto row 0 and sloc becomes 1 instead of 4.
+        check_metrics::<RustParser>(
+            "fn f() {\r    // comment\r    let x = 1;\r}",
+            "foo.rs",
+            |m| {
+                assert_eq!(m.loc.cloc(), 1.0);
+                assert_eq!(m.loc.sloc(), 4.0);
+            },
+        );
+    }
 }
