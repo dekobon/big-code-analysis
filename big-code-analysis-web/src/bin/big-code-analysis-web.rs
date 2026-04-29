@@ -2,7 +2,7 @@ use std::thread::available_parallelism;
 
 use clap::Parser;
 
-use big_code_analysis_web::server::run;
+use big_code_analysis_web::server::{DEFAULT_PARSE_TIMEOUT_SECS, run_with_timeout};
 
 #[derive(Parser, Debug)]
 #[clap(
@@ -21,6 +21,9 @@ struct Opts {
     /// Port for the web server.
     #[clap(long, short, default_value = "8080")]
     port: u16,
+    /// Timeout in seconds for each parse operation (0 = no timeout).
+    #[clap(long, default_value_t = DEFAULT_PARSE_TIMEOUT_SECS)]
+    parse_timeout_secs: u64,
 }
 
 #[actix_web::main]
@@ -36,7 +39,8 @@ async fn main() {
             })
     });
 
-    if let Err(e) = run(&opts.host, opts.port, num_jobs).await {
+    if let Err(e) = run_with_timeout(&opts.host, opts.port, num_jobs, opts.parse_timeout_secs).await
+    {
         eprintln!(
             "Cannot run the server at {}:{}: {}",
             opts.host, opts.port, e
