@@ -216,7 +216,8 @@ implement_metric_trait!(
     KotlinCode,
     GoCode,
     PerlCode,
-    BashCode
+    BashCode,
+    LuaCode
 );
 
 #[cfg(test)]
@@ -1072,6 +1073,44 @@ mod tests {
                     }
                     "###
                 );
+            },
+        );
+    }
+
+    #[test]
+    fn lua_nom() {
+        check_metrics::<LuaParser>(
+            "function greet(name)
+  return \"hello \" .. name
+end
+
+local add = function(a, b)
+  return a + b
+end
+
+local function outer()
+  local inner = function()
+    return 42
+  end
+  return inner()
+end",
+            "foo.lua",
+            |metric| {
+                // 2 named functions (greet, outer), 2 closures (add, inner)
+                insta::assert_json_snapshot!(metric.nom, @r###"
+                    {
+                      "functions": 2.0,
+                      "closures": 2.0,
+                      "functions_average": 0.4,
+                      "closures_average": 0.4,
+                      "total": 4.0,
+                      "average": 0.8,
+                      "functions_min": 0.0,
+                      "functions_max": 1.0,
+                      "closures_min": 0.0,
+                      "closures_max": 1.0
+                    }
+                    "###);
             },
         );
     }

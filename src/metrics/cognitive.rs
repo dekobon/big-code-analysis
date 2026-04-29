@@ -331,14 +331,11 @@ impl Cognitive for RustCode {
         let (mut nesting, mut depth, mut lambda) = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
-            IfExpression => {
-                // Check if a node is not an else-if
-                if !Self::is_else_if(node) {
-                    increase_nesting(stats,&mut nesting, depth, lambda);
-                }
+            IfExpression if !Self::is_else_if(node) => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
             }
             ForExpression | WhileExpression | MatchExpression => {
-                increase_nesting(stats,&mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting, depth, lambda);
             }
             Else /*else-if also */ => {
                 increment_by_one(stats);
@@ -356,7 +353,7 @@ impl Cognitive for RustCode {
             BinaryExpression => {
                 compute_booleans::<language_rust::Rust>(node, stats, AMPAMP, PIPEPIPE);
             }
-            FunctionItem  => {
+            FunctionItem => {
                 nesting = 0;
                 // Increase depth function nesting if needed
                 increment_function_depth::<language_rust::Rust>(&mut depth, node, FunctionItem);
@@ -382,13 +379,11 @@ impl Cognitive for CppCode {
         let (mut nesting, depth, mut lambda) = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
-            IfStatement => {
-                if !Self::is_else_if(node) {
-                    increase_nesting(stats,&mut nesting, depth, lambda);
-                }
+            IfStatement if !Self::is_else_if(node) => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
             }
             ForStatement | WhileStatement | DoStatement | SwitchStatement | CatchClause => {
-                increase_nesting(stats,&mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting, depth, lambda);
             }
             GotoStatement | Else /* else-if also */ => {
                 increment_by_one(stats);
@@ -415,13 +410,11 @@ macro_rules! js_cognitive {
             let (mut nesting, mut depth, mut lambda) = get_nesting_from_map(node, nesting_map);
 
             match node.kind_id().into() {
-                IfStatement => {
-                    if !Self::is_else_if(&node) {
-                        increase_nesting(stats,&mut nesting, depth, lambda);
-                    }
+                IfStatement if !Self::is_else_if(&node) => {
+                    increase_nesting(stats, &mut nesting, depth, lambda);
                 }
                 ForStatement | ForInStatement | WhileStatement | DoStatement | SwitchStatement | CatchClause | TernaryExpression => {
-                    increase_nesting(stats,&mut nesting, depth, lambda);
+                    increase_nesting(stats, &mut nesting, depth, lambda);
                 }
                 Else /* else-if also */ => {
                     increment_by_one(stats);
@@ -480,13 +473,11 @@ impl Cognitive for JavaCode {
         let (mut nesting, depth, mut lambda) = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
-            IfStatement => {
-                if !Self::is_else_if(node) {
-                    increase_nesting(stats,&mut nesting, depth, lambda);
-                }
+            IfStatement if !Self::is_else_if(node) => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
             }
             ForStatement | WhileStatement | DoStatement | SwitchBlock | CatchClause => {
-                increase_nesting(stats,&mut nesting, depth, lambda);
+                increase_nesting(stats, &mut nesting, depth, lambda);
             }
             Else /* else-if also */ => {
                 increment_by_one(stats);
@@ -549,10 +540,8 @@ impl Cognitive for PerlCode {
             // `last LABEL` / `next LABEL` / `redo LABEL` — only the
             // labeled forms count, since the bare forms are subsumed by
             // the surrounding loop's nesting.
-            P::LoopControlStatement => {
-                if node.children().any(|c| c.kind_id() == P::Label) {
-                    increment_by_one(stats);
-                }
+            P::LoopControlStatement if node.children().any(|c| c.kind_id() == P::Label) => {
+                increment_by_one(stats);
             }
             P::UnaryExpression => {
                 stats.boolean_seq.not_operator(node.kind_id());
@@ -588,10 +577,8 @@ impl Cognitive for KotlinCode {
         let (mut nesting, mut depth, mut lambda) = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
-            IfExpression => {
-                if !Self::is_else_if(node) {
-                    increase_nesting(stats, &mut nesting, depth, lambda);
-                }
+            IfExpression if !Self::is_else_if(node) => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
             }
             ForStatement | WhileStatement | DoWhileStatement | WhenExpression | CatchBlock => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
@@ -639,10 +626,8 @@ impl Cognitive for GoCode {
         let (mut nesting, mut depth, mut lambda) = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
-            G::IfStatement => {
-                if !Self::is_else_if(node) {
-                    increase_nesting(stats, &mut nesting, depth, lambda);
-                }
+            G::IfStatement if !Self::is_else_if(node) => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
             }
             G::ForStatement
             | G::ExpressionSwitchStatement
@@ -653,10 +638,10 @@ impl Cognitive for GoCode {
             G::Else | G::GotoStatement => {
                 increment_by_one(stats);
             }
-            G::BreakStatement | G::ContinueStatement => {
-                if node.children().any(|c| c.kind_id() == G::LabelName) {
-                    increment_by_one(stats);
-                }
+            G::BreakStatement | G::ContinueStatement
+                if node.children().any(|c| c.kind_id() == G::LabelName) =>
+            {
+                increment_by_one(stats);
             }
             G::UnaryExpression => {
                 stats.boolean_seq.not_operator(node.kind_id());
@@ -727,6 +712,122 @@ impl Cognitive for BashCode {
     }
 }
 
+impl Cognitive for TclCode {
+    fn compute(
+        node: &Node,
+        stats: &mut Stats,
+        nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
+    ) {
+        use Tcl::*;
+
+        let (mut nesting, mut depth, lambda) = get_nesting_from_map(node, nesting_map);
+
+        match node.kind_id().into() {
+            // Guard kept for defensive consistency with sibling impls; Tcl's dedicated
+            // Elseif node means this guard is always true in practice.
+            If if !Self::is_else_if(node) => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
+            }
+            // elseif adds +1 without increasing nesting for its own children.
+            Elseif => {
+                increment_by_one(stats);
+                stats.boolean_seq.reset();
+            }
+            Else => {
+                increment_by_one(stats);
+            }
+            While | Foreach | TernaryExpr => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
+            }
+            // `catch` is a conditional error handler; only executes when the body errors.
+            Catch => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
+            }
+            // Track `!` prefix so that `!$a && !$b` counts the && only once.
+            UnaryExpr if node.child(0).is_some_and(|c| c.kind_id() == Tcl::BANG) => {
+                stats.boolean_seq.not_operator(node.kind_id());
+            }
+            BinopExpr => {
+                compute_booleans::<language_tcl::Tcl>(node, stats, AMPAMP, PIPEPIPE);
+            }
+            Procedure => {
+                nesting = 0;
+                increment_function_depth::<language_tcl::Tcl>(&mut depth, node, Procedure);
+            }
+            _ => {}
+        }
+        nesting_map.insert(node.id(), (nesting, depth, lambda));
+    }
+}
+
+impl Cognitive for LuaCode {
+    fn compute(
+        node: &Node,
+        stats: &mut Stats,
+        nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
+    ) {
+        use Lua::*;
+
+        let (mut nesting, mut depth, mut lambda) = get_nesting_from_map(node, nesting_map);
+
+        match node.kind_id().into() {
+            // `is_else_if` returns true for `ElseifStatement`, but Lua's
+            // grammar makes that node a child field of `IfStatement` rather
+            // than a nested `if_statement`, so the guard is defensive only.
+            IfStatement if !Self::is_else_if(node) => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
+            }
+            // `elseif` adds +1 at the same nesting level as the parent `if`,
+            // matching how Tcl/Bash handle their dedicated elseif/elif nodes.
+            ElseifStatement => {
+                increment_by_one(stats);
+                stats.boolean_seq.reset();
+            }
+            ElseStatement => {
+                increment_by_one(stats);
+            }
+            ForStatement | WhileStatement | RepeatStatement => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
+            }
+            // `break` and `goto` are unconditional jumps that add cognitive
+            // load without introducing new nesting. Lua has no `continue`.
+            BreakStatement | GotoStatement => {
+                increment_by_one(stats);
+            }
+            UnaryExpression => {
+                stats.boolean_seq.not_operator(node.kind_id());
+            }
+            BinaryExpression => {
+                compute_booleans::<language_lua::Lua>(node, stats, And, Or);
+            }
+            FunctionDeclaration | FunctionDeclaration2 | FunctionDeclaration3 => {
+                nesting = 0;
+                // `function`, `local function`, and `global function` are
+                // separate parser kind_ids that all alias to the same name;
+                // walk ancestors checking for any of the three to detect
+                // nested function declarations regardless of declaration form.
+                let mut child = *node;
+                while let Some(parent) = child.parent() {
+                    if matches!(
+                        parent.kind_id().into(),
+                        FunctionDeclaration | FunctionDeclaration2 | FunctionDeclaration3
+                    ) {
+                        depth += 1;
+                        break;
+                    }
+                    child = parent;
+                }
+            }
+            FunctionDefinition => {
+                lambda += 1;
+            }
+            _ => {}
+        }
+        nesting_map.insert(node.id(), (nesting, depth, lambda));
+    }
+}
+
+// LuaCode uses the no-op default; full impl is tracked in the Cognitive-for-Lua GitHub issue.
 implement_metric_trait!(Cognitive, PreprocCode, CcommentCode);
 
 #[cfg(test)]
@@ -3167,6 +3268,474 @@ mod tests {
                       "average": 5.0,
                       "min": 0.0,
                       "max": 5.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_no_cognitive() {
+        // No proc, no control flow → cognitive complexity is zero everywhere.
+        check_metrics::<TclParser>("set x 1", "foo.tcl", |metric| {
+            insta::assert_json_snapshot!(metric.cognitive);
+        });
+    }
+
+    #[test]
+    fn tcl_simple_function() {
+        // proc with one if and one &&: if(+1) + &&(+1) = 2.
+        check_metrics::<TclParser>(
+            "proc f {a} {
+    if {$a > 0 && $a < 10} {
+        puts yes
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_sequence_same_booleans() {
+        // Sequences of the same boolean operator count as a single increment.
+        // `$a && $b && $c` → +1 (one && group), not +2.
+        check_metrics::<TclParser>(
+            "proc f {a b c d} {
+    if {$a && $b && $c} {
+        puts yes
+    }
+    if {$a || $b || $c || $d} {
+        puts no
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_sequence_different_booleans() {
+        // Switching operator type increments again: `$a && $b || $c` → +2 (one &&, one ||).
+        check_metrics::<TclParser>(
+            "proc f {a b c} {
+    if {$a && $b || $c} {
+        puts yes
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_not_booleans() {
+        // Each `!` marks the start of a new boolean-operator sequence; the single `&&`
+        // between the two negations contributes +1, plus +1 for the surrounding `if`.
+        check_metrics::<TclParser>(
+            "proc f {a b} {
+    if {!$a && !$b} {
+        puts yes
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_1_level_nesting() {
+        // while(+1) then if at depth 1 (+2) = 3 for the proc.
+        check_metrics::<TclParser>(
+            "proc f {x} {
+    while {$x > 0} {
+        if {$x > 10} {
+            set x [expr {$x - 1}]
+        }
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_2_level_nesting() {
+        // while(+1) + foreach at depth 1 (+2) + if at depth 2 (+3) = 6.
+        check_metrics::<TclParser>(
+            "proc f {x} {
+    while {$x > 0} {
+        foreach y {1 2 3} {
+            if {$y > $x} {
+                puts found
+            }
+        }
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_catch_cognitive() {
+        // `catch` is a conditional handler: +1 at nesting 0, then body at nesting 1.
+        // Nested if inside catch body: +2 (depth 1).
+        check_metrics::<TclParser>(
+            "proc f {x} {
+    catch {
+        if {$x < 0} {
+            error negative
+        }
+    } msg
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_if_elseif_else() {
+        // if(+1) + elseif(+1) + else(+1) = 3; nesting does not increase for elseif/else.
+        check_metrics::<TclParser>(
+            "proc f {x} {
+    if {$x > 10} {
+        puts big
+    } elseif {$x > 5} {
+        puts medium
+    } else {
+        puts small
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_not_booleans_nested() {
+        // `$a && !($b && $c)`: if(+1) + outer &&(+1) + inner && after not_operator(+1) = 3.
+        check_metrics::<TclParser>(
+            "proc f {a b c} {
+    if {$a && !($b && $c)} {
+        puts yes
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_not_booleans_double_nested() {
+        // `!($a || $b) && !($c || $d)`: if(+1) + &&(+1) + first || after not(+1) + second || after not(+1) = 4.
+        check_metrics::<TclParser>(
+            "proc f {a b c d} {
+    if {!($a || $b) && !($c || $d)} {
+        puts yes
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_nested_procedure_cognitive() {
+        // Inner proc is at depth=1; its `if` adds +1+1=2 instead of +1+0=1.
+        check_metrics::<TclParser>(
+            "proc outer {x} {
+    proc inner {y} {
+        if {$y > 0} {
+            puts positive
+        }
+    }
+    inner $x
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_ternary_cognitive() {
+        // Ternary `? :` inside expr is a conditional expression: adds +1+depth.
+        // At proc body depth 0: +1. Inside a while (depth 1): +2.
+        check_metrics::<TclParser>(
+            "proc f {x} {
+    set y [expr {$x > 0 ? $x : -$x}]
+    while {$y > 10} {
+        set y [expr {$y > 5 ? $y - 1 : 0}]
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_cognitive_no_cognitive() {
+        // Top-level local assignment, no control flow → cognitive complexity is zero.
+        check_metrics::<LuaParser>("local x = 42", "foo.lua", |metric| {
+            insta::assert_json_snapshot!(
+                metric.cognitive,
+                @r###"
+                {
+                  "sum": 0.0,
+                  "average": null,
+                  "min": 0.0,
+                  "max": 0.0
+                }"###
+            );
+        });
+    }
+
+    #[test]
+    fn lua_cognitive_simple_function() {
+        // Two `if … and …` statements at function scope: each contributes
+        // +1 (if) + 1 (and) = 2; total 4.
+        check_metrics::<LuaParser>(
+            "local function f(a, b, c, d)
+    if a and b then
+        return 1
+    end
+    if c and d then
+        return 1
+    end
+end",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 4.0,
+                      "min": 0.0,
+                      "max": 4.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn lua_cognitive_sequence_same_booleans() {
+        // Sequences of the same boolean operator count as a single increment.
+        // `a and b and c` → +1 (one and-group), `a or b or c or d` → +1.
+        // Plus +1 per `if` ⇒ 4 total.
+        check_metrics::<LuaParser>(
+            "local function f(a, b, c, d)
+    if a and b and c then
+        return 1
+    end
+    if a or b or c or d then
+        return 1
+    end
+end",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 4.0,
+                      "min": 0.0,
+                      "max": 4.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn lua_cognitive_not_booleans() {
+        // `not a and not b`: each `not` resets the boolean sequence so the
+        // single `and` between them counts once. if(+1) + and(+1) = 2.
+        check_metrics::<LuaParser>(
+            "local function f(a, b)
+    if not a and not b then
+        return 1
+    end
+end",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 2.0,
+                      "min": 0.0,
+                      "max": 2.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn lua_cognitive_sequence_different_booleans() {
+        // Switching operator type increments again: `a and b or c`
+        // → if(+1) + and(+1) + or(+1) = 3.
+        check_metrics::<LuaParser>(
+            "local function f(a, b, c)
+    if a and b or c then
+        return 1
+    end
+end",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 3.0,
+                      "min": 0.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn lua_cognitive_1_level_nesting() {
+        // for at depth 0 (+1) + if at depth 1 (+2) = 3.
+        check_metrics::<LuaParser>(
+            "local function f(t)
+    for i = 1, #t do
+        if t[i] > 0 then
+            return t[i]
+        end
+    end
+end",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 3.0,
+                      "min": 0.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn lua_cognitive_2_level_nesting() {
+        // outer for (+1) + inner for at depth 1 (+2) + if at depth 2 (+3) = 6.
+        check_metrics::<LuaParser>(
+            "local function f(t)
+    for i = 1, #t do
+        for j = 1, #t do
+            if t[i] > t[j] then
+                return t[i]
+            end
+        end
+    end
+end",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 6.0,
+                      "average": 6.0,
+                      "min": 0.0,
+                      "max": 6.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn lua_cognitive_break_continue() {
+        // Lua has no `continue` keyword; `break` is the only structural jump
+        // (other than `goto`). for(+1) + if at depth 1 (+2) + break(+1) = 4.
+        check_metrics::<LuaParser>(
+            "local function f(t)
+    for i = 1, #t do
+        if t[i] < 0 then
+            break
+        end
+    end
+end",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 4.0,
+                      "min": 0.0,
+                      "max": 4.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn lua_cognitive_elseif_nesting() {
+        // Lua-specific: `elseif_statement` is a dedicated grammar node that
+        // stays at the same nesting level as the enclosing `if`. Chain:
+        // if(+1) + elseif(+1) + elseif(+1) + else(+1) = 4.
+        check_metrics::<LuaParser>(
+            "local function classify(x)
+    if x > 0 then
+        return 1
+    elseif x < 0 then
+        return -1
+    elseif x == 0 then
+        return 0
+    else
+        return 0
+    end
+end",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 4.0,
+                      "min": 0.0,
+                      "max": 4.0
                     }"###
                 );
             },

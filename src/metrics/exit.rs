@@ -209,6 +209,14 @@ impl Exit for KotlinCode {
     }
 }
 
+impl Exit for LuaCode {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+        if node.kind_id() == Lua::ReturnStatement {
+            stats.exit += 1;
+        }
+    }
+}
+
 impl Exit for BashCode {
     fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
         // Bash has no `return_statement` node: `return` and `exit` are
@@ -823,6 +831,55 @@ mod tests {
                 return a / b
             }",
             "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 2.0,
+                      "min": 0.0,
+                      "max": 2.0
+                    }
+                    "###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn lua_no_exit() {
+        check_metrics::<LuaParser>(
+            "local function f(x)
+  local y = x + 1
+end",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 0.0,
+                      "average": 0.0,
+                      "min": 0.0,
+                      "max": 0.0
+                    }
+                    "###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn lua_return() {
+        check_metrics::<LuaParser>(
+            "local function f(x)
+  if x > 0 then
+    return x
+  end
+  return 0
+end",
+            "foo.lua",
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.nexits,

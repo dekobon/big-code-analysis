@@ -18,6 +18,9 @@ pub use language_java::*;
 pub mod language_kotlin;
 pub use language_kotlin::*;
 
+pub mod language_lua;
+pub use language_lua::*;
+
 pub mod language_mozjs;
 pub use language_mozjs::*;
 

@@ -989,6 +989,70 @@ impl Loc for PerlCode {
     }
 }
 
+impl Loc for LuaCode {
+    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool, is_unit: bool) {
+        let (start, end) = init(node, stats, is_func_space, is_unit);
+
+        match node.kind_id().into() {
+            // Skip root and string literals.
+            Lua::Chunk | Lua::String => {}
+
+            // Skip tokens that are children of comment nodes.
+            // Lua's comment nodes have children: DASHDASH / LBRACKLBRACK (openers),
+            // CommentContent / CommentContent2 (body), and RBRACKRBRACK (block closer).
+            // Without this guard they hit the `_` arm and add their rows to `ploc`,
+            // which rows are already counted in `only_comment_lines`, producing
+            // negative `blank`. LBRACKLBRACK / RBRACKRBRACK also appear as children of
+            // string nodes, so we guard on the parent kind to avoid skipping them there.
+            Lua::DASHDASH | Lua::CommentContent | Lua::CommentContent2 => {}
+            Lua::LBRACKLBRACK | Lua::RBRACKRBRACK
+                if node.parent().is_some_and(|p| p.kind_id() == Lua::Comment) => {}
+
+            Lua::Comment => {
+                add_cloc_lines(stats, start, end);
+            }
+
+            // Standalone assignment (`x = 1`). Skip when nested inside a local variable
+            // declaration (`local x = 1`) — the parent VariableDeclaration already counts.
+            Lua::AssignmentStatement | Lua::AssignmentStatement2
+                if !node.parent().is_some_and(|p| {
+                    matches!(
+                        p.kind_id().into(),
+                        Lua::VariableDeclaration
+                            | Lua::VariableDeclaration2
+                            | Lua::ImplicitVariableDeclaration
+                    )
+                }) =>
+            {
+                stats.lloc.logical_lines += 1;
+            }
+
+            Lua::IfStatement
+            | Lua::ForStatement
+            | Lua::WhileStatement
+            | Lua::RepeatStatement
+            | Lua::DoStatement
+            | Lua::ReturnStatement
+            | Lua::BreakStatement
+            | Lua::GotoStatement
+            | Lua::LabelStatement
+            | Lua::VariableDeclaration
+            | Lua::VariableDeclaration2
+            | Lua::ImplicitVariableDeclaration
+            | Lua::FunctionDeclaration
+            | Lua::FunctionDeclaration2
+            | Lua::FunctionDeclaration3 => {
+                stats.lloc.logical_lines += 1;
+            }
+
+            _ => {
+                check_comment_ends_on_code_line(stats, start);
+                stats.ploc.lines.insert(start);
+            }
+        }
+    }
+}
+
 impl Loc for KotlinCode {
     fn compute(node: &Node, stats: &mut Stats, is_func_space: bool, is_unit: bool) {
         use Kotlin::*;
@@ -4730,6 +4794,240 @@ my $x = 1;",
                   "blank_max": 0.0
                 }
                  "#);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_blank() {
+        check_metrics::<LuaParser>(
+            "local x = 1
+
+local y = 2",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_no_zero_blank() {
+        check_metrics::<LuaParser>(
+            "local x = 1
+local y = 2",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_cloc() {
+        check_metrics::<LuaParser>(
+            "-- single line comment
+local x = 1
+--[[
+  block comment
+  second line
+]]",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_lloc() {
+        check_metrics::<LuaParser>(
+            "local function f(x)
+  if x > 0 then
+    local y = x + 1
+    return y
+  end
+  return 0
+end",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_no_string_lloc() {
+        // Long strings spanning multiple lines must not inflate lloc.
+        check_metrics::<LuaParser>(
+            "local s = [[
+  line one
+  line two
+]]",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_no_functiondefinition_lloc() {
+        // Anonymous function definition is an expression, not a statement.
+        // The containing variable_declaration counts as lloc; FunctionDefinition must not.
+        check_metrics::<LuaParser>(
+            "local f = function(x)
+  return x + 1
+end",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_no_elseif_lloc() {
+        // elseif_statement must not add lloc; only if_statement does.
+        check_metrics::<LuaParser>(
+            "local function f(x)
+  if x > 0 then
+    return 1
+  elseif x < 0 then
+    return -1
+  else
+    return 0
+  end
+end",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_no_else_lloc() {
+        // else_statement must not add lloc.
+        check_metrics::<LuaParser>(
+            "local function f(x)
+  if x > 0 then
+    return 1
+  else
+    return 0
+  end
+end",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_functiondeclaration_lloc() {
+        // Named function declaration counts as one lloc.
+        check_metrics::<LuaParser>(
+            "function f()
+  return 1
+end",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_local_function_lloc() {
+        // local function declaration is also a function_declaration node → one lloc.
+        check_metrics::<LuaParser>(
+            "local function g()
+  return 2
+end",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_for_numeric_lloc() {
+        check_metrics::<LuaParser>(
+            "for i = 1, 10 do
+  print(i)
+end",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_for_generic_lloc() {
+        check_metrics::<LuaParser>(
+            "for k, v in pairs(t) do
+  print(k, v)
+end",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_repeat_lloc() {
+        check_metrics::<LuaParser>(
+            "local i = 0
+repeat
+  i = i + 1
+until i >= 10",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_local_decl_lloc() {
+        check_metrics::<LuaParser>(
+            "local x = 1
+local y, z = 2, 3",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_function_call_lloc() {
+        // Standalone function calls have no expression_statement wrapper in Lua.
+        // They fall to the `_` branch → counted as ploc, not lloc.
+        check_metrics::<LuaParser>(
+            "print(\"hello\")
+local x = 1",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_toplevel_assignment_lloc() {
+        // Bare `x = 1` at chunk level: parent is Chunk, not VariableDeclaration,
+        // so the parent-guard correctly counts it as 1 lloc.
+        check_metrics::<LuaParser>(
+            "x = 1
+y, z = 2, 3",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
             },
         );
     }

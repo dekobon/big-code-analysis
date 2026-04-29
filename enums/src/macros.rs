@@ -20,6 +20,7 @@ macro_rules! mk_get_language {
         pub fn get_language(lang: &Lang) -> Language {
             match lang {
                 Lang::Kotlin => tree_sitter_kotlin_ng::LANGUAGE.into(),
+                Lang::Lua => tree_sitter_lua::LANGUAGE.into(),
                 Lang::Java => tree_sitter_java::LANGUAGE.into(),
                 Lang::Go => tree_sitter_go::LANGUAGE.into(),
                 Lang::Typescript => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),

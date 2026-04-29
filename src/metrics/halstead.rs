@@ -380,6 +380,12 @@ impl Halstead for KotlinCode {
     }
 }
 
+impl Halstead for LuaCode {
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], halstead_maps: &mut HalsteadMaps<'a>) {
+        compute_halstead::<Self>(node, code, halstead_maps);
+    }
+}
+
 implement_metric_trait!(Halstead, PreprocCode, CcommentCode);
 
 impl Halstead for BashCode {
@@ -865,6 +871,42 @@ mod tests {
                 }
                 "#
                 );
+            },
+        );
+    }
+
+    #[test]
+    fn lua_operators_and_operands() {
+        check_metrics::<LuaParser>(
+            "local function add(a, b)
+  local result = a + b
+  if result > 0 then
+    return result
+  end
+  return 0
+end",
+            "foo.lua",
+            |metric| {
+                // n1=12: local,function,(,,,),=,+,if,>,then,return,end
+                // n2=5: add,a,b,result,0
+                insta::assert_json_snapshot!(metric.halstead, @r###"
+                    {
+                      "n1": 12.0,
+                      "N1": 15.0,
+                      "n2": 5.0,
+                      "N2": 10.0,
+                      "length": 25.0,
+                      "estimated_program_length": 54.62919048309068,
+                      "purity_ratio": 2.1851676193236274,
+                      "vocabulary": 17.0,
+                      "volume": 102.18657103125848,
+                      "difficulty": 12.0,
+                      "level": 0.08333333333333333,
+                      "effort": 1226.2388523751017,
+                      "time": 68.12438068750565,
+                      "bugs": 0.03818816527310305
+                    }
+                    "###);
             },
         );
     }
