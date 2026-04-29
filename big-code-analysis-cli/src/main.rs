@@ -9,7 +9,7 @@ use std::process;
 use std::sync::{Arc, Mutex};
 use std::thread::available_parallelism;
 
-use clap::Parser;
+use clap::{ArgGroup, Parser};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 
 use formats::Format;
@@ -33,6 +33,11 @@ use big_code_analysis::{
 
 // Traits
 use big_code_analysis::ParserTrait;
+
+fn die(msg: impl std::fmt::Display) -> ! {
+    eprintln!("Error: {msg}");
+    process::exit(1);
+}
 
 #[derive(Debug)]
 struct Config {
@@ -79,20 +84,14 @@ fn mk_globset(elems: Vec<String>) -> Result<GlobSet, String> {
 }
 
 fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
-    let source = if let Some(source) = read_file_with_eol(&path)? {
-        source
-    } else {
+    let Some(source) = read_file_with_eol(&path)? else {
         if cfg.warning {
             eprintln!("warning: skipping empty file: {}", path.display());
         }
         return Ok(());
     };
 
-    let language = if let Some(language) = cfg.language {
-        language
-    } else if let Some(language) = guess_language(&source, &path).0 {
-        language
-    } else {
+    let Some(language) = cfg.language.or_else(|| guess_language(&source, &path).0) else {
         if cfg.warning {
             eprintln!(
                 "warning: skipping file with unrecognized language: {}",
@@ -217,7 +216,14 @@ fn process_dir_path(all_files: &mut HashMap<String, Vec<PathBuf>>, path: &Path, 
     name = "big-code-analysis-cli",
     version,
     author,
-    about = "Analyze source code."
+    about = "Analyze source code.",
+    group(ArgGroup::new("action")
+        .args(["dump", "comments", "find", "function", "count", "metrics", "ops"])
+        .multiple(false)
+        .required(false)),
+    group(ArgGroup::new("format_action")
+        .args(["metrics", "ops"])
+        .required(false)),
 )]
 struct Opts {
     /// Input files to analyze.
@@ -242,7 +248,7 @@ struct Opts {
     #[clap(long, short)]
     metrics: bool,
     /// Retrieve all operands and operators in a code.
-    #[clap(long, conflicts_with = "metrics")]
+    #[clap(long)]
     ops: bool,
     /// Do action in place.
     #[clap(long, short)]
@@ -260,7 +266,7 @@ struct Opts {
     #[clap(long, short)]
     language_type: Option<String>,
     /// Output metrics as different formats.
-    #[clap(long, short = 'O', value_enum)]
+    #[clap(long, short = 'O', value_enum, requires = "format_action")]
     output_format: Option<Format>,
     /// Dump a pretty json file.
     #[clap(long = "pr")]
@@ -299,27 +305,20 @@ fn main() {
 
     let (preproc_lock, preproc) = match opts.preproc.len().cmp(&1) {
         Ordering::Equal => {
-            let data = match read_file(&opts.preproc[0]) {
-                Ok(data) => data,
-                Err(e) => {
-                    eprintln!(
-                        "Error: failed to read preproc file {}: {e}",
-                        opts.preproc[0].display()
-                    );
-                    process::exit(1);
-                }
-            };
+            let data = read_file(&opts.preproc[0]).unwrap_or_else(|e| {
+                die(format_args!(
+                    "failed to read preproc file {}: {e}",
+                    opts.preproc[0].display()
+                ))
+            });
             eprintln!("Load preproc data");
-            let preproc_results = match serde_json::from_slice::<PreprocResults>(&data) {
-                Ok(r) => r,
-                Err(e) => {
-                    eprintln!(
-                        "Error: failed to parse preproc JSON from {}: {e}",
+            let preproc_results =
+                serde_json::from_slice::<PreprocResults>(&data).unwrap_or_else(|e| {
+                    die(format_args!(
+                        "failed to parse preproc JSON from {}: {e}",
                         opts.preproc[0].display()
-                    );
-                    process::exit(1);
-                }
-            };
+                    ))
+                });
             let x = (None, Some(Arc::new(preproc_results)));
             eprintln!("Load preproc data: finished");
             x
@@ -331,56 +330,41 @@ fn main() {
     let is_markdown = matches!(opts.output_format, Some(Format::Markdown));
 
     // Pre-run validation for markdown format.
-    // Check incompatible flags before requiring --metrics so the user sees
-    // the most specific error first.
+    // Most incompatible flag combinations are caught at parse time by the
+    // "action" and "format_action" ArgGroups, but -O markdown + --ops slips
+    // through because --ops is in format_action.
     if is_markdown {
-        for (flag, active) in [
-            ("--ops", opts.ops),
-            ("--dump", opts.dump),
-            ("--comments", opts.comments),
-            ("--function", opts.function),
-            ("--find", !opts.find.is_empty()),
-            ("--count", !opts.count.is_empty()),
-        ] {
-            if active {
-                eprintln!("Error: -O markdown is incompatible with {flag}");
-                process::exit(1);
-            }
-        }
-        if !opts.metrics {
-            eprintln!("Error: -O markdown requires --metrics");
-            process::exit(1);
+        // -O markdown with --ops is accepted by clap (ops is in format_action)
+        // but markdown reports only work with --metrics.
+        if opts.ops {
+            die("-O markdown is incompatible with --ops");
         }
 
         // Validate --output for markdown: must be a file path, not a directory.
         if let Some(ref output) = opts.output {
             if output.is_dir() {
-                eprintln!("Error: --output must be a file path when -O markdown is used");
-                process::exit(1);
+                die("--output must be a file path when -O markdown is used");
             }
             if let Some(parent) = output.parent()
                 && !parent.as_os_str().is_empty()
                 && !parent.exists()
             {
-                eprintln!(
-                    "Error: parent directory of --output does not exist: {}",
+                die(format_args!(
+                    "parent directory of --output does not exist: {}",
                     parent.display()
-                );
-                process::exit(1);
+                ));
             }
         }
     }
 
     // Pre-run validation for CBOR format: binary output requires --output.
     if matches!(opts.output_format, Some(Format::Cbor)) && opts.output.is_none() {
-        eprintln!("Error: CBOR is binary and cannot be printed to stdout; use --output");
-        process::exit(1);
+        die(formats::CBOR_STDOUT_ERROR);
     }
 
     let output_is_dir = opts.output.as_ref().is_some_and(|p| p.is_dir());
     if !is_markdown && (opts.metrics || opts.ops) && opts.output.is_some() && !output_is_dir {
-        eprintln!("Error: The output parameter must be a directory");
-        process::exit(1);
+        die("The output parameter must be a directory");
     }
 
     let typ = opts.language_type.unwrap_or_default();
@@ -403,19 +387,15 @@ fn main() {
             std::cmp::max(
                 2,
                 available_parallelism()
-                    .expect("Unrecoverable: Failed to get thread count")
+                    .unwrap_or_else(|e| {
+                        die(format_args!("could not get available parallelism: {e}"))
+                    })
                     .get(),
             ) - 1
         });
 
-    let include = mk_globset(opts.include).unwrap_or_else(|e| {
-        eprintln!("Error: {e}");
-        process::exit(1);
-    });
-    let exclude = mk_globset(opts.exclude).unwrap_or_else(|e| {
-        eprintln!("Error: {e}");
-        process::exit(1);
-    });
+    let include = mk_globset(opts.include).unwrap_or_else(|e| die(e));
+    let exclude = mk_globset(opts.exclude).unwrap_or_else(|e| die(e));
 
     let (markdown_tx, markdown_rx) = if is_markdown {
         let (tx, rx) = std::sync::mpsc::channel::<FunctionSummary>();
@@ -453,16 +433,10 @@ fn main() {
         paths: opts.paths,
     };
 
-    let all_files = match ConcurrentRunner::new(num_jobs, act_on_file)
+    let all_files = ConcurrentRunner::new(num_jobs, act_on_file)
         .set_proc_dir_paths(process_dir_path)
         .run(cfg, files_data)
-    {
-        Ok(all_files) => all_files,
-        Err(e) => {
-            eprintln!("{e:?}");
-            process::exit(1);
-        }
-    };
+        .unwrap_or_else(|e| die(format_args!("{e:?}")));
 
     if let Some(count) = count_lock {
         let count = Arc::try_unwrap(count)
@@ -482,16 +456,16 @@ fn main() {
 
         let report = generate_report(&summaries, opts.top as usize);
         if let Some(ref output_path) = opts.output {
-            if let Err(e) = std::fs::write(output_path, &report) {
-                eprintln!("Error: failed to write to {}: {e}", output_path.display());
-                process::exit(1);
-            }
-        } else if let Err(e) = std::io::stdout().lock().write_all(report.as_bytes()) {
-            if e.kind() == ErrorKind::BrokenPipe {
-                return;
-            }
-            eprintln!("Error: {e}");
-            process::exit(1);
+            std::fs::write(output_path, &report).unwrap_or_else(|e| {
+                die(format_args!(
+                    "failed to write to {}: {e}",
+                    output_path.display()
+                ))
+            });
+        } else if let Err(e) = std::io::stdout().lock().write_all(report.as_bytes())
+            && e.kind() != ErrorKind::BrokenPipe
+        {
+            die(e);
         }
         return;
     }
@@ -503,21 +477,15 @@ fn main() {
             .expect("mutex not poisoned");
         fix_includes(&mut data.files, &all_files);
 
-        let data = match serde_json::to_string(&data) {
-            Ok(d) => d,
-            Err(e) => {
-                eprintln!("Error: failed to serialize preproc data: {e}");
-                process::exit(1);
-            }
-        };
+        let data = serde_json::to_string(&data)
+            .unwrap_or_else(|e| die(format_args!("failed to serialize preproc data: {e}")));
         if let Some(output_path) = opts.output {
-            if let Err(e) = write_file(&output_path, data.as_bytes()) {
-                eprintln!(
-                    "Error: failed to write output to {}: {e}",
+            write_file(&output_path, data.as_bytes()).unwrap_or_else(|e| {
+                die(format_args!(
+                    "failed to write output to {}: {e}",
                     output_path.display()
-                );
-                process::exit(1);
-            }
+                ))
+            });
         } else {
             println!("{data}");
         }
@@ -584,6 +552,51 @@ mod tests {
             all_files["foo.cpp"],
             vec![PathBuf::from("/a/foo.cpp"), PathBuf::from("/b/foo.cpp")]
         );
+    }
+
+    #[test]
+    fn reject_dump_and_metrics() {
+        assert!(Opts::try_parse_from(["cli", "-d", "-m"]).is_err());
+    }
+
+    #[test]
+    fn reject_metrics_and_function() {
+        assert!(Opts::try_parse_from(["cli", "-m", "-F"]).is_err());
+    }
+
+    #[test]
+    fn reject_dump_with_output_format() {
+        assert!(Opts::try_parse_from(["cli", "-d", "-O", "json"]).is_err());
+    }
+
+    #[test]
+    fn reject_output_format_without_action() {
+        assert!(Opts::try_parse_from(["cli", "-O", "json"]).is_err());
+    }
+
+    #[test]
+    fn accept_metrics_alone() {
+        assert!(Opts::try_parse_from(["cli", "-m"]).is_ok());
+    }
+
+    #[test]
+    fn accept_metrics_with_output_format() {
+        assert!(Opts::try_parse_from(["cli", "-m", "-O", "json"]).is_ok());
+    }
+
+    #[test]
+    fn accept_ops_with_output_format() {
+        assert!(Opts::try_parse_from(["cli", "--ops", "-O", "json"]).is_ok());
+    }
+
+    #[test]
+    fn accept_no_action_flags() {
+        assert!(Opts::try_parse_from(["cli", "-p", "file.rs"]).is_ok());
+    }
+
+    #[test]
+    fn reject_metrics_and_ops() {
+        assert!(Opts::try_parse_from(["cli", "-m", "--ops"]).is_err());
     }
 
     #[cfg(unix)]

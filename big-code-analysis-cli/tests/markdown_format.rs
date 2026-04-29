@@ -46,59 +46,60 @@ fn markdown_rejects_ops() {
 #[test]
 fn markdown_rejects_dump() {
     let fp = fixture_path();
+    // Clap rejects: --dump is not in format_action, so the requires
+    // constraint on -O is unsatisfied.
     cli()
         .args(["--paths", &fp, "-O", "markdown", "--dump"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains(
-            "-O markdown is incompatible with --dump",
-        ));
+        .stderr(predicate::str::contains("--metrics|--ops"));
 }
 
 #[test]
 fn markdown_rejects_comments() {
     let fp = fixture_path();
+    // Clap rejects: --comments is not in format_action, so the requires
+    // constraint on -O is unsatisfied.
     cli()
         .args(["--paths", &fp, "-O", "markdown", "--comments"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains(
-            "-O markdown is incompatible with --comments",
-        ));
+        .stderr(predicate::str::contains("--metrics|--ops"));
 }
 
 #[test]
 fn markdown_rejects_function() {
     let fp = fixture_path();
+    // Clap rejects: --function is not in format_action, so the requires
+    // constraint on -O is unsatisfied.
     cli()
         .args(["--paths", &fp, "-O", "markdown", "--function"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains(
-            "-O markdown is incompatible with --function",
-        ));
+        .stderr(predicate::str::contains("--metrics|--ops"));
 }
 
 #[test]
 fn markdown_rejects_find() {
     let fp = fixture_path();
+    // Clap rejects: --find is not in format_action, so the requires
+    // constraint on -O is unsatisfied.
     cli()
         .args(["--paths", &fp, "-O", "markdown", "--find", "identifier"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains(
-            "-O markdown is incompatible with --find",
-        ));
+        .stderr(predicate::str::contains("--metrics|--ops"));
 }
 
 #[test]
 fn markdown_requires_metrics() {
     let fp = fixture_path();
+    // Clap rejects: -O requires format_action (--metrics or --ops).
     cli()
         .args(["--paths", &fp, "-O", "markdown"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("-O markdown requires --metrics"));
+        .stderr(predicate::str::contains("--metrics|--ops"));
 }
 
 #[test]
@@ -114,6 +115,8 @@ fn top_zero_rejected() {
 #[test]
 fn markdown_rejects_count() {
     let fp = fixture_path();
+    // Clap rejects: --metrics and --count are in the same action group
+    // (multiple = false), so they conflict at parse time.
     cli()
         .args([
             "--paths",
@@ -126,9 +129,7 @@ fn markdown_rejects_count() {
         ])
         .assert()
         .failure()
-        .stderr(predicate::str::contains(
-            "-O markdown is incompatible with --count",
-        ));
+        .stderr(predicate::str::contains("cannot be used with"));
 }
 
 #[test]
