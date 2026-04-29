@@ -10,7 +10,6 @@ use std::sync::{Arc, Mutex};
 use std::thread::available_parallelism;
 
 use clap::Parser;
-use clap::builder::{PossibleValuesParser, TypedValueParser};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 
 use formats::Format;
@@ -261,8 +260,7 @@ struct Opts {
     #[clap(long, short)]
     language_type: Option<String>,
     /// Output metrics as different formats.
-    #[clap(long, short = 'O', value_parser = PossibleValuesParser::new(Format::all())
-        .map(|s| s.parse::<Format>().expect("PossibleValuesParser already validated the format string")))]
+    #[clap(long, short = 'O', value_enum)]
     output_format: Option<Format>,
     /// Dump a pretty json file.
     #[clap(long = "pr")]
