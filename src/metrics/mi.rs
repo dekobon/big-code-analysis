@@ -135,7 +135,8 @@ implement_metric_trait!(
     KotlinCode,
     GoCode,
     PerlCode,
-    BashCode
+    BashCode,
+    LuaCode
 );
 
 #[cfg(test)]

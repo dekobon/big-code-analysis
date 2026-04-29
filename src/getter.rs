@@ -740,6 +740,92 @@ impl Getter for PerlCode {
     get_operator!(Perl);
 }
 
+impl Getter for LuaCode {
+    fn get_space_kind(node: &Node) -> SpaceKind {
+        match node.kind_id().into() {
+            Lua::FunctionDeclaration
+            | Lua::FunctionDeclaration2
+            | Lua::FunctionDeclaration3
+            | Lua::FunctionDefinition => SpaceKind::Function,
+            Lua::Chunk => SpaceKind::Unit,
+            _ => SpaceKind::Unknown,
+        }
+    }
+
+    fn get_op_type(node: &Node) -> HalsteadType {
+        match node.kind_id().into() {
+            // Control-flow and declaration keywords
+            Lua::If
+            | Lua::Then
+            | Lua::Else
+            | Lua::Elseif
+            | Lua::End2
+            | Lua::For
+            | Lua::In
+            | Lua::While
+            | Lua::Do
+            | Lua::Repeat
+            | Lua::Until
+            | Lua::Return
+            | Lua::Goto
+            | Lua::Local
+            | Lua::Function
+            // Logical operators (keywords in Lua)
+            | Lua::And
+            | Lua::Or
+            | Lua::Not
+            // Structural punctuation
+            | Lua::SEMI
+            | Lua::COMMA
+            | Lua::COLON
+            | Lua::COLONCOLON
+            | Lua::LBRACE
+            | Lua::RBRACE
+            | Lua::LBRACK
+            | Lua::RBRACK
+            | Lua::LPAREN
+            | Lua::RPAREN
+            | Lua::DOT
+            | Lua::DOTDOT
+            // Arithmetic / concat / length
+            | Lua::PLUS
+            | Lua::DASH
+            | Lua::STAR
+            | Lua::SLASH
+            | Lua::SLASHSLASH
+            | Lua::PERCENT
+            | Lua::CARET
+            | Lua::HASH
+            // Bitwise (Lua 5.3+)
+            | Lua::AMP
+            | Lua::PIPE
+            | Lua::TILDE
+            | Lua::LTLT
+            | Lua::GTGT
+            // Comparison
+            | Lua::EQEQ
+            | Lua::TILDEEQ
+            | Lua::LT
+            | Lua::GT
+            | Lua::LTEQ
+            | Lua::GTEQ
+            // Assignment
+            | Lua::EQ
+            // `break` is a named leaf node (no anonymous keyword child), so it must be
+            // matched directly here — unlike `return`/`goto` which are anonymous tokens.
+            | Lua::BreakStatement => HalsteadType::Operator,
+
+            // Operands: identifiers and literals
+            Lua::Identifier | Lua::Number | Lua::String | Lua::True | Lua::False | Lua::Nil
+            | Lua::VarargExpression => HalsteadType::Operand,
+
+            _ => HalsteadType::Unknown,
+        }
+    }
+
+    get_operator!(Lua);
+}
+
 impl Getter for BashCode {
     fn get_space_kind(node: &Node) -> SpaceKind {
         match node.kind_id().into() {

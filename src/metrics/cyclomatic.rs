@@ -117,13 +117,12 @@ impl Cyclomatic for PythonCode {
             If | Elif | For | While | Except | With | Assert | And | Or => {
                 stats.cyclomatic += 1.;
             }
-            Else => {
-                if node.has_ancestors(
-                    |node| matches!(node.kind_id().into(), ForStatement | WhileStatement),
-                    |node| node.kind_id() == ElseClause,
-                ) {
-                    stats.cyclomatic += 1.;
-                }
+            Else if node.has_ancestors(
+                |node| matches!(node.kind_id().into(), ForStatement | WhileStatement),
+                |node| node.kind_id() == ElseClause,
+            ) =>
+            {
+                stats.cyclomatic += 1.;
             }
             _ => {}
         }
@@ -283,6 +282,23 @@ impl Cyclomatic for KotlinCode {
         match node.kind_id().into() {
             IfExpression | ForStatement | WhileStatement | DoWhileStatement | WhenEntry
             | CatchBlock | AMPAMP | PIPEPIPE => {
+                stats.cyclomatic += 1.;
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Cyclomatic for LuaCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        match node.kind_id().into() {
+            Lua::IfStatement
+            | Lua::ElseifStatement
+            | Lua::ForStatement
+            | Lua::WhileStatement
+            | Lua::RepeatStatement
+            | Lua::And
+            | Lua::Or => {
                 stats.cyclomatic += 1.;
             }
             _ => {}
@@ -1329,6 +1345,86 @@ mod tests {
                     }
                     "###
                 );
+            },
+        );
+    }
+
+    #[test]
+    fn lua_1_level_nesting() {
+        // chunk: base=1; f: base=1 + for=1 + if=1 = 3; sum=4
+        check_metrics::<LuaParser>(
+            "local function f(t)
+  for i = 1, #t do
+    if t[i] > 0 then
+      return t[i]
+    end
+  end
+  return 0
+end",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cyclomatic, @r###"
+                {
+                  "sum": 4.0,
+                  "average": 2.0,
+                  "min": 1.0,
+                  "max": 3.0
+                }
+                "###);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_elseif_branches() {
+        // chunk: base=1; classify: base=1 + if=1 + elseif=1 + elseif=1 = 4
+        // else does NOT add a branch; sum=5
+        check_metrics::<LuaParser>(
+            "local function classify(x)
+  if x > 0 then
+    return 1
+  elseif x < 0 then
+    return -1
+  elseif x == 0 then
+    return 0
+  else
+    return 0
+  end
+end",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cyclomatic, @r###"
+                {
+                  "sum": 5.0,
+                  "average": 2.5,
+                  "min": 1.0,
+                  "max": 4.0
+                }
+                "###);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_logical_operators() {
+        // chunk: base=1; f: base=1 + if=1 + and=1 + or=1 = 4; sum=5
+        check_metrics::<LuaParser>(
+            "local function f(a, b, c)
+  if a and b or c then
+    return 1
+  end
+  return 0
+end",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cyclomatic, @r###"
+                {
+                  "sum": 5.0,
+                  "average": 2.5,
+                  "min": 1.0,
+                  "max": 4.0
+                }
+                "###);
             },
         );
     }
