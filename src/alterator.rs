@@ -201,3 +201,16 @@ impl Alterator for BashCode {
         }
     }
 }
+
+impl Alterator for TclCode {
+    fn alterate(node: &Node, code: &[u8], span: bool, children: Vec<AstNode>) -> AstNode {
+        match Tcl::from(node.kind_id()) {
+            // Preserve string literals verbatim to avoid whitespace trimming.
+            Tcl::QuotedWord | Tcl::BracedWord | Tcl::BracedWordSimple => {
+                let (text, span) = Self::get_text_span(node, code, span, true);
+                AstNode::new(node.kind(), text, span, Vec::new())
+            }
+            _ => Self::get_default(node, code, span, children),
+        }
+    }
+}

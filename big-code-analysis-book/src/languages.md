@@ -17,4 +17,5 @@ This is the list of programming languages parsed by
 - [x] Perl
 - [x] Python
 - [x] Rust
+- [x] Tcl
 - [x] Typescript

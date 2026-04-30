@@ -154,7 +154,20 @@ pub fn get_token_names(language: &Language, escape: bool) -> Vec<(String, bool, 
         }
     }
     let mut names: Vec<_> = names.values().cloned().collect();
-    names.push(("Error".to_string(), false, "ERROR".to_string()));
+    // The tree-sitter ERROR sentinel is appended last. If the grammar already
+    // defines an "error" keyword that camel-cased to "Error", increment the
+    // counter so this sentinel gets a unique name (e.g. "Error2").
+    let error_name = match name_count.entry("Error".to_string()) {
+        Entry::Occupied(mut e) => {
+            *e.get_mut() += 1;
+            format!("Error{}", e.get())
+        }
+        Entry::Vacant(e) => {
+            e.insert(1);
+            "Error".to_string()
+        }
+    };
+    names.push((error_name, false, "ERROR".to_string()));
 
     names
 }

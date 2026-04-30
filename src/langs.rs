@@ -88,6 +88,16 @@ mk_langs!(
         ["rust"]
     ),
     (
+        Tcl,
+        "The `Tcl` language",
+        "tcl",
+        TclCode,
+        TclParser,
+        tree_sitter_tcl,
+        [tcl, tk, tm],
+        ["tcl"]
+    ),
+    (
         Cpp,
         "The `C/C++` language",
         "c/c++",

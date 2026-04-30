@@ -334,6 +334,24 @@ impl Cyclomatic for BashCode {
     }
 }
 
+impl Cyclomatic for TclCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        match node.kind_id().into() {
+            Tcl::If
+            | Tcl::Elseif
+            | Tcl::Foreach
+            | Tcl::While
+            | Tcl::Catch
+            | Tcl::TernaryExpr
+            | Tcl::AMPAMP
+            | Tcl::PIPEPIPE => {
+                stats.cyclomatic += 1.;
+            }
+            _ => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::tools::check_metrics;
@@ -1447,6 +1465,106 @@ f() {
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     {".sum" => insta::rounded_redaction(2)}
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_1_level_nesting() {
+        // chunk: base=1; f: base=1 + while=1 + if=1 = 3; sum=4
+        check_metrics::<TclParser>(
+            "proc f {x} {
+    while {$x > 0} {
+        if {$x > 10} {
+            set x [expr {$x - 1}]
+        }
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cyclomatic);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_elseif_branch() {
+        // if=1, elseif=1; else does NOT add a branch; sum=3 (chunk base=1)
+        check_metrics::<TclParser>(
+            "proc f {x} {
+    if {$x > 10} {
+        puts big
+    } elseif {$x > 5} {
+        puts medium
+    } else {
+        puts small
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cyclomatic);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_logical_operators() {
+        // &&=1 and ||=1 inside expr; sum=3 (chunk=1, proc base=1, &&=1, ||=1)
+        check_metrics::<TclParser>(
+            "proc f {x y z} {
+    if {$x > 0 && $y > 0 || $z > 0} {
+        puts ok
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cyclomatic);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_catch_branch() {
+        // `catch` command adds +1 (conditional handler); `try` does NOT add a branch.
+        // source_file(1) + proc_space(base=1 + catch=1 = 2) = sum=3
+        check_metrics::<TclParser>(
+            "proc f {} {
+    catch {
+        expr {1 / 0}
+    } msg
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cyclomatic);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_try_no_branch() {
+        // `try` is NOT a conditional construct; it does not add cyclomatic complexity.
+        // Only the base counts: source_file(1) + proc_space(base=1) = sum=2, average=1.
+        check_metrics::<TclParser>(
+            "proc f {} {
+    try {
+        expr {1 / 0}
+    } finally {
+        puts done
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r#"
+                    {
+                      "sum": 2.0,
+                      "average": 1.0,
+                      "min": 1.0,
+                      "max": 1.0
+                    }
+                    "#
                 );
             },
         );

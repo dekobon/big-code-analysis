@@ -8,6 +8,7 @@ mk_langs!(
     (Java, tree_sitter_java),
     (Go, tree_sitter_go),
     (Rust, tree_sitter_rust),
+    (Tcl, tree_sitter_tcl),
     (Cpp, tree_sitter_cpp),
     (Python, tree_sitter_python),
     (Tsx, tree_sitter_tsx),

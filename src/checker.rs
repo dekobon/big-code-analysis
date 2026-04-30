@@ -996,6 +996,55 @@ impl Checker for BashCode {
     }
 }
 
+impl Checker for TclCode {
+    fn is_comment(node: &Node) -> bool {
+        node.kind_id() == Tcl::Comment
+    }
+
+    fn is_useful_comment(_: &Node, _: &[u8]) -> bool {
+        false
+    }
+
+    fn is_func_space(node: &Node) -> bool {
+        matches!(node.kind_id().into(), Tcl::SourceFile | Tcl::Procedure)
+    }
+
+    fn is_func(node: &Node) -> bool {
+        node.kind_id() == Tcl::Procedure
+    }
+
+    // Tcl closures (`apply`) are ordinary commands; the grammar has no distinct closure node.
+    fn is_closure(_: &Node) -> bool {
+        false
+    }
+
+    fn is_call(node: &Node) -> bool {
+        node.kind_id() == Tcl::Command
+    }
+
+    // Tcl arguments are whitespace-separated; no punctuation to exclude.
+    fn is_non_arg(_: &Node) -> bool {
+        false
+    }
+
+    fn is_string(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Tcl::QuotedWord | Tcl::BracedWord | Tcl::BracedWordSimple
+        )
+    }
+
+    #[inline(always)]
+    fn is_else_if(node: &Node) -> bool {
+        // Tcl grammar has a dedicated `elseif` named node, not a nested `if`.
+        node.kind_id() == Tcl::Elseif
+    }
+
+    fn is_primitive(_: u16) -> bool {
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

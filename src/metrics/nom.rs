@@ -217,7 +217,8 @@ implement_metric_trait!(
     GoCode,
     PerlCode,
     BashCode,
-    LuaCode
+    LuaCode,
+    TclCode
 );
 
 #[cfg(test)]
@@ -1146,6 +1147,34 @@ bar",
                     }
                     "#
                 );
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_nom() {
+        check_metrics::<TclParser>(
+            "proc foo {a} { puts $a }
+proc bar {x y} { puts $x }
+foo 1
+bar 2 3",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nom);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_nested_nom() {
+        check_metrics::<TclParser>(
+            "proc outer {a} {
+    proc inner {x} { puts $x }
+    inner $a
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nom);
             },
         );
     }
