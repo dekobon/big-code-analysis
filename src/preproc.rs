@@ -266,3 +266,97 @@ pub fn preprocess(parser: &PreprocParser, path: &Path, results: &mut PreprocResu
 
     results.files.insert(path.to_path_buf(), file_result);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(source: &str) -> PreprocParser {
+        PreprocParser::new(source.as_bytes().to_vec(), &PathBuf::from("test.h"), None)
+    }
+
+    /// Empty include strings (`#include ""`) must not panic — earlier
+    /// implementations called `unwrap()` on `position`/`rposition` of the
+    /// trimmed slice, which returns `None` for an all-whitespace or empty
+    /// payload.
+    #[test]
+    fn preprocess_empty_include_does_not_panic() {
+        let parser = parse("#include \"\"\n");
+        let mut results = PreprocResults::default();
+        preprocess(&parser, &PathBuf::from("test.h"), &mut results);
+        let pf = results
+            .files
+            .get(&PathBuf::from("test.h"))
+            .expect("file entry must be inserted");
+        assert!(pf.direct_includes.is_empty());
+    }
+
+    /// Whitespace-only include strings (`#include "   "`) must not panic —
+    /// `position` returns `None` because no non-whitespace byte exists.
+    #[test]
+    fn preprocess_whitespace_only_include_does_not_panic() {
+        let parser = parse("#include \"   \"\n");
+        let mut results = PreprocResults::default();
+        preprocess(&parser, &PathBuf::from("test.h"), &mut results);
+        let pf = results
+            .files
+            .get(&PathBuf::from("test.h"))
+            .expect("file entry must be inserted");
+        assert!(pf.direct_includes.is_empty());
+    }
+
+    /// A well-formed include is still recorded with surrounding whitespace
+    /// stripped.
+    #[test]
+    fn preprocess_valid_include_is_recorded() {
+        let parser = parse("#include \"  foo.h  \"\n");
+        let mut results = PreprocResults::default();
+        preprocess(&parser, &PathBuf::from("test.h"), &mut results);
+        let pf = results
+            .files
+            .get(&PathBuf::from("test.h"))
+            .expect("file entry must be inserted");
+        assert!(pf.direct_includes.contains("foo.h"));
+    }
+
+    /// `#define` of a normal identifier records the macro name.
+    #[test]
+    fn preprocess_define_records_macro() {
+        let parser = parse("#define FOO 1\n");
+        let mut results = PreprocResults::default();
+        preprocess(&parser, &PathBuf::from("test.h"), &mut results);
+        let pf = results
+            .files
+            .get(&PathBuf::from("test.h"))
+            .expect("file entry must be inserted");
+        assert!(pf.macros.contains("FOO"));
+    }
+
+    /// `fix_includes` must not panic when an SCC contains paths and there
+    /// are no non-UTF-8 entries — covers the post-fix `let-else` /
+    /// `expect`-with-invariant paths.
+    #[test]
+    fn fix_includes_handles_simple_cycle() {
+        let mut files: HashMap<PathBuf, PreprocFile> = HashMap::new();
+        let mut a = PreprocFile::default();
+        a.direct_includes.insert("b.h".to_string());
+        let mut b = PreprocFile::default();
+        b.direct_includes.insert("a.h".to_string());
+        files.insert(PathBuf::from("a.h"), a);
+        files.insert(PathBuf::from("b.h"), b);
+
+        let mut all_files: HashMap<String, Vec<PathBuf>> = HashMap::new();
+        all_files.insert("a.h".to_string(), vec![PathBuf::from("a.h")]);
+        all_files.insert("b.h".to_string(), vec![PathBuf::from("b.h")]);
+
+        fix_includes(&mut files, &all_files);
+
+        // After resolving the cycle each file's indirect_includes should
+        // contain both members of the SCC.
+        let a = files
+            .get(&PathBuf::from("a.h"))
+            .expect("a.h must be retained");
+        assert!(a.indirect_includes.contains("a.h"));
+        assert!(a.indirect_includes.contains("b.h"));
+    }
+}
