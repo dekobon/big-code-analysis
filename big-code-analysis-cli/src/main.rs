@@ -217,6 +217,19 @@ fn process_dir_path(all_files: &mut HashMap<String, Vec<PathBuf>>, path: &Path, 
     version,
     author,
     about = "Analyze source code.",
+    // The "action" group enforces that at most one action flag is supplied.
+    // Action flags select what the tool does to each file. `--preproc` is
+    // intentionally outside this group: with two or more paths it is a
+    // standalone scan action, but with a single path it acts as a modifier
+    // that loads preprocessor metadata to enrich another action (typically
+    // `--metrics`). Modifier flags (--paths, --include, --exclude, --output,
+    // --output-format, --language, --num-jobs, --in-place, --pr,
+    // --line-start, --line-end, --warning, --top, --strip-prefix) refine the
+    // chosen action and may freely combine with any of them.
+    //
+    // `required(true)` would not accommodate `--preproc`'s dual role, so the
+    // "you must pick an action" check is enforced programmatically in
+    // `main()` before any work begins.
     group(ArgGroup::new("action")
         .args(["dump", "comments", "find", "function", "count", "metrics", "ops"])
         .multiple(false)
@@ -296,6 +309,26 @@ struct Opts {
 
 fn main() {
     let opts = Opts::parse();
+
+    // Require at least one action. The clap "action" ArgGroup enforces
+    // mutual exclusion among dump/comments/find/function/count/metrics/ops,
+    // but `--preproc` lives outside the group because it doubles as a
+    // modifier when given a single path. Reject the no-action case here so
+    // users get a clear error instead of silent success.
+    let has_action = opts.dump
+        || opts.metrics
+        || opts.ops
+        || opts.comments
+        || opts.function
+        || !opts.find.is_empty()
+        || !opts.count.is_empty()
+        || !opts.preproc.is_empty();
+    if !has_action {
+        die(
+            "no action specified; pass one of --dump, --metrics, --ops, --comments, \
+             --function, --find, --count, or --preproc",
+        );
+    }
 
     let count_lock = if !opts.count.is_empty() {
         Some(Arc::new(Mutex::new(Count::default())))
@@ -590,13 +623,47 @@ mod tests {
     }
 
     #[test]
-    fn accept_no_action_flags() {
+    fn accept_parse_with_no_action_flags() {
+        // The "action" ArgGroup itself is `required(false)` because
+        // `--preproc` lives outside it (it doubles as a modifier with a
+        // single path, where another action takes precedence). The
+        // "you must pick an action" check is enforced at runtime in
+        // `main()` rather than at parse time.
         assert!(Opts::try_parse_from(["cli", "-p", "file.rs"]).is_ok());
     }
 
     #[test]
     fn reject_metrics_and_ops() {
         assert!(Opts::try_parse_from(["cli", "-m", "--ops"]).is_err());
+    }
+
+    #[test]
+    fn accept_preproc_alone() {
+        // --preproc with a single path is accepted standalone (acts as the
+        // scan-mode action when 2+ paths are given, and is otherwise an
+        // explicit no-op).
+        assert!(Opts::try_parse_from(["cli", "--preproc", "data.json"]).is_ok());
+    }
+
+    #[test]
+    fn accept_preproc_with_metrics() {
+        // --preproc with a single path acts as a modifier that loads
+        // preprocessor metadata; combining it with --metrics is the
+        // intended C/C++ analysis workflow.
+        assert!(Opts::try_parse_from(["cli", "--preproc", "data.json", "-m"]).is_ok());
+    }
+
+    #[test]
+    fn accept_preproc_with_dump() {
+        // --preproc is a modifier when paired with another action; it
+        // does not occupy a slot in the action group.
+        assert!(Opts::try_parse_from(["cli", "--preproc", "data.json", "-d"]).is_ok());
+    }
+
+    #[test]
+    fn accept_preproc_with_multiple_paths() {
+        // Scan-mode --preproc (2+ paths) is also a valid action.
+        assert!(Opts::try_parse_from(["cli", "--preproc", "a.cpp", "--preproc", "b.cpp",]).is_ok());
     }
 
     #[cfg(unix)]
