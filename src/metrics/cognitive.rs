@@ -783,15 +783,12 @@ impl Cognitive for LuaCode {
                 increment_by_one(stats);
                 stats.boolean_seq.reset();
             }
-            ElseStatement => {
-                increment_by_one(stats);
-            }
             ForStatement | WhileStatement | RepeatStatement => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
-            // `break` and `goto` are unconditional jumps that add cognitive
-            // load without introducing new nesting. Lua has no `continue`.
-            BreakStatement | GotoStatement => {
+            // `else` increments without nesting; `break`/`goto` are unconditional
+            // jumps that add cognitive load. Lua has no `continue`.
+            ElseStatement | BreakStatement | GotoStatement => {
                 increment_by_one(stats);
             }
             UnaryExpression => {
@@ -802,10 +799,9 @@ impl Cognitive for LuaCode {
             }
             FunctionDeclaration | FunctionDeclaration2 | FunctionDeclaration3 => {
                 nesting = 0;
-                // `function`, `local function`, and `global function` are
-                // separate parser kind_ids that all alias to the same name;
-                // walk ancestors checking for any of the three to detect
-                // nested function declarations regardless of declaration form.
+                // `function`, `local function`, and `global function` have separate
+                // kind_ids; increment_function_depth only accepts a single stop kind,
+                // so we inline the equivalent loop here to match all three variants.
                 let mut child = *node;
                 while let Some(parent) = child.parent() {
                     if matches!(
@@ -827,7 +823,6 @@ impl Cognitive for LuaCode {
     }
 }
 
-// LuaCode uses the no-op default; full impl is tracked in the Cognitive-for-Lua GitHub issue.
 implement_metric_trait!(Cognitive, PreprocCode, CcommentCode);
 
 #[cfg(test)]
