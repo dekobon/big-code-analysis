@@ -190,6 +190,12 @@ fn compute_args<T: Checker>(node: &Node, nargs: &mut usize) {
                 *nargs += 1;
             }
         });
+    } else if node.child_by_field_name("parameter").is_some() {
+        // JS/TS/TSX/MozJS arrow functions with a bare identifier parameter
+        // (`x => …`) use the singular `parameter` field instead of the plural
+        // `parameters` field. The grammar guarantees this is exactly one
+        // identifier, so count it as one argument.
+        *nargs += 1;
     }
 }
 
@@ -1673,6 +1679,135 @@ mod tests {
                       "closures_max": 2.0
                     }"###
             );
+        });
+    }
+
+    // Regression tests for issue #77: bare-identifier arrow functions
+    // (`x => x`) use the singular `parameter` field instead of the plural
+    // `parameters` field, and were previously counted as nargs=0.
+    //
+    // `nargs_total` is used so the assertion is independent of whether the
+    // arrow function is classified as a function or a closure (this depends
+    // on its enclosing context — e.g. a `VariableDeclarator` ancestor makes
+    // it a function).
+
+    #[test]
+    fn javascript_bare_arrow_function() {
+        check_metrics::<JavascriptParser>("const f = x => x;", "foo.js", |metric| {
+            assert_eq!(metric.nargs.nargs_total(), 1.0);
+        });
+    }
+
+    #[test]
+    fn javascript_async_bare_arrow_function() {
+        check_metrics::<JavascriptParser>("const f = async x => x;", "foo.js", |metric| {
+            assert_eq!(metric.nargs.nargs_total(), 1.0);
+        });
+    }
+
+    #[test]
+    fn javascript_parenthesized_arrow_function() {
+        check_metrics::<JavascriptParser>("const f = (x) => x;", "foo.js", |metric| {
+            assert_eq!(metric.nargs.nargs_total(), 1.0);
+        });
+    }
+
+    #[test]
+    fn javascript_multi_parenthesized_arrow_function() {
+        check_metrics::<JavascriptParser>("const f = (x, y) => x + y;", "foo.js", |metric| {
+            assert_eq!(metric.nargs.nargs_total(), 2.0);
+        });
+    }
+
+    #[test]
+    fn typescript_bare_arrow_function() {
+        check_metrics::<TypescriptParser>("const f = x => x;", "foo.ts", |metric| {
+            assert_eq!(metric.nargs.nargs_total(), 1.0);
+        });
+    }
+
+    #[test]
+    fn typescript_async_bare_arrow_function() {
+        check_metrics::<TypescriptParser>("const f = async x => x;", "foo.ts", |metric| {
+            assert_eq!(metric.nargs.nargs_total(), 1.0);
+        });
+    }
+
+    #[test]
+    fn typescript_parenthesized_arrow_function() {
+        check_metrics::<TypescriptParser>("const f = (x: number) => x;", "foo.ts", |metric| {
+            assert_eq!(metric.nargs.nargs_total(), 1.0);
+        });
+    }
+
+    #[test]
+    fn typescript_multi_parenthesized_arrow_function() {
+        check_metrics::<TypescriptParser>(
+            "const f = (x: number, y: number) => x + y;",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.nargs.nargs_total(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_bare_arrow_function() {
+        check_metrics::<TsxParser>("const f = x => x;", "foo.tsx", |metric| {
+            assert_eq!(metric.nargs.nargs_total(), 1.0);
+        });
+    }
+
+    #[test]
+    fn tsx_async_bare_arrow_function() {
+        check_metrics::<TsxParser>("const f = async x => x;", "foo.tsx", |metric| {
+            assert_eq!(metric.nargs.nargs_total(), 1.0);
+        });
+    }
+
+    #[test]
+    fn tsx_parenthesized_arrow_function() {
+        check_metrics::<TsxParser>("const f = (x: number) => x;", "foo.tsx", |metric| {
+            assert_eq!(metric.nargs.nargs_total(), 1.0);
+        });
+    }
+
+    #[test]
+    fn tsx_multi_parenthesized_arrow_function() {
+        check_metrics::<TsxParser>(
+            "const f = (x: number, y: number) => x + y;",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.nargs.nargs_total(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_bare_arrow_function() {
+        check_metrics::<MozjsParser>("const f = x => x;", "foo.js", |metric| {
+            assert_eq!(metric.nargs.nargs_total(), 1.0);
+        });
+    }
+
+    #[test]
+    fn mozjs_async_bare_arrow_function() {
+        check_metrics::<MozjsParser>("const f = async x => x;", "foo.js", |metric| {
+            assert_eq!(metric.nargs.nargs_total(), 1.0);
+        });
+    }
+
+    #[test]
+    fn mozjs_parenthesized_arrow_function() {
+        check_metrics::<MozjsParser>("const f = (x) => x;", "foo.js", |metric| {
+            assert_eq!(metric.nargs.nargs_total(), 1.0);
+        });
+    }
+
+    #[test]
+    fn mozjs_multi_parenthesized_arrow_function() {
+        check_metrics::<MozjsParser>("const f = (x, y) => x + y;", "foo.js", |metric| {
+            assert_eq!(metric.nargs.nargs_total(), 2.0);
         });
     }
 
