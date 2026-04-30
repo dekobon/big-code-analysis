@@ -36,6 +36,9 @@ pub use language_python::*;
 pub mod language_rust;
 pub use language_rust::*;
 
+pub mod language_tcl;
+pub use language_tcl::*;
+
 pub mod language_tsx;
 pub use language_tsx::*;
 

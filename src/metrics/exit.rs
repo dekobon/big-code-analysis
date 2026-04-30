@@ -232,6 +232,20 @@ impl Exit for BashCode {
     }
 }
 
+impl Exit for TclCode {
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+        // Tcl has no return keyword node; `return` is a generic Command whose
+        // name field is a simple_word with text "return".
+        if node.kind_id() == Tcl::Command
+            && let Some(name) = node.child_by_field_name("name")
+            && name.kind_id() == Tcl::SimpleWord
+            && name.utf8_text(code) == Some("return")
+        {
+            stats.exit += 1;
+        }
+    }
+}
+
 implement_metric_trait!(Exit, PreprocCode, CcommentCode);
 
 #[cfg(test)]
@@ -1008,6 +1022,58 @@ end",
                       "max": 0.0
                     }"###
                 );
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_no_exit() {
+        check_metrics::<TclParser>(
+            "proc f {x} {
+    puts $x
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r#"
+                    {
+                      "sum": 0.0,
+                      "average": 0.0,
+                      "min": 0.0,
+                      "max": 0.0
+                    }
+                    "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_return() {
+        check_metrics::<TclParser>(
+            "proc f {x} {
+    return $x
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nexits);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_multiple_returns() {
+        check_metrics::<TclParser>(
+            "proc f {x} {
+    if {$x > 0} {
+        return positive
+    }
+    return nonpositive
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nexits);
             },
         );
     }

@@ -394,6 +394,12 @@ impl Halstead for BashCode {
     }
 }
 
+impl Halstead for TclCode {
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], halstead_maps: &mut HalsteadMaps<'a>) {
+        compute_halstead::<Self>(node, code, halstead_maps);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::tools::check_metrics;
@@ -973,6 +979,59 @@ f() {
     fi
 }",
             "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(metric.halstead);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_operators_and_operands() {
+        check_metrics::<TclParser>(
+            "proc f {a b} {
+    set x [expr {$a + $b}]
+    if {$x > 0 && $x != 0} {
+        return $x
+    }
+    return 0
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.halstead);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_bitwise_ternary_string_ops() {
+        // Exercises operator families not covered by tcl_operators_and_operands:
+        // bitwise (&, |, ^, ~, <<, >>), ternary (?), and string-comparison (eq, ne, in, ni).
+        check_metrics::<TclParser>(
+            "proc f {a b} {
+    set bits [expr {$a & $b | $a ^ ~$b}]
+    set sh [expr {$a << 1 | $b >> 1}]
+    set t [expr {$a > 0 ? $a : $b}]
+    if {$a eq {x} || $a ne {y}} {
+        return $a
+    }
+    return $b
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.halstead);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_bare_variable_operand() {
+        // Bare `$varname` produces a VariableSubstitution node (already an operand).
+        // Its anonymous Id2 child must NOT be counted separately; each reference is 1 operand.
+        check_metrics::<TclParser>(
+            "proc f {x} {
+    return $x
+}",
+            "foo.tcl",
             |metric| {
                 insta::assert_json_snapshot!(metric.halstead);
             },

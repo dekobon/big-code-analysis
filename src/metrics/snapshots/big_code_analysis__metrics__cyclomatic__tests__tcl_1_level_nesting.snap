@@ -1,0 +1,11 @@
+---
+source: src/metrics/cyclomatic.rs
+assertion_line: 1486
+expression: metric.cyclomatic
+---
+{
+  "sum": 4.0,
+  "average": 2.0,
+  "min": 1.0,
+  "max": 3.0
+}
