@@ -136,7 +136,8 @@ implement_metric_trait!(
     GoCode,
     PerlCode,
     BashCode,
-    LuaCode
+    LuaCode,
+    TclCode
 );
 
 #[cfg(test)]

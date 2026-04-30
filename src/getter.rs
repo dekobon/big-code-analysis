@@ -882,3 +882,94 @@ impl Getter for BashCode {
 
     get_operator!(Bash);
 }
+
+impl Getter for TclCode {
+    fn get_space_kind(node: &Node) -> SpaceKind {
+        match node.kind_id().into() {
+            Tcl::Procedure => SpaceKind::Function,
+            Tcl::SourceFile => SpaceKind::Unit,
+            _ => SpaceKind::Unknown,
+        }
+    }
+
+    fn get_op_type(node: &Node) -> HalsteadType {
+        match node.kind_id().into() {
+            // Anonymous keyword tokens (control-flow and declaration keywords).
+            Tcl::Proc
+            | Tcl::If2
+            | Tcl::Elseif2
+            | Tcl::Else2
+            | Tcl::While2
+            | Tcl::Foreach2
+            | Tcl::Set2
+            | Tcl::Global2
+            | Tcl::Namespace2
+            | Tcl::Try2
+            | Tcl::Catch2
+            | Tcl::Finally2
+            | Tcl::Regexp2
+            | Tcl::Expr2
+            // String comparison operators.
+            | Tcl::Eq
+            | Tcl::Ne
+            | Tcl::In
+            | Tcl::Ni
+            // Structural punctuation.
+            | Tcl::LBRACE
+            | Tcl::RBRACE
+            | Tcl::LBRACK
+            | Tcl::RBRACK
+            | Tcl::LPAREN
+            | Tcl::LPAREN2
+            | Tcl::RPAREN
+            | Tcl::SEMI
+            | Tcl::COLON
+            | Tcl::COLONCOLON
+            | Tcl::COLONCOLON2
+            // Arithmetic / exponent operators.
+            | Tcl::PLUS
+            | Tcl::DASH
+            | Tcl::STAR
+            | Tcl::SLASH
+            | Tcl::PERCENT
+            | Tcl::STARSTAR
+            // Bitwise operators.
+            | Tcl::AMP
+            | Tcl::PIPE
+            | Tcl::CARET
+            | Tcl::TILDE
+            | Tcl::LTLT
+            | Tcl::GTGT
+            // Comparison operators.
+            | Tcl::EQEQ
+            | Tcl::BANGEQ
+            | Tcl::LT
+            | Tcl::GT
+            | Tcl::LTEQ
+            | Tcl::GTEQ
+            // Logical operators.
+            | Tcl::BANG
+            | Tcl::AMPAMP
+            | Tcl::PIPEPIPE
+            // Ternary conditional operator.
+            | Tcl::QMARK => HalsteadType::Operator,
+
+            // Operands: identifiers and literals.
+            // Id2 (anonymous "id" token, kind_id=85) is intentionally excluded: it only
+            // appears as a leaf child of VariableSubstitution ($varname syntax), which is
+            // already counted as an operand. Including Id2 would double-count each bare
+            // variable reference.
+            Tcl::Id
+            | Tcl::SimpleWord
+            | Tcl::Number
+            | Tcl::QuotedWord
+            | Tcl::BracedWord
+            | Tcl::BracedWordSimple
+            | Tcl::VariableSubstitution => HalsteadType::Operand,
+
+            _ => HalsteadType::Unknown,
+        }
+    }
+
+    get_operator!(Tcl);
+}

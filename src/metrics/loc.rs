@@ -1125,6 +1125,51 @@ impl Loc for BashCode {
     }
 }
 
+impl Loc for TclCode {
+    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool, is_unit: bool) {
+        let (start, end) = init(node, stats, is_func_space, is_unit);
+
+        match node.kind_id().into() {
+            Tcl::SourceFile => {}
+
+            Tcl::Comment => {
+                add_cloc_lines(stats, start, end);
+            }
+
+            Tcl::Procedure
+            | Tcl::If
+            | Tcl::Elseif
+            | Tcl::Foreach
+            | Tcl::While
+            | Tcl::Set
+            | Tcl::Global
+            | Tcl::Namespace
+            | Tcl::Try
+            | Tcl::Catch
+            | Tcl::Regexp => {
+                stats.lloc.logical_lines += 1;
+            }
+
+            // `expr` at statement level is a logical line; inside [...] it is a
+            // sub-expression and should not be counted (same semantics as Command).
+            Tcl::ExprCmd
+            // Commands inside [...] are sub-expressions, not top-level statements.
+            | Tcl::Command
+                if node
+                    .parent()
+                    .is_none_or(|p| p.kind_id() != Tcl::CommandSubstitution) =>
+            {
+                stats.lloc.logical_lines += 1;
+            }
+
+            _ => {
+                check_comment_ends_on_code_line(stats, start);
+                stats.ploc.lines.insert(start);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::tools::check_metrics;
@@ -5294,6 +5339,239 @@ f",
             |m| {
                 assert_eq!(m.loc.cloc(), 1.0);
                 assert_eq!(m.loc.sloc(), 4.0);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_blank() {
+        check_metrics::<TclParser>("set x 1\n\nset y 2", "foo.tcl", |metric| {
+            insta::assert_json_snapshot!(metric.loc);
+        });
+    }
+
+    #[test]
+    fn tcl_no_zero_blank() {
+        check_metrics::<TclParser>("set x 1\nset y 2", "foo.tcl", |metric| {
+            assert_eq!(metric.loc.blank(), 0.0);
+        });
+    }
+
+    #[test]
+    fn tcl_cloc() {
+        check_metrics::<TclParser>("# This is a comment\nset x 1", "foo.tcl", |metric| {
+            insta::assert_json_snapshot!(metric.loc);
+        });
+    }
+
+    #[test]
+    fn tcl_lloc() {
+        check_metrics::<TclParser>(
+            "proc f {x} {
+    while {$x > 0} {
+        if {$x > 10} {
+            set x [expr {$x - 1}]
+        }
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_no_command_substitution_lloc() {
+        // `string toupper` inside [...] is a sub-expression; only `puts` is top-level.
+        check_metrics::<TclParser>("puts [string toupper x]", "foo.tcl", |metric| {
+            insta::assert_json_snapshot!(metric.loc);
+        });
+    }
+
+    #[test]
+    fn tcl_procedure_lloc() {
+        check_metrics::<TclParser>("proc foo {} {\n    puts hello\n}", "foo.tcl", |metric| {
+            insta::assert_json_snapshot!(metric.loc);
+        });
+    }
+
+    #[test]
+    fn tcl_if_lloc() {
+        check_metrics::<TclParser>("if {1} {\n    puts hello\n}", "foo.tcl", |metric| {
+            insta::assert_json_snapshot!(metric.loc);
+        });
+    }
+
+    #[test]
+    fn tcl_elseif_lloc() {
+        // if=1 lloc, elseif=1 lloc, else adds 0 lloc
+        check_metrics::<TclParser>(
+            "if {$x > 10} {
+    puts big
+} elseif {$x > 5} {
+    puts medium
+} else {
+    puts small
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_while_lloc() {
+        check_metrics::<TclParser>(
+            "while {$x > 0} {\n    set x [expr {$x - 1}]\n}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_foreach_lloc() {
+        check_metrics::<TclParser>(
+            "foreach item {a b c} {\n    puts $item\n}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_set_lloc() {
+        check_metrics::<TclParser>("set x 42", "foo.tcl", |metric| {
+            insta::assert_json_snapshot!(metric.loc);
+        });
+    }
+
+    #[test]
+    fn tcl_global_lloc() {
+        check_metrics::<TclParser>("global x", "foo.tcl", |metric| {
+            insta::assert_json_snapshot!(metric.loc);
+        });
+    }
+
+    #[test]
+    fn tcl_try_catch_lloc() {
+        // try=1 lloc; catch command=1 lloc; commands inside bodies count separately
+        check_metrics::<TclParser>(
+            "catch {
+    set x 1
+} result
+try {
+    set y 2
+} on error {msg} {
+    puts $msg
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_namespace_lloc() {
+        check_metrics::<TclParser>(
+            "namespace eval myns {\n    set x 1\n}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_regexp_lloc() {
+        check_metrics::<TclParser>("regexp {^[0-9]+$} $x", "foo.tcl", |metric| {
+            insta::assert_json_snapshot!(metric.loc);
+        });
+    }
+
+    #[test]
+    fn tcl_expr_cmd_lloc() {
+        check_metrics::<TclParser>("expr {1 + 2}", "foo.tcl", |metric| {
+            insta::assert_json_snapshot!(metric.loc);
+        });
+    }
+
+    #[test]
+    fn tcl_no_expr_cmd_substitution_lloc() {
+        // `expr` inside [...] is a sub-expression, not a statement; only `set` counts.
+        check_metrics::<TclParser>("set x [expr {1 + 2}]", "foo.tcl", |metric| {
+            insta::assert_json_snapshot!(metric.loc);
+        });
+    }
+
+    #[test]
+    fn tcl_nested_commands_lloc() {
+        // Commands inside proc body are recursively parsed; verify each counts.
+        check_metrics::<TclParser>(
+            "proc f {x} {
+    set y [expr {$x * 2}]
+    puts $y
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_command_lloc() {
+        check_metrics::<TclParser>("puts hello", "foo.tcl", |metric| {
+            insta::assert_json_snapshot!(metric.loc);
+        });
+    }
+
+    #[test]
+    fn tcl_no_else_lloc() {
+        // `else` block does not add a logical line.
+        check_metrics::<TclParser>(
+            "if {1} {\n    puts yes\n} else {\n    puts no\n}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_no_finally_lloc() {
+        // `finally` block, like `else`, does not add a logical line.
+        // proc(1) + try(1) + puts_hi(1) + puts_done(1) + finally(0) = 4.
+        check_metrics::<TclParser>(
+            "proc f {} {\n    try {\n        puts hi\n    } finally {\n        puts done\n    }\n}",
+            "foo.tcl",
+            |metric| {
+                assert_eq!(
+                    metric.loc.lloc(),
+                    4.0,
+                    "finally adds 0 lloc; would be 5 if finally counted"
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_multiline_block() {
+        check_metrics::<TclParser>(
+            "proc f {x} {
+    set a 1
+
+    set b 2
+    return [expr {$a + $b}]
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
             },
         );
     }

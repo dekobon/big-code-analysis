@@ -327,6 +327,24 @@ impl NArgs for LuaCode {
     }
 }
 
+fn compute_tcl_args(node: &Node, nargs: &mut usize) {
+    let Some(params) = node.child_by_field_name("arguments") else {
+        return;
+    };
+    *nargs += params
+        .children()
+        .filter(|c| c.kind_id() == Tcl::Argument)
+        .count();
+}
+
+impl NArgs for TclCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        if Self::is_func(node) {
+            compute_tcl_args(node, &mut stats.fn_nargs);
+        }
+    }
+}
+
 implement_metric_trait!(
     [NArgs],
     PythonCode,
@@ -1740,6 +1758,75 @@ function g(x, y, z) return x + y + z end",
         check_metrics::<LuaParser>(
             "function obj:method(a, b) return a + b end",
             "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nargs);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_no_functions() {
+        check_metrics::<TclParser>("set x 1", "foo.tcl", |metric| {
+            insta::assert_json_snapshot!(metric.nargs);
+        });
+    }
+
+    #[test]
+    fn tcl_single_function() {
+        check_metrics::<TclParser>("proc f {a b} { puts $a }", "foo.tcl", |metric| {
+            insta::assert_json_snapshot!(metric.nargs);
+        });
+    }
+
+    #[test]
+    fn tcl_single_function_no_args() {
+        check_metrics::<TclParser>("proc f {} { puts hello }", "foo.tcl", |metric| {
+            insta::assert_json_snapshot!(metric.nargs);
+        });
+    }
+
+    #[test]
+    fn tcl_functions() {
+        check_metrics::<TclParser>(
+            "proc f {a b} { puts $a }
+proc g {x y z} { puts $x }",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nargs);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_nested_functions() {
+        check_metrics::<TclParser>(
+            "proc outer {a} {
+    proc inner {x y} { puts $x }
+    inner $a $a
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nargs);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_args_vararg() {
+        // `args` is the Tcl variadic catch-all; it counts as one argument.
+        check_metrics::<TclParser>("proc f {a b args} { puts $a }", "foo.tcl", |metric| {
+            insta::assert_json_snapshot!(metric.nargs);
+        });
+    }
+
+    #[test]
+    fn tcl_default_arg() {
+        // `{name default}` is a single argument with a default value.
+        check_metrics::<TclParser>(
+            "proc greet {{name World} greeting} {
+    puts \"$greeting, $name!\"
+}",
+            "foo.tcl",
             |metric| {
                 insta::assert_json_snapshot!(metric.nargs);
             },

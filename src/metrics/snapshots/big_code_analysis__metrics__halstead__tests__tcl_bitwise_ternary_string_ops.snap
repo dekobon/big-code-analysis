@@ -1,0 +1,21 @@
+---
+source: src/metrics/halstead.rs
+assertion_line: 1021
+expression: metric.halstead
+---
+{
+  "n1": 20.0,
+  "N1": 45.0,
+  "n2": 14.0,
+  "N2": 27.0,
+  "length": 72.0,
+  "estimated_program_length": 139.7415308065537,
+  "purity_ratio": 1.940854594535468,
+  "vocabulary": 34.0,
+  "volume": 366.29732457002444,
+  "difficulty": 19.285714285714285,
+  "level": 0.05185185185185186,
+  "effort": 7064.305545279042,
+  "time": 392.46141918216904,
+  "bugs": 0.12272274534087987
+}
