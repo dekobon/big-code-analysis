@@ -3736,4 +3736,97 @@ end",
             },
         );
     }
+
+    #[test]
+    fn typescript_switch_statement() {
+        check_metrics::<TypescriptParser>(
+            "function describe(x: number): string {
+                 switch (x) {   // +1
+                     case 1:
+                         return 'one';
+                     case 2:
+                         return 'two';
+                     default:
+                         return 'other';
+                 }
+             }",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_no_cognitive() {
+        check_metrics::<TypescriptParser>(
+            "function f(a: number, b: number): number {
+                 return a + b;
+             }",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_no_cognitive() {
+        check_metrics::<TsxParser>(
+            "function f(a: number, b: number): number {
+                 return a + b;
+             }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_simple_if() {
+        check_metrics::<TsxParser>(
+            "function f(x: number): number {
+                 if (x > 0) {  // +1
+                     return x;
+                 }
+                 return 0;
+             }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_boolean_sequence() {
+        check_metrics::<TsxParser>(
+            "function f(a: boolean, b: boolean, c: boolean): boolean {
+                 return a && b && c;  // +1 (&&, sequence)
+             }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_2_level_nesting() {
+        check_metrics::<TsxParser>(
+            "function f(a: number[], n: number): number {
+                 for (let i = 0; i < a.length; i++) {  // +1
+                     if (a[i] > n) {  // +2 (nesting=1)
+                         return a[i];
+                     }
+                 }
+                 return -1;
+             }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
 }

@@ -1,0 +1,16 @@
+---
+source: src/metrics/nargs.rs
+expression: metric.nargs
+---
+{
+  "total_functions": 3.0,
+  "total_closures": 0.0,
+  "average_functions": 3.0,
+  "average_closures": 0.0,
+  "total": 3.0,
+  "average": 3.0,
+  "functions_min": 0.0,
+  "functions_max": 3.0,
+  "closures_min": 0.0,
+  "closures_max": 0.0
+}

@@ -1178,4 +1178,164 @@ bar 2 3",
             },
         );
     }
+
+    #[test]
+    fn typescript_class_methods() {
+        check_metrics::<TypescriptParser>(
+            "class Calc {
+             add(a: number, b: number): number { return a + b; }
+             sub(a: number, b: number): number { return a - b; }
+         }",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nom);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_arrow_and_function() {
+        check_metrics::<TypescriptParser>(
+            "function f(): number { return 1; }
+         const g = (): number => 2;
+         const h = (x: number): number => x * 2;",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nom);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_class_methods() {
+        check_metrics::<TsxParser>(
+            "class Calc {
+             add(a: number, b: number): number { return a + b; }
+             sub(a: number, b: number): number { return a - b; }
+         }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nom);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_arrow_and_function() {
+        check_metrics::<TsxParser>(
+            "function f(): number { return 1; }
+         const g = (): number => 2;
+         const h = (x: number): number => x * 2;",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nom);
+            },
+        );
+    }
+
+    #[test]
+    fn bash_multiple_functions_nom() {
+        check_metrics::<BashParser>(
+            "#!/bin/bash
+f() {
+    echo hello
+}
+g() {
+    echo world
+}",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nom);
+            },
+        );
+    }
+
+    #[test]
+    fn bash_nested_functions_nom() {
+        check_metrics::<BashParser>(
+            "#!/bin/bash
+outer() {
+    inner() {
+        echo inner
+    }
+    inner
+}",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nom);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_nested_function_nom() {
+        check_metrics::<MozjsParser>(
+            "function outer() {
+             function inner() {
+                 return 1;
+             }
+             return inner();
+         }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nom);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_class_methods_nom() {
+        check_metrics::<MozjsParser>(
+            "class Calc {
+             add(a, b) { return a + b; }
+             sub(a, b) { return a - b; }
+         }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nom);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_iife_nom() {
+        check_metrics::<MozjsParser>(
+            "(function() {
+             var x = 1;
+             return x;
+         })();",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nom);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_class_methods_nom() {
+        check_metrics::<KotlinParser>(
+            "class Calc {
+             fun add(a: Int, b: Int): Int = a + b
+             fun sub(a: Int, b: Int): Int = a - b
+         }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nom);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_lambda_nom() {
+        check_metrics::<KotlinParser>(
+            "fun f(list: List<Int>): Int {
+             val double = { x: Int -> x * 2 }
+             return list.sumOf(double)
+         }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nom);
+            },
+        );
+    }
 }

@@ -1569,4 +1569,299 @@ f() {
             },
         );
     }
+
+    #[test]
+    fn mozjs_for_loop() {
+        check_metrics::<MozjsParser>(
+            "function f(n) { // +2 (+1 unit)
+             var s = 0;
+             for (var i = 0; i < n; i++) { // +1
+                 s += i;
+             }
+             return s;
+         }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cyclomatic);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_logical_operators() {
+        check_metrics::<MozjsParser>(
+            "function f(a, b, c) { // +2 (+1 unit)
+             if (a && b || c) { // +1 if, +1 &&, +1 ||
+                 return 1;
+             }
+             return 0;
+         }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cyclomatic);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_while_loop() {
+        check_metrics::<MozjsParser>(
+            "function f(n) { // +2 (+1 unit)
+             var i = 0;
+             while (i < n) { // +1
+                 i++;
+             }
+             return i;
+         }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cyclomatic);
+            },
+        );
+    }
+
+    #[test]
+    fn bash_while_loop() {
+        check_metrics::<BashParser>(
+            "#!/bin/bash
+f() {
+    local n=$1
+    while [ $n -gt 0 ]; do
+        echo $n
+        n=$((n - 1))
+    done
+}",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cyclomatic);
+            },
+        );
+    }
+
+    #[test]
+    fn bash_case_statement() {
+        check_metrics::<BashParser>(
+            "#!/bin/bash
+f() {
+    case $1 in
+        start) echo starting ;;
+        stop)  echo stopping ;;
+        *)     echo unknown  ;;
+    esac
+}",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cyclomatic);
+            },
+        );
+    }
+
+    #[test]
+    fn bash_simple_function() {
+        check_metrics::<BashParser>(
+            "#!/bin/bash
+f() {
+    echo hello
+}",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cyclomatic);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_for_loop() {
+        check_metrics::<KotlinParser>(
+            "fun sum(n: Int): Int {  // +2 (+1 unit)
+             var s = 0
+             for (i in 1..n) {  // +1
+                 s += i
+             }
+             return s
+         }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cyclomatic);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_while_loop() {
+        check_metrics::<KotlinParser>(
+            "fun countdown(n: Int): Int { // +2 (+1 unit)
+             var i = n
+             while (i > 0) { // +1
+                 i--
+             }
+             return i
+         }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cyclomatic);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_logical_operators() {
+        check_metrics::<KotlinParser>(
+            "fun check(a: Boolean, b: Boolean, c: Boolean): Boolean { // +2 (+1 unit)
+             return a && b || c  // +1 &&, +1 ||
+         }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cyclomatic);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_for_loop() {
+        check_metrics::<TypescriptParser>(
+            "function sum(n: number): number { // +2 (+1 unit)
+             let s = 0;
+             for (let i = 0; i < n; i++) { // +1
+                 s += i;
+             }
+             return s;
+         }",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cyclomatic);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_while_loop() {
+        check_metrics::<TypescriptParser>(
+            "function countdown(n: number): number { // +2 (+1 unit)
+             let i = n;
+             while (i > 0) { // +1
+                 i--;
+             }
+             return i;
+         }",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cyclomatic);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_logical_operators() {
+        check_metrics::<TypescriptParser>(
+            "function check(a: boolean, b: boolean, c: boolean): boolean { // +2 (+1 unit)
+             return a && b || c;  // +1 &&, +1 ||
+         }",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cyclomatic);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_try_catch() {
+        check_metrics::<TypescriptParser>(
+            "function safe(x: number): number { // +2 (+1 unit)
+             try {
+                 return 1 / x;
+             } catch (e) { // +1
+                 return 0;
+             }
+         }",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cyclomatic);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_for_loop() {
+        check_metrics::<TsxParser>(
+            "function sum(n: number): number { // +2 (+1 unit)
+             let s = 0;
+             for (let i = 0; i < n; i++) { // +1
+                 s += i;
+             }
+             return s;
+         }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cyclomatic);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_while_loop() {
+        check_metrics::<TsxParser>(
+            "function countdown(n: number): number { // +2 (+1 unit)
+             let i = n;
+             while (i > 0) { // +1
+                 i--;
+             }
+             return i;
+         }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cyclomatic);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_logical_operators() {
+        check_metrics::<TsxParser>(
+            "function check(a: boolean, b: boolean, c: boolean): boolean { // +2 (+1 unit)
+             return a && b || c;  // +1 &&, +1 ||
+         }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cyclomatic);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_try_catch() {
+        check_metrics::<TsxParser>(
+            "function safe(x: number): number { // +2 (+1 unit)
+             try {
+                 return 1 / x;
+             } catch (e) { // +1
+                 return 0;
+             }
+         }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cyclomatic);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_switch() {
+        check_metrics::<TsxParser>(
+            "function describe(x: number): string { // +2 (+1 unit)
+             switch (x) {
+                 case 1: // +1
+                     return 'one';
+                 case 2: // +1
+                     return 'two';
+                 default:
+                     return 'other';
+             }
+         }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cyclomatic);
+            },
+        );
+    }
 }
