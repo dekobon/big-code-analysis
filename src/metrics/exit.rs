@@ -1077,4 +1077,116 @@ end",
             },
         );
     }
+
+    #[test]
+    fn typescript_multiple_returns() {
+        check_metrics::<TypescriptParser>(
+            "function classify(n: number): string {
+             if (n > 0) {
+                 return 'positive';
+             } else if (n < 0) {
+                 return 'negative';
+             }
+             return 'zero';
+         }",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nexits);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_nested_functions() {
+        check_metrics::<TypescriptParser>(
+            "function outer(): number {
+             function inner(): number {
+                 return 42;
+             }
+             return inner();
+         }",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nexits);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_no_exit() {
+        check_metrics::<TsxParser>(
+            "function f(): void {
+             console.log('hello');
+         }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nexits);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_multiple_returns() {
+        check_metrics::<TsxParser>(
+            "function classify(n: number): string {
+             if (n > 0) {
+                 return 'positive';
+             } else if (n < 0) {
+                 return 'negative';
+             }
+             return 'zero';
+         }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nexits);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_multiple_returns() {
+        check_metrics::<KotlinParser>(
+            "fun classify(n: Int): String {
+             if (n > 0) {
+                 return \"positive\"
+             } else if (n < 0) {
+                 return \"negative\"
+             }
+             return \"zero\"
+         }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nexits);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_no_exit() {
+        check_metrics::<KotlinParser>(
+            "fun f(): Unit {
+             println(\"hello\")
+         }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nexits);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_nested_functions() {
+        check_metrics::<MozjsParser>(
+            "function outer() {
+             function inner() {
+                 return 42;
+             }
+             return inner();
+         }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nexits);
+            },
+        );
+    }
 }
