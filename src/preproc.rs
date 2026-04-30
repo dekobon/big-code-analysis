@@ -332,9 +332,10 @@ mod tests {
         assert!(pf.macros.contains("FOO"));
     }
 
-    /// `fix_includes` must not panic when an SCC contains paths and there
-    /// are no non-UTF-8 entries — covers the post-fix `let-else` /
-    /// `expect`-with-invariant paths.
+    /// `fix_includes` collapses a 2-file include cycle into one SCC replacement
+    /// node and propagates every member of that SCC into the `indirect_includes`
+    /// of *both* files symmetrically. Also exercises the `let-else` /
+    /// `expect`-with-invariant paths added in the panic-safety refactor (#72).
     #[test]
     fn fix_includes_handles_simple_cycle() {
         let mut files: HashMap<PathBuf, PreprocFile> = HashMap::new();
@@ -358,5 +359,11 @@ mod tests {
             .expect("a.h must be retained");
         assert!(a.indirect_includes.contains("a.h"));
         assert!(a.indirect_includes.contains("b.h"));
+
+        let b = files
+            .get(&PathBuf::from("b.h"))
+            .expect("b.h must be retained");
+        assert!(b.indirect_includes.contains("a.h"));
+        assert!(b.indirect_includes.contains("b.h"));
     }
 }
