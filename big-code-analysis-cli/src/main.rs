@@ -315,6 +315,7 @@ fn main() {
     // but `--preproc` lives outside the group because it doubles as a
     // modifier when given a single path. Reject the no-action case here so
     // users get a clear error instead of silent success.
+    // Keep this list in sync with the "action" ArgGroup args([...]) above.
     let has_action = opts.dump
         || opts.metrics
         || opts.ops
