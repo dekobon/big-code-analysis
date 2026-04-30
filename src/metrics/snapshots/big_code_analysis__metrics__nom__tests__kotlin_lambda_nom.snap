@@ -1,0 +1,16 @@
+---
+source: src/metrics/nom.rs
+expression: metric.nom
+---
+{
+  "functions": 1.0,
+  "closures": 1.0,
+  "functions_average": 0.5,
+  "closures_average": 0.5,
+  "total": 2.0,
+  "average": 1.0,
+  "functions_min": 0.0,
+  "functions_max": 1.0,
+  "closures_min": 0.0,
+  "closures_max": 1.0
+}

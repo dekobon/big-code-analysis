@@ -5575,4 +5575,937 @@ try {
             },
         );
     }
+
+    #[test]
+    fn javascript_blank() {
+        check_metrics::<JavascriptParser>(
+            "// header comment
+        function f() {
+
+            var x = 1;
+
+            var y = 2;
+        }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_cloc() {
+        check_metrics::<JavascriptParser>(
+            "// line comment
+        /* block
+           comment */
+        function f() {
+            return 1; // inline
+        }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_blank() {
+        check_metrics::<MozjsParser>(
+            "function f() {
+
+            var x = 1;
+
+        }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_cloc() {
+        check_metrics::<MozjsParser>(
+            "// header
+        /* block comment */
+        function f() {
+            return 42;
+        }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_no_zero_blank() {
+        check_metrics::<MozjsParser>(
+            "function f() {
+            var x = 1; // comment
+            var y = 2; // comment
+        }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_arrow_function_loc() {
+        check_metrics::<MozjsParser>(
+            "const add = (a, b) => a + b;
+        const greet = name => {
+            return 'Hello ' + name;
+        };",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_multiple_functions_loc() {
+        check_metrics::<MozjsParser>(
+            "function f() {
+            return 1;
+        }
+        function g() {
+            return 2;
+        }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_nested_function_loc() {
+        check_metrics::<MozjsParser>(
+            "function outer() {
+            function inner() {
+                return 1;
+            }
+            return inner();
+        }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_if_lloc() {
+        check_metrics::<MozjsParser>(
+            "function f(x) {
+            if (x > 0) {
+                return 1;
+            } else {
+                return -1;
+            }
+        }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_for_lloc() {
+        check_metrics::<MozjsParser>(
+            "function f(n) {
+            var s = 0;
+            for (var i = 0; i < n; i++) {
+                s += i;
+            }
+            return s;
+        }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn bash_blank() {
+        check_metrics::<BashParser>(
+            "#!/bin/bash
+
+        f() {
+
+            echo hello
+
+        }",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn bash_cloc() {
+        check_metrics::<BashParser>(
+            "# header comment
+        f() {
+            # body comment
+            echo hello
+        }",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn bash_no_zero_blank() {
+        check_metrics::<BashParser>(
+            "f() {
+            echo hello # inline comment
+            echo world # another comment
+        }",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn bash_if_lloc() {
+        check_metrics::<BashParser>(
+            "f() {
+            if [ $1 -gt 0 ]; then
+                echo positive
+            else
+                echo negative
+            fi
+        }",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn bash_for_lloc() {
+        check_metrics::<BashParser>(
+            "f() {
+            for i in 1 2 3; do
+                echo $i
+            done
+        }",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn bash_while_lloc() {
+        check_metrics::<BashParser>(
+            "f() {
+            local n=5
+            while [ $n -gt 0 ]; do
+                echo $n
+                n=$((n - 1))
+            done
+        }",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn bash_case_lloc() {
+        check_metrics::<BashParser>(
+            "f() {
+            case $1 in
+                start) echo starting ;;
+                stop)  echo stopping ;;
+                *)     echo unknown  ;;
+            esac
+        }",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn bash_multiple_functions_loc() {
+        check_metrics::<BashParser>(
+            "f() {
+            echo hello
+        }
+        g() {
+            echo world
+        }",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn bash_nested_function_loc() {
+        check_metrics::<BashParser>(
+            "outer() {
+            inner() {
+                echo inner
+            }
+            inner
+            echo outer
+        }",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn bash_heredoc_loc() {
+        check_metrics::<BashParser>(
+            "f() {
+            cat <<EOF
+line1
+line2
+EOF
+        }",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_loc_blank() {
+        check_metrics::<KotlinParser>(
+            "fun f(): Int {
+
+            val x = 1
+
+            return x
+        }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_loc_cloc() {
+        check_metrics::<KotlinParser>(
+            "// header comment
+        /* block
+           comment */
+        fun f(): Int {
+            return 42 // inline
+        }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_loc_no_zero_blank() {
+        check_metrics::<KotlinParser>(
+            "fun f(): Int {
+            val x = 1 // x
+            val y = 2 // y
+            return x + y
+        }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_loc_if_lloc() {
+        check_metrics::<KotlinParser>(
+            "fun classify(n: Int): String {
+            if (n > 0) {
+                return \"positive\"
+            } else if (n < 0) {
+                return \"negative\"
+            }
+            return \"zero\"
+        }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_loc_for_lloc() {
+        check_metrics::<KotlinParser>(
+            "fun sum(n: Int): Int {
+            var s = 0
+            for (i in 1..n) {
+                s += i
+            }
+            return s
+        }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_loc_when_lloc() {
+        check_metrics::<KotlinParser>(
+            "fun describe(x: Int): String {
+            return when (x) {
+                1 -> \"one\"
+                2 -> \"two\"
+                else -> \"other\"
+            }
+        }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_loc_lambda_lloc() {
+        check_metrics::<KotlinParser>(
+            "fun f(list: List<Int>): List<Int> {
+            return list.filter { it > 0 }
+                       .map { it * 2 }
+        }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_loc_class_loc() {
+        check_metrics::<KotlinParser>(
+            "class Counter {
+            private var count = 0
+            fun increment() { count++ }
+            fun get(): Int = count
+        }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_loc_multiple_functions_loc() {
+        check_metrics::<KotlinParser>(
+            "fun f(): Int {
+            return 1
+        }
+        fun g(): Int {
+            return 2
+        }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_loc_while_lloc() {
+        check_metrics::<KotlinParser>(
+            "fun countdown(n: Int) {
+            var i = n
+            while (i > 0) {
+                println(i)
+                i--
+            }
+        }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_blank() {
+        check_metrics::<TypescriptParser>(
+            "function f(): void {
+
+            const x = 1;
+
+        }",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_cloc() {
+        check_metrics::<TypescriptParser>(
+            "// header
+        /* block
+           comment */
+        function f(): number {
+            return 42; // inline
+        }",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_no_zero_blank() {
+        check_metrics::<TypescriptParser>(
+            "function f(): void {
+            const x = 1; // x
+            const y = 2; // y
+        }",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_if_lloc() {
+        check_metrics::<TypescriptParser>(
+            "function classify(n: number): string {
+            if (n > 0) {
+                return 'positive';
+            } else {
+                return 'non-positive';
+            }
+        }",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_for_lloc() {
+        check_metrics::<TypescriptParser>(
+            "function sum(n: number): number {
+            let s = 0;
+            for (let i = 0; i < n; i++) {
+                s += i;
+            }
+            return s;
+        }",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_while_lloc() {
+        check_metrics::<TypescriptParser>(
+            "function countdown(n: number): void {
+            let i = n;
+            while (i > 0) {
+                console.log(i);
+                i--;
+            }
+        }",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_switch_lloc() {
+        check_metrics::<TypescriptParser>(
+            "function describe(x: number): string {
+            switch (x) {
+                case 1: return 'one';
+                case 2: return 'two';
+                default: return 'other';
+            }
+        }",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_class_loc() {
+        check_metrics::<TypescriptParser>(
+            "class Counter {
+            private count: number = 0;
+            increment(): void { this.count++; }
+            get(): number { return this.count; }
+        }",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_arrow_function_loc() {
+        check_metrics::<TypescriptParser>(
+            "const add = (a: number, b: number): number => a + b;
+        const greet = (name: string): string => {
+            return `Hello, ${name}`;
+        };",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_interface_loc() {
+        check_metrics::<TypescriptParser>(
+            "interface Shape {
+            area(): number;
+            perimeter(): number;
+        }
+        function describe(s: Shape): string {
+            return `area=${s.area()}`;
+        }",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_multiple_functions_loc() {
+        check_metrics::<TypescriptParser>(
+            "function f(): number {
+            return 1;
+        }
+        function g(): number {
+            return 2;
+        }
+        function h(): number {
+            return 3;
+        }",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_try_catch_lloc() {
+        check_metrics::<TypescriptParser>(
+            "function safe(x: number): number {
+            try {
+                return 1 / x;
+            } catch (e) {
+                return 0;
+            }
+        }",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_nested_functions_loc() {
+        check_metrics::<TypescriptParser>(
+            "function outer(x: number): number {
+            function inner(y: number): number {
+                return y * 2;
+            }
+            return inner(x) + 1;
+        }",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_generic_function_loc() {
+        check_metrics::<TypescriptParser>(
+            "function identity<T>(value: T): T {
+            return value;
+        }
+        function first<T>(arr: T[]): T | undefined {
+            return arr[0];
+        }",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_blank() {
+        check_metrics::<TsxParser>(
+            "function f(): void {
+
+            const x = 1;
+
+        }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_cloc() {
+        check_metrics::<TsxParser>(
+            "// header
+        /* block
+           comment */
+        function f(): number {
+            return 42; // inline
+        }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_no_zero_blank() {
+        check_metrics::<TsxParser>(
+            "function f(): void {
+            const x = 1; // x
+            const y = 2; // y
+        }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_if_lloc() {
+        check_metrics::<TsxParser>(
+            "function classify(n: number): string {
+            if (n > 0) {
+                return 'positive';
+            } else {
+                return 'non-positive';
+            }
+        }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_for_lloc() {
+        check_metrics::<TsxParser>(
+            "function sum(n: number): number {
+            let s = 0;
+            for (let i = 0; i < n; i++) {
+                s += i;
+            }
+            return s;
+        }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_while_lloc() {
+        check_metrics::<TsxParser>(
+            "function countdown(n: number): void {
+            let i = n;
+            while (i > 0) {
+                console.log(i);
+                i--;
+            }
+        }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_switch_lloc() {
+        check_metrics::<TsxParser>(
+            "function describe(x: number): string {
+            switch (x) {
+                case 1: return 'one';
+                case 2: return 'two';
+                default: return 'other';
+            }
+        }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_class_loc() {
+        check_metrics::<TsxParser>(
+            "class Counter {
+            private count: number = 0;
+            increment(): void { this.count++; }
+            get(): number { return this.count; }
+        }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_arrow_function_loc() {
+        check_metrics::<TsxParser>(
+            "const add = (a: number, b: number): number => a + b;
+        const greet = (name: string): string => {
+            return `Hello, ${name}`;
+        };",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_multiple_functions_loc() {
+        check_metrics::<TsxParser>(
+            "function f(): number {
+            return 1;
+        }
+        function g(): number {
+            return 2;
+        }
+        function h(): number {
+            return 3;
+        }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_try_catch_lloc() {
+        check_metrics::<TsxParser>(
+            "function safe(x: number): number {
+            try {
+                return 1 / x;
+            } catch (e) {
+                return 0;
+            }
+        }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_nested_functions_loc() {
+        check_metrics::<TsxParser>(
+            "function outer(x: number): number {
+            function inner(y: number): number {
+                return y * 2;
+            }
+            return inner(x) + 1;
+        }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_interface_loc() {
+        check_metrics::<TsxParser>(
+            "interface Shape {
+            area(): number;
+            perimeter(): number;
+        }
+        function describe(s: Shape): string {
+            return `area=${s.area()}`;
+        }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_generic_function_loc() {
+        check_metrics::<TsxParser>(
+            "function identity<T>(value: T): T {
+            return value;
+        }
+        function first<T>(arr: T[]): T | undefined {
+            return arr[0];
+        }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
 }

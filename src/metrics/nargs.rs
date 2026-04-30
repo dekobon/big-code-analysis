@@ -1967,4 +1967,50 @@ proc g {x y z} { puts $x }",
             },
         );
     }
+
+    #[test]
+    fn kotlin_zero_args() {
+        check_metrics::<KotlinParser>(
+            "fun f(): Int { return 42 }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nargs);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_single_arg() {
+        check_metrics::<KotlinParser>(
+            "fun double(x: Int): Int { return x * 2 }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nargs);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_multiple_args() {
+        check_metrics::<KotlinParser>(
+            "fun add(a: Int, b: Int, c: Int): Int { return a + b + c }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nargs);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_default_args() {
+        check_metrics::<KotlinParser>(
+            "fun greet(name: String = \"World\", greeting: String = \"Hello\"): String {
+                 return \"$greeting, $name!\"
+             }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nargs);
+            },
+        );
+    }
 }

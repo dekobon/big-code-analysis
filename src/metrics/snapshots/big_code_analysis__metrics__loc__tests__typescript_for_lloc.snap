@@ -1,0 +1,26 @@
+---
+source: src/metrics/loc.rs
+expression: metric.loc
+---
+{
+  "sloc": 7.0,
+  "ploc": 7.0,
+  "lloc": 5.0,
+  "cloc": 0.0,
+  "blank": 0.0,
+  "sloc_average": 3.5,
+  "ploc_average": 3.5,
+  "lloc_average": 2.5,
+  "cloc_average": 0.0,
+  "blank_average": 0.0,
+  "sloc_min": 7.0,
+  "sloc_max": 7.0,
+  "cloc_min": 0.0,
+  "cloc_max": 0.0,
+  "ploc_min": 7.0,
+  "ploc_max": 7.0,
+  "lloc_min": 5.0,
+  "lloc_max": 5.0,
+  "blank_min": 0.0,
+  "blank_max": 0.0
+}
