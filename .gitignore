@@ -7,3 +7,4 @@ Cargo.lock
 .claude/worktrees/
 .mcp.json
 .serena/
+*.pending-snap
