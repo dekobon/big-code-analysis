@@ -13,9 +13,13 @@ impl Tree {
         let mut parser = Parser::new();
         parser
             .set_language(&T::get_lang().get_ts_language())
-            .unwrap();
+            .expect("invariant: grammar version is pinned and compatible with bundled tree-sitter");
 
-        Self(parser.parse(code, None).unwrap())
+        Self(
+            parser
+                .parse(code, None)
+                .expect("invariant: parser has a language set and no cancellation flag"),
+        )
     }
 
     pub(crate) fn get_root(&self) -> Node<'_> {

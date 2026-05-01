@@ -18,9 +18,11 @@ where
     /// Gets the code as text and the span associated to a node.
     fn get_text_span(node: &Node, code: &[u8], span: bool, text: bool) -> (String, Span) {
         let text = if text {
-            String::from_utf8(code[node.start_byte()..node.end_byte()].to_vec()).unwrap()
+            // Source may contain non-UTF-8 byte strings (e.g. binary literals); replacement
+            // characters are acceptable in the AST payload produced by dump functions.
+            String::from_utf8_lossy(&code[node.start_byte()..node.end_byte()]).into_owned()
         } else {
-            "".to_string()
+            String::new()
         };
         if span {
             let (spos_row, spos_column) = node.start_position();
@@ -212,5 +214,30 @@ impl Alterator for TclCode {
             }
             _ => Self::get_default(node, code, span, children),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use crate::{CppCode, CppParser, ParserTrait};
+
+    use super::*;
+
+    #[test]
+    fn get_text_span_non_utf8_uses_replacement_char() {
+        // Regression: `String::from_utf8(...).unwrap()` panicked on non-UTF-8
+        // source bytes (e.g. binary literals). Now uses from_utf8_lossy so the
+        // resulting AstNode text contains U+FFFD rather than causing a crash.
+        let code = b"char c = '\xff';";
+        let path = PathBuf::from("test.c");
+        let parser = CppParser::new(code.to_vec(), &path, None);
+        let root = parser.get_root();
+        let (text, _) = CppCode::get_text_span(&root, code, false, true);
+        assert!(
+            text.contains('\u{FFFD}'),
+            "expected U+FFFD replacement char for non-UTF-8 source, got: {text:?}"
+        );
     }
 }

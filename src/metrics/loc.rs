@@ -575,7 +575,7 @@ impl Loc for PythonCode {
                 add_cloc_lines(stats, start, end);
             }
             String => {
-                let parent = node.parent().unwrap();
+                let Some(parent) = node.parent() else { return };
                 if let ExpressionStatement = parent.kind_id().into() {
                     add_cloc_lines(stats, start, end);
                 } else if parent.start_row() != start {
