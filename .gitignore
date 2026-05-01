@@ -3,3 +3,7 @@ enums/target
 *~
 Cargo.lock
 .claude/settings.local.json
+.claude/settings.json
+.claude/worktrees/
+.mcp.json
+.serena/
