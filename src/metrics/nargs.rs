@@ -271,28 +271,31 @@ impl NArgs for GoCode {
 }
 
 fn compute_kotlin_func_args(node: &Node, nargs: &mut usize) {
-    for child in node.children() {
-        if child.kind_id() == Kotlin::FunctionValueParameters {
-            child.act_on_child(&mut |n| {
-                if !KotlinCode::is_non_arg(n) {
-                    *nargs += 1;
-                }
-            });
-            return;
-        }
+    if let Some(params) = node
+        .children()
+        .find(|c| c.kind_id() == Kotlin::FunctionValueParameters)
+    {
+        params.act_on_child(&mut |n| {
+            if n.kind_id() == Kotlin::Parameter {
+                *nargs += 1;
+            }
+        });
     }
 }
 
 fn compute_kotlin_lambda_args(node: &Node, nargs: &mut usize) {
-    for child in node.children() {
-        if child.kind_id() == Kotlin::LambdaParameters {
-            child.act_on_child(&mut |n| {
-                if n.kind_id() != Kotlin::COMMA {
-                    *nargs += 1;
-                }
-            });
-            return;
-        }
+    // Lambda parameters are plain identifiers or destructuring patterns separated
+    // by commas; there is no typed `Parameter` wrapper node (unlike function
+    // value parameters), so a negative COMMA filter is the correct predicate here.
+    if let Some(params) = node
+        .children()
+        .find(|c| c.kind_id() == Kotlin::LambdaParameters)
+    {
+        params.act_on_child(&mut |n| {
+            if n.kind_id() != Kotlin::COMMA {
+                *nargs += 1;
+            }
+        });
     }
 }
 
@@ -1446,9 +1449,6 @@ mod tests {
 
     #[test]
     fn java_single_method() {
-        // Counts are inflated because Java's `is_non_arg` does not filter
-        // syntax tokens (`(`, `)`, `,`).  These snapshots capture current
-        // behaviour; fixing `is_non_arg` is tracked separately.
         check_metrics::<JavaParser>(
             "class Foo {
                  void greet(String name, int count) {
@@ -1460,19 +1460,19 @@ mod tests {
                 insta::assert_json_snapshot!(
                     metric.nargs,
                     @r#"
-                    {
-                      "total_functions": 5.0,
-                      "total_closures": 0.0,
-                      "average_functions": 5.0,
-                      "average_closures": 0.0,
-                      "total": 5.0,
-                      "average": 5.0,
-                      "functions_min": 0.0,
-                      "functions_max": 5.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }
-                    "#
+                {
+                  "total_functions": 2.0,
+                  "total_closures": 0.0,
+                  "average_functions": 2.0,
+                  "average_closures": 0.0,
+                  "total": 2.0,
+                  "average": 2.0,
+                  "functions_min": 0.0,
+                  "functions_max": 2.0,
+                  "closures_min": 0.0,
+                  "closures_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -1494,19 +1494,19 @@ mod tests {
                 insta::assert_json_snapshot!(
                     metric.nargs,
                     @r#"
-                    {
-                      "total_functions": 10.0,
-                      "total_closures": 0.0,
-                      "average_functions": 5.0,
-                      "average_closures": 0.0,
-                      "total": 10.0,
-                      "average": 5.0,
-                      "functions_min": 0.0,
-                      "functions_max": 7.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }
-                    "#
+                {
+                  "total_functions": 4.0,
+                  "total_closures": 0.0,
+                  "average_functions": 2.0,
+                  "average_closures": 0.0,
+                  "total": 4.0,
+                  "average": 2.0,
+                  "functions_min": 0.0,
+                  "functions_max": 3.0,
+                  "closures_min": 0.0,
+                  "closures_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -1525,19 +1525,19 @@ mod tests {
                 insta::assert_json_snapshot!(
                     metric.nargs,
                     @r#"
-                    {
-                      "total_functions": 5.0,
-                      "total_closures": 0.0,
-                      "average_functions": 5.0,
-                      "average_closures": 0.0,
-                      "total": 5.0,
-                      "average": 5.0,
-                      "functions_min": 0.0,
-                      "functions_max": 5.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }
-                    "#
+                {
+                  "total_functions": 2.0,
+                  "total_closures": 0.0,
+                  "average_functions": 2.0,
+                  "average_closures": 0.0,
+                  "total": 2.0,
+                  "average": 2.0,
+                  "functions_min": 0.0,
+                  "functions_max": 2.0,
+                  "closures_min": 0.0,
+                  "closures_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -1556,19 +1556,19 @@ mod tests {
                 insta::assert_json_snapshot!(
                     metric.nargs,
                     @r#"
-                    {
-                      "total_functions": 2.0,
-                      "total_closures": 5.0,
-                      "average_functions": 2.0,
-                      "average_closures": 5.0,
-                      "total": 7.0,
-                      "average": 3.5,
-                      "functions_min": 0.0,
-                      "functions_max": 2.0,
-                      "closures_min": 0.0,
-                      "closures_max": 5.0
-                    }
-                     "#
+                {
+                  "total_functions": 0.0,
+                  "total_closures": 2.0,
+                  "average_functions": 0.0,
+                  "average_closures": 2.0,
+                  "total": 2.0,
+                  "average": 1.0,
+                  "functions_min": 0.0,
+                  "functions_max": 0.0,
+                  "closures_min": 0.0,
+                  "closures_max": 2.0
+                }
+                "#
                 );
             },
         );
@@ -1970,13 +1970,9 @@ proc g {x y z} { puts $x }",
 
     #[test]
     fn kotlin_zero_args() {
-        check_metrics::<KotlinParser>(
-            "fun f(): Int { return 42 }",
-            "foo.kt",
-            |metric| {
-                insta::assert_json_snapshot!(metric.nargs);
-            },
-        );
+        check_metrics::<KotlinParser>("fun f(): Int { return 42 }", "foo.kt", |metric| {
+            insta::assert_json_snapshot!(metric.nargs);
+        });
     }
 
     #[test]
