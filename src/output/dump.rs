@@ -119,10 +119,10 @@ fn dump_tree_helper(
 
             intense_color(stdout, Color::Red)?;
             let code = &code[node.start_byte()..node.end_byte()];
-            if let Ok(code) = String::from_utf8(code.to_vec()) {
+            if let Ok(code) = str::from_utf8(code) {
                 write!(stdout, "{code} ")?;
             } else {
-                stdout.write_all(code).unwrap();
+                stdout.write_all(code)?;
             }
         }
 
@@ -188,5 +188,25 @@ impl Callback for Dump {
             cfg.line_start,
             cfg.line_end,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use crate::{CppParser, ParserTrait};
+
+    use super::*;
+
+    #[test]
+    fn dump_node_non_utf8_source_does_not_panic() {
+        // Regression: `stdout.write_all(code).unwrap()` panicked when the raw-bytes
+        // fallback branch was taken for non-UTF-8 source content.
+        let code = b"char c = '\xff';";
+        let path = PathBuf::from("test.c");
+        let parser = CppParser::new(code.to_vec(), &path, None);
+        let root = parser.get_root();
+        assert!(dump_node(code, &root, -1, None, None).is_ok());
     }
 }
