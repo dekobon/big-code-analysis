@@ -132,12 +132,7 @@ where
     );
 }
 
-fn compute_booleans<T: std::cmp::PartialEq + std::convert::From<u16>>(
-    node: &Node,
-    stats: &mut Stats,
-    typs1: T,
-    typs2: T,
-) {
+fn compute_booleans<T: PartialEq + From<u16>>(node: &Node, stats: &mut Stats, typs1: T, typs2: T) {
     for child in node.children() {
         let id = child.kind_id();
         let converted: T = id.into();
@@ -178,21 +173,13 @@ impl BoolSequence {
     }
 
     fn eval_based_on_prev(&mut self, bool_id: u16, structural: usize) -> usize {
-        if let Some(prev) = self.boolean_op {
-            if prev != bool_id {
-                // The boolean operator is different from the previous one, so
-                // the counter is incremented.
+        match self.boolean_op {
+            None => {
+                self.boolean_op = Some(bool_id);
                 structural + 1
-            } else {
-                // The boolean operator is equal to the previous one, so
-                // the counter is not incremented.
-                structural
             }
-        } else {
-            // Save the first boolean operator in a sequence of
-            // logical operators and increment the counter.
-            self.boolean_op = Some(bool_id);
-            structural + 1
+            Some(prev) if prev != bool_id => structural + 1,
+            Some(_) => structural,
         }
     }
 }
@@ -207,30 +194,26 @@ fn increment_by_one(stats: &mut Stats) {
     stats.structural += 1;
 }
 
-fn get_nesting_from_map(
-    node: &Node,
-    nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
-) -> (usize, usize, usize) {
-    if let Some(parent) = node.parent() {
-        if let Some(n) = nesting_map.get(&parent.id()) {
-            *n
-        } else {
-            (0, 0, 0)
-        }
-    } else {
-        (0, 0, 0)
-    }
+#[inline(always)]
+fn increment_branch_extension(stats: &mut Stats) {
+    stats.structural += 1;
+    stats.boolean_seq.reset();
 }
 
-fn increment_function_depth<T: std::cmp::PartialEq + std::convert::From<u16>>(
-    depth: &mut usize,
+fn get_nesting_from_map(
     node: &Node,
-    stop: T,
-) {
-    // Increase depth function nesting if needed
+    nesting_map: &HashMap<usize, (usize, usize, usize)>,
+) -> (usize, usize, usize) {
+    node.parent()
+        .and_then(|parent| nesting_map.get(&parent.id()))
+        .copied()
+        .unwrap_or((0, 0, 0))
+}
+
+fn increment_function_depth<T: PartialEq + From<u16>>(depth: &mut usize, node: &Node, stops: &[T]) {
     let mut child = *node;
     while let Some(parent) = child.parent() {
-        if stop == parent.kind_id().into() {
+        if stops.contains(&T::from(parent.kind_id())) {
             *depth += 1;
             break;
         }
@@ -264,9 +247,7 @@ impl Cognitive for PythonCode {
             ElifClause => {
                 // No nesting increment for them because their cost has already
                 // been paid by the if construct
-                increment_by_one(stats);
-                // Reset the boolean sequence
-                stats.boolean_seq.reset();
+                increment_branch_extension(stats);
             }
             ElseClause | FinallyClause => {
                 // No nesting increment for them because their cost has already
@@ -299,7 +280,7 @@ impl Cognitive for PythonCode {
                         },
                     );
                 }
-                compute_booleans::<language_python::Python>(node, stats, And, Or);
+                compute_booleans(node, stats, And, Or);
             }
             Lambda => {
                 // Increase lambda nesting
@@ -307,11 +288,7 @@ impl Cognitive for PythonCode {
             }
             FunctionDefinition => {
                 // Increase depth function nesting if needed
-                increment_function_depth::<language_python::Python>(
-                    &mut depth,
-                    node,
-                    FunctionDefinition,
-                );
+                increment_function_depth(&mut depth, node, &[FunctionDefinition]);
             }
             _ => {}
         }
@@ -351,12 +328,12 @@ impl Cognitive for RustCode {
                 stats.boolean_seq.not_operator(node.kind_id());
             }
             BinaryExpression => {
-                compute_booleans::<language_rust::Rust>(node, stats, AMPAMP, PIPEPIPE);
+                compute_booleans(node, stats, AMPAMP, PIPEPIPE);
             }
             FunctionItem => {
                 nesting = 0;
                 // Increase depth function nesting if needed
-                increment_function_depth::<language_rust::Rust>(&mut depth, node, FunctionItem);
+                increment_function_depth(&mut depth, node, &[FunctionItem]);
             }
             ClosureExpression => {
                 lambda += 1;
@@ -392,7 +369,7 @@ impl Cognitive for CppCode {
                 stats.boolean_seq.not_operator(node.kind_id());
             }
             BinaryExpression2 => {
-                compute_booleans::<language_cpp::Cpp>(node, stats, AMPAMP, PIPEPIPE);
+                compute_booleans(node, stats, AMPAMP, PIPEPIPE);
             }
             LambdaExpression => {
                 lambda += 1;
@@ -410,7 +387,7 @@ macro_rules! js_cognitive {
             let (mut nesting, mut depth, mut lambda) = get_nesting_from_map(node, nesting_map);
 
             match node.kind_id().into() {
-                IfStatement if !Self::is_else_if(&node) => {
+                IfStatement if !Self::is_else_if(node) => {
                     increase_nesting(stats, &mut nesting, depth, lambda);
                 }
                 ForStatement | ForInStatement | WhileStatement | DoStatement | SwitchStatement | CatchClause | TernaryExpression => {
@@ -427,14 +404,14 @@ macro_rules! js_cognitive {
                     stats.boolean_seq.not_operator(node.kind_id());
                 }
                 BinaryExpression => {
-                    compute_booleans::<$lang>(node, stats, AMPAMP, PIPEPIPE);
+                    compute_booleans(node, stats, AMPAMP, PIPEPIPE);
                 }
                 FunctionDeclaration => {
                     // Reset lambda nesting at function for JS
                     nesting = 0;
                     lambda = 0;
                     // Increase depth function nesting if needed
-                    increment_function_depth::<$lang>(&mut depth, node, FunctionDeclaration);
+                    increment_function_depth(&mut depth, node, &[FunctionDeclaration]);
                 }
                 ArrowFunction => {
                     lambda += 1;
@@ -486,7 +463,7 @@ impl Cognitive for JavaCode {
                 stats.boolean_seq.not_operator(node.kind_id());
             }
             BinaryExpression => {
-                compute_booleans::<language_java::Java>(node, stats, AMPAMP, PIPEPIPE);
+                compute_booleans(node, stats, AMPAMP, PIPEPIPE);
             }
             LambdaExpression => {
                 lambda += 1;
@@ -551,10 +528,10 @@ impl Cognitive for PerlCode {
             }
             P::FunctionDefinition | P::FunctionDefinitionWithoutSub => {
                 nesting = 0;
-                increment_function_depth::<language_perl::Perl>(
+                increment_function_depth(
                     &mut depth,
                     node,
-                    P::FunctionDefinition,
+                    &[P::FunctionDefinition, P::FunctionDefinitionWithoutSub],
                 );
             }
             P::AnonymousFunction => {
@@ -596,14 +573,14 @@ impl Cognitive for KotlinCode {
                 stats.boolean_seq.not_operator(node.kind_id());
             }
             BinaryExpression => {
-                compute_booleans::<language_kotlin::Kotlin>(node, stats, AMPAMP, PIPEPIPE);
+                compute_booleans(node, stats, AMPAMP, PIPEPIPE);
             }
             FunctionDeclaration | SecondaryConstructor => {
                 nesting = 0;
-                increment_function_depth::<language_kotlin::Kotlin>(
+                increment_function_depth(
                     &mut depth,
                     node,
-                    FunctionDeclaration,
+                    &[FunctionDeclaration, SecondaryConstructor],
                 );
             }
             LambdaLiteral | AnonymousFunction => {
@@ -647,14 +624,14 @@ impl Cognitive for GoCode {
                 stats.boolean_seq.not_operator(node.kind_id());
             }
             G::BinaryExpression => {
-                compute_booleans::<language_go::Go>(node, stats, G::AMPAMP, G::PIPEPIPE);
+                compute_booleans(node, stats, G::AMPAMP, G::PIPEPIPE);
             }
             G::FunctionDeclaration | G::MethodDeclaration => {
                 nesting = 0;
-                increment_function_depth::<language_go::Go>(
+                increment_function_depth(
                     &mut depth,
                     node,
-                    G::FunctionDeclaration,
+                    &[G::FunctionDeclaration, G::MethodDeclaration],
                 );
             }
             G::FuncLiteral => {
@@ -685,8 +662,7 @@ impl Cognitive for BashCode {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
             ElifClause | ElseClause => {
-                increment_by_one(stats);
-                stats.boolean_seq.reset();
+                increment_branch_extension(stats);
             }
             // `&&` / `||` appear in two places: as direct children of
             // `Bash::List` (command level: `cmd && cmd`) and as direct
@@ -696,15 +672,11 @@ impl Cognitive for BashCode {
             // against tree-sitter-bash 0.25.1 — the other four
             // `BinaryExpression*` enum variants never wrap `&&` / `||`.
             List | BinaryExpression3 => {
-                compute_booleans::<language_bash::Bash>(node, stats, AMPAMP, PIPEPIPE);
+                compute_booleans(node, stats, AMPAMP, PIPEPIPE);
             }
             FunctionDefinition => {
                 nesting = 0;
-                increment_function_depth::<language_bash::Bash>(
-                    &mut depth,
-                    node,
-                    FunctionDefinition,
-                );
+                increment_function_depth(&mut depth, node, &[FunctionDefinition]);
             }
             _ => {}
         }
@@ -730,8 +702,7 @@ impl Cognitive for TclCode {
             }
             // elseif adds +1 without increasing nesting for its own children.
             Elseif => {
-                increment_by_one(stats);
-                stats.boolean_seq.reset();
+                increment_branch_extension(stats);
             }
             Else => {
                 increment_by_one(stats);
@@ -748,11 +719,11 @@ impl Cognitive for TclCode {
                 stats.boolean_seq.not_operator(node.kind_id());
             }
             BinopExpr => {
-                compute_booleans::<language_tcl::Tcl>(node, stats, AMPAMP, PIPEPIPE);
+                compute_booleans(node, stats, AMPAMP, PIPEPIPE);
             }
             Procedure => {
                 nesting = 0;
-                increment_function_depth::<language_tcl::Tcl>(&mut depth, node, Procedure);
+                increment_function_depth(&mut depth, node, &[Procedure]);
             }
             _ => {}
         }
@@ -780,8 +751,7 @@ impl Cognitive for LuaCode {
             // `elseif` adds +1 at the same nesting level as the parent `if`,
             // matching how Tcl/Bash handle their dedicated elseif/elif nodes.
             ElseifStatement => {
-                increment_by_one(stats);
-                stats.boolean_seq.reset();
+                increment_branch_extension(stats);
             }
             ForStatement | WhileStatement | RepeatStatement => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
@@ -795,24 +765,19 @@ impl Cognitive for LuaCode {
                 stats.boolean_seq.not_operator(node.kind_id());
             }
             BinaryExpression => {
-                compute_booleans::<language_lua::Lua>(node, stats, And, Or);
+                compute_booleans(node, stats, And, Or);
             }
             FunctionDeclaration | FunctionDeclaration2 | FunctionDeclaration3 => {
                 nesting = 0;
-                // `function`, `local function`, and `global function` have separate
-                // kind_ids; increment_function_depth only accepts a single stop kind,
-                // so we inline the equivalent loop here to match all three variants.
-                let mut child = *node;
-                while let Some(parent) = child.parent() {
-                    if matches!(
-                        parent.kind_id().into(),
-                        FunctionDeclaration | FunctionDeclaration2 | FunctionDeclaration3
-                    ) {
-                        depth += 1;
-                        break;
-                    }
-                    child = parent;
-                }
+                increment_function_depth(
+                    &mut depth,
+                    node,
+                    &[
+                        FunctionDeclaration,
+                        FunctionDeclaration2,
+                        FunctionDeclaration3,
+                    ],
+                );
             }
             FunctionDefinition => {
                 lambda += 1;
@@ -2599,6 +2564,33 @@ mod tests {
     }
 
     #[test]
+    fn perl_function_definition_without_sub_depth() {
+        // Regression: FunctionDefinitionWithoutSub must be a stop in
+        // increment_function_depth so that a `sub` nested inside a `method`
+        // block gets depth=1, making its structural elements cost +2 instead
+        // of +1.  `method name { }` (Method::Signatures style) is what
+        // tree-sitter-perl parses as function_definition_without_sub.
+        check_metrics::<PerlParser>(
+            "method outer {
+                sub inner {
+                    if (1) { } # +2 (depth=1)
+                }
+            }",
+            "foo.pl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive, @r#"
+                {
+                  "sum": 2.0,
+                  "average": 1.0,
+                  "min": 0.0,
+                  "max": 2.0
+                }
+                "#);
+            },
+        );
+    }
+
+    #[test]
     fn tsx_nested_if_for_with_booleans() {
         check_metrics::<TsxParser>(
             "function process(items: number[]) {
@@ -2893,6 +2885,34 @@ mod tests {
     }
 
     #[test]
+    fn kotlin_secondary_constructor_depth() {
+        // Regression: SecondaryConstructor must be a stop in increment_function_depth so
+        // that a local `fun` nested inside it gets depth=1, making its structural elements
+        // cost +2 instead of +1.
+        check_metrics::<KotlinParser>(
+            "class Foo {
+                constructor(x: Int) {
+                    fun inner(): Boolean {
+                        if (x > 0) { return true } // +2 (depth=1)
+                        return false
+                    }
+                }
+            }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive, @r#"
+                {
+                  "sum": 2.0,
+                  "average": 1.0,
+                  "min": 0.0,
+                  "max": 2.0
+                }
+                "#);
+            },
+        );
+    }
+
+    #[test]
     fn go_no_cognitive() {
         check_metrics::<GoParser>("package main\nvar x = 42", "foo.go", |metric| {
             insta::assert_json_snapshot!(
@@ -3084,6 +3104,36 @@ mod tests {
                     }
                     "###
                 );
+            },
+        );
+    }
+
+    #[test]
+    fn go_method_declaration() {
+        // Coverage: MethodDeclaration is processed as a function boundary (nesting
+        // reset) identically to FunctionDeclaration.  The depth-stop fix from
+        // 081f893 (adding MethodDeclaration to increment_function_depth's stop
+        // list) cannot be regression-tested with valid Go because method
+        // declarations cannot be nested inside other functions or methods.
+        check_metrics::<GoParser>(
+            "package main
+            type T struct{ val int }
+            func (t T) positive() bool {
+                if t.val > 0 { // +1
+                    return true
+                }
+                return false
+            }",
+            "foo.go",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive, @r#"
+                {
+                  "sum": 1.0,
+                  "average": 1.0,
+                  "min": 0.0,
+                  "max": 1.0
+                }
+                "#);
             },
         );
     }
