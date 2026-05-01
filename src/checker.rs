@@ -346,8 +346,11 @@ impl Checker for JavaCode {
         node.kind_id() == Java::MethodInvocation
     }
 
-    fn is_non_arg(_: &Node) -> bool {
-        false
+    fn is_non_arg(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Java::LPAREN | Java::COMMA | Java::RPAREN
+        )
     }
 
     fn is_string(node: &Node) -> bool {
