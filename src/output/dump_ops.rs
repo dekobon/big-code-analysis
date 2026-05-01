@@ -102,8 +102,12 @@ fn dump_ops_values(
     intense_color(stdout, Color::Green)?;
     writeln!(stdout, "{name}")?;
 
+    let Some((last_op, rest)) = ops.split_last() else {
+        return Ok(());
+    };
+
     let prefix = format!("{prefix}{pref_child}");
-    for op in ops.iter().take(ops.len() - 1) {
+    for op in rest {
         color(stdout, Color::Blue)?;
         write!(stdout, "{prefix}|- ")?;
 
@@ -115,5 +119,28 @@ fn dump_ops_values(
     write!(stdout, "{prefix}`- ")?;
 
     color(stdout, Color::White)?;
-    writeln!(stdout, "{}", ops.last().unwrap())
+    writeln!(stdout, "{last_op}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::spaces::SpaceKind;
+
+    #[test]
+    fn dump_ops_empty_operators_and_operands_does_not_panic() {
+        // Regression: `ops.len() - 1` underflowed (usize) when ops was empty,
+        // then `ops.last().unwrap()` panicked. A space with no Halstead
+        // operators or operands is a realistic input.
+        let ops = Ops {
+            name: Some("unit".to_string()),
+            start_line: 1,
+            end_line: 1,
+            kind: SpaceKind::Unit,
+            spaces: vec![],
+            operands: vec![],
+            operators: vec![],
+        };
+        assert!(dump_ops(&ops).is_ok());
+    }
 }

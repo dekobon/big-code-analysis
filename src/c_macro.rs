@@ -32,8 +32,9 @@ pub fn replace<S: ::std::hash::BuildHasher>(
             if !is_identifier_part(*c) {
                 let start = k_start - 1;
                 k_start = 0;
-                let keyword = String::from_utf8(code[start..i].to_vec()).unwrap();
-                if is_macro(&keyword, macros) {
+                let keyword = str::from_utf8(&code[start..i])
+                    .expect("invariant: bytes filtered to ASCII-only by is_identifier_part");
+                if is_macro(keyword, macros) {
                     new_code.extend(&code[code_start..start]);
                     new_code.extend(&DOLLARS[..(i - start)]);
                     code_start = i;
@@ -47,8 +48,9 @@ pub fn replace<S: ::std::hash::BuildHasher>(
     if k_start != 0 {
         let start = k_start - 1;
         let i = code.len();
-        let keyword = String::from_utf8(code[start..].to_vec()).unwrap();
-        if is_macro(&keyword, macros) {
+        let keyword = str::from_utf8(&code[start..])
+            .expect("invariant: bytes filtered to ASCII-only by is_identifier_part");
+        if is_macro(keyword, macros) {
             new_code.extend(&code[code_start..start]);
             new_code.extend(&DOLLARS[..(i - start)]);
             code_start = i;
