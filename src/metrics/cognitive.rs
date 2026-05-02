@@ -3967,6 +3967,21 @@ end",
     }
 
     #[test]
+    fn python_nested_bool_same_op() {
+        // a or (b and c and d) — the inner `and` operators are nested inside `or`,
+        // forming one sequence. Expected: or(+1) + and(+1) = 2.
+        check_metrics::<PythonParser>(
+            "def f(a, b, c, d):
+                 return a or (b and c and d)  # +1(or) +1(and) = 2
+             ",
+            "foo.py",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
     fn perl_sibling_bool_sequences() {
         // Perl uses `compute_perl_booleans` (a separate function supporting five
         // operator kinds including `//`). Verifies the sibling-detection fix also
@@ -3977,6 +3992,24 @@ end",
             "sub f {
                  my ($a, $b, $c, $d) = @_;
                  return ($a && $b) || ($c && $d);  # +1(&&) +1(||) +1(&&) = 3
+             }",
+            "foo.pl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_nested_bool_same_op() {
+        // $a || ($b && $c && $d) — the inner `&&` operators are nested inside `||`,
+        // forming one sequence. Exercises the `compute_perl_booleans` continuation
+        // guard (the only path distinct from `compute_booleans`).
+        // Expected: ||(+1) + &&(+1) = 2.
+        check_metrics::<PerlParser>(
+            "sub f {
+                 my ($a, $b, $c, $d) = @_;
+                 return $a || ($b && $c && $d);  # +1(||) +1(&&) = 2
              }",
             "foo.pl",
             |metric| {
@@ -4232,7 +4265,7 @@ end",
     #[test]
     fn tcl_sibling_bool_sequences() {
         // ($a && $b) || ($c && $d) — the right-hand && is a sibling, not nested.
-        // Expected: if(+1) + &&(+1) + ||(+1) + &&(+1) = 4.
+        // Expected: if(+1) + ||(+1) + &&(+1) + &&(+1) = 4.
         check_metrics::<TclParser>(
             "proc f {a b c d} {
     if {($a && $b) || ($c && $d)} {
@@ -4266,7 +4299,7 @@ end",
     #[test]
     fn lua_sibling_bool_sequences() {
         // (a and b) or (c and d) — the right-hand `and` is a sibling, not nested.
-        // Expected: if(+1) + and(+1) + or(+1) + and(+1) = 4.
+        // Expected: if(+1) + or(+1) + and(+1) + and(+1) = 4.
         check_metrics::<LuaParser>(
             "local function f(a, b, c, d)
     if (a and b) or (c and d) then
