@@ -2009,4 +2009,39 @@ proc g {x y z} { puts $x }",
             },
         );
     }
+
+    #[test]
+    fn kotlin_empty_lambda() {
+        // Two lambdas in the same function body: one with two explicit parameters
+        // (proving the lambda path is taken and args are counted), and one with an
+        // explicit empty parameter list `{ -> expr }` (proving
+        // `compute_kotlin_lambda_args` returns 0 for it without crashing or
+        // accidentally counting tokens inside the arrow expression).
+        // If the grammar fails to parse either lambda, `total_closures` would be
+        // lower than 2, making the snapshot unambiguous.
+        check_metrics::<KotlinParser>(
+            "fun f() {
+                 val two = { x: Int, y: Int -> x + y }
+                 val zero = { -> 42 }
+             }",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nargs);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_anonymous_function() {
+        // `fun(x: Int, y: Int) = x + y` — anonymous function expression.
+        // The grammar surfaces it as an `AnonymousFunction` node, which routes
+        // through `compute_kotlin_func_args` (not the lambda path).
+        check_metrics::<KotlinParser>(
+            "val add = fun(x: Int, y: Int): Int = x + y",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.nargs);
+            },
+        );
+    }
 }

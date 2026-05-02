@@ -13,6 +13,11 @@ use crate::langs::*;
 
 /// Reads a file, normalising all CR-only and CRLF line endings to LF.
 ///
+/// **Note for downstream consumers**: the returned buffer never contains `\r`
+/// bytes. Callers that previously observed raw `\r\n` sequences will see plain
+/// `\n` after this call. This is intentional — the metric engine requires LF-
+/// only input — but it is a behavioural difference from a plain `fs::read`.
+///
 /// # Examples
 ///
 /// ```
