@@ -133,11 +133,15 @@ where
 }
 
 fn compute_booleans<T: PartialEq + From<u16>>(node: &Node, stats: &mut Stats, typs1: T, typs2: T) {
+    let enclosing_end = node.end_byte();
     for child in node.children() {
         let id = child.kind_id();
         let converted: T = id.into();
         if typs1 == converted || typs2 == converted {
-            stats.structural = stats.boolean_seq.eval_based_on_prev(id, stats.structural);
+            stats.structural =
+                stats
+                    .boolean_seq
+                    .eval_based_on_prev(id, enclosing_end, stats.structural);
         }
     }
 }
@@ -146,40 +150,54 @@ fn compute_booleans<T: PartialEq + From<u16>>(node: &Node, stats: &mut Stats, ty
 /// the boolean-sequence counter. `compute_booleans` only takes two operator
 /// kinds; Perl needs five (`&&`, `||`, `//`, `and`, `or`).
 fn compute_perl_booleans(node: &Node, stats: &mut Stats) {
+    let enclosing_end = node.end_byte();
     for child in node.children() {
+        let id = child.kind_id();
         if matches!(
-            child.kind_id().into(),
+            id.into(),
             Perl::AMPAMP | Perl::PIPEPIPE | Perl::SLASHSLASH | Perl::And | Perl::Or
         ) {
-            stats.structural = stats
-                .boolean_seq
-                .eval_based_on_prev(child.kind_id(), stats.structural);
+            stats.structural =
+                stats
+                    .boolean_seq
+                    .eval_based_on_prev(id, enclosing_end, stats.structural);
         }
     }
 }
 
 #[derive(Debug, Default, Clone)]
 struct BoolSequence {
-    boolean_op: Option<u16>,
+    boolean_op: Option<(u16, usize)>,
 }
 
 impl BoolSequence {
     fn reset(&mut self) {
+        // Structural boundaries (new branches, nesting increments) end the current sequence.
         self.boolean_op = None;
     }
 
-    fn not_operator(&mut self, not_id: u16) {
-        self.boolean_op = Some(not_id);
+    fn not_operator(&mut self) {
+        // NOT resets the sequence so the next boolean always scores +1
+        self.reset();
     }
 
-    fn eval_based_on_prev(&mut self, bool_id: u16, structural: usize) -> usize {
+    fn eval_based_on_prev(
+        &mut self,
+        bool_id: u16,
+        enclosing_end: usize,
+        structural: usize,
+    ) -> usize {
         match self.boolean_op {
-            None => {
-                self.boolean_op = Some(bool_id);
+            // Same operator type and enclosing_end fits inside the previously seen
+            // binary_expression span (pre-order: parent visited before child) →
+            // continuation of the same sequence, no extra cost.
+            Some((prev_id, prev_end)) if prev_id == bool_id && enclosing_end <= prev_end => {
+                structural
+            }
+            _ => {
+                self.boolean_op = Some((bool_id, enclosing_end));
                 structural + 1
             }
-            Some(prev) if prev != bool_id => structural + 1,
-            Some(_) => structural,
         }
     }
 }
@@ -262,7 +280,7 @@ impl Cognitive for PythonCode {
                 stats.boolean_seq.reset();
             }
             NotOperator => {
-                stats.boolean_seq.not_operator(node.kind_id());
+                stats.boolean_seq.not_operator();
             }
             BooleanOperator => {
                 if node.count_specific_ancestors::<PythonParser>(
@@ -325,7 +343,7 @@ impl Cognitive for RustCode {
                 }
             }
             UnaryExpression => {
-                stats.boolean_seq.not_operator(node.kind_id());
+                stats.boolean_seq.not_operator();
             }
             BinaryExpression => {
                 compute_booleans(node, stats, AMPAMP, PIPEPIPE);
@@ -366,7 +384,7 @@ impl Cognitive for CppCode {
                 increment_by_one(stats);
             }
             UnaryExpression2 => {
-                stats.boolean_seq.not_operator(node.kind_id());
+                stats.boolean_seq.not_operator();
             }
             BinaryExpression2 => {
                 compute_booleans(node, stats, AMPAMP, PIPEPIPE);
@@ -401,7 +419,7 @@ macro_rules! js_cognitive {
                     stats.boolean_seq.reset();
                 }
                 UnaryExpression => {
-                    stats.boolean_seq.not_operator(node.kind_id());
+                    stats.boolean_seq.not_operator();
                 }
                 BinaryExpression => {
                     compute_booleans(node, stats, AMPAMP, PIPEPIPE);
@@ -460,7 +478,7 @@ impl Cognitive for JavaCode {
                 increment_by_one(stats);
             }
             UnaryExpression => {
-                stats.boolean_seq.not_operator(node.kind_id());
+                stats.boolean_seq.not_operator();
             }
             BinaryExpression => {
                 compute_booleans(node, stats, AMPAMP, PIPEPIPE);
@@ -521,7 +539,7 @@ impl Cognitive for PerlCode {
                 increment_by_one(stats);
             }
             P::UnaryExpression => {
-                stats.boolean_seq.not_operator(node.kind_id());
+                stats.boolean_seq.not_operator();
             }
             P::BinaryExpression => {
                 compute_perl_booleans(node, stats);
@@ -570,7 +588,7 @@ impl Cognitive for KotlinCode {
                 }
             }
             UnaryExpression => {
-                stats.boolean_seq.not_operator(node.kind_id());
+                stats.boolean_seq.not_operator();
             }
             BinaryExpression => {
                 compute_booleans(node, stats, AMPAMP, PIPEPIPE);
@@ -621,7 +639,7 @@ impl Cognitive for GoCode {
                 increment_by_one(stats);
             }
             G::UnaryExpression => {
-                stats.boolean_seq.not_operator(node.kind_id());
+                stats.boolean_seq.not_operator();
             }
             G::BinaryExpression => {
                 compute_booleans(node, stats, G::AMPAMP, G::PIPEPIPE);
@@ -716,7 +734,7 @@ impl Cognitive for TclCode {
             }
             // Track `!` prefix so that `!$a && !$b` counts the && only once.
             UnaryExpr if node.child(0).is_some_and(|c| c.kind_id() == Tcl::BANG) => {
-                stats.boolean_seq.not_operator(node.kind_id());
+                stats.boolean_seq.not_operator();
             }
             BinopExpr => {
                 compute_booleans(node, stats, AMPAMP, PIPEPIPE);
@@ -762,7 +780,7 @@ impl Cognitive for LuaCode {
                 increment_by_one(stats);
             }
             UnaryExpression => {
-                stats.boolean_seq.not_operator(node.kind_id());
+                stats.boolean_seq.not_operator();
             }
             BinaryExpression => {
                 compute_booleans(node, stats, And, Or);
@@ -2717,7 +2735,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn kotlin_no_cognitive() {
         check_metrics::<KotlinParser>("fun main() { val x = 42 }", "foo.kt", |metric| {
@@ -3874,6 +3891,443 @@ end",
                  return -1;
              }",
             "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_else_if_chain() {
+        check_metrics::<TsxParser>(
+            "function classify(x: number): string {
+                 if (x < 0) {         // +1
+                     return 'neg';
+                 } else if (x === 0) { // +1 (else if = structural, not nesting)
+                     return 'zero';
+                 } else {              // +1
+                     return 'pos';
+                 }
+             }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn js_sibling_bool_sequences() {
+        // (a&&b)||(c&&d) — the right-hand && is a *new* sequence (sibling, not nested),
+        // so it should score +1, giving a total of 3 (&&, ||, &&).
+        // The pre-existing bug stored only (kind_id) and treated the right && as a
+        // continuation of the earlier && sequence, incorrectly yielding 2.
+        check_metrics::<JavascriptParser>(
+            "function f(a, b, c, d) {
+                 return (a && b) || (c && d);  // +1(&&) +1(||) +1(&&) = 3
+             }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn js_nested_bool_same_op() {
+        // a||(b&&c&&d) — the inner && operators are nested inside ||, so they form
+        // one sequence and only the first should score +1. Total = 2 (||, &&).
+        check_metrics::<JavascriptParser>(
+            "function f(a, b, c, d) {
+                 return a || (b && c && d);  // +1(||) +1(&&) = 2
+             }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn python_sibling_bool_sequences() {
+        // Python uses keyword boolean operators (`and`/`or`), routed through a
+        // different `T` instantiation of `compute_booleans` than the JS `&&`/`||`
+        // tests. Verifies the sibling-detection fix applies across operator kinds.
+        // (a and b) or (c and d) — the right-hand `and` is a sibling, not nested.
+        // Expected: and_left(+1) + or(+1) + and_right(+1) = 3.
+        check_metrics::<PythonParser>(
+            "def f(a, b, c, d):
+                 return (a and b) or (c and d)  # +1(and) +1(or) +1(and) = 3
+             ",
+            "foo.py",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_sibling_bool_sequences() {
+        // Perl uses `compute_perl_booleans` (a separate function supporting five
+        // operator kinds including `//`). Verifies the sibling-detection fix also
+        // covers that code path.
+        // ($a && $b) || ($c && $d) — the right-hand `&&` is a sibling.
+        // Expected: &&(+1) + ||(+1) + &&(+1) = 3.
+        check_metrics::<PerlParser>(
+            "sub f {
+                 my ($a, $b, $c, $d) = @_;
+                 return ($a && $b) || ($c && $d);  # +1(&&) +1(||) +1(&&) = 3
+             }",
+            "foo.pl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_sibling_bool_sequences() {
+        // (a&&b)||(c&&d) — the right-hand && is a sibling, not nested.
+        // Expected: &&(+1) + ||(+1) + &&(+1) = 3.
+        check_metrics::<RustParser>(
+            "fn f(a: bool, b: bool, c: bool, d: bool) -> bool {
+                 (a && b) || (c && d)  // +1(&&) +1(||) +1(&&) = 3
+             }",
+            "foo.rs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_nested_bool_same_op() {
+        // a||(b&&c&&d) — the inner && operators are nested, forming one sequence.
+        // Expected: ||(+1) + &&(+1) = 2.
+        check_metrics::<RustParser>(
+            "fn f(a: bool, b: bool, c: bool, d: bool) -> bool {
+                 a || (b && c && d)  // +1(||) +1(&&) = 2
+             }",
+            "foo.rs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn c_sibling_bool_sequences() {
+        // (a&&b)||(c&&d) — the right-hand && is a sibling, not nested.
+        // Expected: &&(+1) + ||(+1) + &&(+1) = 3.
+        check_metrics::<CppParser>(
+            "int f(int a, int b, int c, int d) {
+                 return (a && b) || (c && d);  // +1(&&) +1(||) +1(&&) = 3
+             }",
+            "foo.c",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn c_nested_bool_same_op() {
+        // a||(b&&c&&d) — the inner && operators are nested, forming one sequence.
+        // Expected: ||(+1) + &&(+1) = 2.
+        check_metrics::<CppParser>(
+            "int f(int a, int b, int c, int d) {
+                 return a || (b && c && d);  // +1(||) +1(&&) = 2
+             }",
+            "foo.c",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_sibling_bool_sequences() {
+        // (a&&b)||(c&&d) — the right-hand && is a sibling, not nested.
+        // Expected: &&(+1) + ||(+1) + &&(+1) = 3.
+        check_metrics::<MozjsParser>(
+            "function f(a, b, c, d) {
+                 return (a && b) || (c && d);  // +1(&&) +1(||) +1(&&) = 3
+             }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_nested_bool_same_op() {
+        // a||(b&&c&&d) — the inner && operators are nested, forming one sequence.
+        // Expected: ||(+1) + &&(+1) = 2.
+        check_metrics::<MozjsParser>(
+            "function f(a, b, c, d) {
+                 return a || (b && c && d);  // +1(||) +1(&&) = 2
+             }",
+            "foo.js",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_sibling_bool_sequences() {
+        // (a&&b)||(c&&d) — the right-hand && is a sibling, not nested.
+        // Expected: &&(+1) + ||(+1) + &&(+1) = 3.
+        check_metrics::<TypescriptParser>(
+            "function f(a: boolean, b: boolean, c: boolean, d: boolean): boolean {
+                 return (a && b) || (c && d);  // +1(&&) +1(||) +1(&&) = 3
+             }",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_nested_bool_same_op() {
+        // a||(b&&c&&d) — the inner && operators are nested, forming one sequence.
+        // Expected: ||(+1) + &&(+1) = 2.
+        check_metrics::<TypescriptParser>(
+            "function f(a: boolean, b: boolean, c: boolean, d: boolean): boolean {
+                 return a || (b && c && d);  // +1(||) +1(&&) = 2
+             }",
+            "foo.ts",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_sibling_bool_sequences() {
+        // (a&&b)||(c&&d) — the right-hand && is a sibling, not nested.
+        // Expected: &&(+1) + ||(+1) + &&(+1) = 3.
+        check_metrics::<TsxParser>(
+            "function f(a: boolean, b: boolean, c: boolean, d: boolean): boolean {
+                 return (a && b) || (c && d);  // +1(&&) +1(||) +1(&&) = 3
+             }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_nested_bool_same_op() {
+        // a||(b&&c&&d) — the inner && operators are nested, forming one sequence.
+        // Expected: ||(+1) + &&(+1) = 2.
+        check_metrics::<TsxParser>(
+            "function f(a: boolean, b: boolean, c: boolean, d: boolean): boolean {
+                 return a || (b && c && d);  // +1(||) +1(&&) = 2
+             }",
+            "foo.tsx",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn java_sibling_bool_sequences() {
+        // (a&&b)||(c&&d) — the right-hand && is a sibling, not nested.
+        // Expected: &&(+1) + ||(+1) + &&(+1) = 3.
+        check_metrics::<JavaParser>(
+            "class X {
+                 boolean f(boolean a, boolean b, boolean c, boolean d) {
+                     return (a && b) || (c && d);  // +1(&&) +1(||) +1(&&) = 3
+                 }
+             }",
+            "foo.java",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn java_nested_bool_same_op() {
+        // a||(b&&c&&d) — the inner && operators are nested, forming one sequence.
+        // Expected: ||(+1) + &&(+1) = 2.
+        check_metrics::<JavaParser>(
+            "class X {
+                 boolean f(boolean a, boolean b, boolean c, boolean d) {
+                     return a || (b && c && d);  // +1(||) +1(&&) = 2
+                 }
+             }",
+            "foo.java",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_sibling_bool_sequences() {
+        // (a&&b)||(c&&d) — the right-hand && is a sibling, not nested.
+        // Expected: &&(+1) + ||(+1) + &&(+1) = 3.
+        check_metrics::<KotlinParser>(
+            "fun f(a: Boolean, b: Boolean, c: Boolean, d: Boolean) =
+                 (a && b) || (c && d)  // +1(&&) +1(||) +1(&&) = 3",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_nested_bool_same_op() {
+        // a||(b&&c&&d) — the inner && operators are nested, forming one sequence.
+        // Expected: ||(+1) + &&(+1) = 2.
+        check_metrics::<KotlinParser>(
+            "fun f(a: Boolean, b: Boolean, c: Boolean, d: Boolean) =
+                 a || (b && c && d)  // +1(||) +1(&&) = 2",
+            "foo.kt",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn go_sibling_bool_sequences() {
+        // (a&&b)||(c&&d) — the right-hand && is a sibling, not nested.
+        // Expected: &&(+1) + ||(+1) + &&(+1) = 3.
+        check_metrics::<GoParser>(
+            "package main
+            func f(a, b, c, d bool) bool {
+                return (a && b) || (c && d)  // +1(&&) +1(||) +1(&&) = 3
+            }",
+            "foo.go",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn go_nested_bool_same_op() {
+        // a||(b&&c&&d) — the inner && operators are nested, forming one sequence.
+        // Expected: ||(+1) + &&(+1) = 2.
+        check_metrics::<GoParser>(
+            "package main
+            func f(a, b, c, d bool) bool {
+                return a || (b && c && d)  // +1(||) +1(&&) = 2
+            }",
+            "foo.go",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_sibling_bool_sequences() {
+        // ($a && $b) || ($c && $d) — the right-hand && is a sibling, not nested.
+        // Expected: if(+1) + &&(+1) + ||(+1) + &&(+1) = 4.
+        check_metrics::<TclParser>(
+            "proc f {a b c d} {
+    if {($a && $b) || ($c && $d)} {
+        puts yes
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_nested_bool_same_op() {
+        // $a || ($b && $c && $d) — the inner && operators are nested, one sequence.
+        // Expected: if(+1) + ||(+1) + &&(+1) = 3.
+        check_metrics::<TclParser>(
+            "proc f {a b c d} {
+    if {$a || ($b && $c && $d)} {
+        puts yes
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_sibling_bool_sequences() {
+        // (a and b) or (c and d) — the right-hand `and` is a sibling, not nested.
+        // Expected: if(+1) + and(+1) + or(+1) + and(+1) = 4.
+        check_metrics::<LuaParser>(
+            "local function f(a, b, c, d)
+    if (a and b) or (c and d) then
+        return 1
+    end
+end",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_nested_bool_same_op() {
+        // a or (b and c and d) — the inner `and` operators are nested, one sequence.
+        // Expected: if(+1) + or(+1) + and(+1) = 3.
+        check_metrics::<LuaParser>(
+            "local function f(a, b, c, d)
+    if a or (b and c and d) then
+        return 1
+    end
+end",
+            "foo.lua",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn bash_sibling_bool_sequences() {
+        // [[ a ]] && [[ b ]] || [[ c ]] && [[ d ]] — bash is left-associative so this
+        // parses as ((a&&b)||c)&&d with three distinct operator-type transitions.
+        // Expected: if(+1) + &&(+1) + ||(+1) + &&(+1) = 4.
+        check_metrics::<BashParser>(
+            "f() {
+                 if [[ -n \"$a\" ]] && [[ -n \"$b\" ]] || [[ -n \"$c\" ]] && [[ -n \"$d\" ]]; then
+                     echo test
+                 fi
+             }",
+            "foo.sh",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn bash_nested_bool_same_op() {
+        // [[ a ]] || [[ b ]] && [[ c ]] && [[ d ]] — bash left-associativity gives
+        // ((a||b)&&c)&&d: the two && operators are parent/child so the second is
+        // a continuation (no extra increment).
+        // Expected: if(+1) + &&(+1, outer chain) + ||(+1) = 3.
+        check_metrics::<BashParser>(
+            "f() {
+                 if [[ -n \"$a\" ]] || [[ -n \"$b\" ]] && [[ -n \"$c\" ]] && [[ -n \"$d\" ]]; then
+                     echo test
+                 fi
+             }",
+            "foo.sh",
             |metric| {
                 insta::assert_json_snapshot!(metric.cognitive);
             },
