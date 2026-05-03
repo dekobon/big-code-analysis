@@ -314,3 +314,48 @@ testing or audit-tests on hot regions periodically — if a no-op
 implementation could pass, the test does not test what it claims.
 
 ---
+
+## 8. Integration snapshot drift hides in the submodule, not the parent
+
+The integration test corpus lives in the `big-code-analysis-output`
+submodule (`tests/repositories/big-code-analysis-output/`). When a
+behaviour-changing fix lands in the parent — a cognitive under-count
+correction, a Halstead operator reclassification, an alterator-rule
+change — the integration runs (`deepspeech_test`, `pdf_js_test`,
+`serde_test`) generate `.snap.new` files **inside the submodule's
+working tree**. The parent's `cargo test` exits non-zero until those
+accepts are committed and pushed in the submodule, and the submodule
+pointer in the parent is bumped to record the new SHA. Skipping any
+of those three steps leaves the fix half-landed: a future fresh
+clone hits an unfetchable submodule SHA or stale snapshots that
+block CI.
+
+**`ed8adb6` lost 4 of its 69 cognitive snapshot accepts.** The
+sibling boolean-sequence fix (`fix(cognitive): correct sibling
+boolean-sequence detection`) was committed on parent `main`
+together with a submodule pointer bump to `4c2a17c2`, which
+contained all 69 accepts. Later, `dekobon/big-code-analysis-output`
+was force-pushed onto a chain that rebased away the cognitive
+accepts and kept only Halstead-NaN/Inf accepts (current submodule
+HEAD `8bb237d`). The parent pointer still referenced `4c2a17c2`,
+which no longer existed on the remote — submodule fetch failed
+outright on a fresh clone. After repointing to `8bb237d`, four
+snapshots that had been correctly accepted in `4c2a17c2` were
+missing: `farcreate.cc`, `farcompilestrings.cc`, `viewer.js`, and
+`build.rs`. The fix itself was not broken; the snapshots that proved
+it were stranded by submodule history rewrites.
+
+**Lesson:** A metric, AST-traversal, or alterator-rule fix is not
+done until (1) `cargo test --workspace --all-features` exits clean
+from a fresh working tree, (2) any `.snap.new` files generated under
+`tests/repositories/big-code-analysis-output/` have been reviewed
+and committed inside the submodule, (3) those submodule commits
+have been pushed to its remote, and (4) the parent records the new
+submodule SHA in the same commit as the parent-side fix — never as
+a follow-up. Treat the submodule pointer bump as part of the fix.
+After any rebase, force-push, or long-running batch fix, re-run
+integration tests before declaring done; the submodule history
+is force-pushed often enough that previously accepted snapshots
+cannot be assumed to survive.
+
+---

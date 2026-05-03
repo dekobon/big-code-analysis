@@ -136,6 +136,32 @@ metric-value-only (no structural changes). Run `cargo insta test
 one at a time can shift `assertion_line` fields, causing a cascade
 where previously-matching snapshots become stale.
 
+**Integration snapshots live in the `big-code-analysis-output`
+submodule** (`tests/repositories/big-code-analysis-output/`). Any
+behaviour-changing fix that touches metric computation, AST traversal,
+or alterator rules — cognitive, cyclomatic, Halstead, exit, ABC,
+etc. — generates `.snap.new` files **inside the submodule**, not the
+parent repo. A fix is not done until **all four** of these have
+happened in the same change:
+
+1. `cargo test --workspace --all-features` exits clean from a fresh
+   working tree (no `.snap.new` left behind under
+   `tests/repositories/big-code-analysis-output/`).
+2. The accepted snapshots are committed and pushed to the submodule's
+   remote (`dekobon/big-code-analysis-output`, `main` branch).
+3. The parent records the new submodule SHA — `git add
+   tests/repositories/big-code-analysis-output` — in the **same
+   parent commit** as the metric/alterator fix, never as a follow-up.
+4. After any rebase, force-push, or long-running batch fix, re-run
+   the integration tests before declaring done. The submodule's
+   history is force-pushed often enough that prior accepts cannot be
+   assumed to survive — see lesson 8 in
+   `docs/development/lessons_learned.md`.
+
+A behaviour-changing fix without the matching submodule bump leaves
+the next fresh clone with either an unfetchable submodule SHA or
+stranded `.snap.new` drift that blocks CI on every subsequent change.
+
 ## Tree-sitter grammars
 
 External grammar crates are version-pinned (`=0.23.x`, etc.) in the root
