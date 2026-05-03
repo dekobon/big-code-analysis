@@ -8,7 +8,6 @@ fn test_deepspeech() {
     // in order to allow CI to pass until the issue is resolved.
     let exclude = &[
         "**/DeepSpeech/native_client/deepspeech.cc",
-        "**/DeepSpeech/native_client/getopt_win.h",
         "**/DeepSpeech/native_client/kenlm/util/mmap.cc",
         "**/DeepSpeech/native_client/deepspeech.h",
         "**/DeepSpeech/native_client/kenlm/util/double-conversion/fast-dtoa.cc",
