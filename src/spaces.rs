@@ -160,9 +160,18 @@ impl FuncSpace {
             _ => (node.start_row() + 1, node.end_row() + 1),
         };
 
+        // The top-level Unit's name is unconditionally overwritten with the
+        // file path by `metrics()` before returning, so computing it here is
+        // wasted work. Other kinds keep the AST-derived name.
+        let name = (kind != SpaceKind::Unit)
+            .then(|| {
+                T::get_func_space_name(node, code)
+                    .map(|name| name.split_whitespace().collect::<Vec<_>>().join(" "))
+            })
+            .flatten();
+
         Self {
-            name: T::get_func_space_name(node, code)
-                .map(|name| name.split_whitespace().collect::<Vec<_>>().join(" ")),
+            name,
             spaces: Vec::new(),
             metrics: CodeMetrics::default(),
             kind,
@@ -295,6 +304,23 @@ pub fn metrics<'a, T: ParserTrait>(parser: &'a T, path: &'a Path) -> Option<Func
     // Three type of nesting info: conditionals, functions and lambdas
     let mut nesting_map = HashMap::<usize, (usize, usize, usize)>::default();
     nesting_map.insert(node.id(), (0, 0, 0));
+
+    // Some grammars (e.g. tree-sitter-mozcpp on unparseable input) return a
+    // non-Unit root. Wrap with a synthetic Unit space spanning the whole
+    // file so the top-level FuncSpace upholds the LOC invariant
+    // `blank = sloc - ploc - only_comment_lines >= 0`.
+    if T::Getter::get_space_kind(&node) != SpaceKind::Unit {
+        let mut synthetic = FuncSpace::new::<T::Getter>(&node, code, SpaceKind::Unit);
+        synthetic
+            .metrics
+            .loc
+            .init_unit_span(node.start_row(), node.end_row());
+        state_stack.push(State {
+            space: synthetic,
+            halstead_maps: HalsteadMaps::new(),
+        });
+    }
+
     stack.push((node, 0));
 
     while let Some((node, level)) = stack.pop() {
@@ -382,7 +408,7 @@ impl Callback for Metrics {
 
 #[cfg(test)]
 mod tests {
-    use crate::{CppParser, check_func_space};
+    use crate::{CppParser, ParserTrait, SpaceKind, check_func_space, metrics};
 
     #[test]
     fn c_scope_resolution_operator() {
@@ -397,6 +423,57 @@ mod tests {
                     @r###""Foo::bar""###
                 );
             },
+        );
+    }
+
+    /// Regression for issue #80 — when tree-sitter-mozcpp returns a non-Unit
+    /// root (e.g. an `ERROR` root for code it cannot fully parse, as
+    /// happens for parts of DeepSpeech's KenLM and OpenFst sources), the
+    /// top-level `FuncSpace` must still be a `Unit` spanning the whole
+    /// file, with `blank >= 0` and `sloc >= ploc`.
+    #[test]
+    fn cpp_error_root_yields_unit_top_level_space() {
+        // This snippet (a chunk of kenlm/lm/model.hh shape) is rejected by
+        // tree-sitter-mozcpp as a clean translation_unit and surfaces as an
+        // ERROR root node in the parse tree. Verified at the time of writing
+        // against tree-sitter-mozcpp 0.20.4.
+        let source = "#ifndef A\n\
+                      namespace a { namespace b { namespace c {\n\
+                      template <class S, class V> class C : publi\n";
+
+        let path = std::path::PathBuf::from("error_root.cc");
+        let parser = CppParser::new(source.as_bytes().to_vec(), &path, None);
+        // Sanity: the grammar really does fall back to a non-Unit root for
+        // this snippet — otherwise the synthetic-Unit code path is not
+        // exercised by this test.
+        assert!(
+            parser.get_root().0.is_error(),
+            "test premise broken: grammar must yield ERROR root for this snippet"
+        );
+
+        let space = metrics(&parser, &path).unwrap();
+
+        assert_eq!(
+            space.kind,
+            SpaceKind::Unit,
+            "top-level FuncSpace must be Unit, not {:?}",
+            space.kind
+        );
+
+        let loc = &space.metrics.loc;
+        let sloc = loc.sloc();
+        let ploc = loc.ploc();
+        let blank = loc.blank();
+        let line_count = source.lines().count();
+
+        assert!(
+            sloc >= ploc,
+            "sloc ({sloc}) must be >= ploc ({ploc}) for the file-level space"
+        );
+        assert!(blank >= 0.0, "blank ({blank}) must be >= 0");
+        assert_eq!(
+            sloc as usize, line_count,
+            "sloc ({sloc}) should match the file's line count ({line_count})"
         );
     }
 }

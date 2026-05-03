@@ -499,6 +499,12 @@ impl Stats {
             self.blank_max = self.blank_max.max(self.blank() as usize);
         }
     }
+
+    pub(crate) fn init_unit_span(&mut self, start: usize, end: usize) {
+        self.sloc.start = start;
+        self.sloc.end = end;
+        self.sloc.unit = true;
+    }
 }
 
 pub trait Loc
