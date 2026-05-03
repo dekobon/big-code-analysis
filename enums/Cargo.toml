@@ -6,7 +6,7 @@ edition = "2024"
 
 [dependencies]
 clap = { version = "^4.0", features = ["derive"] }
-askama = "^0.15"
+askama = "^0.16"
 
 tree-sitter = "=0.26.8"
 tree-sitter-bash = "=0.25.1"
