@@ -20,24 +20,65 @@ import argparse
 import pathlib
 import re
 import shutil
+import subprocess
 import typing as T
 
-# List of metrics
-# TODO: Implement a command into big-code-analysis-cli that returns all
-# computed metrics https://github.com/dekobon/big-code-analysis/issues/478
-METRICS = [
-    "cognitive",
-    "sloc",
-    "ploc",
-    "lloc",
-    "cloc",
-    "blank",
-    "cyclomatic",
-    "halstead",
-    "nom",
-    "nexits",
-    "nargs",
-]
+# Subset of metric names emitted by `big-code-analysis-cli --metrics` that
+# this script splits HTML minimal tests by. The full set is discovered at
+# runtime from `big-code-analysis-cli --list-metrics` so the two stay in
+# sync. This list filters out object-oriented / class-only metrics (wmc,
+# npm, npa, mi, abc) and the lone-letter `mi` summary, which the HTML
+# minimal-test fixtures do not currently exercise.
+RELEVANT_METRICS = frozenset(
+    {
+        "cognitive",
+        "sloc",
+        "ploc",
+        "lloc",
+        "cloc",
+        "blank",
+        "cyclomatic",
+        "halstead",
+        "nom",
+        "nexits",
+        "nargs",
+    }
+)
+
+
+def _parse_list_metrics(stdout: str) -> T.List[str]:
+    """Parse `big-code-analysis-cli --list-metrics` stdout into the subset
+    of metric names this script knows how to split by.
+
+    Blank lines and surrounding whitespace are tolerated; names absent
+    from `RELEVANT_METRICS` are filtered out so future CLI additions
+    (e.g. new class-only metrics) do not break the script.
+
+    >>> sorted(_parse_list_metrics("cognitive\\nsloc\\nwmc\\n"))
+    ['cognitive', 'sloc']
+    >>> _parse_list_metrics("")
+    []
+    >>> sorted(_parse_list_metrics("  cognitive  \\n\\nploc\\n"))
+    ['cognitive', 'ploc']
+    >>> _parse_list_metrics("totally_unknown_metric\\n")
+    []
+    """
+    available = {line.strip() for line in stdout.splitlines() if line.strip()}
+    return [m for m in available if m in RELEVANT_METRICS]
+
+
+def discover_metrics(cli: str) -> T.List[str]:
+    """Run `big-code-analysis-cli --list-metrics` and return the metric
+    names this script knows how to split by. Names absent from the CLI
+    output are dropped (the binary is the source of truth); names absent
+    from `RELEVANT_METRICS` are filtered out."""
+    result = subprocess.run(
+        [cli, "--list-metrics"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return _parse_list_metrics(result.stdout)
 
 
 def main() -> None:
@@ -74,6 +115,11 @@ def main() -> None:
         type=int,
         help="Maximum number of considered minimal tests for a metric.",
     )
+    parser.add_argument(
+        "--cli",
+        default="big-code-analysis-cli",
+        help="Path to the big-code-analysis-cli binary (default: %(default)s).",
+    )
 
     # Parse arguments
     args = parser.parse_args()
@@ -82,7 +128,9 @@ def main() -> None:
     args.output.mkdir(parents=True, exist_ok=True)
 
     # Save files associated to each metric
-    metrics_saver: T.Dict[str, T.List] = {metric_name: [] for metric_name in METRICS}
+    metrics_saver: T.Dict[str, T.List] = {
+        metric_name: [] for metric_name in discover_metrics(args.cli)
+    }
 
     # Iterate over the files contained in the input directory
     for path in args.input.glob("*.html"):
