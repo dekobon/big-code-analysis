@@ -255,6 +255,86 @@ impl Npa for JavaCode {
     }
 }
 
+// PHP's strict-explicit visibility rule (mirroring Java's pattern): a
+// declaration is treated as public only when it carries an explicit
+// `public` modifier. Modifier-less declarations — deprecated for
+// properties since PHP 8 and merely conventional for methods — are NOT
+// counted, even though PHP semantically defaults methods to public.
+pub(crate) fn php_is_explicit_public(declaration: &Node) -> bool {
+    declaration.children().any(|child| {
+        matches!(child.kind_id().into(), Php::VisibilityModifier)
+            && child.first_child(|id| id == Php::Public).is_some()
+    })
+}
+
+impl Npa for PhpCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        use Php::*;
+
+        // Enables the `Npa` metric if computing stats of a class-like space.
+        if Self::is_func_space(node) && stats.is_disabled() {
+            stats.is_class_space = true;
+        }
+
+        match node.kind_id().into() {
+            // Class / trait / anonymous-class / interface bodies all share
+            // the `DeclarationList` kind; the parent kind disambiguates.
+            DeclarationList => {
+                let Some(parent_kind) = node.parent().map(|p| p.kind_id().into()) else {
+                    return;
+                };
+                match parent_kind {
+                    ClassDeclaration | TraitDeclaration | AnonymousClass => {
+                        for declaration in node
+                            .children()
+                            .filter(|c| matches!(c.kind_id().into(), PropertyDeclaration))
+                        {
+                            let attributes = declaration
+                                .children()
+                                .filter(|c| matches!(c.kind_id().into(), PropertyElement))
+                                .count();
+                            stats.class_na += attributes;
+                            if php_is_explicit_public(&declaration) {
+                                stats.class_npa += attributes;
+                            }
+                        }
+                    }
+                    // Interfaces cannot declare properties but can declare
+                    // class constants, which are implicitly public.
+                    InterfaceDeclaration => {
+                        let count: usize = node
+                            .children()
+                            .filter(|c| {
+                                matches!(c.kind_id().into(), ConstDeclaration | ConstDeclaration2)
+                            })
+                            .map(|decl| {
+                                decl.children()
+                                    .filter(|n| {
+                                        matches!(n.kind_id().into(), ConstElement | ConstElement2)
+                                    })
+                                    .count()
+                            })
+                            .sum();
+                        stats.interface_na += count;
+                        stats.interface_npa = stats.interface_na;
+                    }
+                    _ => {}
+                }
+            }
+            // Enum cases are public read-only constants of the enum.
+            EnumDeclarationList => {
+                let count = node
+                    .children()
+                    .filter(|c| matches!(c.kind_id().into(), EnumCase))
+                    .count();
+                stats.class_na += count;
+                stats.class_npa += count;
+            }
+            _ => {}
+        }
+    }
+}
+
 implement_metric_trait!(
     Npa,
     PythonCode,

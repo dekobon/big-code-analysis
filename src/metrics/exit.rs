@@ -246,6 +246,24 @@ impl Exit for TclCode {
     }
 }
 
+impl Exit for PhpCode {
+    // tree-sitter-php 0.24.2's `exit_statement` rule covers `exit` only
+    // (with or without parentheses); `die(...)` is grammar-classified as
+    // a `function_call_expression` and therefore is NOT counted here.
+    // Detecting `die` would require inspecting call-expression callee
+    // text — brittle and likely to false-match user-defined `die`
+    // functions. Modern PHP idiom favors `throw new Exception()` over
+    // `die`, so leaving this asymmetric is acceptable.
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+        if matches!(
+            node.kind_id().into(),
+            Php::ReturnStatement | Php::YieldExpression | Php::ThrowExpression | Php::ExitStatement
+        ) {
+            stats.exit += 1;
+        }
+    }
+}
+
 implement_metric_trait!(Exit, PreprocCode, CcommentCode);
 
 #[cfg(test)]

@@ -806,6 +806,39 @@ impl Cognitive for LuaCode {
     }
 }
 
+impl Cognitive for PhpCode {
+    fn compute(
+        node: &Node,
+        stats: &mut Stats,
+        nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
+    ) {
+        use Php::*;
+
+        let (mut nesting, depth, mut lambda) = get_nesting_from_map(node, nesting_map);
+
+        match node.kind_id().into() {
+            IfStatement | ForStatement | ForeachStatement | WhileStatement | DoStatement
+            | SwitchStatement | MatchExpression | CatchClause => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
+            }
+            ElseClause | ElseClause2 | ElseIfClause | ElseIfClause2 => {
+                increment_branch_extension(stats);
+            }
+            UnaryOpExpression | UnaryOpExpression2 => {
+                stats.boolean_seq.not_operator();
+            }
+            BinaryExpression => {
+                compute_booleans(node, stats, AMPAMP, PIPEPIPE);
+            }
+            AnonymousFunction | ArrowFunction => {
+                lambda += 1;
+            }
+            _ => {}
+        }
+        nesting_map.insert(node.id(), (nesting, depth, lambda));
+    }
+}
+
 implement_metric_trait!(Cognitive, PreprocCode, CcommentCode);
 
 #[cfg(test)]

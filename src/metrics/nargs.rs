@@ -366,7 +366,8 @@ implement_metric_trait!(
     CcommentCode,
     JavaCode,
     PerlCode,
-    BashCode
+    BashCode,
+    PhpCode
 );
 
 #[cfg(test)]

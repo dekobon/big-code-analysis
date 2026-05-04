@@ -137,7 +137,8 @@ implement_metric_trait!(
     PerlCode,
     BashCode,
     LuaCode,
-    TclCode
+    TclCode,
+    PhpCode
 );
 
 #[cfg(test)]

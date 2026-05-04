@@ -364,6 +364,63 @@ implement_metric_trait!(
     TclCode
 );
 
+impl Abc for PhpCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        use Php::*;
+
+        match node.kind_id().into() {
+            // Assignments: explicit assignment expressions and augmented forms,
+            // plus pre/post increment and decrement. `const_declaration` and
+            // `enum_case` use their own `const_element` / value-assignment
+            // shapes, so they do not produce `AssignmentExpression` nodes —
+            // matching the assignment-expression kinds naturally excludes
+            // them.
+            AssignmentExpression
+            | AugmentedAssignmentExpression
+            | ReferenceAssignmentExpression
+            | PLUSPLUS
+            | DASHDASH => {
+                stats.assignments += 1.;
+            }
+            // Branches: every PHP call kind plus object construction.
+            FunctionCallExpression
+            | MemberCallExpression
+            | ScopedCallExpression
+            | NullsafeMemberCallExpression
+            | ObjectCreationExpression => {
+                stats.branches += 1.;
+            }
+            // Conditions: comparison and identity operators (anonymous tokens
+            // inside `binary_expression`), `instanceof`, ternary `?`, and
+            // control-flow arms.
+            EQEQ
+            | EQEQEQ
+            | BANGEQ
+            | BANGEQEQ
+            | LT
+            | GT
+            | LTEQ
+            | GTEQ
+            | LTEQGT
+            | LTGT
+            | Instanceof
+            | ConditionalExpression
+            | ElseClause
+            | ElseClause2
+            | ElseIfClause
+            | ElseIfClause2
+            | CaseStatement
+            | DefaultStatement
+            | MatchConditionalExpression
+            | MatchDefaultExpression
+            | CatchClause => {
+                stats.conditions += 1.;
+            }
+            _ => {}
+        }
+    }
+}
+
 impl Abc for BashCode {
     fn compute(node: &Node, stats: &mut Stats) {
         match node.kind_id().into() {

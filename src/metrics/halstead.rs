@@ -386,6 +386,12 @@ impl Halstead for LuaCode {
     }
 }
 
+impl Halstead for PhpCode {
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], halstead_maps: &mut HalsteadMaps<'a>) {
+        compute_halstead::<Self>(node, code, halstead_maps);
+    }
+}
+
 implement_metric_trait!(Halstead, PreprocCode, CcommentCode);
 
 impl Halstead for BashCode {
