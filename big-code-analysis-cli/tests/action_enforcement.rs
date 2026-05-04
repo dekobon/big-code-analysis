@@ -5,48 +5,87 @@ fn cli() -> Command {
     Command::cargo_bin("big-code-analysis-cli").unwrap()
 }
 
-/// Running the CLI without any action flag should fail loudly rather than
-/// silently succeed with no output.
+/// Running with no subcommand should print help (or fail with a help-style
+/// message) rather than silently succeed.
 #[test]
-fn no_action_flag_rejected_at_runtime() {
+fn no_subcommand_rejected() {
     cli()
         .assert()
         .failure()
-        .stderr(predicate::str::contains("no action specified"));
+        .stderr(predicate::str::contains("Usage").or(predicate::str::contains("help")));
 }
 
-/// Two action flags should be rejected by clap's `action` ArgGroup at parse
-/// time. Previously the `act_on_file` if/else chain silently picked one and
-/// dropped the other.
+/// Subcommands are mutually exclusive by construction; clap rejects a
+/// second subcommand token as an unexpected positional argument at parse
+/// time. Asserting the offending token appears in stderr ensures we
+/// catch the *correct* failure — not, e.g., "no files to analyze" if
+/// `metrics` were ever silently swallowed as a path.
 #[test]
-fn dump_and_function_rejected_at_parse() {
+fn two_subcommands_rejected() {
     cli()
-        .args(["-d", "-F"])
+        .args(["dump", "metrics"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("cannot be used with"));
+        .stderr(predicate::str::contains("unexpected argument 'metrics'"));
 }
 
-/// `--metrics` plus `--find` was the canonical issue example: the user
-/// expects both, gets only metrics. Now clap rejects the combination
-/// upfront.
+/// `--top` lives only on `report`. Passing it to `metrics` is a parse-time
+/// error.
 #[test]
-fn metrics_and_find_rejected_at_parse() {
+fn top_rejected_on_metrics() {
     cli()
-        .args(["-m", "-f", "identifier"])
+        .args(["metrics", "--top", "5"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("cannot be used with"));
+        .stderr(predicate::str::contains("--top"));
 }
 
-/// `--dump` paired with `-O` is rejected because `-O` requires the
-/// `format_action` group (only `--metrics` and `--ops` honour
-/// `--output-format`).
+/// Markdown was a metrics format pre-restructure; now `bca metrics -O
+/// markdown` is rejected at parse time because `MetricsFormat` does not
+/// include it.
 #[test]
-fn dump_with_output_format_rejected_at_parse() {
+fn markdown_rejected_as_metrics_format() {
     cli()
-        .args(["-d", "-O", "json"])
+        .args(["metrics", "-O", "markdown"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("--metrics|--ops"));
+        .stderr(predicate::str::contains("invalid value"));
+}
+
+/// Legacy invocations should fail with a migration hint pointing at the new
+/// command, so CI breakage on upgrade is actionable.
+#[test]
+fn legacy_metrics_flag_emits_migration_hint() {
+    cli()
+        .args(["--metrics", "-O", "markdown"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("report markdown"))
+        .stderr(predicate::str::contains("subcommands"));
+}
+
+/// `find` requires at least one node-type argument. Asserting on the
+/// `<NODES>` metavar (which we control via the `nodes:` field name in
+/// `NodesArgs`) catches the *required-argument* failure specifically.
+/// Without this, a regression that made `nodes` optional could pass for
+/// the wrong reason — the program would fail later with "no files to
+/// analyze".
+#[test]
+fn find_without_nodes_rejected() {
+    cli()
+        .args(["find"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("<NODES>"));
+}
+
+/// `count` requires at least one node-type argument. See
+/// `find_without_nodes_rejected` for why the metavar check matters.
+#[test]
+fn count_without_nodes_rejected() {
+    cli()
+        .args(["count"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("<NODES>"));
 }

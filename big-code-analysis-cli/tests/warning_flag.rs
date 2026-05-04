@@ -12,7 +12,7 @@ fn warning_flag_emits_unrecognized_language() {
     std::fs::write(tmp.path(), "some content\n").unwrap();
 
     cli()
-        .args(["--metrics", "-w", "--paths", tmp.path().to_str().unwrap()])
+        .args(["-w", "--paths", tmp.path().to_str().unwrap(), "metrics"])
         .assert()
         .success()
         .stderr(predicate::str::contains(
@@ -26,7 +26,7 @@ fn no_warning_without_flag() {
     std::fs::write(tmp.path(), "some content\n").unwrap();
 
     cli()
-        .args(["--metrics", "--paths", tmp.path().to_str().unwrap()])
+        .args(["--paths", tmp.path().to_str().unwrap(), "metrics"])
         .assert()
         .success()
         .stderr(predicate::str::is_empty());
@@ -38,7 +38,7 @@ fn warning_flag_emits_empty_file() {
     // File is already empty by default.
 
     cli()
-        .args(["--metrics", "-w", "--paths", tmp.path().to_str().unwrap()])
+        .args(["-w", "--paths", tmp.path().to_str().unwrap(), "metrics"])
         .assert()
         .success()
         .stderr(predicate::str::contains("warning: skipping empty file:"));

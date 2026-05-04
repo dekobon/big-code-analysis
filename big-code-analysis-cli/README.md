@@ -1,16 +1,13 @@
 # big-code-analysis-cli
 
-`big-code-analysis-cli` is a tool designed to compute and export code metrics, analyze source code, and perform various operations such as removing comments, counting nodes, retrieving functions, and computing code metrics in different formats.
+`big-code-analysis-cli` analyzes source code and emits per-file structured
+metrics, aggregated reports, AST dumps, node lookups, and more.
 
-## Features
-
-- Analyze source code for different programming languages.
-- Export results in different formats (CBOR, JSON, TOML, YAML).
-- Perform various operations on source code (e.g., dumping abstract syntax tree to stdout, counting nodes, computing code metrics).
+> **Migrating from the flag-style CLI?** The CLI is now subcommand-driven.
+> See the [migration guide](../big-code-analysis-book/src/migration.md)
+> for old-form -> new-form mappings of every flag.
 
 ## Installation
-
-Clone the repository and build the project:
 
 ```sh
 cd big-code-analysis-cli/
@@ -19,41 +16,70 @@ cargo build
 
 ## Usage
 
-Run the tool by specifying the input file and the desired operation:
-
 ```sh
-big-code-analysis-cli [OPTIONS]
+big-code-analysis-cli [GLOBAL OPTIONS] <COMMAND> [COMMAND OPTIONS]
 ```
 
-## Available Options
+The global options describe *what to walk* (paths, includes/excludes,
+parallelism, language overrides). The command picks *what to do* with each
+file, with command-specific options as needed.
 
-- `-p, --paths <FILE>...`: Input files to analyze.
-- `-d, --dump`: Dump the abstract syntax tree to stdout.
-- `-c, --comments`: Remove comments from specified files.
-- `-f, --find <NODE_TYPE>`: Find nodes of the given type.
-- `-F, --function`: Get functions and their spans.
-- `-C, --count <NODE_TYPE>`: Count nodes of the given type.
-- `-m, --metrics`: Compute code metrics.
-- `--ops`: Retrieve all operands and operators in the code.
-- `-i, --in-place`: Perform actions in place.
-- `-I, --include [<INCLUDE>...]`: Include files matching the given pattern.
-- `-X, --exclude [<EXCLUDE>...]`: Exclude files matching the given pattern.
-- `-j, --num-jobs <NUM_JOBS>`: Number of threads to use.
-- `-l, --language-type <LANGUAGE>`: Language of the input files.
-- `-O, --output-format <FORMAT>`: Output format for the results (CBOR, JSON, TOML, YAML).
-- `--pr`: Dump a pretty JSON output file.
-- `-o, --output <OUTPUT>`: Output directory for the results.
-- `--preproc <PREPROCESSOR>`: Get preprocessor directives for C/C++ files.
-- `--ls <LINE_START>`: Start line for the analysis.
-- `--le <LINE_END>`: End line for the analysis.
-- `-w, --warning`: Print diagnostic warnings to stderr (e.g. skipped empty files or unrecognized languages).
-- `-v, --version`: Show version information.
-- `-h, --help`: Show help information.
+## Commands
+
+| Command | Purpose |
+| --- | --- |
+| `metrics` | Per-file metric output (`-O json/yaml/toml/cbor`, `-o DIR`). |
+| `ops` | Per-file operand/operator output (same formats as `metrics`). |
+| `report <FORMAT>` | Aggregated report. `markdown` today; `html` reserved. |
+| `dump` | AST dump to stdout. |
+| `find <NODE>...` | Find nodes of one or more types. |
+| `count <NODE>...` | Count nodes of one or more types. |
+| `functions` | List functions/methods and their spans. |
+| `strip-comments` | Remove comments from source files (`--in-place`). |
+| `preproc` | Build preprocessor-data JSON for C/C++ analysis. |
+| `list-metrics [names\|descriptions]` | List computable metrics. |
+
+Run `big-code-analysis-cli <COMMAND> --help` for command-specific options.
+
+## Global options
+
+- `-p, --paths <FILE>...` — input files or directories.
+- `-I, --include [<GLOB>...]` — include files matching pattern.
+- `-X, --exclude [<GLOB>...]` — exclude files matching pattern.
+- `-j, --num-jobs <N>` — worker threads.
+- `-l, --language-type <LANG>` — force a language instead of inferring.
+- `--ls <LINE_START>` / `--le <LINE_END>` — line range (used by `dump`,
+  `find`).
+- `-w, --warning` — print warnings (skipped files, unrecognized
+  languages).
+- `--preproc-data <FILE>` — consume an existing preproc JSON during C/C++
+  analysis. Build one with `bca preproc`.
+
+Global options work both before and after the subcommand.
 
 ## Examples
 
-To analyze the code in a file and export the metrics in JSON format:
+Per-file JSON metrics:
 
 ```sh
-big-code-analysis-cli --metrics --output-format json --output . --paths path/to/file.rs
+big-code-analysis-cli --paths ./src metrics -O json -o ./out/
+```
+
+Aggregated markdown quality report:
+
+```sh
+big-code-analysis-cli --paths "$PWD" --num-jobs $(nproc) \
+    report markdown --top 20 --strip-prefix "$PWD/"
+```
+
+AST dump for one file:
+
+```sh
+big-code-analysis-cli --paths ./file.rs dump
+```
+
+List all metrics with one-line descriptions:
+
+```sh
+big-code-analysis-cli list-metrics descriptions
 ```
