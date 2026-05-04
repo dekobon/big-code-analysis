@@ -7,6 +7,7 @@ use globset::{Glob, GlobSetBuilder};
 use big_code_analysis::LANG;
 use big_code_analysis::*;
 
+#[allow(dead_code)]
 const REPO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/", "repositories");
 const SNAPSHOT_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -17,6 +18,7 @@ const SNAPSHOT_PATH: &str = concat!(
 #[derive(Debug)]
 struct Config {
     language: Option<LANG>,
+    source_root: PathBuf,
 }
 
 fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
@@ -40,7 +42,7 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
     let funcspace_struct = get_function_spaces(&language, source, &path, None).unwrap();
 
     insta::with_settings!({snapshot_path => Path::new(SNAPSHOT_PATH)
-                .join(path.strip_prefix(Path::new(REPO)).unwrap())
+                .join(path.strip_prefix(&cfg.source_root).unwrap())
                 .parent()
                 .unwrap(),
                 prepend_module_to_snapshot => false,
@@ -65,10 +67,32 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
 }
 
 /// Produces metrics runtime and compares them with previously generated json files
+#[allow(dead_code)]
 pub fn compare_rca_output_with_files(repo_name: &str, include: &[&str], exclude: &[&str]) {
+    compare_rca_output_with_files_under(Path::new(REPO), repo_name, include, exclude);
+}
+
+/// Same as [`compare_rca_output_with_files`] but with an explicit source root.
+///
+/// `source_root` is the directory whose layout mirrors the snapshot directory:
+/// each input file's path under `source_root` becomes its snapshot path under
+/// `SNAPSHOT_PATH`. Use this when the corpus lives nested under the
+/// `big-code-analysis-output` submodule (as for the synthetic PHP corpus) so
+/// snapshots land at `snapshots/<repo_name>/...` rather than picking up the
+/// submodule directory as an extra path component.
+#[allow(dead_code)]
+pub fn compare_rca_output_with_files_under(
+    source_root: &Path,
+    repo_name: &str,
+    include: &[&str],
+    exclude: &[&str],
+) {
     let num_jobs = 4;
 
-    let cfg = Config { language: None };
+    let cfg = Config {
+        language: None,
+        source_root: source_root.to_path_buf(),
+    };
 
     let mut gsbi = GlobSetBuilder::new();
     for file in include {
@@ -83,7 +107,7 @@ pub fn compare_rca_output_with_files(repo_name: &str, include: &[&str], exclude:
     let files_data = FilesData {
         include: gsbi.build().unwrap(),
         exclude: gsbe.build().unwrap(),
-        paths: vec![Path::new(REPO).join(repo_name)],
+        paths: vec![source_root.join(repo_name)],
     };
 
     if let Err(e) = ConcurrentRunner::new(num_jobs, act_on_file).run(cfg, files_data) {
