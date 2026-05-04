@@ -1207,4 +1207,79 @@ end",
             },
         );
     }
+
+    #[test]
+    fn php_no_exit() {
+        check_metrics::<PhpParser>("<?php $a = 42;", "foo.php", |metric| {
+            insta::assert_json_snapshot!(
+                metric.nexits,
+                @r###"
+                {
+                  "sum": 0.0,
+                  "average": null,
+                  "min": 0.0,
+                  "max": 0.0
+                }"###
+            );
+        });
+    }
+
+    #[test]
+    fn php_yield_throw() {
+        // Generator yields and a throw expression in statement position both
+        // count as exits.
+        check_metrics::<PhpParser>(
+            "<?php
+            function gen() {
+                yield 1;
+                yield 2;
+                throw new \\Exception('x');
+            }",
+            "foo.php",
+            |metric| {
+                // 3 exits (2 yields + 1 throw) inside one function space.
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 3.0,
+                      "min": 0.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn php_exit_statement() {
+        // `exit_statement` covers both `exit;` (bare) and `exit(N);` (with
+        // optional argument). `die` is NOT in the `exit_statement` rule of
+        // tree-sitter-php 0.24.2 — `die(...)` parses as a function call —
+        // so we only count `exit` here.
+        check_metrics::<PhpParser>(
+            "<?php
+            function bail(int $code): void {
+                if ($code === 1) {
+                    exit(1);
+                }
+                exit;
+            }",
+            "foo.php",
+            |metric| {
+                // 2 exit_statements inside one function space.
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 2.0,
+                      "min": 0.0,
+                      "max": 2.0
+                    }"###
+                );
+            },
+        );
+    }
 }

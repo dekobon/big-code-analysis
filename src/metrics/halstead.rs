@@ -1043,4 +1043,30 @@ f() {
             },
         );
     }
+
+    #[test]
+    fn php_operators_and_operands() {
+        check_metrics::<PhpParser>(
+            "<?php
+            function avg(int $a, int $b, int $c): int {
+                return ($a + $b + $c) / 3;
+            }",
+            "foo.php",
+            |metric| {
+                insta::assert_json_snapshot!(metric.halstead);
+            },
+        );
+    }
+
+    #[test]
+    fn php_simple_function() {
+        check_metrics::<PhpParser>(
+            "<?php
+            function inc(int $x): int { return $x + 1; }",
+            "foo.php",
+            |metric| {
+                insta::assert_json_snapshot!(metric.halstead);
+            },
+        );
+    }
 }

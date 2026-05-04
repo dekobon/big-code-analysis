@@ -1893,4 +1893,92 @@ f() {
             },
         );
     }
+
+    #[test]
+    fn php_1_level_nesting() {
+        // Mirrors java_simple_class' if-inside-method shape:
+        // unit (+1) + function (+1) + if (+1) + && (+1) = sum 4.
+        check_metrics::<PhpParser>(
+            "<?php
+            function f(int $a, int $b): bool {
+                if ($a > 0 && $b > 0) {
+                    return true;
+                }
+                return false;
+            }",
+            "foo.php",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 2.0,
+                      "min": 1.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn php_match_expression() {
+        // Each `match_conditional_expression` arm (+1) but the default arm
+        // does NOT add a branch (mirrors switch/case Java semantics).
+        check_metrics::<PhpParser>(
+            "<?php
+            function color(string $c): int {
+                return match ($c) {
+                    'red' => 1,
+                    'green' => 2,
+                    'blue' => 3,
+                    default => 0,
+                };
+            }",
+            "foo.php",
+            |metric| {
+                // unit (+1) + function (+1) + 3 match arms (+3) = sum 5.
+                // Default arm contributes 0.
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 5.0,
+                      "average": 2.5,
+                      "min": 1.0,
+                      "max": 4.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn php_null_coalescing() {
+        // `??` adds 1 (treated as a short-circuit branch). `??=` is an
+        // augmented assignment, NOT a binary `??` — does not double-count.
+        check_metrics::<PhpParser>(
+            "<?php
+            function pick($x, $y) {
+                $a = $x ?? $y;
+                $a ??= 0;
+                return $a;
+            }",
+            "foo.php",
+            |metric| {
+                // unit (+1) + function (+1) + ?? (+1) = sum 3.
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 1.5,
+                      "min": 1.0,
+                      "max": 2.0
+                    }"###
+                );
+            },
+        );
+    }
 }

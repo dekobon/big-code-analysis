@@ -4399,4 +4399,160 @@ end",
             },
         );
     }
+
+    #[test]
+    fn php_no_cognitive() {
+        check_metrics::<PhpParser>("<?php $a = 42;", "foo.php", |metric| {
+            insta::assert_json_snapshot!(metric.cognitive);
+        });
+    }
+
+    #[test]
+    fn php_simple_function() {
+        // Single `if` inside a function: +1.
+        check_metrics::<PhpParser>(
+            "<?php
+            function f(bool $a): void {
+                if ($a) {
+                    echo 'hi';
+                }
+            }",
+            "foo.php",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn php_sequence_same_booleans() {
+        // Sequence of same-operator booleans collapses: a chain of `&&`
+        // counts as +1 total, not per-operand.
+        check_metrics::<PhpParser>(
+            "<?php
+            function f(bool $a, bool $b, bool $c): bool {
+                return $a && $b && $c;
+            }",
+            "foo.php",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn php_sequence_different_booleans() {
+        // Mix of `&&` and `||` — each operator switch costs +1.
+        check_metrics::<PhpParser>(
+            "<?php
+            function f(bool $a, bool $b, bool $c): bool {
+                return $a && $b || $c;
+            }",
+            "foo.php",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn php_not_booleans() {
+        // `!` operator resets the boolean sequence so the chain re-counts.
+        check_metrics::<PhpParser>(
+            "<?php
+            function f(bool $a, bool $b, bool $c): bool {
+                return $a && !($b && $c);
+            }",
+            "foo.php",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn php_1_level_nesting() {
+        // if-inside-loop: outer for (+1) + inner if at depth 1 (+2) = +3.
+        check_metrics::<PhpParser>(
+            "<?php
+            function f(int $n): int {
+                for ($i = 0; $i < $n; $i++) {
+                    if ($i % 2 === 0) {
+                        return $i;
+                    }
+                }
+                return -1;
+            }",
+            "foo.php",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn php_2_level_nesting() {
+        // for + while + if = +1 +2 +3 = +6.
+        check_metrics::<PhpParser>(
+            "<?php
+            function f(int $n): int {
+                for ($i = 0; $i < $n; $i++) {
+                    while ($i > 0) {
+                        if ($i % 2 === 0) {
+                            return $i;
+                        }
+                    }
+                }
+                return -1;
+            }",
+            "foo.php",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn php_break_continue() {
+        // PHP `break` and `continue` are not cognitive drivers in this
+        // impl; only the surrounding loops count.
+        check_metrics::<PhpParser>(
+            "<?php
+            function f(int $n): int {
+                for ($i = 0; $i < $n; $i++) {
+                    if ($i % 2 === 0) {
+                        continue;
+                    }
+                    if ($i > 100) {
+                        break;
+                    }
+                }
+                return 0;
+            }",
+            "foo.php",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn php_match_cognitive() {
+        // `match` is treated like `switch`: a single nesting bump for the
+        // whole construct, not per arm.
+        check_metrics::<PhpParser>(
+            "<?php
+            function color(string $c): int {
+                return match ($c) {
+                    'red' => 1,
+                    'green' => 2,
+                    default => 0,
+                };
+            }",
+            "foo.php",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
 }

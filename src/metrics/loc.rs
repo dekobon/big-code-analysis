@@ -6559,4 +6559,335 @@ EOF
             },
         );
     }
+
+    #[test]
+    fn php_blank() {
+        check_metrics::<PhpParser>(
+            "<?php
+
+$a = 1;
+
+$b = 2;
+
+",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn php_no_zero_blank() {
+        check_metrics::<PhpParser>(
+            "<?php
+$a = 1;
+$b = 2;",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn php_cloc_double_slash() {
+        check_metrics::<PhpParser>(
+            "<?php
+// first
+// second
+$a = 1; // trailing",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn php_cloc_hash() {
+        check_metrics::<PhpParser>(
+            "<?php
+# first
+# second
+$a = 1;",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn php_cloc_block() {
+        check_metrics::<PhpParser>(
+            "<?php
+/*
+ * block
+ * comment
+ */
+$a = 1;",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn php_lloc() {
+        // Three statements: assignment, if (with body), echo.
+        check_metrics::<PhpParser>(
+            "<?php
+$a = 1;
+if ($a > 0) {
+    echo $a;
+}",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn php_no_parenthesized_expression_lloc() {
+        // Parenthesized expression should not add an extra LLOC over the
+        // surrounding expression_statement.
+        check_metrics::<PhpParser>(
+            "<?php
+$a = (1 + 2);",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn php_no_compound_statement_lloc() {
+        // Block wrappers (`{ … }`) are not LLOC themselves.
+        check_metrics::<PhpParser>(
+            "<?php
+function f(): void {
+    $a = 1;
+}",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn php_no_colon_block_lloc() {
+        // Alternative syntax (`if: … endif;`) uses ColonBlock instead of
+        // CompoundStatement; it is also not LLOC.
+        check_metrics::<PhpParser>(
+            "<?php
+if (true):
+    $a = 1;
+endif;",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn php_no_else_clause_lloc() {
+        // ElseClause and ElseIfClause are sub-parts of IfStatement.
+        check_metrics::<PhpParser>(
+            "<?php
+if ($x) {
+    $a = 1;
+} elseif ($y) {
+    $a = 2;
+} else {
+    $a = 3;
+}",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn php_no_case_statement_lloc() {
+        // CaseStatement / DefaultStatement are switch arms, not separate
+        // statements.
+        check_metrics::<PhpParser>(
+            "<?php
+switch ($x) {
+    case 1:
+        $a = 1;
+        break;
+    case 2:
+        $a = 2;
+        break;
+    default:
+        $a = 0;
+}",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn php_no_match_arm_lloc() {
+        // MatchConditionalExpression / MatchDefaultExpression are arms;
+        // only the surrounding expression_statement counts.
+        check_metrics::<PhpParser>(
+            "<?php
+$a = match ($x) {
+    1 => 'one',
+    2 => 'two',
+    default => 'other',
+};",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn php_no_throw_in_expression_lloc() {
+        // PHP 8 `throw` as expression: only the surrounding statement
+        // counts (the `??` in this example), not the throw_expression.
+        check_metrics::<PhpParser>(
+            "<?php
+$x = $y ?? throw new \\Exception('nope');",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn php_no_closure_in_assignment_lloc() {
+        // Anonymous function as RHS does not add an LLOC; only the
+        // expression_statement counts. The closure body's statements are
+        // counted in its own FuncSpace.
+        check_metrics::<PhpParser>(
+            "<?php
+$f = function (): int {
+    return 42;
+};",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn php_for_lloc() {
+        // The for_statement contributes 1 LLOC; init/cond/update are NOT
+        // separate statements in PHP's grammar.
+        check_metrics::<PhpParser>(
+            "<?php
+for ($i = 0; $i < 10; $i++) {
+    echo $i;
+}",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn php_foreach_lloc() {
+        check_metrics::<PhpParser>(
+            "<?php
+foreach ($items as $k => $v) {
+    echo $v;
+}",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn php_try_lloc() {
+        check_metrics::<PhpParser>(
+            "<?php
+try {
+    $a = 1;
+} catch (\\Exception $e) {
+    $a = 0;
+} finally {
+    $b = 2;
+}",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn php_class_loc() {
+        check_metrics::<PhpParser>(
+            "<?php
+class A {
+    public int $x = 0;
+    private const Y = 1;
+    public function f(): int {
+        return $this->x;
+    }
+}",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn php_namespace_use_lloc() {
+        check_metrics::<PhpParser>(
+            "<?php
+namespace App;
+use App\\Foo;
+use App\\Bar;
+$a = 1;",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn php_general_loc() {
+        check_metrics::<PhpParser>(
+            "<?php
+// header
+namespace App;
+use App\\Foo;
+
+class Bar {
+    public int $n = 0;
+
+    public function add(int $x): int {
+        if ($x > 0) {
+            return $this->n + $x;
+        }
+        return $this->n;
+    }
+}",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn php_match_in_expression_lloc() {
+        // Match inside another expression (e.g. assignment RHS) — the
+        // outer expression_statement counts, the inner match arms do not.
+        check_metrics::<PhpParser>(
+            "<?php
+$y = 10 + match ($x) { 1 => 2, default => 0 };",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn php_html_island_ploc() {
+        // Embedded HTML between PHP tags ("text interpolation"). HTML
+        // rows must contribute to PLOC (they are not blank and not a
+        // PHP comment); this test locks that behavior so a future
+        // grammar bump or impl tweak that excludes `text` nodes from
+        // the default PLOC branch is caught.
+        check_metrics::<PhpParser>(
+            "<?php if ($cond): ?>
+<div>hello</div>
+<p>world</p>
+<?php endif; ?>",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn php_short_echo_tag_ploc() {
+        // `<?=` is the same `php_tag` kind as `<?php` per
+        // tree-sitter-php 0.24.2. A regression that re-classified `<?=`
+        // would shift PLOC; this test pins the current behavior.
+        check_metrics::<PhpParser>("<p><?= $name ?></p>", "foo.php", |metric| {
+            insta::assert_json_snapshot!(metric.loc)
+        });
+    }
 }

@@ -1339,4 +1339,75 @@ outer() {
             },
         );
     }
+
+    #[test]
+    fn php_nom() {
+        // Top-level function + 2 methods inside a class + 1 anonymous +
+        // 1 arrow = 3 functions, 2 closures.
+        check_metrics::<PhpParser>(
+            "<?php
+            function top(): void {}
+            class A {
+                public function m1(): void {}
+                public function m2(): int {
+                    $f = function () { return 1; };
+                    $g = fn () => 2;
+                    return $f() + $g();
+                }
+            }",
+            "foo.php",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nom,
+                    @r###"
+                    {
+                      "functions": 3.0,
+                      "closures": 2.0,
+                      "functions_average": 0.42857142857142855,
+                      "closures_average": 0.2857142857142857,
+                      "total": 5.0,
+                      "average": 0.7142857142857143,
+                      "functions_min": 0.0,
+                      "functions_max": 1.0,
+                      "closures_min": 0.0,
+                      "closures_max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn php_nom_anonymous_class() {
+        // Methods inside `new class { … }` count toward the closure-style
+        // space mechanism: anonymous_class is its own space and its
+        // method_declaration children are counted as functions.
+        check_metrics::<PhpParser>(
+            "<?php
+            function f(): object {
+                return new class {
+                    public function inner(): int { return 1; }
+                };
+            }",
+            "foo.php",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nom,
+                    @r###"
+                    {
+                      "functions": 2.0,
+                      "closures": 0.0,
+                      "functions_average": 0.5,
+                      "closures_average": 0.0,
+                      "total": 2.0,
+                      "average": 0.5,
+                      "functions_min": 0.0,
+                      "functions_max": 1.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
 }

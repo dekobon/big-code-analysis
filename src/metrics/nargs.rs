@@ -2045,4 +2045,151 @@ proc g {x y z} { puts $x }",
             },
         );
     }
+
+    #[test]
+    fn php_no_functions_and_closures() {
+        check_metrics::<PhpParser>("<?php $a = 42;", "foo.php", |metric| {
+            insta::assert_json_snapshot!(
+                metric.nargs,
+                @r###"
+                {
+                  "total_functions": 0.0,
+                  "total_closures": 0.0,
+                  "average_functions": 0.0,
+                  "average_closures": 0.0,
+                  "total": 0.0,
+                  "average": 0.0,
+                  "functions_min": 0.0,
+                  "functions_max": 0.0,
+                  "closures_min": 0.0,
+                  "closures_max": 0.0
+                }"###
+            );
+        });
+    }
+
+    #[test]
+    fn php_single_function() {
+        // Two parameters in a regular function.
+        check_metrics::<PhpParser>(
+            "<?php
+            function f(bool $a, int $b): bool {
+                if ($a) { return $a; }
+                return false;
+            }",
+            "foo.php",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r###"
+                    {
+                      "total_functions": 2.0,
+                      "total_closures": 0.0,
+                      "average_functions": 2.0,
+                      "average_closures": 0.0,
+                      "total": 2.0,
+                      "average": 2.0,
+                      "functions_min": 0.0,
+                      "functions_max": 2.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn php_single_closure() {
+        // Anonymous function with 2 params + arrow function with 1 param.
+        // Each is a separate closure space.
+        check_metrics::<PhpParser>(
+            "<?php
+            $f = function (int $a, int $b) { return $a + $b; };
+            $g = fn (int $x) => $x * 2;",
+            "foo.php",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r###"
+                    {
+                      "total_functions": 0.0,
+                      "total_closures": 3.0,
+                      "average_functions": 0.0,
+                      "average_closures": 1.5,
+                      "total": 3.0,
+                      "average": 1.5,
+                      "functions_min": 0.0,
+                      "functions_max": 0.0,
+                      "closures_min": 0.0,
+                      "closures_max": 2.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn php_functions() {
+        // Two top-level functions, 1 + 2 args.
+        check_metrics::<PhpParser>(
+            "<?php
+            function a(int $x): int { return $x; }
+            function b(int $x, int $y): int { return $x + $y; }",
+            "foo.php",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r###"
+                    {
+                      "total_functions": 3.0,
+                      "total_closures": 0.0,
+                      "average_functions": 1.5,
+                      "average_closures": 0.0,
+                      "total": 3.0,
+                      "average": 1.5,
+                      "functions_min": 0.0,
+                      "functions_max": 2.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn php_nested_functions() {
+        // PHP cannot define nested named functions inside a function body
+        // syntactically, but a class with methods exhibits the same shape:
+        // a top-level scope plus inner function-spaces.
+        check_metrics::<PhpParser>(
+            "<?php
+            class A {
+                public function outer(int $a): int {
+                    $f = function (int $b) use ($a) { return $a + $b; };
+                    return $f($a);
+                }
+            }",
+            "foo.php",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r###"
+                    {
+                      "total_functions": 1.0,
+                      "total_closures": 1.0,
+                      "average_functions": 1.0,
+                      "average_closures": 1.0,
+                      "total": 2.0,
+                      "average": 1.0,
+                      "functions_min": 0.0,
+                      "functions_max": 1.0,
+                      "closures_min": 0.0,
+                      "closures_max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
 }
