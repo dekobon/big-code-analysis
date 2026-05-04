@@ -1,5 +1,6 @@
 mod formats;
 mod markdown_report;
+mod metric_catalog;
 
 use std::cmp::Ordering;
 use std::collections::{HashMap, hash_map};
@@ -14,6 +15,7 @@ use globset::{Glob, GlobSet, GlobSetBuilder};
 
 use formats::Format;
 use markdown_report::{FunctionSummary, extract_summaries, generate_report};
+use metric_catalog::{ListMetricsMode, write_metrics};
 
 // Enums
 use big_code_analysis::LANG;
@@ -37,6 +39,16 @@ use big_code_analysis::ParserTrait;
 fn die(msg: impl std::fmt::Display) -> ! {
     eprintln!("Error: {msg}");
     process::exit(1);
+}
+
+/// Write `bytes` to stdout, tolerating `BrokenPipe` (the typical case when
+/// the consumer is `head`, `less`, etc.) and `die`ing on anything else.
+fn write_stdout_or_die(bytes: &[u8]) {
+    if let Err(e) = std::io::stdout().lock().write_all(bytes)
+        && e.kind() != ErrorKind::BrokenPipe
+    {
+        die(e);
+    }
 }
 
 #[derive(Debug)]
@@ -305,10 +317,28 @@ struct Opts {
     /// Path prefix to strip from file paths in the markdown report.
     #[clap(long, default_value = "")]
     strip_prefix: String,
+    /// List the metrics this tool can compute and exit. Without a value
+    /// (or with `names`) prints metric names one per line; pass
+    /// `descriptions` to also include a one-line summary per metric.
+    #[clap(
+        long,
+        value_enum,
+        value_name = "MODE",
+        num_args = 0..=1,
+        default_missing_value = "names",
+    )]
+    list_metrics: Option<ListMetricsMode>,
 }
 
 fn main() {
     let opts = Opts::parse();
+
+    if let Some(mode) = opts.list_metrics {
+        let mut buf = Vec::new();
+        write_metrics(&mut buf, mode).expect("writing to Vec<u8> is infallible");
+        write_stdout_or_die(&buf);
+        return;
+    }
 
     // Require at least one action. The clap "action" ArgGroup enforces
     // mutual exclusion among dump/comments/find/function/count/metrics/ops,
@@ -496,10 +526,8 @@ fn main() {
                     output_path.display()
                 ))
             });
-        } else if let Err(e) = std::io::stdout().lock().write_all(report.as_bytes())
-            && e.kind() != ErrorKind::BrokenPipe
-        {
-            die(e);
+        } else {
+            write_stdout_or_die(report.as_bytes());
         }
         return;
     }
@@ -665,6 +693,31 @@ mod tests {
     fn accept_preproc_with_multiple_paths() {
         // Scan-mode --preproc (2+ paths) is also a valid action.
         assert!(Opts::try_parse_from(["cli", "--preproc", "a.cpp", "--preproc", "b.cpp",]).is_ok());
+    }
+
+    #[test]
+    fn accept_list_metrics_alone() {
+        // --list-metrics is an early-exit utility, not a file-processing
+        // action. It should parse standalone without paths or other flags.
+        assert!(Opts::try_parse_from(["cli", "--list-metrics"]).is_ok());
+    }
+
+    #[test]
+    fn accept_list_metrics_with_descriptions_value() {
+        let parsed =
+            Opts::try_parse_from(["cli", "--list-metrics", "descriptions"]).expect("parses");
+        assert_eq!(parsed.list_metrics, Some(ListMetricsMode::Descriptions));
+    }
+
+    #[test]
+    fn list_metrics_default_value_is_names() {
+        let parsed = Opts::try_parse_from(["cli", "--list-metrics"]).expect("parses");
+        assert_eq!(parsed.list_metrics, Some(ListMetricsMode::Names));
+    }
+
+    #[test]
+    fn reject_list_metrics_with_invalid_mode() {
+        assert!(Opts::try_parse_from(["cli", "--list-metrics", "bogus"]).is_err());
     }
 
     #[cfg(unix)]

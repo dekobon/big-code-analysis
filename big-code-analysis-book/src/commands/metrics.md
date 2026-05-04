@@ -50,3 +50,19 @@ For a comprehensive, human-readable quality report use `-O markdown`.
 This format aggregates metrics across all analyzed files and produces
 per-language hotspot tables.  See the [Markdown Report](markdown.md) chapter
 for details.
+
+## Listing Available Metrics
+
+Tooling that drives **big-code-analysis-cli** can discover the metric
+catalog at runtime instead of hard-coding it:
+
+```bash
+big-code-analysis-cli --list-metrics
+```
+
+prints metric names one per line. Pass `descriptions` for a one-line
+summary of each metric:
+
+```bash
+big-code-analysis-cli --list-metrics descriptions
+```
