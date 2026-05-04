@@ -21,9 +21,9 @@ fn fixture_path() -> String {
 }
 
 #[test]
-fn help_lists_markdown_and_new_flags() {
+fn report_help_lists_format_top_and_strip_prefix() {
     cli()
-        .arg("--help")
+        .args(["report", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("markdown"))
@@ -32,116 +32,38 @@ fn help_lists_markdown_and_new_flags() {
 }
 
 #[test]
-fn markdown_rejects_ops() {
-    let fp = fixture_path();
+fn report_requires_a_format() {
     cli()
-        .args(["--paths", &fp, "-O", "markdown", "--ops"])
+        .args(["report"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains(
-            "-O markdown is incompatible with --ops",
-        ));
+        .stderr(predicate::str::contains("<FORMAT>"));
 }
 
 #[test]
-fn markdown_rejects_dump() {
-    let fp = fixture_path();
-    // Clap rejects: --dump is not in format_action, so the requires
-    // constraint on -O is unsatisfied.
+fn report_top_zero_rejected() {
     cli()
-        .args(["--paths", &fp, "-O", "markdown", "--dump"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("--metrics|--ops"));
-}
-
-#[test]
-fn markdown_rejects_comments() {
-    let fp = fixture_path();
-    // Clap rejects: --comments is not in format_action, so the requires
-    // constraint on -O is unsatisfied.
-    cli()
-        .args(["--paths", &fp, "-O", "markdown", "--comments"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("--metrics|--ops"));
-}
-
-#[test]
-fn markdown_rejects_function() {
-    let fp = fixture_path();
-    // Clap rejects: --function is not in format_action, so the requires
-    // constraint on -O is unsatisfied.
-    cli()
-        .args(["--paths", &fp, "-O", "markdown", "--function"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("--metrics|--ops"));
-}
-
-#[test]
-fn markdown_rejects_find() {
-    let fp = fixture_path();
-    // Clap rejects: --find is not in format_action, so the requires
-    // constraint on -O is unsatisfied.
-    cli()
-        .args(["--paths", &fp, "-O", "markdown", "--find", "identifier"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("--metrics|--ops"));
-}
-
-#[test]
-fn markdown_requires_metrics() {
-    let fp = fixture_path();
-    // Clap rejects: -O requires format_action (--metrics or --ops).
-    cli()
-        .args(["--paths", &fp, "-O", "markdown"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("--metrics|--ops"));
-}
-
-#[test]
-fn top_zero_rejected() {
-    let fp = fixture_path();
-    cli()
-        .args(["--metrics", "--paths", &fp, "-O", "markdown", "--top", "0"])
+        .args([
+            "report",
+            "markdown",
+            "--top",
+            "0",
+            "--paths",
+            &fixture_path(),
+        ])
         .assert()
         .failure()
         .stderr(predicate::str::contains("--top"));
 }
 
 #[test]
-fn markdown_rejects_count() {
-    let fp = fixture_path();
-    // Clap rejects: --metrics and --count are in the same action group
-    // (multiple = false), so they conflict at parse time.
-    cli()
-        .args([
-            "--paths",
-            &fp,
-            "-O",
-            "markdown",
-            "--metrics",
-            "-C",
-            "identifier",
-        ])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("cannot be used with"));
-}
-
-#[test]
-fn output_dir_rejected_for_markdown() {
-    let fp = fixture_path();
+fn report_output_must_not_be_directory() {
     let dir = TempDir::new().unwrap();
     cli()
         .args([
-            "--metrics",
             "--paths",
-            &fp,
-            "-O",
+            &fixture_path(),
+            "report",
             "markdown",
             "--output",
             dir.path().to_str().unwrap(),
@@ -149,19 +71,17 @@ fn output_dir_rejected_for_markdown() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "--output must be a file path when -O markdown is used",
+            "--output must be a file path for `report`",
         ));
 }
 
 #[test]
-fn output_parent_missing_rejected() {
-    let fp = fixture_path();
+fn report_output_parent_must_exist() {
     cli()
         .args([
-            "--metrics",
             "--paths",
-            &fp,
-            "-O",
+            &fixture_path(),
+            "report",
             "markdown",
             "--output",
             "/tmp/nonexistent_dir_12345/report.md",
@@ -174,10 +94,9 @@ fn output_parent_missing_rejected() {
 }
 
 #[test]
-fn markdown_summary_count_to_stdout() {
-    let fp = fixture_path();
+fn report_markdown_to_stdout() {
     cli()
-        .args(["--metrics", "--paths", &fp, "-O", "markdown"])
+        .args(["--paths", &fixture_path(), "report", "markdown"])
         .assert()
         .success()
         .stdout(predicate::str::contains("# Code Quality Metrics Summary"))
@@ -185,16 +104,14 @@ fn markdown_summary_count_to_stdout() {
 }
 
 #[test]
-fn markdown_summary_count_to_file() {
-    let fp = fixture_path();
+fn report_markdown_to_file() {
     let dir = TempDir::new().unwrap();
     let out = dir.path().join("report.md");
     cli()
         .args([
-            "--metrics",
             "--paths",
-            &fp,
-            "-O",
+            &fixture_path(),
+            "report",
             "markdown",
             "--output",
             out.to_str().unwrap(),
@@ -218,10 +135,9 @@ fn markdown_summary_count_to_file() {
 }
 
 #[test]
-fn markdown_collects_nonzero_summaries() {
-    let fp = fixture_path();
+fn report_collects_nonzero_summaries() {
     cli()
-        .args(["--metrics", "--paths", &fp, "-O", "markdown"])
+        .args(["--paths", &fixture_path(), "report", "markdown"])
         .assert()
         .success()
         .stdout(predicate::str::contains("**Functions/methods:** 0").not())
@@ -230,21 +146,21 @@ fn markdown_collects_nonzero_summaries() {
 }
 
 #[test]
-fn markdown_empty_paths_produces_zero_summaries() {
+fn report_with_no_paths_produces_empty_summary() {
     cli()
-        .args(["--metrics", "-O", "markdown"])
+        .args(["report", "markdown"])
         .assert()
         .success()
         .stdout(predicate::str::contains("**Files analyzed:** 0"));
 }
 
 #[test]
-fn markdown_determinism_five_runs() {
+fn report_is_deterministic_across_runs() {
     let fp = fixture_path();
     let outputs: Vec<Vec<u8>> = (0..5)
         .map(|_| {
             cli()
-                .args(["--metrics", "--paths", &fp, "-O", "markdown"])
+                .args(["--paths", &fp, "report", "markdown"])
                 .output()
                 .unwrap()
                 .stdout
@@ -257,10 +173,9 @@ fn markdown_determinism_five_runs() {
 }
 
 #[test]
-fn cbor_without_output_rejects_cleanly() {
-    let fp = fixture_path();
+fn metrics_cbor_without_output_rejects_cleanly() {
     cli()
-        .args(["--metrics", "--paths", &fp, "-O", "cbor"])
+        .args(["--paths", &fixture_path(), "metrics", "-O", "cbor"])
         .assert()
         .failure()
         .stderr(predicate::str::contains(
@@ -269,9 +184,8 @@ fn cbor_without_output_rejects_cleanly() {
 }
 
 #[test]
-fn markdown_strip_prefix_removes_path_prefix() {
+fn report_strip_prefix_removes_path_prefix() {
     let fp = fixture_path();
-    // Strip everything up to and including "DeepSpeech/" so only "stats.py" remains.
     let prefix = {
         let idx = fp
             .find("DeepSpeech/")
@@ -280,10 +194,9 @@ fn markdown_strip_prefix_removes_path_prefix() {
     };
     let output = cli()
         .args([
-            "--metrics",
             "--paths",
             &fp,
-            "-O",
+            "report",
             "markdown",
             "--strip-prefix",
             prefix,
@@ -292,12 +205,10 @@ fn markdown_strip_prefix_removes_path_prefix() {
         .unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    // The stripped path should appear (prefix removed).
     assert!(
         stdout.contains("DeepSpeech/stats.py"),
         "stripped path should appear in report"
     );
-    // The full absolute fixture path should NOT appear.
     assert!(
         !stdout.contains(&fp),
         "full path should be stripped from report, but found: {fp}"

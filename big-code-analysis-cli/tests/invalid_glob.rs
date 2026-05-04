@@ -8,7 +8,7 @@ fn cli() -> Command {
 #[test]
 fn invalid_include_glob_exits_nonzero_with_error() {
     cli()
-        .args(["--metrics", "-I", "[", "--paths", "."])
+        .args(["-I", "[", "--paths", ".", "metrics"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("invalid glob pattern"));
@@ -17,7 +17,7 @@ fn invalid_include_glob_exits_nonzero_with_error() {
 #[test]
 fn invalid_exclude_glob_exits_nonzero_with_error() {
     cli()
-        .args(["--metrics", "-X", "[", "--paths", "."])
+        .args(["-X", "[", "--paths", ".", "metrics"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("invalid glob pattern"));
@@ -26,7 +26,7 @@ fn invalid_exclude_glob_exits_nonzero_with_error() {
 #[test]
 fn valid_glob_does_not_error() {
     cli()
-        .args(["--metrics", "-I", "*.rs", "--paths", "."])
+        .args(["-I", "*.rs", "--paths", ".", "metrics"])
         .assert()
         .success();
 }

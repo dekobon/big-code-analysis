@@ -12,52 +12,52 @@ fn ser_err(e: impl std::error::Error + Send + Sync + 'static) -> std::io::Error 
     std::io::Error::new(std::io::ErrorKind::InvalidData, e)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, ValueEnum)]
+/// Per-file serialization formats accepted by `bca metrics` and `bca ops`.
+/// Aggregated formats (e.g. markdown) live on `bca report` instead — see
+/// [`ReportFormat`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 #[clap(rename_all = "lower")]
-pub enum Format {
+pub(crate) enum MetricsFormat {
     Cbor,
     Json,
-    Markdown,
     Toml,
     Yaml,
 }
 
-impl Format {
-    pub fn dump_formats<T: Serialize>(
-        &self,
+/// Aggregated report formats accepted by `bca report`. Markdown today;
+/// HTML is reserved for a future implementation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[clap(rename_all = "lower")]
+pub(crate) enum ReportFormat {
+    Markdown,
+}
+
+impl MetricsFormat {
+    pub(crate) fn dump<T: Serialize>(
+        self,
         space: T,
         path: PathBuf,
         output_path: Option<&PathBuf>,
         pretty: bool,
     ) -> std::io::Result<()> {
-        // Markdown has no per-file output; post-walk handling lives in main.rs.
-        if matches!(self, Self::Markdown) {
-            return Ok(());
-        }
-
         if let Some(output_path) = output_path {
             match self {
-                Self::Cbor => Cbor::with_writer(space, path, output_path)?,
-                Self::Json => Json::with_pretty_writer(space, path, output_path, pretty)?,
-                Self::Toml => Toml::with_pretty_writer(space, path, output_path, pretty)?,
-                Self::Yaml => Yaml::with_writer(space, path, output_path)?,
-                Self::Markdown => (),
+                Self::Cbor => Cbor::with_writer(space, path, output_path),
+                Self::Json => Json::with_pretty_writer(space, path, output_path, pretty),
+                Self::Toml => Toml::with_pretty_writer(space, path, output_path, pretty),
+                Self::Yaml => Yaml::with_writer(space, path, output_path),
             }
         } else {
             match self {
-                Self::Json => Json::write_on_stdout_pretty(space, pretty)?,
-                Self::Toml => Toml::write_on_stdout_pretty(space, pretty)?,
-                Self::Yaml => Yaml::write_on_stdout(space)?,
-                Self::Cbor => {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::InvalidInput,
-                        CBOR_STDOUT_ERROR,
-                    ));
-                }
-                Self::Markdown => (),
+                Self::Json => Json::write_on_stdout_pretty(space, pretty),
+                Self::Toml => Toml::write_on_stdout_pretty(space, pretty),
+                Self::Yaml => Yaml::write_on_stdout(space),
+                Self::Cbor => Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    CBOR_STDOUT_ERROR,
+                )),
             }
         }
-        Ok(())
     }
 }
 
