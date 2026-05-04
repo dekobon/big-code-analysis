@@ -691,4 +691,216 @@ mod tests {
             },
         );
     }
+
+    #[test]
+    fn php_no_classes() {
+        check_metrics::<PhpParser>(
+            "<?php function f(): int { return 1; }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.wmc),
+        );
+    }
+
+    #[test]
+    fn php_one_class_simple() {
+        check_metrics::<PhpParser>(
+            "<?php
+            class A {
+                public function a(): int { return 1; }
+                public function b(): int { return 2; }
+            }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.wmc),
+        );
+    }
+
+    #[test]
+    fn php_one_class_with_loops() {
+        check_metrics::<PhpParser>(
+            "<?php
+            class A {
+                public function f(int $n): int {
+                    $sum = 0;
+                    for ($i = 0; $i < $n; $i++) {
+                        $sum += $i;
+                    }
+                    return $sum;
+                }
+            }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.wmc),
+        );
+    }
+
+    #[test]
+    fn php_one_class_with_branches() {
+        check_metrics::<PhpParser>(
+            "<?php
+            class A {
+                public function f(int $x): int {
+                    if ($x > 0) {
+                        return 1;
+                    }
+                    if ($x < 0) {
+                        return -1;
+                    }
+                    return 0;
+                }
+            }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.wmc),
+        );
+    }
+
+    #[test]
+    fn php_class_with_methods_only() {
+        check_metrics::<PhpParser>(
+            "<?php
+            class A {
+                public function a(): void {}
+                public function b(): void {}
+                public function c(): void {}
+            }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.wmc),
+        );
+    }
+
+    #[test]
+    fn php_multiple_classes() {
+        check_metrics::<PhpParser>(
+            "<?php
+            class A {
+                public function f(int $x): int {
+                    if ($x > 0) { return 1; }
+                    return 0;
+                }
+            }
+            class B {
+                public function g(int $x): int {
+                    return $x;
+                }
+            }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.wmc),
+        );
+    }
+
+    #[test]
+    fn php_anonymous_class() {
+        check_metrics::<PhpParser>(
+            "<?php
+            $obj = new class {
+                public function f(int $x): int {
+                    if ($x > 0) { return 1; }
+                    return 0;
+                }
+            };",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.wmc),
+        );
+    }
+
+    #[test]
+    fn php_class_with_static_methods() {
+        check_metrics::<PhpParser>(
+            "<?php
+            class A {
+                public static function f(int $x): int {
+                    if ($x > 0) { return 1; }
+                    return 0;
+                }
+                public static function g(): int { return 1; }
+            }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.wmc),
+        );
+    }
+
+    #[test]
+    fn php_interface_wmc() {
+        check_metrics::<PhpParser>(
+            "<?php
+            interface I {
+                public function a(): void;
+                public function b(): int;
+            }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.wmc),
+        );
+    }
+
+    #[test]
+    fn php_trait_wmc() {
+        check_metrics::<PhpParser>(
+            "<?php
+            trait T {
+                public function f(int $x): int {
+                    if ($x > 0) { return 1; }
+                    return 0;
+                }
+            }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.wmc),
+        );
+    }
+
+    #[test]
+    fn php_enum_with_methods() {
+        check_metrics::<PhpParser>(
+            "<?php
+            enum Color {
+                case Red;
+                case Green;
+                public function label(): string {
+                    return match ($this) {
+                        Color::Red => 'r',
+                        Color::Green => 'g',
+                    };
+                }
+            }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.wmc),
+        );
+    }
+
+    #[test]
+    fn php_class_inside_namespace() {
+        check_metrics::<PhpParser>(
+            "<?php
+            namespace App;
+            class A {
+                public function f(int $x): int {
+                    if ($x > 0) { return 1; }
+                    return 0;
+                }
+            }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.wmc),
+        );
+    }
+
+    #[test]
+    fn php_class_complex() {
+        check_metrics::<PhpParser>(
+            "<?php
+            class Calc {
+                public function add(int $a, int $b): int {
+                    if ($a > 0 && $b > 0) {
+                        return $a + $b;
+                    }
+                    return 0;
+                }
+                public function loop(int $n): int {
+                    $s = 0;
+                    for ($i = 0; $i < $n; $i++) {
+                        if ($i % 2 === 0) { $s += $i; }
+                    }
+                    return $s;
+                }
+            }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.wmc),
+        );
+    }
 }

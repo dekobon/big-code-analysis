@@ -1406,4 +1406,190 @@ mod tests {
             assert_eq!(metric.abc.magnitude(), 0.0);
         });
     }
+
+    #[test]
+    fn php_zero_abc() {
+        check_metrics::<PhpParser>("<?php\n", "foo.php", |metric| {
+            insta::assert_json_snapshot!(metric.abc);
+        });
+    }
+
+    #[test]
+    fn php_simple_assignment() {
+        check_metrics::<PhpParser>(
+            "<?php
+function f(): void {
+    $a = 1;
+    $b = 2;
+}",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
+
+    #[test]
+    fn php_augmented_assignment() {
+        check_metrics::<PhpParser>(
+            "<?php
+function f(int $x): int {
+    $a = 0;
+    $a += $x;
+    $a -= 1;
+    $a *= 2;
+    return $a;
+}",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
+
+    #[test]
+    fn php_const_excluded() {
+        // Constant declarations and enum cases are NOT counted as
+        // assignments — they declare immutable values.
+        check_metrics::<PhpParser>(
+            "<?php
+class A {
+    const PI = 3.14;
+    const E = 2.71;
+}
+enum Color {
+    case Red;
+    case Green;
+}",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
+
+    #[test]
+    fn php_function_call() {
+        check_metrics::<PhpParser>(
+            "<?php
+function f(): void {
+    foo();
+    bar(1, 2);
+}",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
+
+    #[test]
+    fn php_method_call() {
+        check_metrics::<PhpParser>(
+            "<?php
+function f($obj): void {
+    $obj->m1();
+    $obj->m2(1);
+}",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
+
+    #[test]
+    fn php_static_call() {
+        check_metrics::<PhpParser>(
+            "<?php
+function f(): void {
+    Foo::bar();
+    Foo::baz(1);
+}",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
+
+    #[test]
+    fn php_nullsafe_call() {
+        check_metrics::<PhpParser>(
+            "<?php
+function f($obj): void {
+    $obj?->m1();
+    $obj?->m2(1);
+}",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
+
+    #[test]
+    fn php_object_creation() {
+        check_metrics::<PhpParser>(
+            "<?php
+function f(): void {
+    new Foo();
+    new Bar(1);
+}",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
+
+    #[test]
+    fn php_comparison_eq() {
+        check_metrics::<PhpParser>(
+            "<?php
+function f(int $a, int $b): bool {
+    return $a == $b || $a != $b;
+}",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
+
+    #[test]
+    fn php_comparison_strict() {
+        check_metrics::<PhpParser>(
+            "<?php
+function f(int $a, int $b): bool {
+    return $a === $b || $a !== $b;
+}",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
+
+    #[test]
+    fn php_spaceship() {
+        check_metrics::<PhpParser>(
+            "<?php
+function f(int $a, int $b): int {
+    return $a <=> $b;
+}",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
+
+    #[test]
+    fn php_instanceof() {
+        check_metrics::<PhpParser>(
+            "<?php
+function f($x): bool {
+    return $x instanceof Foo;
+}",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
+
+    #[test]
+    fn php_complex_function() {
+        // One snippet exercising A, B, C buckets together.
+        check_metrics::<PhpParser>(
+            "<?php
+function f(int $a, int $b): int {
+    $sum = $a + $b;
+    $prod = $a * $b;
+    if ($sum > 0 && $prod === 0) {
+        return foo($sum);
+    }
+    return bar()->double();
+}",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
 }

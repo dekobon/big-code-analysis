@@ -755,4 +755,140 @@ mod tests {
             },
         );
     }
+
+    #[test]
+    fn php_no_class_methods() {
+        check_metrics::<PhpParser>(
+            "<?php class A { public int $x = 0; }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.npm),
+        );
+    }
+
+    #[test]
+    fn php_one_public_method() {
+        check_metrics::<PhpParser>(
+            "<?php class A { public function f(): void {} }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.npm),
+        );
+    }
+
+    #[test]
+    fn php_one_private_method() {
+        check_metrics::<PhpParser>(
+            "<?php class A { private function f(): void {} }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.npm),
+        );
+    }
+
+    #[test]
+    fn php_one_protected_method() {
+        check_metrics::<PhpParser>(
+            "<?php class A { protected function f(): void {} }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.npm),
+        );
+    }
+
+    #[test]
+    fn php_mixed_visibility_methods() {
+        check_metrics::<PhpParser>(
+            "<?php
+            class A {
+                public function a(): void {}
+                public function b(): void {}
+                private function c(): void {}
+                protected function d(): void {}
+            }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.npm),
+        );
+    }
+
+    #[test]
+    fn php_static_public_method() {
+        check_metrics::<PhpParser>(
+            "<?php class A { public static function f(): void {} }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.npm),
+        );
+    }
+
+    #[test]
+    fn php_abstract_method() {
+        check_metrics::<PhpParser>(
+            "<?php abstract class A { abstract public function f(): void; }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.npm),
+        );
+    }
+
+    #[test]
+    fn php_final_public_method() {
+        check_metrics::<PhpParser>(
+            "<?php class A { final public function f(): void {} }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.npm),
+        );
+    }
+
+    #[test]
+    fn php_interface_methods() {
+        // Interface methods are implicitly public.
+        check_metrics::<PhpParser>(
+            "<?php
+            interface I {
+                public function a(): void;
+                public function b(): int;
+            }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.npm),
+        );
+    }
+
+    #[test]
+    fn php_enum_methods() {
+        // Enum can declare public methods (PHP 8.1+).
+        check_metrics::<PhpParser>(
+            "<?php
+            enum Color {
+                case Red;
+                case Green;
+                public function label(): string {
+                    return match ($this) {
+                        Color::Red => 'r',
+                        Color::Green => 'g',
+                    };
+                }
+            }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.npm),
+        );
+    }
+
+    #[test]
+    fn php_trait_methods() {
+        check_metrics::<PhpParser>(
+            "<?php
+            trait T {
+                public function a(): void {}
+                private function b(): void {}
+            }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.npm),
+        );
+    }
+
+    #[test]
+    fn php_no_explicit_visibility_method_excluded() {
+        // Methods without explicit visibility (which PHP treats as public)
+        // are NOT counted under the strict-explicit rule.
+        check_metrics::<PhpParser>(
+            "<?php class A { function f(): void {} }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.npm),
+        );
+    }
 }

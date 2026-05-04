@@ -818,4 +818,172 @@ mod tests {
             },
         );
     }
+
+    #[test]
+    fn php_no_class_attributes() {
+        check_metrics::<PhpParser>(
+            "<?php class A { public function f(): void {} }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.npa),
+        );
+    }
+
+    #[test]
+    fn php_one_public_attribute() {
+        check_metrics::<PhpParser>(
+            "<?php class A { public int $x = 0; }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.npa),
+        );
+    }
+
+    #[test]
+    fn php_one_private_attribute() {
+        check_metrics::<PhpParser>(
+            "<?php class A { private int $x = 0; }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.npa),
+        );
+    }
+
+    #[test]
+    fn php_one_protected_attribute() {
+        check_metrics::<PhpParser>(
+            "<?php class A { protected int $x = 0; }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.npa),
+        );
+    }
+
+    #[test]
+    fn php_mixed_visibility_attributes() {
+        check_metrics::<PhpParser>(
+            "<?php
+            class A {
+                public int $a = 0;
+                public int $b = 0;
+                private int $c = 0;
+                protected int $d = 0;
+            }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.npa),
+        );
+    }
+
+    #[test]
+    fn php_static_public_attribute() {
+        check_metrics::<PhpParser>(
+            "<?php class A { public static int $x = 0; }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.npa),
+        );
+    }
+
+    #[test]
+    fn php_readonly_public_attribute() {
+        check_metrics::<PhpParser>(
+            "<?php class A { public readonly int $x; }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.npa),
+        );
+    }
+
+    #[test]
+    fn php_multiple_attributes_per_declaration() {
+        // A single property_declaration can declare several
+        // property_elements; each counts.
+        check_metrics::<PhpParser>(
+            "<?php class A { public int $a = 0, $b = 0, $c = 0; }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.npa),
+        );
+    }
+
+    #[test]
+    fn php_interface_constants() {
+        // Interface constants are implicitly public.
+        check_metrics::<PhpParser>(
+            "<?php
+            interface I {
+                const A = 1;
+                const B = 2;
+            }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.npa),
+        );
+    }
+
+    #[test]
+    fn php_enum_cases() {
+        // Enum cases are public read-only constants.
+        check_metrics::<PhpParser>(
+            "<?php
+            enum Color {
+                case Red;
+                case Green;
+                case Blue;
+            }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.npa),
+        );
+    }
+
+    #[test]
+    fn php_trait_attributes() {
+        check_metrics::<PhpParser>(
+            "<?php
+            trait T {
+                public int $a = 0;
+                private int $b = 0;
+            }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.npa),
+        );
+    }
+
+    #[test]
+    fn php_no_explicit_visibility_excluded() {
+        // PHP 8.x deprecates implicit-public for properties; we follow
+        // Java's strict-explicit rule and do NOT count properties without
+        // an explicit `public` modifier.
+        check_metrics::<PhpParser>("<?php class A { var $x = 0; }", "foo.php", |metric| {
+            insta::assert_json_snapshot!(metric.npa);
+        });
+    }
+
+    #[test]
+    fn php_anonymous_class_attributes() {
+        // Anonymous classes have their own DeclarationList space and
+        // their public properties count. The Npa impl branches on
+        // `parent_kind == AnonymousClass` and this test exercises that
+        // arm.
+        check_metrics::<PhpParser>(
+            "<?php
+            $obj = new class {
+                public int $a = 0;
+                private int $b = 0;
+            };",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.npa),
+        );
+    }
+
+    #[test]
+    fn php_property_promotion_excluded() {
+        // Constructor property promotion (PHP 8.0+) declares both a
+        // parameter AND a property in one syntax. The promoted property
+        // lives under `formal_parameters`, NOT under
+        // `declaration_list`, so the current Npa impl naturally
+        // excludes it. This is a documented limitation; this test
+        // pins the behavior so a future change that starts counting
+        // promoted properties has to update the test deliberately.
+        check_metrics::<PhpParser>(
+            "<?php
+            class A {
+                public function __construct(public string $x, public int $y) {}
+            }",
+            "foo.php",
+            |metric| insta::assert_json_snapshot!(metric.npa),
+        );
+    }
 }
