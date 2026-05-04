@@ -36,22 +36,22 @@ GET http://127.0.0.1:8080/ping
 **Response:**
 
 - Status Code: `200 OK`
-- Body:
+- Body: empty.
 
-```json
-{
-  "message": "pong"
-}
-```
+Use `curl -sf http://127.0.0.1:8080/ping && echo ok` to script a
+liveness check — `-f` makes curl exit non-zero on any HTTP error.
 
 ### 2. Remove Comments
 
-This endpoint removes comments from the provided source code.
+This endpoint removes comments from the provided source code. It
+accepts two `Content-Type` variants. Use `application/octet-stream`
+for raw byte-in / byte-out, and `application/json` for a JSON
+envelope.
 
 **Request:**
 
 ```http
-POST http://127.0.0.1:8080/comments
+POST http://127.0.0.1:8080/comment
 ```
 
 **Payload:**
@@ -68,14 +68,20 @@ POST http://127.0.0.1:8080/comments
 - `file_name`: The name of the file being analyzed.
 - `code`: The source code with comments.
 
-**Response:**
+**Response (JSON variant):**
 
 ```json
 {
   "id": "unique-id",
-  "code": "source code without comments"
+  "code": [10, 112, 114, 105, 110, 116]
 }
 ```
+
+The `code` field is a **byte array** of the stripped source, not a
+string. Decode it with `jq -r '.code | implode'` (ASCII/UTF-8) or
+the equivalent in your client. The `application/octet-stream`
+variant returns the stripped source as the raw response body, which
+is simpler for shell pipelines.
 
 ### 3. Retrieve Function Spans
 
@@ -84,7 +90,7 @@ This endpoint retrieves the spans of functions in the provided source code.
 **Request:**
 
 ```http
-POST http://127.0.0.1:8080/functions
+POST http://127.0.0.1:8080/function
 ```
 
 **Payload:**
@@ -110,11 +116,15 @@ POST http://127.0.0.1:8080/functions
     {
       "name": "function_name",
       "start_line": 1,
-      "end_line": 10
+      "end_line": 10,
+      "error": false
     }
   ]
 }
 ```
+
+`error` is `true` when the parser flagged the span as malformed
+(e.g. unbalanced delimiters inside the function body).
 
 ### 4. Compute Metrics
 

@@ -1,0 +1,109 @@
+# Quality reports
+
+Recipes for producing aggregated, human-readable Markdown reports.
+
+## Generate a project-wide quality report
+
+Run from the project root and write the report to a file:
+
+```bash
+big-code-analysis-cli \
+    --paths "$PWD" \
+    --num-jobs "$(nproc)" \
+    report markdown \
+    --top 20 \
+    --strip-prefix "$PWD/" \
+    --output report.md
+```
+
+- `--strip-prefix` keeps the file paths short and stable across
+  machines — without it every row carries the absolute path of the
+  current checkout.
+- `--top` controls how many rows appear in each hotspot table. 20 is
+  a good default for a PR comment; drop to 5 for a dashboard tile.
+- `--num-jobs` controls parallelism. The walker is CPU-bound on most
+  modern hardware.
+
+## Limit the report to specific languages
+
+`big-code-analysis-cli` infers language from extension, so the
+include/exclude globs do the filtering:
+
+```bash
+big-code-analysis-cli \
+    --include "*.rs" "*.py" \
+    --paths "$PWD" \
+    report markdown --output report.md
+```
+
+To exclude vendored or generated trees, layer in `--exclude`:
+
+```bash
+big-code-analysis-cli \
+    --include "*.rs" \
+    --exclude "**/target/**" "**/vendor/**" \
+    --paths "$PWD" \
+    report markdown
+```
+
+> **Flag ordering.** `--include` and `--exclude` accept multiple values
+> and stop only when the next flag begins. Put them **before**
+> `--paths` (or any single-value flag) so the subcommand name isn't
+> swallowed as a glob. Equivalent single-value forms with `=` also
+> work: `--include="*.rs" --exclude="**/target/**"`.
+
+## Show only the worst offenders
+
+For a quick triage view that highlights the top three problems per
+section:
+
+```bash
+big-code-analysis-cli -p src/ report markdown --top 3
+```
+
+The report still includes every section, but each table is short
+enough to scan at a glance.
+
+## Compare two revisions
+
+Aggregate reports do not diff revisions on their own. Run the report
+on each side and diff the Markdown:
+
+```bash
+git worktree add /tmp/before main
+big-code-analysis-cli -p /tmp/before report markdown \
+    --strip-prefix /tmp/before/ --output /tmp/before.md
+
+big-code-analysis-cli -p "$PWD" report markdown \
+    --strip-prefix "$PWD/" --output /tmp/after.md
+
+diff -u /tmp/before.md /tmp/after.md | less
+```
+
+Because both reports use the same `--strip-prefix` shape, the path
+columns line up and the diff is dominated by metric changes rather
+than path noise.
+
+## C/C++ preprocessor-aware reports
+
+Macro-heavy C/C++ codebases benefit from feeding preprocessor data
+into the analyzer so that conditional compilation is interpreted the
+way the compiler sees it. The workflow is two steps:
+
+```bash
+# 1. Build a preprocessor-data JSON from the headers and sources.
+big-code-analysis-cli \
+    --paths src/ include/ \
+    preproc \
+    --output /tmp/preproc.json
+
+# 2. Run the report (or any other command) with that data attached.
+big-code-analysis-cli \
+    --paths src/ \
+    --preproc-data /tmp/preproc.json \
+    report markdown --output report.md
+```
+
+`--preproc-data` is a global flag, so it works with `metrics`, `ops`,
+`functions`, and the other subcommands as well — anywhere accurate
+C/C++ analysis matters.
