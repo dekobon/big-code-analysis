@@ -16,6 +16,7 @@
 //! - JavaScript (Firefox-internal, "MozJS")
 //! - Kotlin
 //! - Perl
+//! - PHP
 //! - Python
 //! - Rust
 //! - TSX
