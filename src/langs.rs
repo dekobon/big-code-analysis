@@ -176,6 +176,16 @@ mk_langs!(
         tree_sitter_perl,
         [pl, pm, t],
         ["perl", "cperl"]
+    ),
+    (
+        Php,
+        "The `Php` language",
+        "php",
+        PhpCode,
+        PhpParser,
+        tree_sitter_php,
+        [php, phtml, php3, php4, php5, php7, phps],
+        ["php"]
     )
 );
 

@@ -973,3 +973,103 @@ impl Getter for TclCode {
 
     get_operator!(Tcl);
 }
+
+impl Getter for PhpCode {
+    fn get_space_kind(node: &Node) -> SpaceKind {
+        match node.kind_id().into() {
+            // PHP traits are class-like mixins whose method
+            // implementations roll up into the consuming class's WMC; we
+            // map them to `SpaceKind::Class` so the per-class metrics
+            // (NPA, NPM, WMC) treat them uniformly. The output may label
+            // them "class" — that is intentional for metric coherence.
+            // LOAD-BEARING: `Wmc::compute` for PhpCode does not match
+            // `SpaceKind::Trait`. If you remap `TraitDeclaration` here,
+            // also update `src/metrics/wmc.rs`.
+            Php::ClassDeclaration
+            | Php::AnonymousClass
+            | Php::EnumDeclaration
+            | Php::TraitDeclaration => SpaceKind::Class,
+            Php::InterfaceDeclaration => SpaceKind::Interface,
+            Php::FunctionDefinition
+            | Php::MethodDeclaration
+            | Php::AnonymousFunction
+            | Php::ArrowFunction => SpaceKind::Function,
+            Php::Program => SpaceKind::Unit,
+            _ => SpaceKind::Unknown,
+        }
+    }
+
+    fn get_op_type(node: &Node) -> HalsteadType {
+        use Php::*;
+        match node.kind_id().into() {
+            // Operator: control-flow keywords
+            If | Else | Elseif | Endif
+            | Switch | Case | Default | Endswitch
+            | For | Endfor | Foreach | Endforeach
+            | While | Endwhile | Do
+            | Break | Continue
+            | Return | Throw | Try | Catch | Finally
+            | Match | Yield | Yieldfrom | Goto
+            | Echo | Exit | Print
+            | Include | IncludeOnce | Require | RequireOnce
+
+            // Operator: declaration keywords
+            | Function | Class | Interface | Trait | Enum | Namespace
+            | Use | Const | Global | Static | VarModifier
+            | Public | Protected | Private
+            | Final | Abstract | Readonly
+            | New | Clone | Instanceof | As | Insteadof | Extends | Implements
+            | Fn | Declare | Enddeclare | Unset | List
+            | Zelf | Parent
+
+            // Operator: structural punctuation
+            | LBRACE | RBRACE | LPAREN | LPAREN2 | RPAREN | RPAREN2
+            | LBRACK | RBRACK
+            | COMMA | SEMI | COLON | COLONCOLON
+            | DASHGT | QMARKDASHGT | EQGT | BSLASH | DOTDOTDOT | QMARK | AT
+            | HASHLBRACK
+
+            // Operator: arithmetic
+            | PLUS | DASH | STAR | SLASH | PERCENT | STARSTAR
+            | PLUSPLUS | DASHDASH
+
+            // Operator: comparison
+            | EQEQ | EQEQEQ | BANGEQ | BANGEQEQ | LTGT
+            | LT | GT | LTEQ | GTEQ | LTEQGT
+
+            // Operator: logical
+            | AMPAMP | PIPEPIPE | BANG
+            | And | Or | Xor | QMARKQMARK
+
+            // Operator: bitwise
+            | AMP | PIPE | CARET | TILDE | LTLT | GTGT
+
+            // Operator: assignment
+            | EQ
+            | PLUSEQ | DASHEQ | STAREQ | SLASHEQ | PERCENTEQ | STARSTAREQ
+            | DOTEQ | QMARKQMARKEQ
+            | AMPEQ | PIPEEQ | CARETEQ | LTLTEQ | GTGTEQ
+
+            // Operator: string concat
+            | DOT
+                => HalsteadType::Operator,
+
+            // Operands: identifiers and literals
+            Name | Name2 | VariableName | DynamicVariableName
+            | Integer | Float | Float2
+            | String | String2 | String3
+            | EncapsedString | Heredoc | Nowdoc
+            | Boolean | Null | Null2
+            | NamedType | OptionalType | UnionType | IntersectionType
+            | DisjunctiveNormalFormType | BottomType
+            | PrimitiveType | CastType
+            | QualifiedName | RelativeName | NamespaceName
+            | Int | Bool | Array | Object
+                => HalsteadType::Operand,
+
+            _ => HalsteadType::Unknown,
+        }
+    }
+
+    get_operator!(Php);
+}

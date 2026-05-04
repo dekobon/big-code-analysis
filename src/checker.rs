@@ -1048,6 +1048,92 @@ impl Checker for TclCode {
     }
 }
 
+impl Checker for PhpCode {
+    fn is_comment(node: &Node) -> bool {
+        node.kind_id() == Php::Comment
+    }
+
+    fn is_useful_comment(_: &Node, _: &[u8]) -> bool {
+        false
+    }
+
+    fn is_func_space(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Php::Program
+                | Php::FunctionDefinition
+                | Php::MethodDeclaration
+                | Php::AnonymousFunction
+                | Php::ArrowFunction
+                | Php::ClassDeclaration
+                | Php::InterfaceDeclaration
+                | Php::TraitDeclaration
+                | Php::EnumDeclaration
+                | Php::AnonymousClass
+        )
+    }
+
+    fn is_func(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Php::FunctionDefinition | Php::MethodDeclaration
+        )
+    }
+
+    fn is_closure(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Php::AnonymousFunction | Php::ArrowFunction
+        )
+    }
+
+    // Intentionally narrower than ABC's `branches` set: ABC additionally
+    // counts `ObjectCreationExpression` (`new Foo()`) as a branch, but
+    // `is_call` drives the `--ops` CLI feature and should match the
+    // user's mental model of "function/method call sites" (mirrors
+    // Java's `is_call` = `MethodInvocation` while ABC counts
+    // `MethodInvocation | New`).
+    fn is_call(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Php::FunctionCallExpression
+                | Php::MemberCallExpression
+                | Php::ScopedCallExpression
+                | Php::NullsafeMemberCallExpression
+        )
+    }
+
+    fn is_non_arg(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Php::LPAREN | Php::LPAREN2 | Php::COMMA | Php::RPAREN | Php::RPAREN2 | Php::DOTDOTDOT
+        )
+    }
+
+    fn is_string(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Php::String
+                | Php::EncapsedString
+                | Php::Heredoc
+                | Php::Nowdoc
+                | Php::ShellCommandExpression
+        )
+    }
+
+    #[inline(always)]
+    fn is_else_if(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Php::ElseIfClause | Php::ElseIfClause2
+        )
+    }
+
+    fn is_primitive(_: u16) -> bool {
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

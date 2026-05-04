@@ -306,6 +306,35 @@ impl Cyclomatic for LuaCode {
     }
 }
 
+impl Cyclomatic for PhpCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        use Php::*;
+
+        match node.kind_id().into() {
+            IfStatement
+            | ElseIfClause
+            | ElseIfClause2
+            | ForStatement
+            | ForeachStatement
+            | WhileStatement
+            | DoStatement
+            | CaseStatement
+            | MatchConditionalExpression
+            | ConditionalExpression
+            | CatchClause
+            | AMPAMP
+            | PIPEPIPE
+            | And
+            | Or
+            | Xor
+            | QMARKQMARK => {
+                stats.cyclomatic += 1.;
+            }
+            _ => {}
+        }
+    }
+}
+
 implement_metric_trait!(Cyclomatic, PreprocCode, CcommentCode);
 
 impl Cyclomatic for BashCode {

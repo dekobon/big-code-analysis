@@ -140,6 +140,23 @@ impl Wmc for JavaCode {
     }
 }
 
+impl Wmc for PhpCode {
+    fn compute(space_kind: SpaceKind, cyclomatic: &cyclomatic::Stats, stats: &mut Stats) {
+        use SpaceKind::*;
+
+        // Anonymous classes, enums, and traits all map to `Class` via
+        // `Getter::get_space_kind`, so a single `Class` arm covers them.
+        if let Unit | Class | Interface | Function = space_kind {
+            if stats.space_kind == Unknown {
+                stats.space_kind = space_kind;
+            }
+            if space_kind == Function {
+                stats.cyclomatic = cyclomatic.cyclomatic_sum();
+            }
+        }
+    }
+}
+
 implement_metric_trait!(
     Wmc,
     PythonCode,

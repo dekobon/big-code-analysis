@@ -217,6 +217,22 @@ impl Alterator for TclCode {
     }
 }
 
+impl Alterator for PhpCode {
+    fn alterate(node: &Node, code: &[u8], span: bool, children: Vec<AstNode>) -> AstNode {
+        match Php::from(node.kind_id()) {
+            Php::String
+            | Php::EncapsedString
+            | Php::Heredoc
+            | Php::Nowdoc
+            | Php::ShellCommandExpression => {
+                let (text, span) = Self::get_text_span(node, code, span, true);
+                AstNode::new(node.kind(), text, span, Vec::new())
+            }
+            _ => Self::get_default(node, code, span, children),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;

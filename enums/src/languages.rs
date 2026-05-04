@@ -18,5 +18,6 @@ mk_langs!(
     (Preproc, tree_sitter_preproc),
     (Mozjs, tree_sitter_mozjs),
     (Javascript, tree_sitter_javascript),
-    (Perl, tree_sitter_perl)
+    (Perl, tree_sitter_perl),
+    (Php, tree_sitter_php)
 );

@@ -30,6 +30,9 @@ pub use language_javascript::*;
 pub mod language_perl;
 pub use language_perl::*;
 
+pub mod language_php;
+pub use language_php::*;
+
 pub mod language_python;
 pub use language_python::*;
 
