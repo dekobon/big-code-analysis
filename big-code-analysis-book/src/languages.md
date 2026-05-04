@@ -15,6 +15,7 @@ This is the list of programming languages parsed by
 - [x] Lua
 - [x] Mozjs
 - [x] Perl
+- [x] Php
 - [x] Python
 - [x] Rust
 - [x] Tcl
