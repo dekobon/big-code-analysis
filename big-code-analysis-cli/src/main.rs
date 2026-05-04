@@ -195,8 +195,8 @@ enum Action {
         in_place: bool,
     },
     Functions,
-    Find(Vec<String>),
-    Count(Vec<String>),
+    Find(Arc<[String]>),
+    Count(Arc<[String]>),
     /// Same walk as `Metrics`, but taps each space tree to stream
     /// `FunctionSummary` records for the post-walk aggregator.
     Report,
@@ -335,7 +335,7 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
         Action::Find(filters) => {
             let find_cfg = FindCfg {
                 path: path.clone(),
-                filters: filters.clone(),
+                filters: filters.to_vec(),
                 line_start: cfg.line_start,
                 line_end: cfg.line_end,
             };
@@ -347,7 +347,7 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
                 .clone()
                 .expect("Count handler initializes count_lock before dispatch");
             let count_cfg = CountCfg {
-                filters: filters.clone(),
+                filters: filters.to_vec(),
                 stats,
             };
             action::<Count>(&language, source, &path, pr, count_cfg)
@@ -611,14 +611,14 @@ fn main() {
             }
         }
         Command::Find(args) => {
-            let cfg = Config::new(Action::Find(args.nodes), &cli.globals, preproc);
+            let cfg = Config::new(Action::Find(args.nodes.into()), &cli.globals, preproc);
             run_walk(cli.globals, cfg);
         }
         Command::Count(args) => {
             let count_lock = Arc::new(Mutex::new(Count::default()));
             let cfg = Config {
                 count_lock: Some(count_lock.clone()),
-                ..Config::new(Action::Count(args.nodes), &cli.globals, preproc)
+                ..Config::new(Action::Count(args.nodes.into()), &cli.globals, preproc)
             };
             run_walk(cli.globals, cfg);
 
