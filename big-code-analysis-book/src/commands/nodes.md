@@ -13,13 +13,15 @@ source file.
 To detect syntactic errors in your code, run:
 
 ```bash
-big-code-analysis-cli -p /path/to/your/file/or/directory -I "*.ext" find error
+big-code-analysis-cli -I "*.ext" -p /path/to/your/file/or/directory find ERROR
 ```
 
 - `-p, --paths`: file or directory (analyzes all files when given a
   directory).
 - `-I, --include`: glob filter for selecting files by extension (e.g.
-  `*.js`, `*.rs`).
+  `*.js`, `*.rs`). Variadic — put it **before** `-p` so the
+  subcommand isn't swallowed as another glob, or use the `-I=GLOB`
+  single-value form.
 - `find <NODE>`: search for nodes of a specific type (one or more
   positional names).
 
@@ -28,7 +30,7 @@ big-code-analysis-cli -p /path/to/your/file/or/directory -I "*.ext" find error
 Count occurrences of one or more node types with the `count` command:
 
 ```bash
-big-code-analysis-cli -p /path/to/your/file/or/directory -I "*.ext" \
+big-code-analysis-cli -I "*.ext" -p /path/to/your/file/or/directory \
     count <NODE_TYPE> [<NODE_TYPE>...]
 ```
 
