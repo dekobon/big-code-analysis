@@ -145,7 +145,7 @@ def main() -> None:
             # Iterate over metrics
             for metric_name, metric_files in metrics_saver.items():
                 # Check if there is a metric difference in a file
-                m = re.search(rf"(\.{metric_name})", file_no_pre)
+                m = re.search(rf"(\.{re.escape(metric_name)})", file_no_pre)
 
                 # If some errors occurred, skip to the next metric
                 if m is None:
