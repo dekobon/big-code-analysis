@@ -4,7 +4,7 @@ use std::fmt;
 
 use crate::checker::Checker;
 use crate::langs::*;
-use crate::macros::implement_metric_trait;
+use crate::macros::{csharp_var_decl_kinds, csharp_var_declarator_kinds, implement_metric_trait};
 use crate::node::Node;
 use crate::*;
 
@@ -293,12 +293,7 @@ impl Npa for CsharpCode {
                     .children()
                     .filter(|c| matches!(c.kind_id().into(), FieldDeclaration))
                 {
-                    let attributes = declaration
-                        .children()
-                        .filter(|c| matches!(c.kind_id().into(), VariableDeclaration))
-                        .flat_map(|c| c.children())
-                        .filter(|c| matches!(c.kind_id().into(), VariableDeclarator))
-                        .count();
+                    let attributes = csharp_count_field_declarators(&declaration);
                     stats.class_na += attributes;
                     if csharp_is_explicit_public(&declaration) {
                         stats.class_npa += attributes;
@@ -313,12 +308,7 @@ impl Npa for CsharpCode {
                     .children()
                     .filter(|c| matches!(c.kind_id().into(), FieldDeclaration))
                 {
-                    let attributes = declaration
-                        .children()
-                        .filter(|c| matches!(c.kind_id().into(), VariableDeclaration))
-                        .flat_map(|c| c.children())
-                        .filter(|c| matches!(c.kind_id().into(), VariableDeclarator))
-                        .count();
+                    let attributes = csharp_count_field_declarators(&declaration);
                     stats.interface_na += attributes;
                     stats.interface_npa = stats.interface_na;
                 }
@@ -326,6 +316,18 @@ impl Npa for CsharpCode {
             _ => {}
         }
     }
+}
+
+// Count `VariableDeclarator`s nested under any aliased `VariableDeclaration`
+// inside a C# `FieldDeclaration`. Both kinds emit two aliased `kind_id`s
+// each; the macros centralize the alias union (lesson #2).
+fn csharp_count_field_declarators(field_decl: &Node) -> usize {
+    field_decl
+        .children()
+        .filter(|c| matches!(c.kind_id().into(), csharp_var_decl_kinds!()))
+        .flat_map(|c| c.children())
+        .filter(|c| matches!(c.kind_id().into(), csharp_var_declarator_kinds!()))
+        .count()
 }
 
 // PHP's strict-explicit visibility rule (mirroring Java's pattern): a

@@ -3,7 +3,10 @@ use serde::ser::{SerializeStruct, Serializer};
 use std::fmt;
 
 use crate::checker::Checker;
-use crate::macros::implement_metric_trait;
+use crate::macros::{
+    csharp_invocation_expr_kinds, csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds,
+    csharp_var_declarator_kinds, implement_metric_trait,
+};
 use crate::node::Node;
 use crate::*;
 
@@ -334,10 +337,12 @@ fn csharp_inspect_container(container_node: &Node, conditions: &mut f64) {
     };
 
     // Walk down through `(...)` and `!...` wrappers until we either hit
-    // the underlying operand or run out of nesting.
+    // the underlying operand or run out of nesting. The C# grammar
+    // aliases each of these kinds across multiple `kind_id`s
+    // (lesson #2): match every numbered variant.
     loop {
-        let is_parens = matches!(node_kind, ParenthesizedExpression);
-        let is_not = matches!(node_kind, PrefixUnaryExpression)
+        let is_parens = matches!(node_kind, csharp_paren_expr_kinds!());
+        let is_not = matches!(node_kind, csharp_prefix_unary_expr_kinds!())
             && node
                 .child(0)
                 .is_some_and(|c| matches!(c.kind_id().into(), BANG));
@@ -360,7 +365,10 @@ fn csharp_inspect_container(container_node: &Node, conditions: &mut f64) {
 
         // Found the innermost operand; count it if a boolean context
         // was established up the chain.
-        if matches!(node_kind, InvocationExpression | Identifier | True | False) {
+        if matches!(
+            node_kind,
+            csharp_invocation_expr_kinds!() | Identifier | True | False
+        ) {
             if has_boolean_content {
                 *conditions += 1.;
             }
@@ -380,8 +388,10 @@ fn csharp_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             let node = cursor.node();
             let node_kind = node.kind_id().into();
 
-            if matches!(node_kind, InvocationExpression | Identifier | True | False)
-                && matches!(list_kind, BinaryExpression)
+            if matches!(
+                node_kind,
+                csharp_invocation_expr_kinds!() | Identifier | True | False
+            ) && matches!(list_kind, BinaryExpression)
                 && !matches!(list_kind, ArgumentList)
             {
                 *conditions += 1.;
@@ -763,7 +773,7 @@ impl Abc for CsharpCode {
                     stats.assignments += 1.;
                 }
             }
-            InvocationExpression | ObjectCreationExpression => {
+            csharp_invocation_expr_kinds!() | ObjectCreationExpression => {
                 stats.branches += 1.;
             }
             GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | Default | QMARK | Try | Catch => {
@@ -792,14 +802,14 @@ impl Abc for CsharpCode {
             ArgumentList => {
                 csharp_count_unary_conditions(node, &mut stats.conditions);
             }
-            VariableDeclarator | AssignmentExpression => {
+            csharp_var_declarator_kinds!() | AssignmentExpression => {
                 // Child 2 is the RHS of `lhs = rhs`.
                 inspect_csharp_child(node, 2, &mut stats.conditions);
             }
             IfStatement | WhileStatement => {
                 // Child 1 is the parenthesised condition: `if (cond) ...`.
                 if let Some(condition) = node.child(1)
-                    && matches!(condition.kind_id().into(), ParenthesizedExpression)
+                    && matches!(condition.kind_id().into(), csharp_paren_expr_kinds!())
                 {
                     csharp_inspect_container(&condition, &mut stats.conditions);
                 }
@@ -808,7 +818,7 @@ impl Abc for CsharpCode {
                 // `do { ... } while (cond);` — condition sits at child 3
                 // (children: `do`, body, `while`, `(cond)`, `;`).
                 if let Some(condition) = node.child(3)
-                    && matches!(condition.kind_id().into(), ParenthesizedExpression)
+                    && matches!(condition.kind_id().into(), csharp_paren_expr_kinds!())
                 {
                     csharp_inspect_container(&condition, &mut stats.conditions);
                 }
@@ -825,10 +835,10 @@ impl Abc for CsharpCode {
                 // `cond ? a : b` — children are [cond, ?, a, :, b].
                 if let Some(condition) = node.child(0) {
                     match condition.kind_id().into() {
-                        InvocationExpression | Identifier | True | False => {
+                        csharp_invocation_expr_kinds!() | Identifier | True | False => {
                             stats.conditions += 1.;
                         }
-                        ParenthesizedExpression | PrefixUnaryExpression => {
+                        csharp_paren_expr_kinds!() | csharp_prefix_unary_expr_kinds!() => {
                             csharp_inspect_container(&condition, &mut stats.conditions);
                         }
                         _ => {}
@@ -855,11 +865,10 @@ impl Abc for CsharpCode {
 // Used by every C# Abc match arm whose condition sits at a known child
 // index (assignments, returns, lambdas, ternaries).
 fn inspect_csharp_child(node: &Node, idx: usize, conditions: &mut f64) {
-    use Csharp::*;
     if let Some(child) = node.child(idx)
         && matches!(
             child.kind_id().into(),
-            ParenthesizedExpression | PrefixUnaryExpression
+            csharp_paren_expr_kinds!() | csharp_prefix_unary_expr_kinds!()
         )
     {
         csharp_inspect_container(&child, conditions);
@@ -1869,6 +1878,30 @@ mod tests {
             }",
             "foo.cs",
             |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
+
+    #[test]
+    fn csharp_aliased_invocation_expression_branches() {
+        // Regression for issue #94 (lesson #2): the C# grammar emits three
+        // aliased `kind_id`s for `invocation_expression`. Code that matches
+        // only the unsuffixed `Csharp::InvocationExpression` undercounts ABC
+        // branches whenever the AST emits an aliased variant. The three
+        // method calls live in `M`, so the per-method maximum (visible at
+        // the unit-space aggregate as `branches_max`) must be 3.
+        check_metrics::<CsharpParser>(
+            "class A {
+                void M() {
+                    System.Console.WriteLine(1);
+                    System.Console.WriteLine(2);
+                    System.Console.WriteLine(3);
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.abc.branches_max(), 3.0);
+                assert_eq!(metric.abc.conditions_max(), 0.0);
+            },
         );
     }
 
