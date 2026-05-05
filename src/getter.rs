@@ -591,6 +591,75 @@ impl Getter for JavaCode {
     }
 }
 
+impl Getter for CsharpCode {
+    fn get_space_kind(node: &Node) -> SpaceKind {
+        use Csharp::*;
+
+        match node.kind_id().into() {
+            ClassDeclaration | StructDeclaration | RecordDeclaration => SpaceKind::Class,
+            InterfaceDeclaration => SpaceKind::Interface,
+            MethodDeclaration
+            | ConstructorDeclaration
+            | DestructorDeclaration
+            | LocalFunctionStatement
+            | LambdaExpression
+            | AnonymousMethodExpression
+            | AccessorDeclaration
+            | OperatorDeclaration
+            | ConversionOperatorDeclaration
+            | IndexerDeclaration => SpaceKind::Function,
+            CompilationUnit => SpaceKind::Unit,
+            _ => SpaceKind::Unknown,
+        }
+    }
+
+    fn get_op_type(node: &Node) -> HalsteadType {
+        use Csharp::*;
+
+        match node.kind_id().into() {
+            // Control-flow keywords
+            If | Else | Switch | Case | Default | Try | Catch | Finally | Throw
+            | Return | Yield | Break | Continue | Goto | For | Foreach | While | Do
+            // Declaration / namespace keywords
+            | Class | Struct | Interface | Enum | Record | Delegate | Namespace | Using
+            // Modifiers
+            | Public | Private | Protected | Internal | Static | Abstract | Virtual
+            | Override | Sealed | Partial | Readonly | Const | Extern | Unsafe
+            | Volatile | Async | Required | File | New | Fixed | Implicit | Explicit
+            // Expression-keyword operators
+            | Await | Is | As | Typeof | Sizeof | Checked | Unchecked | Ref | Out | In
+            | Params | This | Base | Lock | Stackalloc | Where | With | When | Operator
+            | Scoped | Not | And | Or
+            // Property/event accessor keywords
+            | Get | Set | Init | Add | Remove
+            // Structural punctuation
+            | LBRACE | LBRACK | LPAREN | COMMA | SEMI | COLON | COLONCOLON | DOT
+            | DOTDOT | EQGT | DASHGT | QMARK
+            // Arithmetic / comparison / logical / bitwise / assignment operators
+            | EQ | EQEQ | BANGEQ | LT | GT | LTEQ | GTEQ
+            | PLUS | DASH | STAR | SLASH | PERCENT
+            | AMP | PIPE | CARET | TILDE | BANG
+            | AMPAMP | PIPEPIPE | QMARKQMARK
+            | LTLT | GTGT | GTGTGT
+            | PLUSPLUS | DASHDASH
+            | PLUSEQ | DASHEQ | STAREQ | SLASHEQ | PERCENTEQ
+            | AMPEQ | PIPEEQ | CARETEQ | LTLTEQ | GTGTEQ | GTGTGTEQ | QMARKQMARKEQ
+            // Predefined / primitive types
+            | PredefinedType
+                => HalsteadType::Operator,
+            // Operands: identifiers and literals
+            Identifier | GenericName | QualifiedName | AliasQualifiedName
+            | IntegerLiteral | RealLiteral | BooleanLiteral | NullLiteral | True | False
+            | CharacterLiteral | StringLiteral | VerbatimStringLiteral | RawStringLiteral
+            | InterpolatedStringExpression
+                => HalsteadType::Operand,
+            _ => HalsteadType::Unknown,
+        }
+    }
+
+    get_operator!(Csharp);
+}
+
 impl Getter for KotlinCode {
     fn get_space_kind(node: &Node) -> SpaceKind {
         use Kotlin::*;

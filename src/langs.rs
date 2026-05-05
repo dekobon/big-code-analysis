@@ -108,6 +108,16 @@ mk_langs!(
         ["c++", "c", "objc", "objc++", "objective-c++", "objective-c"]
     ),
     (
+        Csharp,
+        "The `C#` language",
+        "c#",
+        CsharpCode,
+        CsharpParser,
+        tree_sitter_c_sharp,
+        [cs, csx, cake],
+        ["csharp"]
+    ),
+    (
         Python,
         "The `Python` language",
         "python",
