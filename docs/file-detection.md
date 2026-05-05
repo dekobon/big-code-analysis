@@ -30,11 +30,12 @@ Lowercases the file's extension and looks it up. Returns `None` if the
 path has no extension, the extension is not valid UTF-8, or no language
 claims that extension. This is the cheap path — no buffer required.
 
-### `guess_language(buf, path)` — extension + mode line
+### `guess_language(buf, path)` — extension + mode line + shebang
 
 Combines the extension lookup with an Emacs/Vim *mode line* scan of the
-buffer. Returns `(Option<LANG>, &str)` where the second element is the
-human-readable name (`"c/c++"`, `"obj-c/c++"`, etc.).
+buffer and a shebang scan of the first line. Returns `(Option<LANG>,
+&str)` where the second element is the human-readable name (`"c/c++"`,
+`"obj-c/c++"`, etc.).
 
 Mode line scanning runs three regexes (compiled once via `OnceLock`):
 
@@ -63,9 +64,38 @@ as follows:
    `LANG`).
 3. **Only extension matches** — return it.
 4. **Only mode matches** — return it.
-5. **Neither matches** — return `(None, "")`, with the Objective-C
+5. **Only shebang matches** — return it. The shebang signal is
+   consulted **after** the extension and mode-line lookups have both
+   come back empty, so an explicit `.py` extension or `mode: python`
+   line on a script with `#!/bin/sh` still resolves to Python.
+6. **Nothing matches** — return `(None, "")`, with the Objective-C
    override still able to set a display name (e.g. for a `.m` file
    whose extension we map to `Cpp` already).
+
+#### Shebang scan
+
+The shebang scan handles extensionless scripts whose interpreter is
+unambiguous. It triggers only when the buffer starts with `#!` and
+recognises both the bare (`#!/bin/bash`) and `env`-wrapped
+(`#!/usr/bin/env python3`) forms. For `env`-wrapped shebangs, leading
+`-FLAG` tokens (including `-S`) and `NAME=value` assignments are
+skipped to find the actual interpreter. Trailing version digits and
+dots are stripped (`python3` → `python`, `lua5.1` → `lua`,
+`perl5.36` → `perl`) before lookup.
+
+| Interpreter basename | LANG |
+|----------------------|------|
+| `sh`, `bash`, `dash`, `ksh`, `zsh` | `Bash` |
+| `python`, `python2`, `python3` | `Python` |
+| `perl`, `perl5` | `Perl` |
+| `lua`, `lua5.x`, `luajit` | `Lua` |
+| `php`, `php-cgi` | `Php` |
+| `node`, `nodejs` | `Javascript` |
+| `tclsh`, `wish` | `Tcl` |
+
+A non-UTF-8 shebang line yields `None` (no panic). Anything other
+than the interpreters above is unrecognised and falls through to the
+final `(None, "")` result.
 
 ### The Objective-C overlay (`fake::get_true`)
 
@@ -134,6 +164,8 @@ If `guess_language` returns `(None, _)`:
 - The REST server returns an error to the caller.
 - The library leaves it to the caller — there is no default parser.
 
-There is no shebang detection, no content-based heuristic, and no MIME
-sniffing. Add a missing extension or Emacs mode to `mk_langs!` rather
-than working around it at the call site.
+Beyond the shebang scan described above, there is no content-based
+heuristic and no MIME sniffing. Add a missing extension or Emacs mode
+to `mk_langs!` rather than working around it at the call site, and
+extend the shebang interpreter table in `src/tools.rs` if a new
+script interpreter needs to be recognised.
