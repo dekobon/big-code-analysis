@@ -362,6 +362,12 @@ impl Halstead for JavaCode {
     }
 }
 
+impl Halstead for CsharpCode {
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], halstead_maps: &mut HalsteadMaps<'a>) {
+        compute_halstead::<Self>(node, code, halstead_maps);
+    }
+}
+
 impl Halstead for GoCode {
     fn compute<'a>(node: &Node<'a>, code: &'a [u8], halstead_maps: &mut HalsteadMaps<'a>) {
         compute_halstead::<Self>(node, code, halstead_maps);
@@ -816,6 +822,48 @@ mod tests {
                 }
                 "#
                 );
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_operators_and_operands() {
+        check_metrics::<CsharpParser>(
+            "public class Main {
+                public static void Run(string[] args) {
+                    int a, b, c, avg;
+                    a = 5; b = 5; c = 5;
+                    avg = (a + b + c) / 3;
+                    System.Console.WriteLine(\"{0}\", avg);
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                // Pin every Halstead field; values are whatever the
+                // classifier produces and become the regression spec.
+                insta::assert_json_snapshot!(metric.halstead);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_primitive_types_and_booleans() {
+        check_metrics::<CsharpParser>(
+            "public class Prims {
+                byte a = 1;
+                short b = 2;
+                int c = 3;
+                long d = 4;
+                char e = 'x';
+                float f = 1.0f;
+                double g = 2.0;
+                bool h = true;
+                bool i = false;
+                object j = null;
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.halstead);
             },
         );
     }

@@ -312,6 +312,90 @@ fn java_inspect_container(container_node: &Node, conditions: &mut f64) {
     }
 }
 
+// C# analogue of `java_inspect_container`: walks parenthesised expressions
+// and `!` (PrefixUnaryExpression) wrappers to surface a unary boolean
+// condition contained within.
+fn csharp_inspect_container(container_node: &Node, conditions: &mut f64) {
+    use Csharp::*;
+
+    let mut node = *container_node;
+    let mut node_kind = node.kind_id().into();
+
+    // Seed the boolean-context flag from the parent: known-boolean
+    // contexts (loop / if / binary expression) imply the contained
+    // expression evaluates as a condition.
+    let Some(parent) = node.parent() else { return };
+    let mut has_boolean_content = match parent.kind_id().into() {
+        BinaryExpression | IfStatement | WhileStatement | DoStatement | ForStatement => true,
+        ConditionalExpression => node
+            .previous_sibling()
+            .is_none_or(|prev| !matches!(prev.kind_id().into(), QMARK | COLON)),
+        _ => false,
+    };
+
+    // Walk down through `(...)` and `!...` wrappers until we either hit
+    // the underlying operand or run out of nesting.
+    loop {
+        let is_parens = matches!(node_kind, ParenthesizedExpression);
+        let is_not = matches!(node_kind, PrefixUnaryExpression)
+            && node
+                .child(0)
+                .is_some_and(|c| matches!(c.kind_id().into(), BANG));
+
+        if !is_parens && !is_not {
+            break;
+        }
+
+        // A `!` wrapper proves the contained value is boolean even
+        // when the parent context didn't (e.g. `return !x;`).
+        if !has_boolean_content && is_not {
+            has_boolean_content = true;
+        }
+
+        // Both `parenthesized_expression` and `prefix_unary_expression`
+        // store their inner expression at child index 1.
+        let Some(child) = node.child(1) else { break };
+        node = child;
+        node_kind = node.kind_id().into();
+
+        // Found the innermost operand; count it if a boolean context
+        // was established up the chain.
+        if matches!(node_kind, InvocationExpression | Identifier | True | False) {
+            if has_boolean_content {
+                *conditions += 1.;
+            }
+            break;
+        }
+    }
+}
+
+fn csharp_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
+    use Csharp::*;
+
+    let list_kind = list_node.kind_id().into();
+    let mut cursor = list_node.cursor();
+
+    if cursor.goto_first_child() {
+        loop {
+            let node = cursor.node();
+            let node_kind = node.kind_id().into();
+
+            if matches!(node_kind, InvocationExpression | Identifier | True | False)
+                && matches!(list_kind, BinaryExpression)
+                && !matches!(list_kind, ArgumentList)
+            {
+                *conditions += 1.;
+            } else {
+                csharp_inspect_container(&node, conditions);
+            }
+
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+}
+
 // Inspects a list of elements and counts any unary conditional expression found
 fn java_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
     use Java::*;
@@ -642,6 +726,143 @@ impl Abc for JavaCode {
             }
             _ => {}
         }
+    }
+}
+
+impl Abc for CsharpCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        use Csharp::*;
+
+        match node.kind_id().into() {
+            STAREQ | SLASHEQ | PERCENTEQ | DASHEQ | PLUSEQ | LTLTEQ | GTGTEQ | GTGTGTEQ | AMPEQ
+            | PIPEEQ | CARETEQ | QMARKQMARKEQ | PLUSPLUS | DASHDASH => {
+                stats.assignments += 1.;
+            }
+            FieldDeclaration | LocalDeclarationStatement => {
+                stats.declaration.push(DeclKind::Var);
+            }
+            // C# `const` modifier marks a compile-time constant — exclude
+            // its initializer from the assignment count (matches Java's
+            // treatment of `final`).
+            Const => {
+                if let Some(DeclKind::Var) = stats.declaration.last() {
+                    stats.declaration.push(DeclKind::Const);
+                }
+            }
+            SEMI => {
+                if let Some(DeclKind::Const | DeclKind::Var) = stats.declaration.last() {
+                    stats.declaration.clear();
+                }
+            }
+            EQ => {
+                // Count `=` as an assignment unless it's the initializer of
+                // a `const` declaration (those are constant bindings, not
+                // mutable assignments). `None` means we're outside any
+                // declaration — still count.
+                if !matches!(stats.declaration.last(), Some(DeclKind::Const)) {
+                    stats.assignments += 1.;
+                }
+            }
+            InvocationExpression | ObjectCreationExpression => {
+                stats.branches += 1.;
+            }
+            GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | Default | QMARK | Try | Catch => {
+                stats.conditions += 1.;
+            }
+            GT | LT => {
+                // Excludes `<` and `>` used as type-syntax delimiters:
+                // generic type arguments (`Dictionary<K, V>`), type
+                // parameter declarations (`class Foo<T> { }`), and the
+                // parameter-list delimiters of unsafe function-pointer
+                // types (`delegate*<int, int>`).
+                if let Some(parent) = node.parent()
+                    && !matches!(
+                        parent.kind_id().into(),
+                        TypeArgumentList | TypeParameterList | FunctionPointerType
+                    )
+                {
+                    stats.conditions += 1.;
+                }
+            }
+            AMPAMP | PIPEPIPE => {
+                if let Some(parent) = node.parent() {
+                    csharp_count_unary_conditions(&parent, &mut stats.conditions);
+                }
+            }
+            ArgumentList => {
+                csharp_count_unary_conditions(node, &mut stats.conditions);
+            }
+            VariableDeclarator | AssignmentExpression => {
+                // Child 2 is the RHS of `lhs = rhs`.
+                inspect_csharp_child(node, 2, &mut stats.conditions);
+            }
+            IfStatement | WhileStatement => {
+                // Child 1 is the parenthesised condition: `if (cond) ...`.
+                if let Some(condition) = node.child(1)
+                    && matches!(condition.kind_id().into(), ParenthesizedExpression)
+                {
+                    csharp_inspect_container(&condition, &mut stats.conditions);
+                }
+            }
+            DoStatement => {
+                // `do { ... } while (cond);` — condition sits at child 3
+                // (children: `do`, body, `while`, `(cond)`, `;`).
+                if let Some(condition) = node.child(3)
+                    && matches!(condition.kind_id().into(), ParenthesizedExpression)
+                {
+                    csharp_inspect_container(&condition, &mut stats.conditions);
+                }
+            }
+            ReturnStatement => {
+                // Child 1 is the returned expression (child 0 is `return`).
+                inspect_csharp_child(node, 1, &mut stats.conditions);
+            }
+            LambdaExpression => {
+                // Child 2 is the lambda body for `params => body`.
+                inspect_csharp_child(node, 2, &mut stats.conditions);
+            }
+            ConditionalExpression => {
+                // `cond ? a : b` — children are [cond, ?, a, :, b].
+                if let Some(condition) = node.child(0) {
+                    match condition.kind_id().into() {
+                        InvocationExpression | Identifier | True | False => {
+                            stats.conditions += 1.;
+                        }
+                        ParenthesizedExpression | PrefixUnaryExpression => {
+                            csharp_inspect_container(&condition, &mut stats.conditions);
+                        }
+                        _ => {}
+                    }
+                }
+                inspect_csharp_child(node, 2, &mut stats.conditions);
+                inspect_csharp_child(node, 4, &mut stats.conditions);
+            }
+            // NOTE: Java's Abc impl has an explicit `ForStatement` arm to
+            // count single-token (Identifier / InvocationExpression / True
+            // / False) for-loop conditions. The C# grammar wraps for-loop
+            // conditions in `_for_statement_conditions` rather than at
+            // direct child positions, so a port of that arm requires
+            // grammar inspection. Conditions using comparison operators
+            // (`<`, `==`, etc.) are still counted by the standard
+            // `GT | LT | ...` arms. See issue tracker for the gap.
+            _ => {}
+        }
+    }
+}
+
+// Shared helper: if `node.child(idx)` is a parenthesised or `!`-prefixed
+// expression, descend into it to count any unary boolean condition.
+// Used by every C# Abc match arm whose condition sits at a known child
+// index (assignments, returns, lambdas, ternaries).
+fn inspect_csharp_child(node: &Node, idx: usize, conditions: &mut f64) {
+    use Csharp::*;
+    if let Some(child) = node.child(idx)
+        && matches!(
+            child.kind_id().into(),
+            ParenthesizedExpression | PrefixUnaryExpression
+        )
+    {
+        csharp_inspect_container(&child, conditions);
     }
 }
 
@@ -1405,6 +1626,250 @@ mod tests {
             assert_eq!(metric.abc.conditions(), 0.0);
             assert_eq!(metric.abc.magnitude(), 0.0);
         });
+    }
+
+    #[test]
+    fn csharp_constant_declarations() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                private const int X1 = 0, Y1 = 0;
+                public const float PI = 3.14f;
+                const string HELLO = \"Hello,\";
+                protected string world = \" world!\";
+                public float e = 2.718f;
+                private int x2 = 1, y2 = 2;
+                void M() {
+                    const int Z1 = 0, Z2 = 0, Z3 = 0;
+                    const float T = 0.0f;
+                    int z1 = 1, z2 = 2, z3 = 3;
+                }
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
+
+    #[test]
+    fn csharp_declarations_with_conditions() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                bool a = (1 == 2);
+                bool b = (1 < 2);
+                bool c = !true;
+                bool d = !false;
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
+
+    #[test]
+    fn csharp_assignments_with_conditions() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                void M() {
+                    int a = 0;
+                    a += 1;
+                    a -= 2;
+                    a *= 3;
+                    a /= 4;
+                    a %= 5;
+                    a++;
+                    a--;
+                }
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
+
+    #[test]
+    fn csharp_methods_arguments_with_conditions() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                void M(int x, int y) {
+                    F(x == y, x < y, !x.Equals(y));
+                }
+                void F(bool a, bool b, bool c) {}
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
+
+    #[test]
+    fn csharp_if_single_conditions() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                void M(int x) {
+                    if (x > 0) { System.Console.WriteLine(\"a\"); }
+                    if (x < 0) { System.Console.WriteLine(\"b\"); }
+                    if (x == 0) { System.Console.WriteLine(\"c\"); }
+                }
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
+
+    #[test]
+    fn csharp_if_multiple_conditions() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                void M(int x, int y) {
+                    if (x > 0 && y > 0) { System.Console.WriteLine(\"a\"); }
+                    if (x < 0 || y < 0) { System.Console.WriteLine(\"b\"); }
+                }
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
+
+    #[test]
+    fn csharp_while_and_do_while_conditions() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                void M(int x) {
+                    while (x > 0) { x--; }
+                    do { x++; } while (x < 10);
+                }
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
+
+    #[test]
+    fn csharp_return_with_conditions() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                bool M(int x) {
+                    return (x > 0);
+                }
+                bool N(int x) {
+                    return !(x < 0);
+                }
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
+
+    #[test]
+    fn csharp_return_without_conditions() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                int M() { return 42; }
+                string N() { return \"hi\"; }
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
+
+    #[test]
+    fn csharp_lambda_expressions_return_with_conditions() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                public void M() {
+                    System.Func<int, bool> f = x => (x > 0);
+                    System.Func<int, bool> g = x => !(x < 0);
+                }
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
+
+    #[test]
+    fn csharp_for_with_variable_declaration() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                void M() {
+                    for (int i = 0; i < 10; i++) {
+                        System.Console.WriteLine(i);
+                    }
+                }
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
+
+    #[test]
+    fn csharp_for_without_variable_declaration() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                void M() {
+                    int i;
+                    for (i = 0; i < 10; i++) {
+                        System.Console.WriteLine(i);
+                    }
+                }
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
+
+    #[test]
+    fn csharp_ternary_conditions() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                int Sign(int x) {
+                    return (x > 0) ? 1 : (x < 0 ? -1 : 0);
+                }
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
+
+    #[test]
+    fn csharp_malformed_parenthesized_no_panic() {
+        check_metrics::<CsharpParser>("class A { void M() { if (( }) }", "foo.cs", |metric| {
+            // Don't panic on malformed source.
+            assert_eq!(metric.abc.assignments(), 0.0);
+            assert_eq!(metric.abc.branches(), 0.0);
+        });
+    }
+
+    #[test]
+    fn csharp_function_pointer_type_no_double_count() {
+        // EC1 extension — `<` and `>` are also parameter-list delimiters
+        // for unsafe function-pointer types. `FunctionPointerType` must
+        // be in the LT/GT exclusion list, otherwise these brackets
+        // accumulate spurious `conditions` counts.
+        check_metrics::<CsharpParser>(
+            "unsafe class A {
+                public delegate*<int, int, int> Adder;
+                public delegate*<string, void> Logger;
+            }",
+            "foo.cs",
+            |metric| {
+                assert_eq!(
+                    metric.abc.conditions(),
+                    0.0,
+                    "function-pointer-type angle brackets must not count"
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_generic_type_args_no_double_count() {
+        // EC1 — `<` and `>` inside TypeArgumentList must not count as
+        // boolean conditions.
+        check_metrics::<CsharpParser>(
+            "class A {
+                void M(System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<int>> d) {
+                    System.Console.WriteLine(d);
+                }
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.abc),
+        );
     }
 
     #[test]

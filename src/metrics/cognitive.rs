@@ -492,6 +492,44 @@ impl Cognitive for JavaCode {
     }
 }
 
+impl Cognitive for CsharpCode {
+    fn compute(
+        node: &Node,
+        stats: &mut Stats,
+        nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
+    ) {
+        use Csharp::*;
+
+        let (mut nesting, depth, mut lambda) = get_nesting_from_map(node, nesting_map);
+
+        match node.kind_id().into() {
+            // `Checker::is_else_if` is `false` for C# (the grammar has no
+            // `else_clause`); plain `if` always increases nesting.
+            IfStatement | ForStatement | ForeachStatement | WhileStatement | DoStatement
+            | SwitchStatement | SwitchExpression | CatchClause => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
+            }
+            // `else` is an anonymous keyword token. Each occurrence carries
+            // a flat +1 for the alternative branch (matches Java's `Else`
+            // handling).
+            Else => {
+                increment_by_one(stats);
+            }
+            PrefixUnaryExpression => {
+                stats.boolean_seq.not_operator();
+            }
+            BinaryExpression => {
+                compute_booleans(node, stats, AMPAMP, PIPEPIPE);
+            }
+            LambdaExpression | AnonymousMethodExpression => {
+                lambda += 1;
+            }
+            _ => {}
+        }
+        nesting_map.insert(node.id(), (nesting, depth, lambda));
+    }
+}
+
 impl Cognitive for PerlCode {
     fn compute(
         node: &Node,
@@ -2413,6 +2451,142 @@ mod tests {
     }
 
     #[test]
+    fn csharp_no_cognitive() {
+        check_metrics::<CsharpParser>("int a = 42;", "foo.cs", |metric| {
+            insta::assert_json_snapshot!(
+                metric.cognitive,
+                @r###"
+            {
+              "sum": 0.0,
+              "average": null,
+              "min": 0.0,
+              "max": 0.0
+            }
+            "###
+            );
+        });
+    }
+
+    #[test]
+    fn csharp_single_branch_function() {
+        check_metrics::<CsharpParser>(
+            "class X {
+                public static void Print(bool a) {
+                    if (a) {
+                        System.Console.WriteLine(\"test1\");
+                    }
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_multiple_branch_function() {
+        check_metrics::<CsharpParser>(
+            "class X {
+                public static void Print(bool a, bool b) {
+                    if (a) {
+                        System.Console.WriteLine(\"test1\");
+                    }
+                    if (b) {
+                        System.Console.WriteLine(\"test2\");
+                    } else {
+                        System.Console.WriteLine(\"test3\");
+                    }
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_compound_conditions() {
+        check_metrics::<CsharpParser>(
+            "class X {
+                public static void Print(bool a, bool b, bool c, bool d) {
+                    if (a && b) {
+                        System.Console.WriteLine(\"test1\");
+                    }
+                    if (c && d) {
+                        System.Console.WriteLine(\"test2\");
+                    }
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_switch_statement() {
+        check_metrics::<CsharpParser>(
+            "class X {
+                public static void Print(int expr) {
+                    switch (expr) {
+                        case 1:
+                            System.Console.WriteLine(\"test1\");
+                            break;
+                        case 2:
+                            System.Console.WriteLine(\"test2\");
+                            break;
+                        default:
+                            System.Console.WriteLine(\"test\");
+                            break;
+                    }
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_switch_expression() {
+        check_metrics::<CsharpParser>(
+            "class X {
+                public static string Name(int expr) =>
+                    expr switch {
+                        1 => \"one\",
+                        2 => \"two\",
+                        _ => \"other\"
+                    };
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_not_booleans() {
+        check_metrics::<CsharpParser>(
+            "class X {
+                public static void Print(bool a, bool b, bool c) {
+                    if (a && !(b && c)) {
+                        System.Console.WriteLine(\"test\");
+                    }
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
     fn perl_no_cognitive() {
         check_metrics::<PerlParser>("my $a = 42;", "foo.pl", |metric| {
             insta::assert_json_snapshot!(metric.cognitive, @r#"
@@ -4229,6 +4403,40 @@ end",
                  }
              }",
             "foo.java",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_sibling_bool_sequences() {
+        // (a&&b)||(c&&d) — the right-hand && is a sibling, not nested.
+        // Expected: &&(+1) + ||(+1) + &&(+1) = 3.
+        check_metrics::<CsharpParser>(
+            "class X {
+                bool F(bool a, bool b, bool c, bool d) {
+                    return (a && b) || (c && d);
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_nested_bool_same_op() {
+        // a||(b&&c&&d) — the inner && operators are nested, forming one sequence.
+        // Expected: ||(+1) + &&(+1) = 2.
+        check_metrics::<CsharpParser>(
+            "class X {
+                bool F(bool a, bool b, bool c, bool d) {
+                    return a || (b && c && d);
+                }
+            }",
+            "foo.cs",
             |metric| {
                 insta::assert_json_snapshot!(metric.cognitive);
             },

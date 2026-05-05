@@ -367,7 +367,8 @@ implement_metric_trait!(
     JavaCode,
     PerlCode,
     BashCode,
-    PhpCode
+    PhpCode,
+    CsharpCode
 );
 
 #[cfg(test)]
@@ -1553,6 +1554,163 @@ mod tests {
                  }
              }",
             "foo.java",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r#"
+                {
+                  "total_functions": 0.0,
+                  "total_closures": 2.0,
+                  "average_functions": 0.0,
+                  "average_closures": 2.0,
+                  "total": 2.0,
+                  "average": 1.0,
+                  "functions_min": 0.0,
+                  "functions_max": 0.0,
+                  "closures_min": 0.0,
+                  "closures_max": 2.0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_no_functions() {
+        check_metrics::<CsharpParser>(
+            "class Foo {
+                 int x = 42;
+                 string Name = \"hello\";
+             }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r#"
+                    {
+                      "total_functions": 0.0,
+                      "total_closures": 0.0,
+                      "average_functions": 0.0,
+                      "average_closures": 0.0,
+                      "total": 0.0,
+                      "average": 0.0,
+                      "functions_min": 0.0,
+                      "functions_max": 0.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }
+                    "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_single_method() {
+        check_metrics::<CsharpParser>(
+            "class Foo {
+                 void Greet(string name, int count) {
+                     return;
+                 }
+             }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r#"
+                {
+                  "total_functions": 2.0,
+                  "total_closures": 0.0,
+                  "average_functions": 2.0,
+                  "average_closures": 0.0,
+                  "total": 2.0,
+                  "average": 2.0,
+                  "functions_min": 0.0,
+                  "functions_max": 2.0,
+                  "closures_min": 0.0,
+                  "closures_max": 0.0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_multiple_methods() {
+        check_metrics::<CsharpParser>(
+            "class Foo {
+                 void A(int x) {
+                     return;
+                 }
+                 void B(int x, int y, int z) {
+                     return;
+                 }
+             }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r#"
+                {
+                  "total_functions": 4.0,
+                  "total_closures": 0.0,
+                  "average_functions": 2.0,
+                  "average_closures": 0.0,
+                  "total": 4.0,
+                  "average": 2.0,
+                  "functions_min": 0.0,
+                  "functions_max": 3.0,
+                  "closures_min": 0.0,
+                  "closures_max": 0.0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_constructor_args() {
+        check_metrics::<CsharpParser>(
+            "class Foo {
+                 public Foo(string name, int age) {
+                     return;
+                 }
+             }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r#"
+                {
+                  "total_functions": 2.0,
+                  "total_closures": 0.0,
+                  "average_functions": 2.0,
+                  "average_closures": 0.0,
+                  "total": 2.0,
+                  "average": 2.0,
+                  "functions_min": 0.0,
+                  "functions_max": 2.0,
+                  "closures_min": 0.0,
+                  "closures_max": 0.0
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_lambda_args() {
+        check_metrics::<CsharpParser>(
+            "class Foo {
+                 void Run() {
+                     System.Func<int, int, int> f = (int a, int b) => a + b;
+                 }
+             }",
+            "foo.cs",
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.nargs,

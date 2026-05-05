@@ -219,7 +219,8 @@ implement_metric_trait!(
     BashCode,
     LuaCode,
     TclCode,
-    PhpCode
+    PhpCode,
+    CsharpCode
 );
 
 #[cfg(test)]
@@ -708,6 +709,80 @@ mod tests {
                       "functions_max": 1.0,
                       "closures_min": 0.0,
                       "closures_max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_nom() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                public void Foo() {
+                    return;
+                }
+                public void Bar() {
+                    return;
+                }
+                public int X { get; set; }
+                public void Outer() {
+                    void Local() { return; }
+                    Local();
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                // Methods: Foo, Bar, Outer (=3 explicit)
+                // Plus accessors `get`, `set` on X = 2 more functions
+                // Plus `Local` local function = 1 more
+                // Total functions = 6
+                insta::assert_json_snapshot!(
+                    metric.nom,
+                    @r###"
+                    {
+                      "functions": 6.0,
+                      "closures": 0.0,
+                      "functions_average": 0.75,
+                      "closures_average": 0.0,
+                      "total": 6.0,
+                      "average": 0.75,
+                      "functions_min": 0.0,
+                      "functions_max": 1.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_closure_nom() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                public void Run() {
+                    System.Func<int, int> f = x => x + 1;
+                    System.Action g = delegate(int y) { System.Console.WriteLine(y); };
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                // 1 method (Run), 1 lambda, 1 anonymous_method = 1 func + 2 closures.
+                insta::assert_json_snapshot!(
+                    metric.nom,
+                    @r###"
+                    {
+                      "functions": 1.0,
+                      "closures": 2.0,
+                      "functions_average": 0.2,
+                      "closures_average": 0.4,
+                      "total": 3.0,
+                      "average": 0.6,
+                      "functions_min": 0.0,
+                      "functions_max": 1.0,
+                      "closures_min": 0.0,
+                      "closures_max": 1.0
                     }"###
                 );
             },

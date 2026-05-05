@@ -182,6 +182,20 @@ impl Exit for JavaCode {
     }
 }
 
+impl Exit for CsharpCode {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+        if matches!(
+            node.kind_id().into(),
+            Csharp::ReturnStatement
+                | Csharp::YieldStatement
+                | Csharp::ThrowStatement
+                | Csharp::ThrowExpression
+        ) {
+            stats.exit += 1;
+        }
+    }
+}
+
 impl Exit for GoCode {
     fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         if matches!(node.kind_id().into(), Go::ReturnStatement) {
@@ -677,6 +691,104 @@ mod tests {
                       "min": 0.0,
                       "max": 2.0
                     }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_no_exit() {
+        check_metrics::<CsharpParser>("int a = 42;", "foo.cs", |metric| {
+            insta::assert_json_snapshot!(
+                metric.nexits,
+                @r###"
+                {
+                  "sum": 0.0,
+                  "average": null,
+                  "min": 0.0,
+                  "max": 0.0
+                }"###
+            );
+        });
+    }
+
+    #[test]
+    fn csharp_simple_function() {
+        check_metrics::<CsharpParser>(
+            "class A {
+              public int Sum(int x, int y) {
+                return x + y;
+              }
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_split_function() {
+        check_metrics::<CsharpParser>(
+            "class A {
+              public int Multiply(int x, int y) {
+                if (x == 0 || y == 0) {
+                    return 0;
+                }
+                return x * y;
+              }
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 2.0,
+                      "min": 0.0,
+                      "max": 2.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_yield_and_throw() {
+        check_metrics::<CsharpParser>(
+            "class A {
+              public IEnumerable<int> Gen() {
+                yield return 1;
+                yield break;
+              }
+              public int Bad(int x) {
+                if (x < 0) throw new System.Exception();
+                return x;
+              }
+            }",
+            "foo.cs",
+            |metric| {
+                // 2 yields + 1 throw + 1 return = 4 across two methods.
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r#"
+                {
+                  "sum": 4.0,
+                  "average": 2.0,
+                  "min": 0.0,
+                  "max": 2.0
+                }
+                "#
                 );
             },
         );
