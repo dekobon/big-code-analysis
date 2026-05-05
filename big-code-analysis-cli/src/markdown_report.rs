@@ -1111,8 +1111,7 @@ mod tests {
             let section_end = section_text[1..]
                 .find("\n## ")
                 .or_else(|| section_text[1..].find("\n### "))
-                .map(|p| p + 1)
-                .unwrap_or(section_text.len());
+                .map_or(section_text.len(), |p| p + 1);
             let section_body = &section_text[..section_end];
             let data_rows = section_body
                 .lines()
@@ -1519,8 +1518,7 @@ mod tests {
             let section_end = section_text[1..]
                 .find("\n## ")
                 .or_else(|| section_text[1..].find("\n### "))
-                .map(|p| p + 1)
-                .unwrap_or(section_text.len());
+                .map_or(section_text.len(), |p| p + 1);
             let section_body = &section_text[..section_end];
             let data_rows = section_body
                 .lines()
