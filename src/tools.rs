@@ -162,6 +162,81 @@ fn get_regex<'a>(
         .next()
 }
 
+/// Resolves a language from a script's shebang line.
+///
+/// Returns `None` unless `buf` starts with `#!`. Reads up to the first `\n`,
+/// strips an optional trailing `\r`, splits on whitespace, and takes the
+/// basename of either the first token or — when that basename is `env` — the
+/// next non-flag token. Trailing version digits and dots (`python3`,
+/// `lua5.1`, `perl5.36`) are stripped before lookup. Non-UTF-8 bytes on the
+/// shebang line yield `None` (no panic).
+fn get_shebang_lang(buf: &[u8]) -> Option<LANG> {
+    // Early-out for the common case (any non-shebang buffer): no allocation,
+    // no UTF-8 decoding.
+    let rest = buf.strip_prefix(b"#!")?;
+    let line_end = rest.iter().position(|&b| b == b'\n').unwrap_or(rest.len());
+    let line = &rest[..line_end];
+    // Trim a trailing CR even though normalize_line_endings should have removed
+    // it — guess_language is on the public API and may be called with raw input.
+    let line = line.strip_suffix(b"\r").unwrap_or(line);
+    let line = std::str::from_utf8(line).ok()?;
+
+    let mut tokens = line.split_ascii_whitespace();
+    let first_base = basename(tokens.next()?);
+
+    let interpreter = if first_base == "env" {
+        skip_env_args(&mut tokens)?
+    } else {
+        first_base
+    };
+
+    get_from_interpreter(strip_version_suffix(interpreter))
+}
+
+// Walk past leading `env` arguments (`-FLAG`, `-u VAR`, `NAME=value`) and
+// return the basename of the actual interpreter token. Per `env(1)`, only
+// `-u` consumes a following argument; other short flags (`-i`, `-S`, …)
+// stand alone or carry their argument inline (e.g. `-S "node --foo"`).
+fn skip_env_args<'a>(tokens: &mut std::str::SplitAsciiWhitespace<'a>) -> Option<&'a str> {
+    loop {
+        let tok = tokens.next()?;
+        if let Some(flag) = tok.strip_prefix('-') {
+            if flag == "u" {
+                tokens.next()?;
+            }
+            continue;
+        }
+        if tok.contains('=') {
+            continue;
+        }
+        return Some(basename(tok));
+    }
+}
+
+fn basename(path: &str) -> &str {
+    path.rsplit_once('/').map_or(path, |(_, name)| name)
+}
+
+/// Strips a trailing run of digits and dots used to encode an interpreter
+/// version (`python3` → `python`, `lua5.1` → `lua`, `perl5.36` → `perl`).
+fn strip_version_suffix(name: &str) -> &str {
+    let trimmed = name.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.');
+    if trimmed.is_empty() { name } else { trimmed }
+}
+
+fn get_from_interpreter(name: &str) -> Option<LANG> {
+    match name {
+        "sh" | "bash" | "dash" | "ksh" | "zsh" => Some(LANG::Bash),
+        "python" => Some(LANG::Python),
+        "perl" => Some(LANG::Perl),
+        "lua" | "luajit" => Some(LANG::Lua),
+        "php" | "php-cgi" => Some(LANG::Php),
+        "node" | "nodejs" => Some(LANG::Javascript),
+        "tclsh" | "wish" => Some(LANG::Tcl),
+        _ => None,
+    }
+}
+
 fn get_emacs_mode(buf: &[u8]) -> Option<String> {
     // we just try to use the emacs info (if there)
     for (i, line) in buf.splitn(5, |c| *c == b'\n').enumerate() {
@@ -246,6 +321,11 @@ pub fn guess_language<'a, P: AsRef<Path>>(buf: &[u8], path: P) -> (Option<LANG>,
         (
             Some(lang_mode),
             fake::get_true(&ext, &mode).unwrap_or_else(|| lang_mode.get_name()),
+        )
+    } else if let Some(lang_shebang) = get_shebang_lang(buf) {
+        (
+            Some(lang_shebang),
+            fake::get_true(&ext, &mode).unwrap_or_else(|| lang_shebang.get_name()),
         )
     } else {
         (None, fake::get_true(&ext, &mode).unwrap_or_default())
@@ -521,6 +601,138 @@ mod tests {
             guess_language(buf, "foo.mm"),
             (Some(LANG::Cpp), "obj-c/c++")
         );
+    }
+
+    #[test]
+    fn shebang_bare_bash() {
+        assert_eq!(get_shebang_lang(b"#!/bin/bash\n"), Some(LANG::Bash));
+    }
+
+    #[test]
+    fn shebang_env_python3() {
+        assert_eq!(
+            get_shebang_lang(b"#!/usr/bin/env python3\n"),
+            Some(LANG::Python),
+        );
+    }
+
+    #[test]
+    fn shebang_versioned_perl_with_flag() {
+        assert_eq!(
+            get_shebang_lang(b"#!/usr/bin/perl5.36 -w\n"),
+            Some(LANG::Perl),
+        );
+    }
+
+    #[test]
+    fn shebang_env_dash_s_node() {
+        assert_eq!(
+            get_shebang_lang(b"#!/usr/bin/env -S node --experimental\n"),
+            Some(LANG::Javascript),
+        );
+    }
+
+    #[test]
+    fn shebang_env_with_var_assignment() {
+        // `env FOO=bar python3` — skip the assignment, find the interpreter.
+        assert_eq!(
+            get_shebang_lang(b"#!/usr/bin/env FOO=bar python3\n"),
+            Some(LANG::Python),
+        );
+    }
+
+    #[test]
+    fn shebang_env_dash_u_consumes_next_token() {
+        // `env -u VAR python3` — `-u` is the only `env` short flag that
+        // consumes a following argument (the variable name to unset). Without
+        // the special case, `VAR` would be misidentified as the interpreter.
+        assert_eq!(
+            get_shebang_lang(b"#!/usr/bin/env -u VAR python3\n"),
+            Some(LANG::Python),
+        );
+    }
+
+    #[test]
+    fn shebang_versioned_lua() {
+        assert_eq!(get_shebang_lang(b"#!/usr/bin/lua5.1\n"), Some(LANG::Lua));
+    }
+
+    #[test]
+    fn shebang_node() {
+        assert_eq!(
+            get_shebang_lang(b"#!/usr/local/bin/node\n"),
+            Some(LANG::Javascript),
+        );
+    }
+
+    #[test]
+    fn shebang_tclsh() {
+        assert_eq!(get_shebang_lang(b"#!/usr/bin/tclsh\n"), Some(LANG::Tcl));
+    }
+
+    #[test]
+    fn shebang_no_trailing_newline() {
+        assert_eq!(get_shebang_lang(b"#!/bin/sh"), Some(LANG::Bash));
+    }
+
+    #[test]
+    fn shebang_crlf_line_ending() {
+        // guess_language usually receives LF-normalised input, but be defensive.
+        assert_eq!(get_shebang_lang(b"#!/bin/bash\r\n"), Some(LANG::Bash));
+    }
+
+    #[test]
+    fn shebang_empty_buffer() {
+        assert_eq!(get_shebang_lang(b""), None);
+    }
+
+    #[test]
+    fn shebang_single_byte() {
+        assert_eq!(get_shebang_lang(b"#"), None);
+    }
+
+    #[test]
+    fn shebang_no_shebang_prefix() {
+        assert_eq!(get_shebang_lang(b"// not a shebang\n"), None);
+    }
+
+    #[test]
+    fn shebang_unknown_interpreter() {
+        assert_eq!(get_shebang_lang(b"#!/usr/bin/ruby\n"), None);
+    }
+
+    #[test]
+    fn shebang_env_only_no_interpreter() {
+        assert_eq!(get_shebang_lang(b"#!/usr/bin/env\n"), None);
+    }
+
+    #[test]
+    fn shebang_non_utf8_returns_none() {
+        // Invalid UTF-8 on the shebang line must not panic.
+        assert_eq!(get_shebang_lang(b"#!/usr/bin/\xff\xfe\n"), None);
+    }
+
+    #[test]
+    fn guess_language_extension_wins_over_shebang() {
+        // The .py extension must outrank a `#!/bin/sh` shebang.
+        let buf = b"#!/bin/sh\nprint('hi')\n";
+        assert_eq!(
+            guess_language(buf, "foo.py"),
+            (Some(LANG::Python), "python")
+        );
+    }
+
+    #[test]
+    fn guess_language_shebang_falls_through_when_no_extension() {
+        let buf = b"#!/usr/bin/env python3\nprint('hi')\n";
+        assert_eq!(guess_language(buf, "run"), (Some(LANG::Python), "python"));
+    }
+
+    #[test]
+    fn guess_language_shebang_loses_to_mode_line() {
+        // Mode line outranks the shebang.
+        let buf = b"#!/usr/bin/env node\n# -*- mode: python -*-\n";
+        assert_eq!(guess_language(buf, "run"), (Some(LANG::Python), "python"));
     }
 
     #[test]
