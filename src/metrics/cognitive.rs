@@ -5,7 +5,7 @@ use serde::ser::{SerializeStruct, Serializer};
 use std::fmt;
 
 use crate::checker::Checker;
-use crate::macros::implement_metric_trait;
+use crate::macros::{csharp_prefix_unary_expr_kinds, implement_metric_trait};
 use crate::*;
 
 // TODO: Find a way to increment the cognitive complexity value
@@ -515,7 +515,10 @@ impl Cognitive for CsharpCode {
             Else => {
                 increment_by_one(stats);
             }
-            PrefixUnaryExpression => {
+            // The grammar emits two aliased `kind_id`s for
+            // `prefix_unary_expression`; both must signal `!` to the
+            // boolean sequence tracker (lesson #2).
+            csharp_prefix_unary_expr_kinds!() => {
                 stats.boolean_seq.not_operator();
             }
             BinaryExpression => {

@@ -3,6 +3,7 @@ use std::sync::OnceLock;
 use aho_corasick::AhoCorasick;
 use regex::bytes::Regex;
 
+use crate::macros::csharp_invocation_expr_kinds;
 use crate::*;
 
 static AHO_CORASICK: OnceLock<AhoCorasick> = OnceLock::new();
@@ -422,7 +423,10 @@ impl Checker for CsharpCode {
     }
 
     fn is_call(node: &Node) -> bool {
-        node.kind_id() == Csharp::InvocationExpression
+        // The C# grammar emits three aliased `kind_id`s for
+        // `invocation_expression`; matching only the unsuffixed variant
+        // silently drops the rest (lesson #2 in lessons_learned.md).
+        matches!(node.kind_id().into(), csharp_invocation_expr_kinds!())
     }
 
     fn is_non_arg(node: &Node) -> bool {

@@ -327,7 +327,49 @@ macro_rules! mk_langs {
     };
 }
 
+// Aliased C# `kind_id` unions. The C# tree-sitter grammar emits multiple
+// numbered variants for several rules (lesson #2 in
+// `docs/development/lessons_learned.md`); centralizing the alias sets
+// here keeps every match site in lockstep, so a future grammar bump that
+// adds another numbered variant is a one-line edit instead of a scatter
+// of 4-5 sites.
+macro_rules! csharp_invocation_expr_kinds {
+    () => {
+        $crate::Csharp::InvocationExpression
+            | $crate::Csharp::InvocationExpression2
+            | $crate::Csharp::InvocationExpression3
+    };
+}
+
+macro_rules! csharp_paren_expr_kinds {
+    () => {
+        $crate::Csharp::ParenthesizedExpression
+            | $crate::Csharp::ParenthesizedExpression2
+            | $crate::Csharp::ParenthesizedExpression3
+    };
+}
+
+macro_rules! csharp_prefix_unary_expr_kinds {
+    () => {
+        $crate::Csharp::PrefixUnaryExpression | $crate::Csharp::PrefixUnaryExpression2
+    };
+}
+
+macro_rules! csharp_var_decl_kinds {
+    () => {
+        $crate::Csharp::VariableDeclaration | $crate::Csharp::VariableDeclaration2
+    };
+}
+
+macro_rules! csharp_var_declarator_kinds {
+    () => {
+        $crate::Csharp::VariableDeclarator | $crate::Csharp::VariableDeclarator2
+    };
+}
+
 pub(crate) use implement_metric_trait;
 pub(crate) use {
-    get_language, mk_action, mk_code, mk_emacs_mode, mk_extensions, mk_lang, mk_langs,
+    csharp_invocation_expr_kinds, csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds,
+    csharp_var_decl_kinds, csharp_var_declarator_kinds, get_language, mk_action, mk_code,
+    mk_emacs_mode, mk_extensions, mk_lang, mk_langs,
 };
