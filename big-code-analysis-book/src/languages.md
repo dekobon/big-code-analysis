@@ -5,6 +5,7 @@ This is the list of programming languages parsed by
 
 - [x] C
 - [x] C++
+- [x] C#
 - [x] Mozcpp
 - [x] Bash
 - [x] Ccomment
