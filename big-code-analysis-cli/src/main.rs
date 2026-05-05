@@ -25,8 +25,8 @@ use big_code_analysis::{
     PreprocResults,
 };
 use big_code_analysis::{
-    action, fix_includes, get_from_ext, get_function_spaces, get_ops, guess_language, preprocess,
-    read_file, read_file_with_eol, write_file,
+    action, fix_includes, get_from_ext, get_function_spaces, get_ops, guess_language, is_generated,
+    preprocess, read_file, read_file_with_eol, write_file,
 };
 
 fn die(msg: impl std::fmt::Display) -> ! {
@@ -87,6 +87,16 @@ struct GlobalOpts {
     /// Print warnings (skipped files, unrecognized languages).
     #[clap(long, short, global = true)]
     warning: bool,
+    /// Disable auto-skip of files marked as generated (e.g. `@generated`,
+    /// `DO NOT EDIT`, `GENERATED CODE` near the top). By default the CLI
+    /// skips such files so generated bindings do not skew metrics.
+    #[clap(long, global = true)]
+    no_skip_generated: bool,
+    /// Log a "skipped (generated): <path>" line to stderr for each file
+    /// auto-skipped by the generated-code detector. Useful for auditing
+    /// which files were excluded.
+    #[clap(long, global = true)]
+    report_skipped: bool,
     /// Existing preprocessor-data JSON to consume during C/C++ analysis.
     /// Use `bca preproc` to produce one.
     #[clap(long, value_parser, global = true)]
@@ -220,6 +230,16 @@ struct Config {
     /// Path prefix stripped from file paths in the markdown report.
     strip_prefix: String,
     warning: bool,
+    /// When true, files whose head matches a generated-code marker are
+    /// skipped before parsing. Defaults on; flipped off by
+    /// `--no-skip-generated`.
+    skip_generated: bool,
+    /// When true, log a stderr line for each file auto-skipped by the
+    /// generated-code detector. Also enabled by `warning` (which logs
+    /// every skip reason); `report_skipped` is the dedicated flag for
+    /// users who want the generated-skip audit without the rest of the
+    /// warning stream.
+    report_skipped: bool,
 }
 
 impl Config {
@@ -241,6 +261,8 @@ impl Config {
             markdown_tx: None,
             strip_prefix: String::new(),
             warning: globals.warning,
+            skip_generated: !globals.no_skip_generated,
+            report_skipped: globals.report_skipped,
         }
     }
 }
@@ -269,6 +291,18 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
         }
         return Ok(());
     };
+
+    // The generated-code skip runs before language detection so we don't
+    // pay parse cost for files we'll discard. It's a CLI-level filter
+    // (preproc has its own pipeline that genuinely needs every C/C++ file
+    // walked), so leave Action::PreprocProduce alone.
+    if cfg.skip_generated && !matches!(cfg.action, Action::PreprocProduce) && is_generated(&source)
+    {
+        if cfg.report_skipped || cfg.warning {
+            eprintln!("skipped (generated): {}", path.display());
+        }
+        return Ok(());
+    }
 
     let Some(language) = cfg.language.or_else(|| guess_language(&source, &path).0) else {
         if cfg.warning {
@@ -798,6 +832,8 @@ mod tests {
             markdown_tx: None,
             strip_prefix: String::new(),
             warning: false,
+            skip_generated: true,
+            report_skipped: false,
         }
     }
 
