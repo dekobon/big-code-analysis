@@ -81,6 +81,19 @@ The grammar exposes four body-related symbols; only `HeredocBody2`
 intentionally omitted — but the originally-implemented `HeredocBody`
 (id 153) was the *unused* one.
 
+**C# aliased `InvocationExpression` / `ParenthesizedExpression` /
+`PrefixUnaryExpression` / `VariableDeclaration` / `VariableDeclarator`
+not matched** (#94, `866c38a`). The C# tree-sitter grammar emits 2-3
+numbered variants for each of those rules; the initial language-support
+commit matched only the unsuffixed variant in `checker.rs`,
+`metrics/abc.rs`, `metrics/cognitive.rs`, and `metrics/npa.rs`. Method
+invocations and attribute walks were silently undercounted; cognitive
+`!` detection and ABC parenthesised-condition descent were dropped
+outright. Notable because C#
+shipped *after* this lesson was already documented — the bug class
+applies just as much to a fresh language addition as it does to a
+grammar bump.
+
 **Lesson:** After bumping any tree-sitter grammar pin in `Cargo.toml`,
 run `rg 'Lang::([A-Za-z]+)\b' src/getter.rs src/checker.rs` against
 the regenerated `language_<lang>.rs` and confirm every numeric-suffix
@@ -357,5 +370,47 @@ After any rebase, force-push, or long-running batch fix, re-run
 integration tests before declaring done; the submodule history
 is force-pushed often enough that previously accepted snapshots
 cannot be assumed to survive.
+
+---
+
+## 9. The grammar's root may not be `Unit` — push a synthetic wrapper
+
+Tree-sitter grammars normally return a `translation_unit` /
+`source_file` / `program` node at the root, and the metric collector
+treats that node's span as the file-level `FuncSpace`. When the input
+contains constructs the grammar cannot fully parse, the parser can
+instead return an `ERROR` root or promote an inner declaration
+(struct, function, namespace) to the root position. Code that adopts
+the root node's span as the file's `FuncSpace` then reports the span
+of that inner declaration as the file's LOC, while child traversal
+still aggregates `ploc` from the entire file — producing impossible
+values that violate `blank = sloc − ploc − only_comment_lines ≥ 0`.
+
+**`tree-sitter-mozcpp` promotes inner declarations on partially
+unparseable C/C++** (#80, `5514714`). Four DeepSpeech files exhibited
+nonsense LOC: `model.hh` (KenLM) reported `kind=namespace, sloc=1,
+ploc=55, blank=−109`, and both Cython-generated `pywrapfst.cc` files
+reported a `struct` or `function` root with `blank` in the tens of
+thousands negative — those bad values had been frozen into snapshots
+long enough to read as background noise in every DeepSpeech run.
+`getopt_win.h` (`kind=struct, sloc=1, ploc=351, blank=−489`) had been
+quietly *excluded* from the snapshot test for the same root cause; the
+fix re-includes it. The fix pushes a synthetic `Unit` space at the bottom
+of the state stack whenever the grammar's root kind is not `Unit`,
+anchored to the parser's full input range; the misidentified
+declaration becomes a subspace, and top-level metrics restore their
+invariants.
+
+**Lesson:** Never trust the root node's `kind()` to be the language's
+canonical translation-unit kind. Treat "real-world C/C++/whatever
+sometimes won't parse cleanly, and tree-sitter has its own ideas about
+what to promote when that happens" as a load-bearing assumption. When
+adding a new language or auditing an existing one, verify that the
+file-level `FuncSpace` is anchored to the parser's full input range
+and has the language's `Unit` kind, not the kind of whatever the
+parser happened to return. Add a regression test that asserts
+`blank ≥ 0` for every fixture in the corpus — the invariant is cheap
+to check and catches this entire class of bug, plus arithmetic errors
+in the LOC computation itself.
 
 ---
