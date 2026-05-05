@@ -335,7 +335,7 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
         Action::Find(filters) => {
             let find_cfg = FindCfg {
                 path: path.clone(),
-                filters: filters.to_vec(),
+                filters: Arc::clone(filters),
                 line_start: cfg.line_start,
                 line_end: cfg.line_end,
             };
@@ -347,7 +347,7 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
                 .clone()
                 .expect("Count handler initializes count_lock before dispatch");
             let count_cfg = CountCfg {
-                filters: filters.to_vec(),
+                filters: Arc::clone(filters),
                 stats,
             };
             action::<Count>(&language, source, &path, pr, count_cfg)

@@ -41,7 +41,7 @@ pub fn count<T: ParserTrait>(parser: &T, filters: &[String]) -> (usize, usize) {
 #[derive(Debug)]
 pub struct CountCfg {
     /// Types of nodes to count
-    pub filters: Vec<String>,
+    pub filters: Arc<[String]>,
     /// Number of nodes of a certain type counted by each thread
     pub stats: Arc<Mutex<Count>>,
 }

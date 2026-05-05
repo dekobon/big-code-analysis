@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::node::Node;
 
@@ -43,7 +44,7 @@ pub struct FindCfg {
     /// Path to the file containing the code
     pub path: PathBuf,
     /// Types of nodes to find
-    pub filters: Vec<String>,
+    pub filters: Arc<[String]>,
     /// The first line of code considered in the search
     ///
     /// If `None`, the search starts from the
