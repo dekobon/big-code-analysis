@@ -138,7 +138,8 @@ implement_metric_trait!(
     BashCode,
     LuaCode,
     TclCode,
-    PhpCode
+    PhpCode,
+    CsharpCode
 );
 
 #[cfg(test)]

@@ -246,6 +246,67 @@ impl Npm for JavaCode {
     }
 }
 
+// Count direct method-like declarations and property / indexer
+// accessors (each get/set/init is a method per C# IL semantics).
+// Expression-bodied properties (`int W => _w;`) have no AccessorList
+// but do define a getter — `.max(1)` keeps them at 1 method.
+fn csharp_count_member(member: &Node) -> usize {
+    use Csharp::*;
+    match member.kind_id().into() {
+        MethodDeclaration
+        | ConstructorDeclaration
+        | DestructorDeclaration
+        | OperatorDeclaration
+        | ConversionOperatorDeclaration => 1,
+        PropertyDeclaration | IndexerDeclaration => member
+            .children()
+            .filter(|c| matches!(c.kind_id().into(), AccessorList))
+            .flat_map(|c| c.children())
+            .filter(|c| matches!(c.kind_id().into(), AccessorDeclaration))
+            .count()
+            .max(1),
+        _ => 0,
+    }
+}
+
+impl Npm for CsharpCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        use Csharp::*;
+
+        if Self::is_func_space(node) && stats.is_disabled() {
+            stats.is_class_space = true;
+        }
+
+        if !matches!(node.kind_id().into(), DeclarationList) {
+            return;
+        }
+        let Some(parent_kind) = node.parent().map(|p| p.kind_id().into()) else {
+            return;
+        };
+
+        match parent_kind {
+            ClassDeclaration | StructDeclaration | RecordDeclaration => {
+                for member in node.children() {
+                    let count = csharp_count_member(&member);
+                    stats.class_nm += count;
+                    if super::npa::csharp_is_explicit_public(&member) {
+                        stats.class_npm += count;
+                    }
+                }
+            }
+            // Interface members default to public (matching Java's rule);
+            // skip the visibility scan entirely.
+            InterfaceDeclaration => {
+                for member in node.children() {
+                    stats.interface_nm += csharp_count_member(&member);
+                }
+                stats.interface_npm = stats.interface_nm;
+            }
+            _ => {}
+        }
+    }
+}
+
 impl Npm for PhpCode {
     fn compute(node: &Node, stats: &mut Stats) {
         use Php::*;
@@ -753,6 +814,195 @@ mod tests {
                     }"###
                 );
             },
+        );
+    }
+
+    #[test]
+    fn csharp_constructors() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                public A() {}
+                public A(int x) {}
+                A(int x, int y) {}
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.npm),
+        );
+    }
+
+    #[test]
+    fn csharp_methods_returning_primitive_types() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                public int M1() { return 1; }
+                public bool M2() { return true; }
+                public double M3() { return 0.0; }
+                int M4() { return 0; }
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.npm),
+        );
+    }
+
+    #[test]
+    fn csharp_methods_returning_arrays() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                public int[] M1() { return new int[0]; }
+                public string[] M2() { return new string[0]; }
+                int[] M3() { return new int[0]; }
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.npm),
+        );
+    }
+
+    #[test]
+    fn csharp_methods_returning_objects() {
+        check_metrics::<CsharpParser>(
+            "class Point { }
+             class A {
+                public Point M1() { return new Point(); }
+                public string M2() { return \"\"; }
+                Point M3() { return new Point(); }
+             }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.npm),
+        );
+    }
+
+    #[test]
+    fn csharp_methods_with_generic_types() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                public System.Collections.Generic.List<int> M1() { return null; }
+                public System.Collections.Generic.Dictionary<string, int> M2() { return null; }
+                System.Collections.Generic.List<string> M3() { return null; }
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.npm),
+        );
+    }
+
+    #[test]
+    fn csharp_method_modifiers() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                public void M1() {}
+                private void M2() {}
+                protected void M3() {}
+                internal void M4() {}
+                public static void M5() {}
+                public virtual void M6() {}
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.npm),
+        );
+    }
+
+    #[test]
+    fn csharp_classes() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                public void M1() {}
+                public void M2() {}
+                void M3() {}
+            }
+            class B {
+                public int N() { return 0; }
+                int Hidden() { return 0; }
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.npm),
+        );
+    }
+
+    #[test]
+    fn csharp_nested_inner_classes() {
+        check_metrics::<CsharpParser>(
+            "class Outer {
+                public void M() {}
+                void Hidden() {}
+                public class Inner {
+                    public void N() {}
+                    void HiddenN() {}
+                }
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.npm),
+        );
+    }
+
+    #[test]
+    fn csharp_property_accessors() {
+        // EC7 — each property accessor (get/set/init) counts as a method.
+        // `W` is an expression-bodied property — no AccessorList, just an
+        // ArrowExpressionClause — and exercises the `.max(1)` fallback in
+        // `csharp_count_member` that keeps such properties at 1 method.
+        check_metrics::<CsharpParser>(
+            "class A {
+                int _w;
+                public int X { get; set; }
+                public int Y { get; }
+                public int Z { get; init; }
+                public int W => _w;
+                int Hidden { get; set; }
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.npm),
+        );
+    }
+
+    #[test]
+    fn csharp_local_functions() {
+        // Local functions inside a method body are nested function spaces;
+        // they don't count toward the enclosing class's NoM/NPM. The
+        // private sibling `Hidden` ensures the visibility gate is also
+        // exercised: nm should be 2 (Outer + Hidden), npm should be 1
+        // (only Outer is `public`). If the local function leaked into
+        // the enclosing class's count, nm would be 3.
+        check_metrics::<CsharpParser>(
+            "class A {
+                public void Outer() {
+                    void Local() {}
+                    Local();
+                }
+                private void Hidden() {}
+            }",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2.0, "Local must not leak");
+                assert_eq!(metric.npm.class_npm_sum(), 1.0, "only Outer is public");
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_interface() {
+        // EC14 — interface methods default to public.
+        check_metrics::<CsharpParser>(
+            "interface I {
+                int M1();
+                bool M2();
+                int X { get; set; }
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.npm),
+        );
+    }
+
+    #[test]
+    fn csharp_interfaces_and_class() {
+        check_metrics::<CsharpParser>(
+            "interface I1 { int M1(); }
+            interface I2 { bool M2(); float M3(); }
+            class A {
+                public void M() {}
+                void Hidden() {}
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.npm),
         );
     }
 

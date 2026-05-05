@@ -220,6 +220,38 @@ impl Cyclomatic for JavaCode {
     }
 }
 
+impl Cyclomatic for CsharpCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        use Csharp::*;
+
+        match node.kind_id().into() {
+            // Standard branching constructs.
+            IfStatement
+            | ForStatement
+            | ForeachStatement
+            | WhileStatement
+            | DoStatement
+            | CatchClause
+            | ConditionalExpression
+            // `?.` null-conditional access — runtime branch.
+            | ConditionalAccessExpression
+            // Each non-default arm of a switch expression.
+            | SwitchExpressionArm
+            // The `case` keyword token covers each `case X:` arm of a
+            // switch_statement (default arms use the `default` keyword and
+            // are intentionally not counted).
+            | Case
+            // Short-circuit boolean and null-coalescing operators.
+            | AMPAMP
+            | PIPEPIPE
+            | QMARKQMARK => {
+                stats.cyclomatic += 1.;
+            }
+            _ => {}
+        }
+    }
+}
+
 impl Cyclomatic for GoCode {
     fn compute(node: &Node, stats: &mut Stats) {
         // Aliased because `Go::Go` (the `go` keyword variant) collides with
@@ -705,6 +737,178 @@ mod tests {
                       "average": 2.2,
                       "min": 1.0,
                       "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_simple_class() {
+        check_metrics::<CsharpParser>(
+            "public class Example {
+                int a = 10;
+                bool b = (a > 5) ? true : false;
+                bool c = b && true;
+
+                public void M1() {
+                    if (a % 2 == 0) {
+                        b = b || c;
+                    }
+                }
+                public void M2() {
+                    while (a > 3) {
+                        M1();
+                        a--;
+                    }
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 9.0,
+                      "average": 2.25,
+                      "min": 1.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_real_class() {
+        check_metrics::<CsharpParser>(
+            "public class Matrix {
+                private int[,] m = new int[5, 5];
+
+                public void Init() {
+                    for (int i = 0; i < 5; i++) {
+                        for (int j = 0; j < 5; j++) {
+                            m[i, j] = i * j;
+                        }
+                    }
+                }
+                public int Compute(int i, int j) {
+                    try {
+                        return m[i, j] / m[j, i];
+                    } catch (System.DivideByZeroException) {
+                        return -1;
+                    } catch (System.IndexOutOfRangeException) {
+                        return -2;
+                    }
+                }
+                public void Print(int result) {
+                    switch (result) {
+                        case -1:
+                            System.Console.WriteLine(\"Division by zero\");
+                            break;
+                        case -2:
+                            System.Console.WriteLine(\"Wrong index number\");
+                            break;
+                        default:
+                            System.Console.WriteLine(\"The result is \" + result);
+                            break;
+                    }
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 11.0,
+                      "average": 2.2,
+                      "min": 1.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_anonymous_method() {
+        check_metrics::<CsharpParser>(
+            "public class A {
+                public void M() {
+                    System.Action f = delegate(int x) {
+                        if (x > 0) {
+                            System.Console.WriteLine(x);
+                        }
+                    };
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 5.0,
+                      "average": 1.25,
+                      "min": 1.0,
+                      "max": 2.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_switch_expression_arms() {
+        // Each non-default arm of a switch_expression contributes +1.
+        // The discard arm `_ =>` is currently counted by SwitchExpressionArm
+        // (the grammar does not separate discard arms into a distinct kind).
+        check_metrics::<CsharpParser>(
+            "public class A {
+                public string Name(int n) =>
+                    n switch {
+                        1 => \"one\",
+                        2 => \"two\",
+                        3 => \"three\",
+                        _ => \"other\"
+                    };
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 7.0,
+                      "average": 2.3333333333333335,
+                      "min": 1.0,
+                      "max": 5.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_null_coalescing_and_conditional_access() {
+        // Each `??` and `?.` is +1 cyclomatic.
+        check_metrics::<CsharpParser>(
+            "public class A {
+                public int? Get(string s, A b) {
+                    return s?.Length ?? b?.Get(null, null) ?? 0;
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 7.0,
+                      "average": 2.3333333333333335,
+                      "min": 1.0,
+                      "max": 5.0
                     }"###
                 );
             },

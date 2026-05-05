@@ -863,6 +863,44 @@ impl Loc for JavaCode {
     }
 }
 
+impl Loc for CsharpCode {
+    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool, is_unit: bool) {
+        use Csharp::*;
+
+        let (start, end) = init(node, stats, is_func_space, is_unit);
+        let kind_id: Csharp = node.kind_id().into();
+        match kind_id {
+            CompilationUnit => {}
+            Comment => {
+                add_cloc_lines(stats, start, end);
+            }
+            BreakStatement | CheckedStatement | ContinueStatement | DoStatement
+            | ExpressionStatement | FixedStatement | ForStatement | ForeachStatement
+            | GotoStatement | IfStatement | LabeledStatement | LockStatement | ReturnStatement
+            | SwitchStatement | ThrowStatement | TryStatement | UnsafeStatement
+            | UsingStatement | WhileStatement | YieldStatement => {
+                stats.lloc.logical_lines += 1;
+            }
+            LocalDeclarationStatement => {
+                // Variable declarations inside a `for_statement` init/condition/update
+                // (e.g. `for (int i = 0; i < n; i++)`) shouldn't bump LLOC; the
+                // surrounding `for_statement` already counts.
+                if node.count_specific_ancestors::<CsharpParser>(
+                    |n| n.kind_id() == ForStatement,
+                    |n| n.kind_id() == Block,
+                ) == 0
+                {
+                    stats.lloc.logical_lines += 1;
+                }
+            }
+            _ => {
+                check_comment_ends_on_code_line(stats, start);
+                stats.ploc.lines.insert(start);
+            }
+        }
+    }
+}
+
 impl Loc for GoCode {
     fn compute(node: &Node, stats: &mut Stats, is_func_space: bool, is_unit: bool) {
         // Aliased because `Go::Go` (the `go` keyword variant) collides with
@@ -5213,6 +5251,255 @@ y, z = 2, 3",
                     }"###
                 );
             },
+        );
+    }
+
+    #[test]
+    fn csharp_comments() {
+        check_metrics::<CsharpParser>(
+            "for (int i = 0; i < 100; i++) {
+               // Print hello
+               System.Console.WriteLine(\"hello\");
+               /// XML doc comment
+               System.Console.WriteLine(\"hello\");
+             }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn csharp_blank() {
+        check_metrics::<CsharpParser>(
+            "int x = 1;
+
+
+            int y = 2;",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn csharp_sloc() {
+        check_metrics::<CsharpParser>(
+            "for (int i = 0; i < 100; i++) {
+               System.Console.WriteLine(i);
+             }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn csharp_module_sloc() {
+        check_metrics::<CsharpParser>(
+            "namespace HelloWorld {
+              class Program { }
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn csharp_single_ploc() {
+        check_metrics::<CsharpParser>("int x = 1;", "foo.cs", |metric| {
+            insta::assert_json_snapshot!(metric.loc);
+        });
+    }
+
+    #[test]
+    fn csharp_simple_ploc() {
+        check_metrics::<CsharpParser>(
+            "for (int i = 0; i < 100; i++) {
+               System.Console.WriteLine(i);
+             }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn csharp_multi_ploc() {
+        check_metrics::<CsharpParser>(
+            "int x = 1;
+            for (int i = 0; i < 100; i++) {
+               System.Console.WriteLine(i);
+             }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn csharp_single_statement_lloc() {
+        check_metrics::<CsharpParser>("int max = 10;", "foo.cs", |metric| {
+            insta::assert_json_snapshot!(metric.loc);
+        });
+    }
+
+    #[test]
+    fn csharp_for_lloc() {
+        check_metrics::<CsharpParser>(
+            "for (int i = 0; i < 10; i++) {
+                System.Console.WriteLine(i);
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn csharp_foreach_lloc() {
+        check_metrics::<CsharpParser>(
+            "foreach (var item in items) {
+                System.Console.WriteLine(item);
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn csharp_while_lloc() {
+        check_metrics::<CsharpParser>(
+            "int i = 0;
+            while (i < 10) {
+                i++;
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn csharp_do_while_lloc() {
+        check_metrics::<CsharpParser>(
+            "int i = 0;
+            do {
+                i++;
+            } while (i < 10);",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn csharp_switch_lloc() {
+        check_metrics::<CsharpParser>(
+            "switch (x) {
+                case 1: System.Console.WriteLine(1); break;
+                case 2: System.Console.WriteLine(2); break;
+                default: System.Console.WriteLine(0); break;
+            }
+            string s = x switch { 1 => \"one\", _ => \"other\" };",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn csharp_continue_lloc() {
+        check_metrics::<CsharpParser>(
+            "for (int i = 0; i < 10; i++) {
+                if (i == 5) continue;
+                System.Console.WriteLine(i);
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn csharp_try_lloc() {
+        check_metrics::<CsharpParser>(
+            "try {
+                System.Console.WriteLine(\"try\");
+            } catch (System.Exception e) {
+                throw new System.Exception(\"caught\");
+            } finally {
+                System.Console.WriteLine(\"done\");
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn csharp_class_loc() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                int x;
+                public void M() {
+                    System.Console.WriteLine(x);
+                }
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn csharp_expressions_lloc() {
+        check_metrics::<CsharpParser>(
+            "int a = 1;
+            int b = 2;
+            int c = a + b;
+            System.Console.WriteLine(c);",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn csharp_statement_inline_loc() {
+        check_metrics::<CsharpParser>(
+            "if (x > 0) System.Console.WriteLine(x);",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn csharp_general_loc() {
+        check_metrics::<CsharpParser>(
+            "using System;
+            namespace Demo {
+                class A {
+                    public void M() {
+                        Console.WriteLine(\"hi\");
+                    }
+                }
+                class B {
+                    public int N() { return 0; }
+                }
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.loc),
+        );
+    }
+
+    #[test]
+    fn csharp_using_lloc() {
+        // EC11 — `using_directive` does not bump LLOC; `using_statement`
+        // (block form) and the C# 8 simple-using local-declaration
+        // (`using var x = ...;`) both do, the latter via the standard
+        // `LocalDeclarationStatement` path.
+        check_metrics::<CsharpParser>(
+            "using System;
+            using System.IO;
+            class A {
+                public void M() {
+                    using (var s = File.OpenRead(\"x\")) {
+                        Console.WriteLine(s);
+                    }
+                    using var t = File.OpenRead(\"y\");
+                    Console.WriteLine(t);
+                }
+            }",
+            "foo.cs",
+            |metric| insta::assert_json_snapshot!(metric.loc),
         );
     }
 

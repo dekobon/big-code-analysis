@@ -255,6 +255,79 @@ impl Npa for JavaCode {
     }
 }
 
+// C# uses individual `Modifier` nodes (not wrapped under a single
+// `modifiers` node like Java); detecting `public` requires scanning
+// every Modifier child of the declaration for a `public` keyword.
+pub(crate) fn csharp_is_explicit_public(declaration: &Node) -> bool {
+    declaration.children().any(|child| {
+        matches!(child.kind_id().into(), Csharp::Modifier)
+            && child.first_child(|id| id == Csharp::Public).is_some()
+    })
+}
+
+impl Npa for CsharpCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        use Csharp::*;
+
+        if Self::is_func_space(node) && stats.is_disabled() {
+            stats.is_class_space = true;
+        }
+
+        // Class / struct / record / interface bodies all share
+        // `DeclarationList`; the parent kind disambiguates.
+        if !matches!(node.kind_id().into(), DeclarationList) {
+            return;
+        }
+        let Some(parent_kind) = node.parent().map(|p| p.kind_id().into()) else {
+            return;
+        };
+        match parent_kind {
+            // For `RecordDeclaration`, only explicit body fields are
+            // counted. The implicit `parameter_list` of a positional
+            // record (`record Person(string Name, int Age);`) is not
+            // walked here — its parameters become auto-generated public
+            // properties at the IL level, but modelling them would
+            // require synthesizing nodes that don't appear in the AST.
+            ClassDeclaration | StructDeclaration | RecordDeclaration => {
+                for declaration in node
+                    .children()
+                    .filter(|c| matches!(c.kind_id().into(), FieldDeclaration))
+                {
+                    let attributes = declaration
+                        .children()
+                        .filter(|c| matches!(c.kind_id().into(), VariableDeclaration))
+                        .flat_map(|c| c.children())
+                        .filter(|c| matches!(c.kind_id().into(), VariableDeclarator))
+                        .count();
+                    stats.class_na += attributes;
+                    if csharp_is_explicit_public(&declaration) {
+                        stats.class_npa += attributes;
+                    }
+                }
+            }
+            // C# 8+ interfaces can declare fields with explicit modifiers
+            // (rare); members declared without an explicit modifier default
+            // to public, mirroring Java's interface convention.
+            InterfaceDeclaration => {
+                for declaration in node
+                    .children()
+                    .filter(|c| matches!(c.kind_id().into(), FieldDeclaration))
+                {
+                    let attributes = declaration
+                        .children()
+                        .filter(|c| matches!(c.kind_id().into(), VariableDeclaration))
+                        .flat_map(|c| c.children())
+                        .filter(|c| matches!(c.kind_id().into(), VariableDeclarator))
+                        .count();
+                    stats.interface_na += attributes;
+                    stats.interface_npa = stats.interface_na;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 // PHP's strict-explicit visibility rule (mirroring Java's pattern): a
 // declaration is treated as public only when it carries an explicit
 // `public` modifier. Modifier-less declarations — deprecated for
@@ -825,6 +898,220 @@ mod tests {
             "<?php class A { public function f(): void {} }",
             "foo.php",
             |metric| insta::assert_json_snapshot!(metric.npa),
+        );
+    }
+
+    #[test]
+    fn csharp_single_attributes() {
+        check_metrics::<CsharpParser>(
+            "class X {
+                public byte a;
+                public short b;
+                public int c;
+                public long d;
+                public float e;
+                public double f;
+                public bool g;
+                public char h;
+                byte i;
+                short j;
+                int k;
+                long l;
+                float m;
+                double n;
+                bool o;
+                char p;
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_multiple_attributes() {
+        check_metrics::<CsharpParser>(
+            "class X {
+                public byte a1;
+                public short b1, b2;
+                public int c1, c2, c3;
+                public long d1, d2, d3, d4;
+                public bool g1, g2;
+                byte i1, i2, i3, i4;
+                int k1, k2;
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_initialized_attributes() {
+        check_metrics::<CsharpParser>(
+            "class X {
+                public int a = 1;
+                public bool b = true;
+                public string c = \"hello\";
+                public double d = 3.14;
+                int e = 0;
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_array_attributes() {
+        check_metrics::<CsharpParser>(
+            "class X {
+                public int[] a;
+                public string[] b = new string[5];
+                int[] c;
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_object_attributes() {
+        check_metrics::<CsharpParser>(
+            "class Point { public int X, Y; }
+             class Shape {
+                public Point origin;
+                public Point endpoint = new Point();
+                Point hidden;
+             }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_generic_attributes() {
+        check_metrics::<CsharpParser>(
+            "class X {
+                public System.Collections.Generic.List<int> a;
+                public System.Collections.Generic.Dictionary<string, int> b;
+                System.Collections.Generic.List<string> c;
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_attribute_modifiers() {
+        check_metrics::<CsharpParser>(
+            "class X {
+                public int a;
+                private int b;
+                protected int c;
+                internal int d;
+                public static int e;
+                public readonly int f;
+                public const int g = 1;
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_classes() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                public int a;
+                public int b;
+                int c;
+            }
+            class B {
+                public string s;
+                int n;
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_nested_inner_classes() {
+        check_metrics::<CsharpParser>(
+            "class Outer {
+                public int a;
+                int b;
+                public class Inner {
+                    public string s;
+                    int n;
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_struct_attributes() {
+        // C#-only: structs declare fields like classes; visibility rule
+        // applies the same way (default is private).
+        check_metrics::<CsharpParser>(
+            "struct Point {
+                public int X;
+                public int Y;
+                int Hidden;
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_record_attributes() {
+        // C#-only: records can declare body fields just like classes.
+        // Positional record properties are not modelled (EC9).
+        check_metrics::<CsharpParser>(
+            "record Person {
+                public string Name;
+                int Age;
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_interface() {
+        // EC14 — interface members default to public; all fields count.
+        check_metrics::<CsharpParser>(
+            "interface I {
+                static int A = 1;
+                static string B = \"hello\";
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.npa);
+            },
         );
     }
 

@@ -140,6 +140,21 @@ impl Wmc for JavaCode {
     }
 }
 
+impl Wmc for CsharpCode {
+    fn compute(space_kind: SpaceKind, cyclomatic: &cyclomatic::Stats, stats: &mut Stats) {
+        use SpaceKind::*;
+
+        if let Unit | Class | Interface | Function = space_kind {
+            if stats.space_kind == Unknown {
+                stats.space_kind = space_kind;
+            }
+            if space_kind == Function {
+                stats.cyclomatic = cyclomatic.cyclomatic_sum();
+            }
+        }
+    }
+}
+
 impl Wmc for PhpCode {
     fn compute(space_kind: SpaceKind, cyclomatic: &cyclomatic::Stats, stats: &mut Stats) {
         use SpaceKind::*;
@@ -688,6 +703,241 @@ mod tests {
                       "total": 4.0
                     }"###
                 );
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_single_class() {
+        check_metrics::<CsharpParser>(
+            "public class Example {
+                public bool M1(bool a, bool b) {
+                    bool r = false;
+                    if (a && b == a || b) {
+                        r = true;
+                    }
+                    return r;
+                }
+                public int M2(int n) {
+                    for (int i = 0; i < n; i++) {
+                        int j = n;
+                        while (j > i) {
+                            j--;
+                        }
+                    }
+                    return (n % 2 == 0) ? 1 : 0;
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_multiple_classes() {
+        check_metrics::<CsharpParser>(
+            "public class A {
+                private int a;
+                public A() { a = 0; }
+                public void SetA(int n) { a = n; }
+                public int GetA() { return a; }
+            }
+            class B {
+                private int b;
+                public B() { b = 0; }
+                public int GetB() { return b; }
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_static_nested_class() {
+        check_metrics::<CsharpParser>(
+            "public class Outer {
+                public static class Nested {
+                    private void M() {
+                        System.Console.WriteLine(\"Test\");
+                    }
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_nested_inner_classes() {
+        check_metrics::<CsharpParser>(
+            "public class Outer {
+                private int a;
+                public class Inner {
+                    public int GetX() { return 0; }
+                    public class Innermost {
+                        public int GetY() { return 1; }
+                    }
+                }
+                public int GetA() { return a; }
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_local_inner_class() {
+        // C# uses local functions instead of Java's local classes.
+        check_metrics::<CsharpParser>(
+            "public class A {
+                public int M(int x) {
+                    int Local(int y) {
+                        if (y > 0) return y;
+                        return -y;
+                    }
+                    return Local(x);
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_anonymous_inner_class() {
+        check_metrics::<CsharpParser>(
+            "public class A {
+                public void Run() {
+                    System.Action f = delegate(int x) {
+                        if (x > 0) System.Console.WriteLine(x);
+                    };
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_nested_anonymous_inner_classes() {
+        check_metrics::<CsharpParser>(
+            "public class A {
+                public void Run() {
+                    System.Action f = delegate(int x) {
+                        System.Action g = delegate(int y) {
+                            if (y > 0) System.Console.WriteLine(y);
+                        };
+                    };
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_lambda_expression() {
+        check_metrics::<CsharpParser>(
+            "public class A {
+                public void Run() {
+                    System.Func<int, int> f = x => x > 0 ? x : -x;
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_single_interface() {
+        check_metrics::<CsharpParser>(
+            "public interface I {
+                int GetA();
+                int GetB();
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_multiple_interfaces() {
+        check_metrics::<CsharpParser>(
+            "public interface I1 { int GetA(); }
+            public interface I2 { bool GetB(); float GetC(); }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_nested_inner_interfaces() {
+        check_metrics::<CsharpParser>(
+            "public interface I1 {
+                int GetA();
+                public interface I2 {
+                    bool GetB();
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_class_in_interface() {
+        check_metrics::<CsharpParser>(
+            "public interface I {
+                int GetA();
+                public class Helper {
+                    public int M() { return 0; }
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_interface_in_class() {
+        check_metrics::<CsharpParser>(
+            "class Outer {
+                int a;
+                bool b;
+                public int GetA() { return a; }
+                public bool GetB() { return b; }
+                public interface InnerI {
+                    float GetC();
+                    double GetD();
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(metric.wmc);
             },
         );
     }
