@@ -369,6 +369,88 @@ impl Checker for JavaCode {
     }
 }
 
+impl Checker for CsharpCode {
+    fn is_comment(node: &Node) -> bool {
+        node.kind_id() == Csharp::Comment
+    }
+
+    fn is_useful_comment(_: &Node, _: &[u8]) -> bool {
+        false
+    }
+
+    fn is_func_space(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Csharp::CompilationUnit
+                | Csharp::ClassDeclaration
+                | Csharp::StructDeclaration
+                | Csharp::RecordDeclaration
+                | Csharp::InterfaceDeclaration
+                | Csharp::EnumDeclaration
+                | Csharp::MethodDeclaration
+                | Csharp::ConstructorDeclaration
+                | Csharp::DestructorDeclaration
+                | Csharp::LocalFunctionStatement
+                | Csharp::LambdaExpression
+                | Csharp::AnonymousMethodExpression
+                | Csharp::AccessorDeclaration
+                | Csharp::OperatorDeclaration
+                | Csharp::ConversionOperatorDeclaration
+                | Csharp::IndexerDeclaration
+        )
+    }
+
+    fn is_func(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Csharp::MethodDeclaration
+                | Csharp::ConstructorDeclaration
+                | Csharp::DestructorDeclaration
+                | Csharp::LocalFunctionStatement
+                | Csharp::AccessorDeclaration
+                | Csharp::OperatorDeclaration
+                | Csharp::ConversionOperatorDeclaration
+                | Csharp::IndexerDeclaration
+        )
+    }
+
+    fn is_closure(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Csharp::LambdaExpression | Csharp::AnonymousMethodExpression
+        )
+    }
+
+    fn is_call(node: &Node) -> bool {
+        node.kind_id() == Csharp::InvocationExpression
+    }
+
+    fn is_non_arg(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Csharp::LPAREN | Csharp::COMMA | Csharp::RPAREN
+        )
+    }
+
+    fn is_string(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Csharp::StringLiteral
+                | Csharp::VerbatimStringLiteral
+                | Csharp::RawStringLiteral
+                | Csharp::InterpolatedStringExpression
+        )
+    }
+
+    fn is_else_if(_: &Node) -> bool {
+        false
+    }
+
+    fn is_primitive(_id: u16) -> bool {
+        false
+    }
+}
+
 impl Checker for MozjsCode {
     fn is_comment(node: &Node) -> bool {
         node.kind_id() == Mozjs::Comment

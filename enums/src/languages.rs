@@ -14,6 +14,7 @@ mk_langs!(
     (Tsx, tree_sitter_tsx),
     (Typescript, tree_sitter_typescript),
     (Bash, tree_sitter_bash),
+    (Csharp, tree_sitter_c_sharp),
     (Ccomment, tree_sitter_ccomment),
     (Preproc, tree_sitter_preproc),
     (Mozjs, tree_sitter_mozjs),

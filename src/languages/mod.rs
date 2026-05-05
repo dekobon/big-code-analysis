@@ -9,6 +9,9 @@ pub use language_bash::*;
 pub mod language_cpp;
 pub use language_cpp::*;
 
+pub mod language_csharp;
+pub use language_csharp::*;
+
 pub mod language_go;
 pub use language_go::*;
 
