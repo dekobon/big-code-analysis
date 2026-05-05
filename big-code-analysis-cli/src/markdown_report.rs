@@ -187,6 +187,81 @@ fn mi_rating(mi: f64) -> &'static str {
     }
 }
 
+#[derive(Clone, Copy)]
+enum Align {
+    Left,
+    Right,
+}
+
+/// Write a GFM pipe table with column widths padded to the longest
+/// header / cell, so the raw text aligns when viewed in a plain-text
+/// terminal. Padded tables remain valid GFM and render identically in
+/// GitHub, mdBook, and pulldown-cmark.
+///
+/// Each row must have the same length as `headers` and `aligns`.
+/// Cells are taken verbatim — escape any pipes / newlines with
+/// [`escape_cell`] / [`escape_name`] before calling.
+fn write_table(out: &mut String, headers: &[&str], aligns: &[Align], rows: &[Vec<String>]) {
+    debug_assert_eq!(headers.len(), aligns.len());
+    let widths: Vec<usize> = headers
+        .iter()
+        .enumerate()
+        .map(|(i, h)| {
+            let cell_w = rows.iter().map(|r| r[i].chars().count()).max().unwrap_or(0);
+            // Min 3 keeps the separator (`---` / `--:`) unambiguous for GFM.
+            h.chars().count().max(cell_w).max(3)
+        })
+        .collect();
+
+    let push_cell = |out: &mut String, cell: &str, width: usize, align: Align| {
+        let pad = width - cell.chars().count();
+        out.push(' ');
+        match align {
+            Align::Left => {
+                out.push_str(cell);
+                out.extend(std::iter::repeat_n(' ', pad));
+            }
+            Align::Right => {
+                out.extend(std::iter::repeat_n(' ', pad));
+                out.push_str(cell);
+            }
+        }
+        out.push(' ');
+    };
+
+    out.push('|');
+    for (i, h) in headers.iter().enumerate() {
+        push_cell(out, h, widths[i], aligns[i]);
+        out.push('|');
+    }
+    out.push('\n');
+
+    out.push('|');
+    for (i, &a) in aligns.iter().enumerate() {
+        out.push(' ');
+        match a {
+            Align::Left => out.extend(std::iter::repeat_n('-', widths[i])),
+            Align::Right => {
+                out.extend(std::iter::repeat_n('-', widths[i] - 1));
+                out.push(':');
+            }
+        }
+        out.push(' ');
+        out.push('|');
+    }
+    out.push('\n');
+
+    for row in rows {
+        debug_assert_eq!(row.len(), headers.len());
+        out.push('|');
+        for (i, cell) in row.iter().enumerate() {
+            push_cell(out, cell, widths[i], aligns[i]);
+            out.push('|');
+        }
+        out.push('\n');
+    }
+}
+
 /// Produce a Markdown quality-metrics report from the collected summaries.
 ///
 /// `top_n` controls how many entries appear in each hotspot table.
@@ -257,12 +332,7 @@ pub(crate) fn generate_report(summaries: &[FunctionSummary], top_n: usize) -> St
 
     // ── Per-language overview table ─────────────────────────────────────
     let _ = writeln!(out, "\n## Per-language overview\n");
-    let _ = writeln!(
-        out,
-        "| Language | Files | SLOC | Functions | Avg MI | Avg CC | Avg Cognitive |"
-    );
-    let _ = writeln!(out, "| --- | ---: | ---: | ---: | ---: | ---: | ---: |");
-
+    let mut overview_rows: Vec<Vec<String>> = Vec::with_capacity(by_lang.len());
     for (&lang_name, lang_summaries) in &by_lang {
         let (lang_unit_count, lang_sloc, mi_sum) = lang_summaries
             .iter()
@@ -289,18 +359,38 @@ pub(crate) fn generate_report(summaries: &[FunctionSummary], top_n: usize) -> St
             }
         };
 
-        let _ = writeln!(
-            out,
-            "| {} | {} | {} | {} | {:.1} | {:.1} | {:.1} |",
+        overview_rows.push(vec![
             title_case(lang_name),
             thousands(lang_unit_count),
             thousands(lang_sloc),
             thousands(func_count),
-            avg_mi,
-            avg_cc,
-            avg_cog,
-        );
+            format!("{avg_mi:.1}"),
+            format!("{avg_cc:.1}"),
+            format!("{avg_cog:.1}"),
+        ]);
     }
+    write_table(
+        &mut out,
+        &[
+            "Language",
+            "Files",
+            "SLOC",
+            "Functions",
+            "Avg MI",
+            "Avg CC",
+            "Avg Cognitive",
+        ],
+        &[
+            Align::Left,
+            Align::Right,
+            Align::Right,
+            Align::Right,
+            Align::Right,
+            Align::Right,
+            Align::Right,
+        ],
+        &overview_rows,
+    );
 
     // ── Per-language sections ───────────────────────────────────────────
     for (&lang_name, lang_summaries) in &by_lang {
@@ -382,17 +472,22 @@ fn write_language_section(
                 out,
                 "\n### Maintainability Index (lowest files, top-{top_n})\n"
             );
-            let _ = writeln!(out, "| File | MI | SLOC |");
-            let _ = writeln!(out, "| --- | ---: | ---: |");
-            for s in &mi_entries[..count] {
-                let _ = writeln!(
-                    out,
-                    "| {} | {:.1} | {} |",
-                    escape_cell(&s.file),
-                    s.mi_visual_studio,
-                    thousands(s.sloc),
-                );
-            }
+            let rows: Vec<Vec<String>> = mi_entries[..count]
+                .iter()
+                .map(|s| {
+                    vec![
+                        escape_cell(&s.file),
+                        format!("{:.1}", s.mi_visual_studio),
+                        thousands(s.sloc),
+                    ]
+                })
+                .collect();
+            write_table(
+                out,
+                &["File", "MI", "SLOC"],
+                &[Align::Left, Align::Right, Align::Right],
+                &rows,
+            );
         }
     }
 
@@ -427,20 +522,32 @@ fn write_language_section(
             let count = cc_entries.len().min(top_n);
 
             let _ = writeln!(out, "\n### Cyclomatic Complexity Hotspots\n");
-            let _ = writeln!(out, "| Function | File | Line | CC | Cognitive | SLOC |");
-            let _ = writeln!(out, "| --- | --- | ---: | ---: | ---: | ---: |");
-            for s in &cc_entries[..count] {
-                let _ = writeln!(
-                    out,
-                    "| {} | {} | {} | {:.0} | {:.0} | {} |",
-                    escape_name(&s.name),
-                    escape_cell(&s.file),
-                    s.start_line,
-                    s.cyclomatic,
-                    s.cognitive,
-                    thousands(s.sloc),
-                );
-            }
+            let rows: Vec<Vec<String>> = cc_entries[..count]
+                .iter()
+                .map(|s| {
+                    vec![
+                        escape_name(&s.name),
+                        escape_cell(&s.file),
+                        s.start_line.to_string(),
+                        format!("{:.0}", s.cyclomatic),
+                        format!("{:.0}", s.cognitive),
+                        thousands(s.sloc),
+                    ]
+                })
+                .collect();
+            write_table(
+                out,
+                &["Function", "File", "Line", "CC", "Cognitive", "SLOC"],
+                &[
+                    Align::Left,
+                    Align::Left,
+                    Align::Right,
+                    Align::Right,
+                    Align::Right,
+                    Align::Right,
+                ],
+                &rows,
+            );
             let _ = writeln!(out);
             let _ = writeln!(
                 out,
@@ -461,20 +568,32 @@ fn write_language_section(
             let count = cog_entries.len().min(top_n);
 
             let _ = writeln!(out, "\n### Cognitive Complexity Hotspots\n");
-            let _ = writeln!(out, "| Function | File | Line | Cognitive | CC | SLOC |");
-            let _ = writeln!(out, "| --- | --- | ---: | ---: | ---: | ---: |");
-            for s in &cog_entries[..count] {
-                let _ = writeln!(
-                    out,
-                    "| {} | {} | {} | {:.0} | {:.0} | {} |",
-                    escape_name(&s.name),
-                    escape_cell(&s.file),
-                    s.start_line,
-                    s.cognitive,
-                    s.cyclomatic,
-                    thousands(s.sloc),
-                );
-            }
+            let rows: Vec<Vec<String>> = cog_entries[..count]
+                .iter()
+                .map(|s| {
+                    vec![
+                        escape_name(&s.name),
+                        escape_cell(&s.file),
+                        s.start_line.to_string(),
+                        format!("{:.0}", s.cognitive),
+                        format!("{:.0}", s.cyclomatic),
+                        thousands(s.sloc),
+                    ]
+                })
+                .collect();
+            write_table(
+                out,
+                &["Function", "File", "Line", "Cognitive", "CC", "SLOC"],
+                &[
+                    Align::Left,
+                    Align::Left,
+                    Align::Right,
+                    Align::Right,
+                    Align::Right,
+                    Align::Right,
+                ],
+                &rows,
+            );
         }
     }
 
@@ -490,23 +609,32 @@ fn write_language_section(
             let count = hal_entries.len().min(top_n);
 
             let _ = writeln!(out, "\n### Halstead Effort Hotspots\n");
-            let _ = writeln!(
+            let rows: Vec<Vec<String>> = hal_entries[..count]
+                .iter()
+                .map(|s| {
+                    vec![
+                        escape_name(&s.name),
+                        escape_cell(&s.file),
+                        format!("{:.0}", s.halstead_effort),
+                        format!("{:.0}", s.halstead_volume),
+                        format!("{:.2}", s.halstead_bugs),
+                        thousands(s.sloc),
+                    ]
+                })
+                .collect();
+            write_table(
                 out,
-                "| Function | File | Effort | Volume | Est. Bugs | SLOC |"
+                &["Function", "File", "Effort", "Volume", "Est. Bugs", "SLOC"],
+                &[
+                    Align::Left,
+                    Align::Left,
+                    Align::Right,
+                    Align::Right,
+                    Align::Right,
+                    Align::Right,
+                ],
+                &rows,
             );
-            let _ = writeln!(out, "| --- | --- | ---: | ---: | ---: | ---: |");
-            for s in &hal_entries[..count] {
-                let _ = writeln!(
-                    out,
-                    "| {} | {} | {:.0} | {:.0} | {:.2} | {} |",
-                    escape_name(&s.name),
-                    escape_cell(&s.file),
-                    s.halstead_effort,
-                    s.halstead_volume,
-                    s.halstead_bugs,
-                    thousands(s.sloc),
-                );
-            }
         }
     }
 
@@ -519,20 +647,32 @@ fn write_language_section(
             let count = sloc_entries.len().min(top_n);
 
             let _ = writeln!(out, "\n### Largest Functions by SLOC\n");
-            let _ = writeln!(out, "| Function | File | Line | SLOC | CC | Cognitive |");
-            let _ = writeln!(out, "| --- | --- | ---: | ---: | ---: | ---: |");
-            for s in &sloc_entries[..count] {
-                let _ = writeln!(
-                    out,
-                    "| {} | {} | {} | {} | {:.0} | {:.0} |",
-                    escape_name(&s.name),
-                    escape_cell(&s.file),
-                    s.start_line,
-                    thousands(s.sloc),
-                    s.cyclomatic,
-                    s.cognitive,
-                );
-            }
+            let rows: Vec<Vec<String>> = sloc_entries[..count]
+                .iter()
+                .map(|s| {
+                    vec![
+                        escape_name(&s.name),
+                        escape_cell(&s.file),
+                        s.start_line.to_string(),
+                        thousands(s.sloc),
+                        format!("{:.0}", s.cyclomatic),
+                        format!("{:.0}", s.cognitive),
+                    ]
+                })
+                .collect();
+            write_table(
+                out,
+                &["Function", "File", "Line", "SLOC", "CC", "Cognitive"],
+                &[
+                    Align::Left,
+                    Align::Left,
+                    Align::Right,
+                    Align::Right,
+                    Align::Right,
+                    Align::Right,
+                ],
+                &rows,
+            );
         }
     }
 
@@ -545,18 +685,23 @@ fn write_language_section(
             let count = nargs_entries.len().min(top_n);
 
             let _ = writeln!(out, "\n### Functions With Many Parameters (>3)\n");
-            let _ = writeln!(out, "| Function | File | Args | SLOC |");
-            let _ = writeln!(out, "| --- | --- | ---: | ---: |");
-            for s in &nargs_entries[..count] {
-                let _ = writeln!(
-                    out,
-                    "| {} | {} | {} | {} |",
-                    escape_name(&s.name),
-                    escape_cell(&s.file),
-                    s.nargs,
-                    thousands(s.sloc),
-                );
-            }
+            let rows: Vec<Vec<String>> = nargs_entries[..count]
+                .iter()
+                .map(|s| {
+                    vec![
+                        escape_name(&s.name),
+                        escape_cell(&s.file),
+                        s.nargs.to_string(),
+                        thousands(s.sloc),
+                    ]
+                })
+                .collect();
+            write_table(
+                out,
+                &["Function", "File", "Args", "SLOC"],
+                &[Align::Left, Align::Left, Align::Right, Align::Right],
+                &rows,
+            );
         }
     }
 
@@ -618,28 +763,38 @@ fn write_language_section(
             let count = class_entries.len().min(top_n);
 
             let _ = writeln!(out, "\n### Class/Trait/Impl Hotspots (WMC)\n");
-            let _ = writeln!(
+            let rows: Vec<Vec<String>> = class_entries[..count]
+                .iter()
+                .map(|s| {
+                    vec![
+                        escape_name(&s.name),
+                        escape_cell(&s.file),
+                        s.start_line.to_string(),
+                        format!("{:.0}", s.wmc),
+                        s.nom.to_string(),
+                        format!("{:.0}", s.npa),
+                        format!("{:.0}", s.npm),
+                        thousands(s.sloc),
+                    ]
+                })
+                .collect();
+            write_table(
                 out,
-                "| Class | File | Line | WMC | Methods | NPA | NPM | SLOC |"
+                &[
+                    "Class", "File", "Line", "WMC", "Methods", "NPA", "NPM", "SLOC",
+                ],
+                &[
+                    Align::Left,
+                    Align::Left,
+                    Align::Right,
+                    Align::Right,
+                    Align::Right,
+                    Align::Right,
+                    Align::Right,
+                    Align::Right,
+                ],
+                &rows,
             );
-            let _ = writeln!(
-                out,
-                "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |"
-            );
-            for s in &class_entries[..count] {
-                let _ = writeln!(
-                    out,
-                    "| {} | {} | {} | {:.0} | {} | {:.0} | {:.0} | {} |",
-                    escape_name(&s.name),
-                    escape_cell(&s.file),
-                    s.start_line,
-                    s.wmc,
-                    s.nom,
-                    s.npa,
-                    s.npm,
-                    thousands(s.sloc),
-                );
-            }
         }
     }
 
@@ -652,20 +807,32 @@ fn write_language_section(
             let count = nexits_entries.len().min(top_n);
 
             let _ = writeln!(out, "\n### Functions with the most exit points (NEXITS)\n");
-            let _ = writeln!(out, "| Function | File | Line | Exits | CC | SLOC |");
-            let _ = writeln!(out, "| --- | --- | ---: | ---: | ---: | ---: |");
-            for s in &nexits_entries[..count] {
-                let _ = writeln!(
-                    out,
-                    "| {} | {} | {} | {} | {:.0} | {} |",
-                    escape_name(&s.name),
-                    escape_cell(&s.file),
-                    s.start_line,
-                    s.nexits,
-                    s.cyclomatic,
-                    thousands(s.sloc),
-                );
-            }
+            let rows: Vec<Vec<String>> = nexits_entries[..count]
+                .iter()
+                .map(|s| {
+                    vec![
+                        escape_name(&s.name),
+                        escape_cell(&s.file),
+                        s.start_line.to_string(),
+                        s.nexits.to_string(),
+                        format!("{:.0}", s.cyclomatic),
+                        thousands(s.sloc),
+                    ]
+                })
+                .collect();
+            write_table(
+                out,
+                &["Function", "File", "Line", "Exits", "CC", "SLOC"],
+                &[
+                    Align::Left,
+                    Align::Left,
+                    Align::Right,
+                    Align::Right,
+                    Align::Right,
+                    Align::Right,
+                ],
+                &rows,
+            );
         }
     }
 
@@ -678,19 +845,30 @@ fn write_language_section(
             let count = abc_entries.len().min(top_n);
 
             let _ = writeln!(out, "\n### ABC Magnitude Hotspots\n");
-            let _ = writeln!(out, "| Function | File | Line | ABC | SLOC |");
-            let _ = writeln!(out, "| --- | --- | ---: | ---: | ---: |");
-            for s in &abc_entries[..count] {
-                let _ = writeln!(
-                    out,
-                    "| {} | {} | {} | {:.1} | {} |",
-                    escape_name(&s.name),
-                    escape_cell(&s.file),
-                    s.start_line,
-                    s.abc,
-                    thousands(s.sloc),
-                );
-            }
+            let rows: Vec<Vec<String>> = abc_entries[..count]
+                .iter()
+                .map(|s| {
+                    vec![
+                        escape_name(&s.name),
+                        escape_cell(&s.file),
+                        s.start_line.to_string(),
+                        format!("{:.1}", s.abc),
+                        thousands(s.sloc),
+                    ]
+                })
+                .collect();
+            write_table(
+                out,
+                &["Function", "File", "Line", "ABC", "SLOC"],
+                &[
+                    Align::Left,
+                    Align::Left,
+                    Align::Right,
+                    Align::Right,
+                    Align::Right,
+                ],
+                &rows,
+            );
         }
     }
 }
@@ -699,6 +877,25 @@ fn write_language_section(
 mod tests {
     use super::*;
     use big_code_analysis::{CodeMetrics, FuncSpace, SpaceKind};
+
+    /// Collapse runs of spaces to a single space so assertions can match
+    /// the logical row content regardless of column-padding width.
+    fn collapse_spaces(s: &str) -> String {
+        let mut out = String::with_capacity(s.len());
+        let mut prev_space = false;
+        for c in s.chars() {
+            if c == ' ' {
+                if !prev_space {
+                    out.push(' ');
+                }
+                prev_space = true;
+            } else {
+                out.push(c);
+                prev_space = false;
+            }
+        }
+        out
+    }
 
     fn make_space(name: &str, kind: SpaceKind, start: usize, end: usize) -> FuncSpace {
         FuncSpace {
@@ -840,9 +1037,17 @@ mod tests {
             "missing overview"
         );
 
-        // Overview table has a row for each language.
-        assert!(report.contains("| Rust |"), "missing Rust overview row");
-        assert!(report.contains("| Python |"), "missing Python overview row");
+        // Overview table has a row for each language. Padding can vary,
+        // so collapse runs of spaces before matching.
+        let normalized = collapse_spaces(&report);
+        assert!(
+            normalized.contains("| Rust |"),
+            "missing Rust overview row in:\n{report}"
+        );
+        assert!(
+            normalized.contains("| Python |"),
+            "missing Python overview row in:\n{report}"
+        );
 
         // Global header reflects correct totals.
         assert!(report.contains("**Files analyzed:** 2"));
@@ -1031,6 +1236,82 @@ mod tests {
         assert_eq!(thousands(10_000_000), "10,000,000");
     }
 
+    // ── write_table tests ──────────────────────────────────────────
+
+    #[test]
+    fn write_table_pads_left_and_right_columns() {
+        let mut out = String::new();
+        write_table(
+            &mut out,
+            &["Name", "Count"],
+            &[Align::Left, Align::Right],
+            &[
+                vec!["a".to_string(), "1".to_string()],
+                vec!["longname".to_string(), "1234".to_string()],
+            ],
+        );
+        let expected = "\
+| Name     | Count |
+| -------- | ----: |
+| a        |     1 |
+| longname |  1234 |
+";
+        assert_eq!(out, expected);
+    }
+
+    #[test]
+    fn write_table_handles_empty_rows() {
+        let mut out = String::new();
+        write_table(&mut out, &["A", "B"], &[Align::Left, Align::Right], &[]);
+        // Header (1-char) and right-align separator both expand to the
+        // GFM-minimum width of 3.
+        let expected = "\
+| A   |   B |
+| --- | --: |
+";
+        assert_eq!(out, expected);
+    }
+
+    #[test]
+    fn write_table_widens_to_longest_cell() {
+        let mut out = String::new();
+        write_table(
+            &mut out,
+            &["X", "Y"],
+            &[Align::Left, Align::Right],
+            &[vec!["wide-cell".to_string(), "100".to_string()]],
+        );
+        // X's column widens to 9 (longest cell), Y's to 3 (min).
+        let expected = "\
+| X         |   Y |
+| --------- | --: |
+| wide-cell | 100 |
+";
+        assert_eq!(out, expected);
+    }
+
+    #[test]
+    fn write_table_counts_chars_not_bytes_for_multibyte_cells() {
+        // The grave-accent replacement char (\u{02CB}) is one column in a
+        // monospace renderer but takes 3 bytes in UTF-8 — width must use
+        // chars().count(), not byte length.
+        let mut out = String::new();
+        write_table(
+            &mut out,
+            &["Name"],
+            &[Align::Left],
+            &[vec!["abc".to_string()], vec!["a\u{02CB}c".to_string()]],
+        );
+        // Both cells are 3 chars; column width is 3.
+        let expected = "\
+| Name |
+| ---- |
+| abc  |
+| a\u{02CB}c  |
+";
+        assert_eq!(out, expected);
+    }
+
     #[test]
     fn title_case_basic() {
         assert_eq!(title_case("rust"), "Rust");
@@ -1117,14 +1398,16 @@ mod tests {
             report.contains("### Class/Trait/Impl Hotspots (WMC)"),
             "WMC section should be present when class-kind summaries exist"
         );
-        // Verify the row renders the correct metric values.
+        // Verify the row renders the correct metric values. Padding may
+        // pad cells with spaces; collapse runs of spaces before matching.
+        let normalized = collapse_spaces(&report);
         assert!(
-            report.contains("| `MyClass`"),
+            normalized.contains("| `MyClass`"),
             "class name should appear as backtick-wrapped cell"
         );
         assert!(
-            report.contains("| 12 | 4 | 2 | 3 | 80 |"),
-            "WMC row should contain wmc=12, nom=4, npa=2, npm=3, sloc=80"
+            normalized.contains("| 12 | 4 | 2 | 3 | 80 |"),
+            "WMC row should contain wmc=12, nom=4, npa=2, npm=3, sloc=80 in:\n{report}"
         );
     }
 
@@ -1153,13 +1436,14 @@ mod tests {
             report.contains("### Functions with the most exit points (NEXITS)"),
             "NEXITS section should be present when functions have exits > 0"
         );
+        let normalized = collapse_spaces(&report);
         assert!(
-            report.contains("| `multi_exit`"),
+            normalized.contains("| `multi_exit`"),
             "function name should appear as backtick-wrapped cell"
         );
         assert!(
-            report.contains("| 3 | 7 | 40 |"),
-            "NEXITS row should contain exits=3, cc=7, sloc=40"
+            normalized.contains("| 3 | 7 | 40 |"),
+            "NEXITS row should contain exits=3, cc=7, sloc=40 in:\n{report}"
         );
     }
 
@@ -1175,13 +1459,14 @@ mod tests {
             report.contains("### ABC Magnitude Hotspots"),
             "ABC section should be present when functions have abc > 0"
         );
+        let normalized = collapse_spaces(&report);
         assert!(
-            report.contains("| `complex`"),
+            normalized.contains("| `complex`"),
             "function name should appear as backtick-wrapped cell"
         );
         assert!(
-            report.contains("| 15.5 | 35 |"),
-            "ABC row should contain abc=15.5, sloc=35"
+            normalized.contains("| 15.5 | 35 |"),
+            "ABC row should contain abc=15.5, sloc=35 in:\n{report}"
         );
     }
 
