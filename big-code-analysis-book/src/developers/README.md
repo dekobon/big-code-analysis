@@ -15,57 +15,104 @@ You can do that:
 
 through **HTTPS**
 
-```
+```console
 git clone -j8 https://github.com/dekobon/big-code-analysis.git
 ```
 
 or through **SSH**
 
-```
+```console
 git clone -j8 git@github.com:dekobon/big-code-analysis.git
 ```
 
+## Make is the canonical entry point
+
+The repository ships a `Makefile` that wraps every common build, test,
+lint, format, and docs task. Run `make help` to see the full list of
+targets, and `make check-tools` to verify which optional tools
+(`taplo`, `markdownlint-cli2`, `shellcheck`, `shfmt`, `checkmake`,
+`mdbook`, `cargo-insta`, `cargo-udeps`) are present on your machine.
+
+The two composite targets you will use most:
+
+- `make pre-commit` — the recommended local gate before committing.
+  Runs `cargo fmt --check`, both clippy invocations
+  (default-features and `--all-features`), `cargo test --workspace
+  --all-features` (lib + bin + integration + doc), `cargo +nightly
+  udeps`, and the markdown / TOML / shell / Makefile lint families
+  in one parallel pass.
+- `make ci` — the same checks in the order CI runs them, with no
+  auto-fixing. Use this to reproduce a failing CI run locally.
+
+If GNU Make 4 or any of the optional tools are unavailable, fall back
+to the raw cargo commands shown below — they are equivalent to the
+corresponding Make targets.
+
 ## Building
 
-To build the `big-code-analysis` library, you need to run the following
-command:
+To build the `big-code-analysis` library, the CLI, and the web
+server in one shot:
 
 ```console
-cargo build
+make build           # cargo build --workspace --all-targets
+make build-release   # cargo build --workspace --release
 ```
 
-If you want to build the `cli`:
+For an individual crate, invoke `cargo` directly:
 
 ```console
-cargo build -p big-code-analysis-cli
+cargo build                              # library only
+cargo build -p big-code-analysis-cli     # CLI only
+cargo build -p big-code-analysis-web     # web server only
 ```
 
-If you want to build the `web` server:
-
-```console
-cargo build -p big-code-analysis-web
-```
-
-If you want to build everything in one fell swoop:
-
-```console
-cargo build --workspace
-```
+`make check` runs `cargo check --workspace --all-targets` for fast
+type-checking during iteration.
 
 ## Testing
 
-After you have finished changing the code, you should **always** verify whether
-all tests pass with the `cargo test` command.
+To verify that all tests pass:
+
+```console
+make test       # cargo test --workspace --all-features --lib --bins --tests
+make test-doc   # cargo test --workspace --all-features --doc
+```
+
+If you only want to run the cargo command yourself:
 
 ```console
 cargo test --workspace --all-features --verbose
 ```
 
+### Updating insta tests
+
+We use [insta](https://insta.rs); install
+[cargo insta](https://crates.io/crates/cargo-insta) to manage
+snapshots. The Makefile wraps the two operations you need:
+
+```console
+make insta-review   # cargo insta test --review (interactive)
+make insta-accept   # cargo insta test --accept (use with care)
+```
+
+`make insta-review` runs the tests, generates the new snapshot
+references, and lets you review each diff. Reach for `make
+insta-accept` only for bulk metric-value-only refreshes (grammar
+bumps, Halstead operator reclassification) where you have already
+verified the diff pattern is uniform.
+
 ## Code Formatting
 
 If all previous steps went well, and you want to make a pull request
-to integrate your invaluable help in the codebase, the last step left is
-code formatting.
+to integrate your invaluable help in the codebase, the last step left
+is code formatting. The `make fmt` target runs every formatter in the
+project (Rust, Markdown, TOML, Bash) in one shot; `make fmt-check`
+verifies formatting without modifying files.
+
+```console
+make fmt         # cargo fmt + markdownlint-cli2 --fix + shfmt -w + taplo fmt
+make fmt-check   # the equivalent --check variants
+```
 
 ### Rustfmt
 
@@ -77,7 +124,7 @@ To install:
 rustup component add rustfmt
 ```
 
-To format the code:
+To format the code (handled automatically by `make fmt`):
 
 ```console
 cargo fmt
@@ -89,6 +136,10 @@ This tool helps developers to write better code catching automatically lots of
 common mistakes for them. It detects in your code a series of errors and
 warnings that **must** be fixed before making a pull request.
 
+`make clippy` runs both clippy invocations the project enforces
+(default-features and `--all-features`); `make lint` additionally
+runs the markdown, shell, TOML, and Makefile linters.
+
 To install:
 
 ```console
@@ -98,20 +149,38 @@ rustup component add clippy
 To detect errors and warnings:
 
 ```console
-cargo clippy --workspace --all-targets --
+make clippy
+# or, manually:
+cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 ```
+
+### Unused dependencies
+
+`make udeps` runs `cargo +nightly udeps --workspace --all-targets` to
+catch dependencies declared in `Cargo.toml` but never referenced.
+Requires the nightly toolchain (`rustup toolchain install nightly`)
+and `cargo-udeps`.
 
 ## Code Documentation
 
-If you have documented your code, to generate the final documentation,
-run this command:
-
 ```console
-cargo doc --open --no-deps
+make doc        # cargo doc --no-deps --workspace --all-features
+make doc-open   # same, then open in a browser
 ```
 
-Remove the `--no-deps` option if you also want to build the documentation of
-each dependency used by **big-code-analysis**.
+Remove the `--no-deps` option from the underlying cargo invocation if
+you also want to build the documentation of each dependency used by
+**big-code-analysis**.
+
+### Building this book
+
+The book you are reading lives under `big-code-analysis-book/`:
+
+```console
+make book        # mdbook build
+make book-serve  # mdbook serve with live reload
+```
 
 ## Run your code
 
@@ -139,6 +208,9 @@ To know the list of **big-code-analysis-web** parameters, run:
 cargo run -p big-code-analysis-web -- --help
 ```
 
+`make install`, `make install-cli`, and `make install-web` invoke
+`cargo install --path` for the respective binary crates.
+
 ## Practical advice
 
 - When you add a new feature, add at least one unit or integration test to
@@ -147,3 +219,4 @@ cargo run -p big-code-analysis-web -- --help
 - Do not add dead code
 - Comment intricate code such that others can comprehend what you have
   accomplished
+- Run `make pre-commit` before pushing — it is the same gate CI runs

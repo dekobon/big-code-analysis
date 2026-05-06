@@ -88,13 +88,15 @@ description: Complete workflow for fixing GitHub issues including investigation,
 10. Fix any issues found in review. If the fixes were non-trivial, re-review.
     Do NOT commit with known issues and plan to fix them in a follow-up — that
     is how fix-up chains happen.
-11. Run the final gate before committing:
-    - `cargo fmt --all -- --check`
-    - `cargo clippy --workspace --all-targets -- -D warnings`
-    - `cargo test --workspace`
-    - `pre-commit run --all-files` (if pre-commit is installed)
-    - `markdownlint-cli2` against any Markdown files touched
-     If any check fails, fix and re-run until clean.
+11. Run `make pre-commit` as the final gate before committing. It runs
+    `cargo fmt --check`, the pair of clippy invocations, the workspace
+    tests with all features, `cargo +nightly udeps`, and the markdown /
+    TOML / shell / Makefile lint families in one parallel pass. If
+    `make` is unavailable, fall back to running the cargo gates manually
+    (`cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+    `cargo test --workspace --all-features`) plus `markdownlint-cli2`
+    against any Markdown files touched. If any check fails, fix and
+    re-run until clean.
      If snapshot tests fail (`*.snap.new` files generated), use
      `cargo insta test --review` to inspect each diff. For bulk metric-value
      shifts (grammar bumps, Halstead reclassification), verify the diff
