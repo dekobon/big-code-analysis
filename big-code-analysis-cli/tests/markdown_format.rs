@@ -216,6 +216,7 @@ fn report_renders_nonzero_tokens_for_real_file() {
             .expect("stats.py row in MI table"),
     );
     let tokens: u64 = data_row[tokens_idx]
+        .replace(',', "")
         .parse()
         .expect("Tokens column should be a numeric cell");
     assert!(
