@@ -1619,13 +1619,10 @@ mod tests {
             let start = report
                 .find(header)
                 .unwrap_or_else(|| panic!("missing section: {header}"));
-            let after = &report[start..];
-            let header_row_start = after.find("\n|").expect("header row") + 1;
-            let header_row_end = after[header_row_start..]
-                .find('\n')
-                .expect("header row end")
-                + header_row_start;
-            let header_row = &after[header_row_start..header_row_end];
+            let header_row = report[start..]
+                .lines()
+                .find(|l| l.starts_with('|'))
+                .expect("header row");
             assert!(
                 header_row.contains("Tokens"),
                 "Tokens column missing from {header} header row:\n{header_row}"
