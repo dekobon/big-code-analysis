@@ -63,7 +63,9 @@ big-code-analysis-cli \
 ## Report structure
 
 A generated report contains the following sections (each section is
-omitted when no data exists for it):
+omitted when no data exists for it). Every hotspot table includes a
+`Tokens` column (Lizard-style leaf-token count, comments excluded)
+alongside `SLOC` so two complementary size proxies are visible per row.
 
 1. **Project summary** — files analyzed, languages, total SLOC / PLOC /
    comment counts, function and class counts, comment ratio.
