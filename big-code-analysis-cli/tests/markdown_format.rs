@@ -184,6 +184,36 @@ fn metrics_cbor_without_output_rejects_cleanly() {
 }
 
 #[test]
+fn report_renders_nonzero_tokens_for_real_file() {
+    let output = cli()
+        .args(["--paths", &fixture_path(), "report", "markdown"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let mi_section = stdout
+        .split_once("### Maintainability Index")
+        .expect("MI section present")
+        .1;
+    let row = mi_section
+        .lines()
+        .find(|l| l.contains("stats.py"))
+        .expect("stats.py row present in MI table");
+    let last_cell = row
+        .rsplit('|')
+        .find(|c| c.chars().any(|x| !x.is_whitespace()))
+        .expect("non-empty trailing cell");
+    let tokens: u64 = last_cell
+        .trim()
+        .parse()
+        .expect("Tokens column should be a numeric cell");
+    assert!(
+        tokens > 0,
+        "Tokens cell for stats.py should be non-zero, got {tokens}"
+    );
+}
+
+#[test]
 fn report_strip_prefix_removes_path_prefix() {
     let fp = fixture_path();
     let prefix = {
