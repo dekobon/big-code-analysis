@@ -41,34 +41,35 @@ about metrics, nodes, and other general data provided by this software.
 
 ## Building
 
-To build the `big-code-analysis` library, you need to run the following
-command:
+The repository ships a `Makefile` that wraps every common build, test,
+lint, and docs task. Run `make help` for the full list, and
+`make check-tools` to verify the optional tools are installed.
 
 ```console
-cargo build
+make build           # debug build of the entire workspace
+make build-release   # optimised release build
 ```
 
-If you want to build the `cli`:
+If you prefer to run cargo directly, or want to build a single crate:
 
 ```console
-cargo build -p big-code-analysis-cli
-```
-
-If you want to build the `web` server:
-
-```console
-cargo build -p big-code-analysis-web
-```
-
-If you want to build everything in one fell swoop:
-
-```console
-cargo build --workspace
+cargo build                              # library only
+cargo build -p big-code-analysis-cli     # CLI only
+cargo build -p big-code-analysis-web     # web server only
+cargo build --workspace                  # everything in one shot
 ```
 
 ## Testing
 
-To verify whether all tests pass, run the `cargo test` command.
+```console
+make test           # cargo test --workspace --all-features --lib --bins --tests
+make test-doc      # cargo test --workspace --all-features --doc
+make pre-commit    # full local gate: fmt-check, clippy, tests, udeps, lint families
+```
+
+`make pre-commit` is the recommended gate before committing — it is
+equivalent to what CI runs. If GNU Make 4 or any of the optional
+tools are unavailable, the raw cargo invocation still works:
 
 ```console
 cargo test --workspace --all-features --verbose
@@ -78,8 +79,8 @@ cargo test --workspace --all-features --verbose
 
 We use [insta](https://insta.rs), to update the snapshot tests you should install [cargo insta](https://crates.io/crates/cargo-insta)
 
-``` console
-cargo insta test --review
+```console
+make insta-review   # cargo insta test --review
 ```
 
 Will run the tests, generate the new snapshot references and let you review them.

@@ -27,7 +27,9 @@ Determine what to review based on `$ARGUMENTS`:
 3. Use the Agent tool to spawn three parallel **read-only** review agents (one per dimension below). Agents analyse and return findings — they do NOT edit files.
 4. Aggregate findings, deduplicate, and classify by priority
 5. Apply fixes directly to the code (orchestrator only — not the review agents)
-6. Run `cargo check --workspace` to verify changes compile
+6. Run `make pre-commit` to validate formatting, linting, and tests. Fall
+   back to `cargo check --workspace --all-features` if `make` is
+   unavailable.
 7. Summarize what changed and why, with `file:line` references
 
 ## Priority Classification

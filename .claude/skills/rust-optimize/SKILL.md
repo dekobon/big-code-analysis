@@ -79,16 +79,18 @@ Parse `$ARGUMENTS` as: `[target] [--dry-run]`
 
 ### Step 4: Validate and commit
 
-10. **Validate** using the project's standard gates:
+10. **Run `make pre-commit`** to validate formatting, linting, and tests.
+    The Makefile target runs the cargo gates (`cargo fmt --check`, the
+    pair of clippy invocations, `cargo test --workspace --all-features`,
+    `cargo +nightly udeps`) plus the markdown / TOML / shell / Makefile
+    lint families in one parallel pass. If `make` is unavailable, fall
+    back to running the cargo gates manually:
 
     ```bash
     cargo fmt --all -- --check
     cargo clippy --workspace --all-targets -- -D warnings
-    cargo test --workspace
+    cargo test --workspace --all-features
     ```
-
-    If a `pre-commit` configuration exists at the repo root, also run
-    `pre-commit run --all-files` after the cargo gates pass.
 
 11. **Commit** with a conventional commit message:
     `refactor(<scope>): <what was optimized>`. For crate-scoped runs, group
@@ -431,9 +433,8 @@ on Tier 2. Skip Tier 3 unless the user specifically requests it.
 - **Never change observable behavior.** If unsure, don't change it.
 - **Preserve error messages and error types** unless explicitly asked to refactor errors.
 - **Triage `clippy::pedantic` using the tier system** — don't blindly fix all warnings.
-- **Run the validation gates after every batch of edits** (`cargo fmt --check`,
-  `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`).
-  If any gate fails, revert and fix.
+- **Run `make pre-commit` after every batch of edits.** This handles
+  formatting, linting, and tests. If it fails, revert and fix.
 - **Do not add dependencies** without asking. Suggesting `derive_more` or `thiserror`
   is fine, but get approval before adding to `Cargo.toml`.
 - **Prefer readability over cleverness.** A 2-line reduction that makes the code

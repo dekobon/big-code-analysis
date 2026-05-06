@@ -112,7 +112,18 @@ The default branch is **`main`**.
 
 ## Validation gates
 
-Before considering a change done, run these from the repo root:
+Before considering a change done, run `make pre-commit` from the repo
+root. It is the canonical entry point for the full validation gate and
+runs the cargo trio (`cargo fmt --check`, `cargo clippy --workspace
+--all-targets -- -D warnings` in both default-features and
+`--all-features` flavours, `cargo test --workspace --all-features`),
+`cargo +nightly udeps`, and the markdown / TOML / shell / Makefile
+lint families in one parallel pass. `make ci` runs the same checks
+without auto-fix, mirroring CI behaviour.
+
+If GNU Make 4 or any of the optional tools (`taplo`, `markdownlint-cli2`,
+`shellcheck`, `shfmt`, `checkmake`) are unavailable, fall back to the
+raw cargo commands:
 
 ```bash
 cargo fmt --all -- --check
