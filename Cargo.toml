@@ -55,6 +55,7 @@ opt-level = 3
 
 [workspace]
 members = ["big-code-analysis-cli", "big-code-analysis-web"]
+default-members = [".", "big-code-analysis-cli", "big-code-analysis-web"]
 exclude = ["enums"]
 
 [profile.release]
