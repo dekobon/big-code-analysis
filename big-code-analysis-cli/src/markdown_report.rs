@@ -18,6 +18,7 @@ pub(crate) struct FunctionSummary {
     #[expect(dead_code)]
     pub lloc: usize,
     pub cloc: usize,
+    pub tokens: usize,
     pub cyclomatic: f64,
     pub cognitive: f64,
     pub halstead_volume: f64,
@@ -75,6 +76,7 @@ fn extract_summaries_inner(
         ploc: m.loc.ploc() as usize,
         lloc: m.loc.lloc() as usize,
         cloc: m.loc.cloc() as usize,
+        tokens: m.tokens.tokens_sum() as usize,
         cyclomatic: m.cyclomatic.cyclomatic(),
         cognitive: m.cognitive.cognitive(),
         halstead_volume: m.halstead.volume(),
@@ -479,13 +481,14 @@ fn write_language_section(
                         escape_cell(&s.file),
                         format!("{:.1}", s.mi_visual_studio),
                         thousands(s.sloc),
+                        thousands(s.tokens),
                     ]
                 })
                 .collect();
             write_table(
                 out,
-                &["File", "MI", "SLOC"],
-                &[Align::Left, Align::Right, Align::Right],
+                &["File", "MI", "SLOC", "Tokens"],
+                &[Align::Left, Align::Right, Align::Right, Align::Right],
                 &rows,
             );
         }
@@ -532,15 +535,25 @@ fn write_language_section(
                         format!("{:.0}", s.cyclomatic),
                         format!("{:.0}", s.cognitive),
                         thousands(s.sloc),
+                        thousands(s.tokens),
                     ]
                 })
                 .collect();
             write_table(
                 out,
-                &["Function", "File", "Line", "CC", "Cognitive", "SLOC"],
+                &[
+                    "Function",
+                    "File",
+                    "Line",
+                    "CC",
+                    "Cognitive",
+                    "SLOC",
+                    "Tokens",
+                ],
                 &[
                     Align::Left,
                     Align::Left,
+                    Align::Right,
                     Align::Right,
                     Align::Right,
                     Align::Right,
@@ -578,15 +591,25 @@ fn write_language_section(
                         format!("{:.0}", s.cognitive),
                         format!("{:.0}", s.cyclomatic),
                         thousands(s.sloc),
+                        thousands(s.tokens),
                     ]
                 })
                 .collect();
             write_table(
                 out,
-                &["Function", "File", "Line", "Cognitive", "CC", "SLOC"],
+                &[
+                    "Function",
+                    "File",
+                    "Line",
+                    "Cognitive",
+                    "CC",
+                    "SLOC",
+                    "Tokens",
+                ],
                 &[
                     Align::Left,
                     Align::Left,
+                    Align::Right,
                     Align::Right,
                     Align::Right,
                     Align::Right,
@@ -619,15 +642,25 @@ fn write_language_section(
                         format!("{:.0}", s.halstead_volume),
                         format!("{:.2}", s.halstead_bugs),
                         thousands(s.sloc),
+                        thousands(s.tokens),
                     ]
                 })
                 .collect();
             write_table(
                 out,
-                &["Function", "File", "Effort", "Volume", "Est. Bugs", "SLOC"],
+                &[
+                    "Function",
+                    "File",
+                    "Effort",
+                    "Volume",
+                    "Est. Bugs",
+                    "SLOC",
+                    "Tokens",
+                ],
                 &[
                     Align::Left,
                     Align::Left,
+                    Align::Right,
                     Align::Right,
                     Align::Right,
                     Align::Right,
@@ -655,6 +688,7 @@ fn write_language_section(
                         escape_cell(&s.file),
                         s.start_line.to_string(),
                         thousands(s.sloc),
+                        thousands(s.tokens),
                         format!("{:.0}", s.cyclomatic),
                         format!("{:.0}", s.cognitive),
                     ]
@@ -662,10 +696,19 @@ fn write_language_section(
                 .collect();
             write_table(
                 out,
-                &["Function", "File", "Line", "SLOC", "CC", "Cognitive"],
+                &[
+                    "Function",
+                    "File",
+                    "Line",
+                    "SLOC",
+                    "Tokens",
+                    "CC",
+                    "Cognitive",
+                ],
                 &[
                     Align::Left,
                     Align::Left,
+                    Align::Right,
                     Align::Right,
                     Align::Right,
                     Align::Right,
@@ -693,13 +736,20 @@ fn write_language_section(
                         escape_cell(&s.file),
                         s.nargs.to_string(),
                         thousands(s.sloc),
+                        thousands(s.tokens),
                     ]
                 })
                 .collect();
             write_table(
                 out,
-                &["Function", "File", "Args", "SLOC"],
-                &[Align::Left, Align::Left, Align::Right, Align::Right],
+                &["Function", "File", "Args", "SLOC", "Tokens"],
+                &[
+                    Align::Left,
+                    Align::Left,
+                    Align::Right,
+                    Align::Right,
+                    Align::Right,
+                ],
                 &rows,
             );
         }
@@ -775,17 +825,19 @@ fn write_language_section(
                         format!("{:.0}", s.npa),
                         format!("{:.0}", s.npm),
                         thousands(s.sloc),
+                        thousands(s.tokens),
                     ]
                 })
                 .collect();
             write_table(
                 out,
                 &[
-                    "Class", "File", "Line", "WMC", "Methods", "NPA", "NPM", "SLOC",
+                    "Class", "File", "Line", "WMC", "Methods", "NPA", "NPM", "SLOC", "Tokens",
                 ],
                 &[
                     Align::Left,
                     Align::Left,
+                    Align::Right,
                     Align::Right,
                     Align::Right,
                     Align::Right,
@@ -817,15 +869,17 @@ fn write_language_section(
                         s.nexits.to_string(),
                         format!("{:.0}", s.cyclomatic),
                         thousands(s.sloc),
+                        thousands(s.tokens),
                     ]
                 })
                 .collect();
             write_table(
                 out,
-                &["Function", "File", "Line", "Exits", "CC", "SLOC"],
+                &["Function", "File", "Line", "Exits", "CC", "SLOC", "Tokens"],
                 &[
                     Align::Left,
                     Align::Left,
+                    Align::Right,
                     Align::Right,
                     Align::Right,
                     Align::Right,
@@ -854,15 +908,17 @@ fn write_language_section(
                         s.start_line.to_string(),
                         format!("{:.1}", s.abc),
                         thousands(s.sloc),
+                        thousands(s.tokens),
                     ]
                 })
                 .collect();
             write_table(
                 out,
-                &["Function", "File", "Line", "ABC", "SLOC"],
+                &["Function", "File", "Line", "ABC", "SLOC", "Tokens"],
                 &[
                     Align::Left,
                     Align::Left,
+                    Align::Right,
                     Align::Right,
                     Align::Right,
                     Align::Right,
@@ -920,6 +976,7 @@ mod tests {
             ploc: 25,
             lloc: 15,
             cloc: 5,
+            tokens: 30,
             cyclomatic: 3.0,
             cognitive: 2.0,
             halstead_volume: 100.0,
@@ -1405,8 +1462,8 @@ mod tests {
             "class name should appear as backtick-wrapped cell"
         );
         assert!(
-            normalized.contains("| 12 | 4 | 2 | 3 | 80 |"),
-            "WMC row should contain wmc=12, nom=4, npa=2, npm=3, sloc=80 in:\n{report}"
+            normalized.contains("| 12 | 4 | 2 | 3 | 80 | 30 |"),
+            "WMC row should contain wmc=12, nom=4, npa=2, npm=3, sloc=80, tokens=30 in:\n{report}"
         );
     }
 
@@ -1441,8 +1498,8 @@ mod tests {
             "function name should appear as backtick-wrapped cell"
         );
         assert!(
-            normalized.contains("| 3 | 7 | 40 |"),
-            "NEXITS row should contain exits=3, cc=7, sloc=40 in:\n{report}"
+            normalized.contains("| 3 | 7 | 40 | 30 |"),
+            "NEXITS row should contain exits=3, cc=7, sloc=40, tokens=30 in:\n{report}"
         );
     }
 
@@ -1464,8 +1521,8 @@ mod tests {
             "function name should appear as backtick-wrapped cell"
         );
         assert!(
-            normalized.contains("| 15.5 | 35 |"),
-            "ABC row should contain abc=15.5, sloc=35 in:\n{report}"
+            normalized.contains("| 15.5 | 35 | 30 |"),
+            "ABC row should contain abc=15.5, sloc=35, tokens=30 in:\n{report}"
         );
     }
 
@@ -1529,6 +1586,61 @@ mod tests {
                 "expected 3 data rows in {section_hdr}, got {data_rows}"
             );
         }
+    }
+
+    #[test]
+    fn tokens_column_present_in_hotspot_tables() {
+        let unit = make_summary("lib.rs", "src/lib.rs", SpaceKind::Unit, LANG::Rust);
+        let mut func = make_summary("hot", "src/lib.rs", SpaceKind::Function, LANG::Rust);
+        func.cyclomatic = 5.0;
+        func.cognitive = 4.0;
+        func.halstead_effort = 200.0;
+        func.nargs = 4;
+        func.nexits = 2;
+        func.abc = 8.0;
+        func.tokens = 42;
+        let mut cls = make_summary("Cls", "src/lib.rs", SpaceKind::Class, LANG::Rust);
+        cls.wmc = 6.0;
+        cls.tokens = 99;
+
+        let report = generate_report(&[unit, func, cls], 20);
+
+        for header in [
+            "### Maintainability Index",
+            "### Cyclomatic Complexity Hotspots",
+            "### Cognitive Complexity Hotspots",
+            "### Halstead Effort Hotspots",
+            "### Largest Functions by SLOC",
+            "### Functions With Many Parameters (>3)",
+            "### Class/Trait/Impl Hotspots (WMC)",
+            "### Functions with the most exit points (NEXITS)",
+            "### ABC Magnitude Hotspots",
+        ] {
+            let start = report
+                .find(header)
+                .unwrap_or_else(|| panic!("missing section: {header}"));
+            let after = &report[start..];
+            let header_row_start = after.find("\n|").expect("header row") + 1;
+            let header_row_end = after[header_row_start..]
+                .find('\n')
+                .expect("header row end")
+                + header_row_start;
+            let header_row = &after[header_row_start..header_row_end];
+            assert!(
+                header_row.contains("Tokens"),
+                "Tokens column missing from {header} header row:\n{header_row}"
+            );
+        }
+
+        let normalized = collapse_spaces(&report);
+        assert!(
+            normalized.contains("| 42 |"),
+            "function token count should appear in normalized report"
+        );
+        assert!(
+            normalized.contains("| 99 |"),
+            "class token count should appear in normalized report"
+        );
     }
 
     #[test]
