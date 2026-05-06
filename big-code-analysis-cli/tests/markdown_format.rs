@@ -195,16 +195,27 @@ fn report_renders_nonzero_tokens_for_real_file() {
         .split_once("### Maintainability Index")
         .expect("MI section present")
         .1;
-    let row = mi_section
-        .lines()
-        .find(|l| l.contains("stats.py"))
-        .expect("stats.py row present in MI table");
-    let last_cell = row
-        .rsplit('|')
-        .find(|c| c.chars().any(|x| !x.is_whitespace()))
-        .expect("non-empty trailing cell");
-    let tokens: u64 = last_cell
-        .trim()
+
+    let split_cells = |row: &str| -> Vec<String> {
+        row.trim_matches('|')
+            .split('|')
+            .map(|c| c.trim().to_string())
+            .collect()
+    };
+
+    let mut table_rows = mi_section.lines().filter(|l| l.starts_with('|'));
+    let header = split_cells(table_rows.next().expect("MI header row"));
+    let tokens_idx = header
+        .iter()
+        .position(|c| c == "Tokens")
+        .unwrap_or_else(|| panic!("MI table missing Tokens column. Header: {header:?}"));
+    table_rows.next(); // skip GFM separator row
+    let data_row = split_cells(
+        table_rows
+            .find(|l| l.contains("stats.py"))
+            .expect("stats.py row in MI table"),
+    );
+    let tokens: u64 = data_row[tokens_idx]
         .parse()
         .expect("Tokens column should be a numeric cell");
     assert!(
