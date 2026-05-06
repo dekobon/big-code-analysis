@@ -6,7 +6,7 @@
 
 [files]
 extend-exclude = [
-    "enums/data/",
-    "tree-sitter-*/examples/",
-    "src/c_langs_macros/c_macros.rs",
+  "enums/data/",
+  "tree-sitter-*/examples/",
+  "src/c_langs_macros/c_macros.rs",
 ]

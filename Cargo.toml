@@ -1,7 +1,10 @@
 [package]
 name = "big-code-analysis"
 version = "0.0.25"
-authors = ["Calixte Denizet <cdenizet@mozilla.com>", "Elijah Zupancic <elijah@zupancic.name>"]
+authors = [
+  "Calixte Denizet <cdenizet@mozilla.com>",
+  "Elijah Zupancic <elijah@zupancic.name>",
+]
 edition = "2024"
 repository = "https://github.com/dekobon/big-code-analysis"
 documentation = "https://docs.rs/big-code-analysis/"

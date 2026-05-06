@@ -1,0 +1,23 @@
+# taplo configuration
+#
+# Scope taplo to first-party TOML files only. Vendored grammar crates
+# (tree-sitter-*) and the test-fixture repositories under tests/repositories
+# follow upstream formatting and must not be reformatted by this project's
+# tooling. The enums/ crate is excluded from the workspace and is owned by
+# its own conventions.
+include = [
+    "Cargo.toml",
+    "big-code-analysis-cli/**/*.toml",
+    "big-code-analysis-web/**/*.toml",
+    "big-code-analysis-book/**/*.toml",
+    "mise.toml",
+    ".typos.toml",
+]
+exclude = [
+    "target/**",
+    "tests/repositories/**",
+    "tree-sitter-*/**",
+    "enums/**",
+    ".claude/**",
+    ".git/**",
+]
