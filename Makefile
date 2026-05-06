@@ -214,10 +214,10 @@ clean:
 install: install-cli install-web
 
 install-cli:
-	cargo install --path big-code-analysis-cli
+	RUSTFLAGS="-C target-cpu=native" cargo install --path big-code-analysis-cli
 
 install-web:
-	cargo install --path big-code-analysis-web
+	RUSTFLAGS="-C target-cpu=native" cargo install --path big-code-analysis-web
 
 # ---------------------------------------------------------------------------
 # Documentation
