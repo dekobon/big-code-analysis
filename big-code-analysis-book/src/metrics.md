@@ -26,4 +26,10 @@ source file.
 - **PLOC**: it counts the number of physical lines (instructions) contained in
 a source file.
 - **SLOC**: it counts the number of lines in a source file.
+- **TOKENS**: it counts the number of tree-sitter leaf tokens
+  (identifiers, literals, keywords, punctuation) per function and per file,
+  excluding any token whose ancestor is a comment node. A
+  formatting-resilient size proxy that is intentionally distinct from
+  Halstead totals (which omit punctuation) and from the LOC variants
+  (which count lines, not tokens).
 - **WMC**: it sums the _Cyclomatic complexity_ of every method defined in a class.

@@ -61,6 +61,10 @@ pub(crate) const METRICS: &[MetricEntry] = &[
         description: "Number of methods and closures.",
     },
     MetricEntry {
+        name: "tokens",
+        description: "Per-function token count: AST leaves excluding comments.",
+    },
+    MetricEntry {
         name: "nexits",
         description: "Number of exit points from a function or method.",
     },

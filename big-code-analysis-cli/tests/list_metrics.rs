@@ -23,6 +23,7 @@ fn list_metrics_prints_names() {
         "cloc",
         "blank",
         "nom",
+        "tokens",
         "nexits",
         "nargs",
         "mi",

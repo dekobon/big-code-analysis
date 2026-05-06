@@ -14,6 +14,7 @@ use crate::nargs::NArgs;
 use crate::nom::Nom;
 use crate::npa::Npa;
 use crate::npm::Npm;
+use crate::tokens::Tokens;
 use crate::wmc::Wmc;
 
 use crate::alterator::Alterator;
@@ -42,6 +43,7 @@ pub struct Parser<
         + Nom
         + Npa
         + Npm
+        + Tokens
         + Wmc,
 > {
     code: Vec<u8>,
@@ -111,6 +113,7 @@ impl<
         + Nom
         + Npa
         + Npm
+        + Tokens
         + Wmc,
 > ParserTrait for Parser<T>
 {
@@ -128,6 +131,7 @@ impl<
     type Abc = T;
     type Npm = T;
     type Npa = T;
+    type Tokens = T;
 
     fn new(code: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>) -> Self {
         let fake_code = get_fake_code::<T>(&code, path, pr);
