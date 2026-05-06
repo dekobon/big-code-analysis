@@ -525,42 +525,28 @@ fn load_preproc_data(path: &Path) -> Arc<PreprocResults> {
 /// for stdin). Skips blank/whitespace-only lines. `die`s on I/O
 /// failure with the failing line number.
 fn read_paths_from(src: &Path) -> Vec<PathBuf> {
-    use std::io::BufRead;
-    let lines: Vec<String> = if src.as_os_str() == "-" {
-        std::io::stdin()
-            .lock()
-            .lines()
-            .enumerate()
-            .map(|(i, r)| {
-                r.unwrap_or_else(|e| {
-                    die(format_args!(
-                        "--paths-from -: read error on line {}: {e}",
-                        i + 1
-                    ))
-                })
-            })
-            .collect()
+    if src.as_os_str() == "-" {
+        collect_path_lines(std::io::stdin().lock(), "--paths-from -")
     } else {
-        let f = std::fs::File::open(src)
-            .unwrap_or_else(|e| die(format_args!("--paths-from {}: {e}", src.display())));
-        std::io::BufReader::new(f)
-            .lines()
-            .enumerate()
-            .map(|(i, r)| {
-                r.unwrap_or_else(|e| {
-                    die(format_args!(
-                        "--paths-from {}: read error on line {}: {e}",
-                        src.display(),
-                        i + 1
-                    ))
-                })
-            })
-            .collect()
-    };
-    lines
-        .into_iter()
-        .filter(|l| !l.trim().is_empty())
-        .map(PathBuf::from)
+        let label = format!("--paths-from {}", src.display());
+        let f = std::fs::File::open(src).unwrap_or_else(|e| die(format_args!("{label}: {e}")));
+        collect_path_lines(std::io::BufReader::new(f), &label)
+    }
+}
+
+/// Drain `reader` into `PathBuf`s, one per non-blank line. `die`s on
+/// I/O failure, prefixing the message with `label` and the failing
+/// line number so the caller can identify the source.
+fn collect_path_lines<R: std::io::BufRead>(reader: R, label: &str) -> Vec<PathBuf> {
+    reader
+        .lines()
+        .enumerate()
+        .filter_map(|(i, r)| {
+            let line = r.unwrap_or_else(|e| {
+                die(format_args!("{label}: read error on line {}: {e}", i + 1))
+            });
+            (!line.trim().is_empty()).then(|| PathBuf::from(line))
+        })
         .collect()
 }
 
@@ -586,7 +572,7 @@ fn expand_seed_paths(
     for seed in seeds {
         if !seed.exists() {
             // Match today's `explore()` behavior: warn, do not die.
-            eprintln!("Warning: File doesn't exist: {seed:?}");
+            eprintln!("Warning: File doesn't exist: {}", seed.display());
             continue;
         }
         if seed.is_file() {

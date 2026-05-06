@@ -160,9 +160,14 @@ fn paths_from_file_reads_paths() {
         .success();
 
     let names = json_files(&out);
-    assert!(
-        names.iter().any(|n| n.contains("keep.py")),
-        "keep.py missing from --paths-from output, got {names:?}"
+    // Exact cardinality catches a class of bugs where --paths-from is
+    // misread as a directory walk seed (e.g., walking the listfile's
+    // parent), which would silently include extra files the listfile
+    // never named.
+    assert_eq!(
+        names,
+        vec!["keep.py.json".to_string()],
+        "expected exactly keep.py.json from one-line --paths-from"
     );
 }
 
@@ -250,5 +255,8 @@ fn paths_from_missing_file_dies() {
         ])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("--paths-from"));
+        .stderr(
+            predicate::str::contains("--paths-from")
+                .and(predicate::str::contains("does-not-exist.txt")),
+        );
 }
