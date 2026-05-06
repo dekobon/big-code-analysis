@@ -12,6 +12,7 @@ use crate::nargs;
 use crate::nom;
 use crate::npa;
 use crate::npm;
+use crate::tokens;
 use crate::wmc;
 
 use crate::spaces::{CodeMetrics, FuncSpace};
@@ -110,6 +111,7 @@ fn dump_metrics(
     dump_halstead(&metrics.halstead, &prefix, false, stdout)?;
     dump_loc(&metrics.loc, &prefix, false, stdout)?;
     dump_nom(&metrics.nom, &prefix, false, stdout)?;
+    dump_tokens(&metrics.tokens, &prefix, false, stdout)?;
     dump_mi(&metrics.mi, &prefix, false, stdout)?;
     dump_abc(&metrics.abc, &prefix, false, stdout)?;
     dump_wmc(&metrics.wmc, &prefix, false, stdout)?;
@@ -236,6 +238,27 @@ fn dump_nom(
     dump_value("functions", stats.functions(), &prefix, false, stdout)?;
     dump_value("closures", stats.closures(), &prefix, false, stdout)?;
     dump_value("total", stats.total(), &prefix, true, stdout)
+}
+
+fn dump_tokens(
+    stats: &tokens::Stats,
+    prefix: &str,
+    last: bool,
+    stdout: &mut StandardStreamLock,
+) -> std::io::Result<()> {
+    let (pref_child, pref) = if last { ("   ", "`- ") } else { ("|  ", "|- ") };
+
+    color(stdout, Color::Blue)?;
+    write!(stdout, "{prefix}{pref}")?;
+
+    intense_color(stdout, Color::Green)?;
+    writeln!(stdout, "tokens")?;
+
+    let prefix = format!("{prefix}{pref_child}");
+    dump_value("sum", stats.tokens_sum(), &prefix, false, stdout)?;
+    dump_value("average", stats.tokens_average(), &prefix, false, stdout)?;
+    dump_value("min", stats.tokens_min(), &prefix, false, stdout)?;
+    dump_value("max", stats.tokens_max(), &prefix, true, stdout)
 }
 
 fn dump_mi(

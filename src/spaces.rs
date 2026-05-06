@@ -19,6 +19,7 @@ use crate::nargs::{self, NArgs};
 use crate::nom::{self, Nom};
 use crate::npa::{self, Npa};
 use crate::npm::{self, Npm};
+use crate::tokens::{self, Tokens};
 use crate::wmc::{self, Wmc};
 
 use crate::dump_metrics::*;
@@ -82,6 +83,8 @@ pub struct CodeMetrics {
     pub loc: loc::Stats,
     /// `Nom` data
     pub nom: nom::Stats,
+    /// `Tokens` data
+    pub tokens: tokens::Stats,
     /// `Mi` data
     pub mi: mi::Stats,
     /// `Abc` data
@@ -106,6 +109,7 @@ impl fmt::Display for CodeMetrics {
         writeln!(f, "{}", self.halstead)?;
         writeln!(f, "{}", self.loc)?;
         writeln!(f, "{}", self.nom)?;
+        writeln!(f, "{}", self.tokens)?;
         write!(f, "{}", self.mi)
     }
 }
@@ -117,6 +121,7 @@ impl CodeMetrics {
         self.halstead.merge(&other.halstead);
         self.loc.merge(&other.loc);
         self.nom.merge(&other.nom);
+        self.tokens.merge(&other.tokens);
         self.mi.merge(&other.mi);
         self.nargs.merge(&other.nargs);
         self.nexits.merge(&other.nexits);
@@ -225,6 +230,7 @@ fn compute_minmax(state: &mut State) {
     state.space.metrics.nom.compute_minmax();
     state.space.metrics.loc.compute_minmax();
     state.space.metrics.abc.compute_minmax();
+    state.space.metrics.tokens.compute_minmax();
 }
 
 #[inline(always)]
@@ -353,6 +359,7 @@ pub fn metrics<'a, T: ParserTrait>(parser: &'a T, path: &'a Path) -> Option<Func
             T::Halstead::compute(&node, code, &mut state.halstead_maps);
             T::Loc::compute(&node, &mut last.metrics.loc, func_space, unit);
             T::Nom::compute(&node, &mut last.metrics.nom);
+            T::Tokens::compute(&node, &mut last.metrics.tokens);
             T::NArgs::compute(&node, &mut last.metrics.nargs);
             T::Exit::compute(&node, code, &mut last.metrics.nexits);
             T::Abc::compute(&node, &mut last.metrics.abc);

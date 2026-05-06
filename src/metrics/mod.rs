@@ -9,4 +9,5 @@ pub mod nargs;
 pub mod nom;
 pub mod npa;
 pub mod npm;
+pub mod tokens;
 pub mod wmc;
