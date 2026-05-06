@@ -87,7 +87,7 @@ where
 
     for path in paths.drain(..) {
         if !path.exists() {
-            eprintln!("Warning: File doesn't exist: {path:?}");
+            eprintln!("Warning: File doesn't exist: {}", path.display());
             continue;
         }
         if path.is_dir() {
