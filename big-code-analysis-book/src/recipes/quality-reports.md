@@ -107,3 +107,36 @@ big-code-analysis-cli \
 `--preproc-data` is a global flag, so it works with `metrics`, `ops`,
 `functions`, and the other subcommands as well — anywhere accurate
 C/C++ analysis matters.
+
+## Analyze only files changed in a PR
+
+Pipe a list of changed files into `--paths-from -` to score just the
+diff, not the whole tree:
+
+```bash
+git diff --name-only --diff-filter=AM origin/main...HEAD \
+    | big-code-analysis-cli --paths-from - metrics -O json -o ./out
+```
+
+- `--diff-filter=AM` keeps Added and Modified files and drops
+  Deletions — you cannot analyze a file that no longer exists.
+- `--paths-from -` reads newline-separated paths from stdin. A file
+  argument works the same way: `--paths-from changed.txt`.
+- Paths fed in this way are treated as **explicit**, so they bypass
+  any `.gitignore` rule that would have hidden them in a directory
+  walk. Combine with `-I '*.py' '*.rs'` to filter by language.
+
+For a PR-scoped Markdown summary, swap `metrics` for the report
+pipeline:
+
+```bash
+git diff --name-only --diff-filter=AM origin/main...HEAD \
+    | big-code-analysis-cli --paths-from - report markdown \
+        --top 10 --output pr-report.md
+```
+
+`.gitignore` is honored automatically when walking a directory, so
+recipes earlier in this page no longer need an explicit
+`-X "**/target/**" "**/node_modules/**"` if those paths are already
+covered by your project's `.gitignore`. Add `--no-ignore` if you do
+need to analyze gitignored trees.

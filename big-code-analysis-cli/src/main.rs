@@ -101,6 +101,18 @@ struct GlobalOpts {
     /// Use `bca preproc` to produce one.
     #[clap(long, value_parser, global = true)]
     preproc_data: Option<PathBuf>,
+    /// Read newline-separated input paths from a file. Use `-` to read
+    /// from stdin. Combined as a union with any `--paths` values; globs
+    /// still apply. Blank lines are skipped; `#` is treated as a path
+    /// character (not a comment). To pass a file literally named `-`,
+    /// use `./-`.
+    #[clap(long = "paths-from", value_parser, global = true)]
+    paths_from: Option<PathBuf>,
+    /// Disable `.gitignore` / `.ignore` / global gitignore awareness
+    /// when expanding directory seeds. Explicit file paths are always
+    /// honored regardless of this flag.
+    #[clap(long = "no-ignore", global = true)]
+    no_ignore: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -509,14 +521,107 @@ fn load_preproc_data(path: &Path) -> Arc<PreprocResults> {
     Arc::new(parsed)
 }
 
+/// Read newline-separated paths from `src` (a path on disk or `-`
+/// for stdin). Skips blank/whitespace-only lines. `die`s on I/O
+/// failure with the failing line number.
+fn read_paths_from(src: &Path) -> Vec<PathBuf> {
+    use std::io::BufRead;
+    let lines: Vec<String> = if src.as_os_str() == "-" {
+        std::io::stdin()
+            .lock()
+            .lines()
+            .enumerate()
+            .map(|(i, r)| {
+                r.unwrap_or_else(|e| {
+                    die(format_args!(
+                        "--paths-from -: read error on line {}: {e}",
+                        i + 1
+                    ))
+                })
+            })
+            .collect()
+    } else {
+        let f = std::fs::File::open(src)
+            .unwrap_or_else(|e| die(format_args!("--paths-from {}: {e}", src.display())));
+        std::io::BufReader::new(f)
+            .lines()
+            .enumerate()
+            .map(|(i, r)| {
+                r.unwrap_or_else(|e| {
+                    die(format_args!(
+                        "--paths-from {}: read error on line {}: {e}",
+                        src.display(),
+                        i + 1
+                    ))
+                })
+            })
+            .collect()
+    };
+    lines
+        .into_iter()
+        .filter(|l| !l.trim().is_empty())
+        .map(PathBuf::from)
+        .collect()
+}
+
+/// Expand seed paths for the walk: union `--paths` with
+/// `--paths-from`, then for each seed:
+///   - file → keep as-is (explicit override of any ignore rules);
+///   - directory → expand via `ignore::WalkBuilder`, gitignore-aware
+///     unless `no_ignore` is set.
+///
+/// Returns a flat `Vec<PathBuf>` of files. Include/exclude globs are
+/// applied later by `explore()`, matching today's semantics.
+fn expand_seed_paths(
+    paths: Vec<PathBuf>,
+    paths_from: Option<PathBuf>,
+    no_ignore: bool,
+) -> Vec<PathBuf> {
+    use ignore::WalkBuilder;
+    let mut seeds = paths;
+    if let Some(src) = paths_from {
+        seeds.extend(read_paths_from(&src));
+    }
+    let mut out: Vec<PathBuf> = Vec::new();
+    for seed in seeds {
+        if !seed.exists() {
+            // Match today's `explore()` behavior: warn, do not die.
+            eprintln!("Warning: File doesn't exist: {seed:?}");
+            continue;
+        }
+        if seed.is_file() {
+            out.push(seed);
+            continue;
+        }
+        let mut wb = WalkBuilder::new(&seed);
+        wb.hidden(true)
+            .follow_links(false)
+            .require_git(false)
+            .git_ignore(!no_ignore)
+            .git_exclude(!no_ignore)
+            .git_global(!no_ignore)
+            .ignore(!no_ignore)
+            .parents(!no_ignore);
+        for entry in wb.build() {
+            let entry = entry
+                .unwrap_or_else(|e| die(format_args!("walk error in {}: {e}", seed.display())));
+            if entry.file_type().is_some_and(|t| t.is_file()) {
+                out.push(entry.into_path());
+            }
+        }
+    }
+    out
+}
+
 fn run_walk(globals: GlobalOpts, cfg: Config) -> HashMap<String, Vec<PathBuf>> {
     let include = mk_globset(globals.include).unwrap_or_else(|e| die(e));
     let exclude = mk_globset(globals.exclude).unwrap_or_else(|e| die(e));
     let num_jobs = resolve_num_jobs(globals.num_jobs);
+    let paths = expand_seed_paths(globals.paths, globals.paths_from, globals.no_ignore);
     let files_data = FilesData {
         include,
         exclude,
-        paths: globals.paths,
+        paths,
     };
     ConcurrentRunner::new(num_jobs, act_on_file)
         .set_proc_dir_paths(process_dir_path)

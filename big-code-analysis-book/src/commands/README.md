@@ -65,3 +65,43 @@ threshold engine.
 - `--report-skipped` — log `skipped (generated): <path>` to stderr for
   each file the detector excludes, so you can audit the exclusions and
   add an explicit include if a file was wrongly tagged.
+
+## Respecting `.gitignore`
+
+When a directory is passed to `--paths`, `big-code-analysis-cli` walks
+it with `.gitignore` awareness by default. Files matched by any of the
+following are skipped before parsing:
+
+- `.gitignore` files inside the walked tree.
+- `.ignore` files (the ripgrep / `fd` convention).
+- `.git/info/exclude`.
+- The global gitignore (`~/.config/git/ignore`, or whatever
+  `core.excludesFile` points at).
+- `.gitignore` files in ancestor directories of the seed (so
+  `bca --paths src/` from a project root picks up the project's
+  top-level `.gitignore`).
+
+The walker honors `.gitignore` even outside a checked-in git
+repository, so an extracted source tarball with a `.gitignore` file
+gets the same treatment as a fresh `git clone`.
+
+Hidden files (those whose basename starts with `.`) are filtered
+during the walk, matching the previous behavior.
+
+### Explicit paths bypass the filter
+
+Files passed by name — via `--paths` or `--paths-from` — are always
+analyzed, even when they would be excluded by `.gitignore`. This makes
+it safe to do `bca metrics --paths-from -` from `git diff
+--name-only`-style pipelines without losing files that happen to be
+covered by a wildcard ignore rule.
+
+### Path discovery flags
+
+- `--no-ignore` — disable `.gitignore` / `.ignore` / global-gitignore
+  awareness when expanding directory seeds.
+- `--paths-from <FILE>` — read newline-separated input paths from
+  `<FILE>`, or from stdin when `<FILE>` is `-`. Combined as a union
+  with any `--paths` values; `-I` / `-X` globs still apply. Blank
+  lines are skipped; `#` is treated as a path character (not a
+  comment). To pass a file literally named `-`, write `./-`.
