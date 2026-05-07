@@ -6,7 +6,9 @@
 Assignments (`A`), Branches (`B`) and Conditions (`C`).
 - **BLANK**: it counts the number of blank lines in a source file.
 - **CC**: it calculates the _Cyclomatic complexity_ examining the
-  control flow of a program.
+  control flow of a program.  Also exposes a **modified** variant that
+  collapses all case/match arms inside a single switch/match/when/select
+  into one decision point (equivalent to Lizard's `-m` mode).
 - **CLOC**: it counts the number of comments in a source file.
 - **COGNITIVE**: it calculates the _Cognitive complexity_, measuring how complex
 it is to understand a unit of code.

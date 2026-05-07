@@ -6,5 +6,11 @@ expression: metric.cyclomatic
   "sum": 2.0,
   "average": 1.0,
   "min": 1.0,
-  "max": 1.0
+  "max": 1.0,
+  "modified": {
+    "sum": 2.0,
+    "average": 1.0,
+    "min": 1.0,
+    "max": 1.0
+  }
 }
