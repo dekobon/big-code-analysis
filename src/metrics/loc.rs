@@ -159,13 +159,13 @@ impl Cloc {
         (self.only_comment_lines + self.code_comment_lines) as f64
     }
 
-    /// The `Ploc` metric minimum value.
+    /// The `Cloc` metric minimum value.
     #[inline(always)]
     pub fn cloc_min(&self) -> f64 {
         self.cloc_min as f64
     }
 
-    /// The `Ploc` metric maximum value.
+    /// The `Cloc` metric maximum value.
     #[inline(always)]
     pub fn cloc_max(&self) -> f64 {
         self.cloc_max as f64
