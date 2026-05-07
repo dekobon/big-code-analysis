@@ -2,8 +2,6 @@ use std::collections::HashSet;
 
 use crate::c_langs_macros::is_predefined_macros;
 
-const DOLLARS: [u8; 2048] = [b'$'; 2048];
-
 #[inline(always)]
 fn is_identifier_part(c: u8) -> bool {
     c.is_ascii_uppercase() || c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_'
@@ -36,7 +34,7 @@ pub fn replace<S: ::std::hash::BuildHasher>(
                     .expect("invariant: bytes filtered to ASCII-only by is_identifier_part");
                 if is_macro(keyword, macros) {
                     new_code.extend(&code[code_start..start]);
-                    new_code.extend(&DOLLARS[..(i - start)]);
+                    new_code.resize(new_code.len() + (i - start), b'$');
                     code_start = i;
                 }
             }
@@ -52,7 +50,7 @@ pub fn replace<S: ::std::hash::BuildHasher>(
             .expect("invariant: bytes filtered to ASCII-only by is_identifier_part");
         if is_macro(keyword, macros) {
             new_code.extend(&code[code_start..start]);
-            new_code.extend(&DOLLARS[..(i - start)]);
+            new_code.resize(new_code.len() + (i - start), b'$');
             code_start = i;
         }
     }
@@ -99,5 +97,37 @@ mod tests {
             b"$$$ def ghi $$$ jkl".to_vec(),
             replace(b"abc def ghi z9_ jkl", &mac).unwrap()
         );
+    }
+
+    #[test]
+    fn replace_at_old_buffer_size() {
+        let name = "a".repeat(2048);
+        let mut mac = HashSet::new();
+        mac.insert(name.clone());
+
+        assert_eq!(vec![b'$'; 2048], replace(name.as_bytes(), &mac).unwrap());
+    }
+
+    #[test]
+    fn replace_just_past_old_buffer_size() {
+        let name = "a".repeat(2049);
+        let mut mac = HashSet::new();
+        mac.insert(name.clone());
+
+        assert_eq!(vec![b'$'; 2049], replace(name.as_bytes(), &mac).unwrap());
+    }
+
+    #[test]
+    fn replace_long_macro_in_middle() {
+        let name = "a".repeat(10_000);
+        let mut mac = HashSet::new();
+        mac.insert(name.clone());
+
+        let source = format!("int x = {name}; ");
+        let mut expected = b"int x = ".to_vec();
+        expected.extend(std::iter::repeat_n(b'$', 10_000));
+        expected.extend(b"; ");
+
+        assert_eq!(expected, replace(source.as_bytes(), &mac).unwrap());
     }
 }
