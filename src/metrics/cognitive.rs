@@ -322,7 +322,7 @@ impl Cognitive for RustCode {
         nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
     ) {
         use Rust::*;
-        //TODO: Implement macros
+        // Macro expansion is not tracked; macros are treated as opaque tokens.
         let (mut nesting, mut depth, mut lambda) = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
@@ -370,7 +370,7 @@ impl Cognitive for CppCode {
     ) {
         use Cpp::*;
 
-        //TODO: Implement macros
+        // Macro expansion is not tracked; macros are treated as opaque tokens.
         let (mut nesting, depth, mut lambda) = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {

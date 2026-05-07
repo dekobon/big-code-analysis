@@ -246,20 +246,26 @@ fn finalize<T: ParserTrait>(state_stack: &mut Vec<State>, diff_level: usize) {
     }
     for _ in 0..diff_level {
         if state_stack.len() == 1 {
-            let last_state = state_stack.last_mut().unwrap();
+            let last_state = state_stack
+                .last_mut()
+                .expect("invariant: state_stack has exactly one element");
             compute_minmax(last_state);
             compute_sum(last_state);
             compute_halstead_mi_and_wmc::<T>(last_state);
             compute_averages(last_state);
             break;
         } else {
-            let mut state = state_stack.pop().unwrap();
+            let mut state = state_stack
+                .pop()
+                .expect("invariant: state_stack has more than one element");
             compute_minmax(&mut state);
             compute_sum(&mut state);
             compute_halstead_mi_and_wmc::<T>(&mut state);
             compute_averages(&mut state);
 
-            let last_state = state_stack.last_mut().unwrap();
+            let last_state = state_stack
+                .last_mut()
+                .expect("invariant: state_stack has remaining elements after pop");
             last_state.halstead_maps.merge(&state.halstead_maps);
             compute_halstead_mi_and_wmc::<T>(last_state);
 
