@@ -479,16 +479,18 @@ implement_metric_trait!(Cyclomatic, PreprocCode, CcommentCode);
 impl Cyclomatic for BashCode {
     fn compute(node: &Node, stats: &mut Stats) {
         match node.kind_id().into() {
-            // Standard-only: individual case arms.
+            // Standard-only: individual case arms (matches C-family `case:`
+            // treatment — only arms contribute, not the container).
             Bash::CaseItem | Bash::CaseItem2 => {
                 stats.cyclomatic += 1.;
             }
+            // Modified-only: the case…esac container collapses all arms
+            // into one decision point.
+            Bash::CaseStatement => {
+                stats.cyclomatic_modified += 1.;
+            }
             // Both standard and modified.
-            // `CaseStatement` counts for both: standard preserves the existing
-            // behavior (+1 for the container in addition to +1 per arm);
-            // modified collapses all arms into just this one container.
-            Bash::CaseStatement
-            | Bash::IfStatement
+            Bash::IfStatement
             | Bash::ElifClause
             | Bash::ForStatement
             | Bash::CStyleForStatement
@@ -2391,7 +2393,9 @@ f() {
         );
     }
 
-    /// Modified CCN: Bash case…esac with 3 arms collapses to 1.
+    /// Regression test for #107: case…esac must not double-count the container.
+    /// Standard CCN counts only arms (matching C-family `switch` semantics).
+    /// Modified CCN counts only the container.
     #[test]
     fn bash_case_modified() {
         check_metrics::<BashParser>(
@@ -2405,9 +2409,24 @@ f() {
 }",
             "foo.sh",
             |metric| {
-                // standard: unit(1) + fn(1) + case_stmt(1) + 3 case_items = 6
+                // standard: unit(1) + fn(1) + 3 case_items = 5
                 // modified: unit(1) + fn(1) + case_stmt(1) = 3
-                insta::assert_json_snapshot!(metric.cyclomatic);
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 5.0,
+                      "average": 2.5,
+                      "min": 1.0,
+                      "max": 4.0,
+                      "modified": {
+                        "sum": 3.0,
+                        "average": 1.5,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
+                    }"###
+                );
             },
         );
     }
@@ -3259,6 +3278,81 @@ f() {
                       "average": 2.5,
                       "min": 1.0,
                       "max": 4.0,
+                      "modified": {
+                        "sum": 4.0,
+                        "average": 2.0,
+                        "min": 1.0,
+                        "max": 3.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// Regression #107: empty case…esac has no arms, so standard adds 0 and
+    /// modified adds 1 (the container).
+    #[test]
+    fn bash_case_empty() {
+        check_metrics::<BashParser>(
+            "#!/bin/bash
+f() {
+    case $1 in
+    esac
+}",
+            "foo.sh",
+            |metric| {
+                // standard: unit(1) + fn(1) + 0 arms = 2
+                // modified: unit(1) + fn(1) + case_stmt(1) = 3
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 1.0,
+                      "min": 1.0,
+                      "max": 1.0,
+                      "modified": {
+                        "sum": 3.0,
+                        "average": 1.5,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// Regression #107: nested case…esac — each container contributes to
+    /// modified independently, and each arm contributes to standard.
+    #[test]
+    fn bash_nested_case() {
+        check_metrics::<BashParser>(
+            "#!/bin/bash
+f() {
+    case $1 in
+        a)
+            case $2 in
+                x) echo ax ;;
+                y) echo ay ;;
+            esac
+            ;;
+        b) echo b ;;
+    esac
+}",
+            "foo.sh",
+            |metric| {
+                // standard: unit(1) + fn(1) + outer arms(a,b = 2) + inner arms(x,y = 2) = 6
+                // modified: unit(1) + fn(1) + 2 case_stmts = 4
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 6.0,
+                      "average": 3.0,
+                      "min": 1.0,
+                      "max": 5.0,
                       "modified": {
                         "sum": 4.0,
                         "average": 2.0,
