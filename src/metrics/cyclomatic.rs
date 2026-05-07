@@ -14,6 +14,15 @@ pub struct Stats {
     n: usize,
     cyclomatic_max: f64,
     cyclomatic_min: f64,
+    /// Modified cyclomatic: collapses all case/arm nodes inside a single
+    /// switch/match/when/select into one decision point.  All other
+    /// branching constructs (if, for, &&, …) contribute the same +1 as
+    /// standard cyclomatic.  The container node (e.g. `SwitchStatement`)
+    /// contributes +1 while its individual case arm nodes contribute 0.
+    cyclomatic_modified_sum: f64,
+    cyclomatic_modified: f64,
+    cyclomatic_modified_max: f64,
+    cyclomatic_modified_min: f64,
 }
 
 impl Default for Stats {
@@ -24,7 +33,29 @@ impl Default for Stats {
             n: 1,
             cyclomatic_max: 0.,
             cyclomatic_min: f64::MAX,
+            cyclomatic_modified_sum: 0.,
+            cyclomatic_modified: 1.,
+            cyclomatic_modified_max: 0.,
+            cyclomatic_modified_min: f64::MAX,
         }
+    }
+}
+
+/// Serialised shape for the `modified` sub-object.
+struct ModifiedStats<'a>(&'a Stats);
+
+impl Serialize for ModifiedStats<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let s = self.0;
+        let mut st = serializer.serialize_struct("cyclomatic_modified", 4)?;
+        st.serialize_field("sum", &s.cyclomatic_modified_sum())?;
+        st.serialize_field("average", &s.cyclomatic_modified_average())?;
+        st.serialize_field("min", &s.cyclomatic_modified_min())?;
+        st.serialize_field("max", &s.cyclomatic_modified_max())?;
+        st.end()
     }
 }
 
@@ -33,11 +64,12 @@ impl Serialize for Stats {
     where
         S: Serializer,
     {
-        let mut st = serializer.serialize_struct("cyclomatic", 4)?;
+        let mut st = serializer.serialize_struct("cyclomatic", 5)?;
         st.serialize_field("sum", &self.cyclomatic_sum())?;
         st.serialize_field("average", &self.cyclomatic_average())?;
         st.serialize_field("min", &self.cyclomatic_min())?;
         st.serialize_field("max", &self.cyclomatic_max())?;
+        st.serialize_field("modified", &ModifiedStats(self))?;
         st.end()
     }
 }
@@ -46,11 +78,16 @@ impl fmt::Display for Stats {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "sum: {}, average: {}, min: {}, max: {}",
+            "sum: {}, average: {}, min: {}, max: {}, \
+             modified_sum: {}, modified_average: {}, modified_min: {}, modified_max: {}",
             self.cyclomatic_sum(),
             self.cyclomatic_average(),
             self.cyclomatic_min(),
-            self.cyclomatic_max()
+            self.cyclomatic_max(),
+            self.cyclomatic_modified_sum(),
+            self.cyclomatic_modified_average(),
+            self.cyclomatic_modified_min(),
+            self.cyclomatic_modified_max(),
         )
     }
 }
@@ -58,46 +95,86 @@ impl fmt::Display for Stats {
 impl Stats {
     /// Merges a second `Cyclomatic` metric into the first one
     pub fn merge(&mut self, other: &Stats) {
-        //Calculate minimum and maximum values
         self.cyclomatic_max = self.cyclomatic_max.max(other.cyclomatic_max);
         self.cyclomatic_min = self.cyclomatic_min.min(other.cyclomatic_min);
-
         self.cyclomatic_sum += other.cyclomatic_sum;
         self.n += other.n;
+
+        self.cyclomatic_modified_max = self
+            .cyclomatic_modified_max
+            .max(other.cyclomatic_modified_max);
+        self.cyclomatic_modified_min = self
+            .cyclomatic_modified_min
+            .min(other.cyclomatic_modified_min);
+        self.cyclomatic_modified_sum += other.cyclomatic_modified_sum;
     }
 
-    /// Returns the `Cyclomatic` metric value
+    /// Returns the `Cyclomatic` metric value for the current space.
     pub fn cyclomatic(&self) -> f64 {
         self.cyclomatic
     }
-    /// Returns the sum
+
+    /// Returns the sum of standard cyclomatic values across all spaces.
     pub fn cyclomatic_sum(&self) -> f64 {
         self.cyclomatic_sum
     }
 
-    /// Returns the `Cyclomatic` metric average value
-    ///
-    /// This value is computed dividing the `Cyclomatic` value for the
-    /// number of spaces.
+    /// Returns the average standard cyclomatic complexity.
     pub fn cyclomatic_average(&self) -> f64 {
         self.cyclomatic_sum() / self.n as f64
     }
-    /// Returns the `Cyclomatic` maximum value
+
+    /// Returns the maximum standard cyclomatic complexity.
     pub fn cyclomatic_max(&self) -> f64 {
         self.cyclomatic_max
     }
-    /// Returns the `Cyclomatic` minimum value
+
+    /// Returns the minimum standard cyclomatic complexity.
     pub fn cyclomatic_min(&self) -> f64 {
         self.cyclomatic_min
     }
+
+    /// Returns the modified cyclomatic complexity for the current space.
+    ///
+    /// Modified cyclomatic counts each switch/match/when/select container as
+    /// one decision point regardless of how many case arms it contains.  All
+    /// other branching constructs are weighted identically to standard CCN.
+    pub fn cyclomatic_modified(&self) -> f64 {
+        self.cyclomatic_modified
+    }
+
+    /// Returns the sum of modified cyclomatic values across all spaces.
+    pub fn cyclomatic_modified_sum(&self) -> f64 {
+        self.cyclomatic_modified_sum
+    }
+
+    /// Returns the average modified cyclomatic complexity.
+    pub fn cyclomatic_modified_average(&self) -> f64 {
+        self.cyclomatic_modified_sum() / self.n as f64
+    }
+
+    /// Returns the maximum modified cyclomatic complexity.
+    pub fn cyclomatic_modified_max(&self) -> f64 {
+        self.cyclomatic_modified_max
+    }
+
+    /// Returns the minimum modified cyclomatic complexity.
+    pub fn cyclomatic_modified_min(&self) -> f64 {
+        self.cyclomatic_modified_min
+    }
+
     #[inline(always)]
     pub(crate) fn compute_sum(&mut self) {
         self.cyclomatic_sum += self.cyclomatic;
+        self.cyclomatic_modified_sum += self.cyclomatic_modified;
     }
+
     #[inline(always)]
     pub(crate) fn compute_minmax(&mut self) {
         self.cyclomatic_max = self.cyclomatic_max.max(self.cyclomatic);
         self.cyclomatic_min = self.cyclomatic_min.min(self.cyclomatic);
+        self.cyclomatic_modified_max = self.cyclomatic_modified_max.max(self.cyclomatic_modified);
+        self.cyclomatic_modified_min = self.cyclomatic_modified_min.min(self.cyclomatic_modified);
         self.compute_sum();
     }
 }
@@ -113,9 +190,13 @@ impl Cyclomatic for PythonCode {
     fn compute(node: &Node, stats: &mut Stats) {
         use Python::*;
 
+        // Python's `match`/`case` (3.10+) is intentionally not counted in
+        // either standard or modified CCN, following Lizard's convention
+        // (`_case_keywords = set()` for Python).
         match node.kind_id().into() {
             If | Elif | For | While | Except | With | Assert | And | Or => {
                 stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
             }
             Else if node.has_ancestors(
                 |node| matches!(node.kind_id().into(), ForStatement | WhileStatement),
@@ -123,6 +204,7 @@ impl Cyclomatic for PythonCode {
             ) =>
             {
                 stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
             }
             _ => {}
         }
@@ -134,8 +216,18 @@ impl Cyclomatic for MozjsCode {
         use Mozjs::*;
 
         match node.kind_id().into() {
-            If | For | While | Case | Catch | TernaryExpression | AMPAMP | PIPEPIPE => {
+            // Standard-only: individual case arms.
+            Case => {
                 stats.cyclomatic += 1.;
+            }
+            // Modified-only: switch container collapses all arms to one.
+            SwitchStatement => {
+                stats.cyclomatic_modified += 1.;
+            }
+            // Both standard and modified.
+            If | For | While | Catch | TernaryExpression | AMPAMP | PIPEPIPE => {
+                stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
             }
             _ => {}
         }
@@ -147,8 +239,15 @@ impl Cyclomatic for JavascriptCode {
         use Javascript::*;
 
         match node.kind_id().into() {
-            If | For | While | Case | Catch | TernaryExpression | AMPAMP | PIPEPIPE => {
+            Case => {
                 stats.cyclomatic += 1.;
+            }
+            SwitchStatement => {
+                stats.cyclomatic_modified += 1.;
+            }
+            If | For | While | Catch | TernaryExpression | AMPAMP | PIPEPIPE => {
+                stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
             }
             _ => {}
         }
@@ -160,8 +259,15 @@ impl Cyclomatic for TypescriptCode {
         use Typescript::*;
 
         match node.kind_id().into() {
-            If | For | While | Case | Catch | TernaryExpression | AMPAMP | PIPEPIPE => {
+            Case => {
                 stats.cyclomatic += 1.;
+            }
+            SwitchStatement => {
+                stats.cyclomatic_modified += 1.;
+            }
+            If | For | While | Catch | TernaryExpression | AMPAMP | PIPEPIPE => {
+                stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
             }
             _ => {}
         }
@@ -173,8 +279,15 @@ impl Cyclomatic for TsxCode {
         use Tsx::*;
 
         match node.kind_id().into() {
-            If | For | While | Case | Catch | TernaryExpression | AMPAMP | PIPEPIPE => {
+            Case => {
                 stats.cyclomatic += 1.;
+            }
+            SwitchStatement => {
+                stats.cyclomatic_modified += 1.;
+            }
+            If | For | While | Catch | TernaryExpression | AMPAMP | PIPEPIPE => {
+                stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
             }
             _ => {}
         }
@@ -186,8 +299,21 @@ impl Cyclomatic for RustCode {
         use Rust::*;
 
         match node.kind_id().into() {
-            If | For | While | Loop | MatchArm | MatchArm2 | TryExpression | AMPAMP | PIPEPIPE => {
+            // Standard-only: individual match arms.
+            // Lizard counts `match` as a single control-flow keyword; we count
+            // each arm, so the modified metric collapses them back to the
+            // container.
+            MatchArm | MatchArm2 => {
                 stats.cyclomatic += 1.;
+            }
+            // Modified-only: the match expression container.
+            MatchExpression => {
+                stats.cyclomatic_modified += 1.;
+            }
+            // Both standard and modified.
+            If | For | While | Loop | TryExpression | AMPAMP | PIPEPIPE => {
+                stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
             }
             _ => {}
         }
@@ -199,8 +325,15 @@ impl Cyclomatic for CppCode {
         use Cpp::*;
 
         match node.kind_id().into() {
-            If | For | While | Case | Catch | ConditionalExpression | AMPAMP | PIPEPIPE => {
+            Case => {
                 stats.cyclomatic += 1.;
+            }
+            SwitchStatement => {
+                stats.cyclomatic_modified += 1.;
+            }
+            If | For | While | Catch | ConditionalExpression | AMPAMP | PIPEPIPE => {
+                stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
             }
             _ => {}
         }
@@ -212,8 +345,18 @@ impl Cyclomatic for JavaCode {
         use Java::*;
 
         match node.kind_id().into() {
-            If | For | While | Case | Catch | TernaryExpression | AMPAMP | PIPEPIPE => {
+            Case => {
                 stats.cyclomatic += 1.;
+            }
+            // The `switch` keyword token appears exactly once per switch
+            // construct (both classic switch statements and Java 14+ switch
+            // expressions), so it serves as the container marker.
+            Switch => {
+                stats.cyclomatic_modified += 1.;
+            }
+            If | For | While | Catch | TernaryExpression | AMPAMP | PIPEPIPE => {
+                stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
             }
             _ => {}
         }
@@ -225,7 +368,17 @@ impl Cyclomatic for CsharpCode {
         use Csharp::*;
 
         match node.kind_id().into() {
-            // Standard branching constructs.
+            // Standard-only: individual switch statement arms and switch
+            // expression arms.
+            Case | SwitchExpressionArm => {
+                stats.cyclomatic += 1.;
+            }
+            // Modified-only: the switch statement and switch expression
+            // containers each collapse to one decision point.
+            SwitchStatement | SwitchExpression => {
+                stats.cyclomatic_modified += 1.;
+            }
+            // Both standard and modified.
             IfStatement
             | ForStatement
             | ForeachStatement
@@ -233,19 +386,12 @@ impl Cyclomatic for CsharpCode {
             | DoStatement
             | CatchClause
             | ConditionalExpression
-            // `?.` null-conditional access — runtime branch.
             | ConditionalAccessExpression
-            // Each non-default arm of a switch expression.
-            | SwitchExpressionArm
-            // The `case` keyword token covers each `case X:` arm of a
-            // switch_statement (default arms use the `default` keyword and
-            // are intentionally not counted).
-            | Case
-            // Short-circuit boolean and null-coalescing operators.
             | AMPAMP
             | PIPEPIPE
             | QMARKQMARK => {
                 stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
             }
             _ => {}
         }
@@ -259,14 +405,19 @@ impl Cyclomatic for GoCode {
         use Go as G;
 
         match node.kind_id().into() {
-            G::IfStatement
-            | G::ForStatement
-            | G::ExpressionCase
-            | G::TypeCase
-            | G::CommunicationCase
-            | G::AMPAMP
-            | G::PIPEPIPE => {
+            // Standard-only: individual case arms inside switch/select.
+            G::ExpressionCase | G::TypeCase | G::CommunicationCase => {
                 stats.cyclomatic += 1.;
+            }
+            // Modified-only: each distinct switch/select container collapses
+            // all its arms into one decision point.
+            G::ExpressionSwitchStatement | G::TypeSwitchStatement | G::SelectStatement => {
+                stats.cyclomatic_modified += 1.;
+            }
+            // Both standard and modified.
+            G::IfStatement | G::ForStatement | G::AMPAMP | G::PIPEPIPE => {
+                stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
             }
             _ => {}
         }
@@ -277,8 +428,10 @@ impl Cyclomatic for PerlCode {
     fn compute(node: &Node, stats: &mut Stats) {
         use Perl as P;
 
+        // Perl has no switch/case construct in the grammar that we count
+        // (WhenSimpleStatement is rare given/when), so standard and modified
+        // are always identical.
         match node.kind_id().into() {
-            // Branching control-flow constructs
             P::IfStatement
             | P::UnlessStatement
             | P::ElsifClause
@@ -287,13 +440,11 @@ impl Cyclomatic for PerlCode {
             | P::ForStatement1
             | P::ForStatement2
             | P::WhenSimpleStatement
-            // Postfix conditional / loop forms (`do_thing() if cond;`)
             | P::IfSimpleStatement
             | P::UnlessSimpleStatement
             | P::WhileSimpleStatement
             | P::UntilSimpleStatement
             | P::ForSimpleStatement
-            // Short-circuit boolean operators and ternary
             | P::AMPAMP
             | P::PIPEPIPE
             | P::SLASHSLASH
@@ -301,6 +452,7 @@ impl Cyclomatic for PerlCode {
             | P::Or
             | P::TernaryExpression => {
                 stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
             }
             _ => {}
         }
@@ -312,9 +464,19 @@ impl Cyclomatic for KotlinCode {
         use Kotlin::*;
 
         match node.kind_id().into() {
-            IfExpression | ForStatement | WhileStatement | DoWhileStatement | WhenEntry
-            | CatchBlock | AMPAMP | PIPEPIPE => {
+            // Standard-only: individual when entries (arms).
+            WhenEntry => {
                 stats.cyclomatic += 1.;
+            }
+            // Modified-only: the when expression container.
+            WhenExpression => {
+                stats.cyclomatic_modified += 1.;
+            }
+            // Both standard and modified.
+            IfExpression | ForStatement | WhileStatement | DoWhileStatement | CatchBlock
+            | AMPAMP | PIPEPIPE => {
+                stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
             }
             _ => {}
         }
@@ -323,6 +485,8 @@ impl Cyclomatic for KotlinCode {
 
 impl Cyclomatic for LuaCode {
     fn compute(node: &Node, stats: &mut Stats) {
+        // Lua has no switch/case construct, so standard and modified are
+        // always identical.
         match node.kind_id().into() {
             Lua::IfStatement
             | Lua::ElseifStatement
@@ -332,6 +496,7 @@ impl Cyclomatic for LuaCode {
             | Lua::And
             | Lua::Or => {
                 stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
             }
             _ => {}
         }
@@ -343,6 +508,16 @@ impl Cyclomatic for PhpCode {
         use Php::*;
 
         match node.kind_id().into() {
+            // Standard-only: individual case arms in switch/match.
+            CaseStatement | MatchConditionalExpression => {
+                stats.cyclomatic += 1.;
+            }
+            // Modified-only: each switch/match container collapses to one
+            // decision point.
+            SwitchStatement | MatchExpression => {
+                stats.cyclomatic_modified += 1.;
+            }
+            // Both standard and modified.
             IfStatement
             | ElseIfClause
             | ElseIfClause2
@@ -350,8 +525,6 @@ impl Cyclomatic for PhpCode {
             | ForeachStatement
             | WhileStatement
             | DoStatement
-            | CaseStatement
-            | MatchConditionalExpression
             | ConditionalExpression
             | CatchClause
             | AMPAMP
@@ -361,6 +534,7 @@ impl Cyclomatic for PhpCode {
             | Xor
             | QMARKQMARK => {
                 stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
             }
             _ => {}
         }
@@ -372,23 +546,28 @@ implement_metric_trait!(Cyclomatic, PreprocCode, CcommentCode);
 impl Cyclomatic for BashCode {
     fn compute(node: &Node, stats: &mut Stats) {
         match node.kind_id().into() {
-            // Control flow: +1 each (WhileStatement covers both while and until;
-            // ForStatement covers both for and select)
+            // Standard-only: individual case arms.
+            Bash::CaseItem | Bash::CaseItem2 => {
+                stats.cyclomatic += 1.;
+            }
+            // The case…esac container counts for both standard and modified.
+            // Standard preserves the existing behavior (+1 for the container
+            // in addition to +1 per arm); modified collapses all arms into
+            // just this one container decision.
+            Bash::CaseStatement => {
+                stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
+            }
+            // Both standard and modified.
             Bash::IfStatement
             | Bash::ElifClause
             | Bash::ForStatement
             | Bash::CStyleForStatement
             | Bash::WhileStatement
-            | Bash::CaseStatement
-            // Case arms: +1 each
-            | Bash::CaseItem
-            | Bash::CaseItem2
-            // Logical operators: count the tokens directly so we catch
-            // both command-level (inside List) and expression-level
-            // (inside [[ ]] / (( ))) uses.
             | Bash::AMPAMP
             | Bash::PIPEPIPE => {
                 stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
             }
             _ => {}
         }
@@ -397,6 +576,8 @@ impl Cyclomatic for BashCode {
 
 impl Cyclomatic for TclCode {
     fn compute(node: &Node, stats: &mut Stats) {
+        // Tcl has no switch/case construct in the grammar we count, so
+        // standard and modified are always identical.
         match node.kind_id().into() {
             Tcl::If
             | Tcl::Elseif
@@ -407,6 +588,7 @@ impl Cyclomatic for TclCode {
             | Tcl::AMPAMP
             | Tcl::PIPEPIPE => {
                 stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
             }
             _ => {}
         }
@@ -437,7 +619,13 @@ mod tests {
                       "sum": 6.0,
                       "average": 3.0,
                       "min": 1.0,
-                      "max": 5.0
+                      "max": 5.0,
+                      "modified": {
+                        "sum": 6.0,
+                        "average": 3.0,
+                        "min": 1.0,
+                        "max": 5.0
+                      }
                     }"###
                 );
             },
@@ -461,7 +649,13 @@ mod tests {
                       "sum": 4.0,
                       "average": 2.0,
                       "min": 1.0,
-                      "max": 3.0
+                      "max": 3.0,
+                      "modified": {
+                        "sum": 4.0,
+                        "average": 2.0,
+                        "min": 1.0,
+                        "max": 3.0
+                      }
                     }"###
                 );
             },
@@ -484,12 +678,52 @@ mod tests {
                 // nspace = 2 (func and unit)
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
+                    @r#"
+                {
+                  "sum": 5.0,
+                  "average": 2.5,
+                  "min": 1.0,
+                  "max": 4.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 2.0,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    /// Modified CCN: a match with N arms counts as 1 decision, not N.
+    #[test]
+    fn rust_match_modified() {
+        check_metrics::<RustParser>(
+            "fn f(x: u8) -> &'static str { // standard: +1 (unit) +1 (fn) +3 (arms) = 5; modified: +1 (unit) +1 (fn) +1 (MatchExpr) = 3
+                 match x {
+                     1 => \"one\",
+                     2 => \"two\",
+                     _ => \"other\",
+                 }
+             }",
+            "foo.rs",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
                     @r###"
                     {
                       "sum": 5.0,
                       "average": 2.5,
                       "min": 1.0,
-                      "max": 4.0
+                      "max": 4.0,
+                      "modified": {
+                        "sum": 3.0,
+                        "average": 1.5,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
                     }"###
                 );
             },
@@ -525,7 +759,49 @@ mod tests {
                       "sum": 5.0,
                       "average": 2.5,
                       "min": 1.0,
-                      "max": 4.0
+                      "max": 4.0,
+                      "modified": {
+                        "sum": 3.0,
+                        "average": 1.5,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// Modified CCN: 3 case arms in one switch collapse to 1 decision.
+    #[test]
+    fn c_switch_modified() {
+        check_metrics::<CppParser>(
+            "void f() {
+                 switch (x) {
+                     case 1: break;
+                     case 2: break;
+                     case 3: break;
+                     default: break;
+                 }
+             }",
+            "foo.c",
+            |metric| {
+                // standard: unit(1) + fn(1) + 3 cases = 5
+                // modified: unit(1) + fn(1) + switch(1) = 3
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 5.0,
+                      "average": 2.5,
+                      "min": 1.0,
+                      "max": 4.0,
+                      "modified": {
+                        "sum": 3.0,
+                        "average": 1.5,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
                     }"###
                 );
             },
@@ -557,7 +833,13 @@ mod tests {
                       "sum": 5.0,
                       "average": 2.5,
                       "min": 1.0,
-                      "max": 4.0
+                      "max": 4.0,
+                      "modified": {
+                        "sum": 5.0,
+                        "average": 2.5,
+                        "min": 1.0,
+                        "max": 4.0
+                      }
                     }"###
                 );
             },
@@ -599,7 +881,13 @@ mod tests {
                       "sum": 7.0,
                       "average": 3.5,
                       "min": 3.0,
-                      "max": 4.0
+                      "max": 4.0,
+                      "modified": {
+                        "sum": 7.0,
+                        "average": 3.5,
+                        "min": 3.0,
+                        "max": 4.0
+                      }
                     }"###
                 );
             },
@@ -645,7 +933,13 @@ mod tests {
                       "sum": 7.0,
                       "average": 3.5,
                       "min": 3.0,
-                      "max": 4.0
+                      "max": 4.0,
+                      "modified": {
+                        "sum": 7.0,
+                        "average": 3.5,
+                        "min": 3.0,
+                        "max": 4.0
+                      }
                     }"###
                 );
             },
@@ -683,7 +977,13 @@ mod tests {
                       "sum": 9.0,
                       "average": 2.25,
                       "min": 1.0,
-                      "max": 3.0
+                      "max": 3.0,
+                      "modified": {
+                        "sum": 9.0,
+                        "average": 2.25,
+                        "min": 1.0,
+                        "max": 3.0
+                      }
                     }"###
                 );
             },
@@ -736,7 +1036,55 @@ mod tests {
                       "sum": 11.0,
                       "average": 2.2,
                       "min": 1.0,
-                      "max": 3.0
+                      "max": 3.0,
+                      "modified": {
+                        "sum": 10.0,
+                        "average": 2.0,
+                        "min": 1.0,
+                        "max": 3.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// Modified CCN: Java switch with 2 cases counts as 1 (not 2).
+    #[test]
+    fn java_switch_modified() {
+        check_metrics::<JavaParser>(
+            "public class A {
+                public void print(int result) {
+                    switch (result) {
+                        case -1:
+                            System.out.println(\"minus one\");
+                            break;
+                        case -2:
+                            System.out.println(\"minus two\");
+                            break;
+                        default:
+                            System.out.println(\"other\");
+                    }
+                }
+            }",
+            "foo.java",
+            |metric| {
+                // standard: unit(1) + class(1) + fn(1) + 2 cases = 5
+                // modified: unit(1) + class(1) + fn(1) + switch(1) = 4
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 5.0,
+                      "average": 1.6666666666666667,
+                      "min": 1.0,
+                      "max": 3.0,
+                      "modified": {
+                        "sum": 4.0,
+                        "average": 1.3333333333333333,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
                     }"###
                 );
             },
@@ -772,7 +1120,13 @@ mod tests {
                       "sum": 9.0,
                       "average": 2.25,
                       "min": 1.0,
-                      "max": 3.0
+                      "max": 3.0,
+                      "modified": {
+                        "sum": 9.0,
+                        "average": 2.25,
+                        "min": 1.0,
+                        "max": 3.0
+                      }
                     }"###
                 );
             },
@@ -824,7 +1178,13 @@ mod tests {
                       "sum": 11.0,
                       "average": 2.2,
                       "min": 1.0,
-                      "max": 3.0
+                      "max": 3.0,
+                      "modified": {
+                        "sum": 10.0,
+                        "average": 2.0,
+                        "min": 1.0,
+                        "max": 3.0
+                      }
                     }"###
                 );
             },
@@ -852,7 +1212,13 @@ mod tests {
                       "sum": 5.0,
                       "average": 1.25,
                       "min": 1.0,
-                      "max": 2.0
+                      "max": 2.0,
+                      "modified": {
+                        "sum": 5.0,
+                        "average": 1.25,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
                     }"###
                 );
             },
@@ -883,7 +1249,53 @@ mod tests {
                       "sum": 7.0,
                       "average": 2.3333333333333335,
                       "min": 1.0,
-                      "max": 5.0
+                      "max": 5.0,
+                      "modified": {
+                        "sum": 4.0,
+                        "average": 1.3333333333333333,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// Modified CCN: C# switch statement with 2 cases counts as 1.
+    #[test]
+    fn csharp_switch_modified() {
+        check_metrics::<CsharpParser>(
+            "public class A {
+                public string Describe(int n) {
+                    switch (n) {
+                        case 1:
+                            return \"one\";
+                        case 2:
+                            return \"two\";
+                        default:
+                            return \"other\";
+                    }
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                // standard: unit(1) + class(1) + fn(1) + 2 cases = 5
+                // modified: unit(1) + class(1) + fn(1) + switch(1) = 4
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 5.0,
+                      "average": 1.6666666666666667,
+                      "min": 1.0,
+                      "max": 3.0,
+                      "modified": {
+                        "sum": 4.0,
+                        "average": 1.3333333333333333,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
                     }"###
                 );
             },
@@ -908,7 +1320,13 @@ mod tests {
                       "sum": 7.0,
                       "average": 2.3333333333333335,
                       "min": 1.0,
-                      "max": 5.0
+                      "max": 5.0,
+                      "modified": {
+                        "sum": 7.0,
+                        "average": 2.3333333333333335,
+                        "min": 1.0,
+                        "max": 5.0
+                      }
                     }"###
                 );
             },
@@ -935,7 +1353,13 @@ mod tests {
                       "sum": 4.0,
                       "average": 2.0,
                       "min": 1.0,
-                      "max": 3.0
+                      "max": 3.0,
+                      "modified": {
+                        "sum": 4.0,
+                        "average": 2.0,
+                        "min": 1.0,
+                        "max": 3.0
+                      }
                     }"###
                 );
             },
@@ -970,7 +1394,48 @@ mod tests {
                       "sum": 5.0,
                       "average": 2.5,
                       "min": 1.0,
-                      "max": 4.0
+                      "max": 4.0,
+                      "modified": {
+                        "sum": 3.0,
+                        "average": 1.5,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// Modified CCN: JS switch with 3 cases collapses to 1.
+    #[test]
+    fn javascript_switch_modified() {
+        check_metrics::<JavascriptParser>(
+            "function f(x) {
+                 switch (x) {
+                     case 1: return 'one';
+                     case 2: return 'two';
+                     case 3: return 'three';
+                 }
+             }",
+            "foo.js",
+            |metric| {
+                // standard: unit(1) + fn(1) + 3 cases = 5
+                // modified: unit(1) + fn(1) + switch(1) = 3
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 5.0,
+                      "average": 2.5,
+                      "min": 1.0,
+                      "max": 4.0,
+                      "modified": {
+                        "sum": 3.0,
+                        "average": 1.5,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
                     }"###
                 );
             },
@@ -992,7 +1457,13 @@ mod tests {
                       "sum": 2.0,
                       "average": 1.0,
                       "min": 1.0,
-                      "max": 1.0
+                      "max": 1.0,
+                      "modified": {
+                        "sum": 2.0,
+                        "average": 1.0,
+                        "min": 1.0,
+                        "max": 1.0
+                      }
                     }"###
                 );
             },
@@ -1019,7 +1490,13 @@ mod tests {
                       "sum": 3.0,
                       "average": 1.5,
                       "min": 1.0,
-                      "max": 2.0
+                      "max": 2.0,
+                      "modified": {
+                        "sum": 3.0,
+                        "average": 1.5,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
                     }"###
                 );
             },
@@ -1049,7 +1526,13 @@ mod tests {
                       "sum": 5.0,
                       "average": 2.5,
                       "min": 1.0,
-                      "max": 4.0
+                      "max": 4.0,
+                      "modified": {
+                        "sum": 5.0,
+                        "average": 2.5,
+                        "min": 1.0,
+                        "max": 4.0
+                      }
                     }"###
                 );
             },
@@ -1073,7 +1556,13 @@ mod tests {
                       "sum": 3.0,
                       "average": 1.5,
                       "min": 1.0,
-                      "max": 2.0
+                      "max": 2.0,
+                      "modified": {
+                        "sum": 3.0,
+                        "average": 1.5,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
                     }"###
                 );
             },
@@ -1100,7 +1589,13 @@ mod tests {
                       "sum": 3.0,
                       "average": 1.5,
                       "min": 1.0,
-                      "max": 2.0
+                      "max": 2.0,
+                      "modified": {
+                        "sum": 3.0,
+                        "average": 1.5,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
                     }"###
                 );
             },
@@ -1127,7 +1622,52 @@ mod tests {
                       "sum": 4.0,
                       "average": 2.0,
                       "min": 1.0,
-                      "max": 3.0
+                      "max": 3.0,
+                      "modified": {
+                        "sum": 3.0,
+                        "average": 1.5,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// Modified CCN: Go switch with 3 cases collapses to 1.
+    #[test]
+    fn go_switch_modified() {
+        check_metrics::<GoParser>(
+            "package main
+            func f(x int) {
+                switch x {
+                case 1:
+                    println(\"one\")
+                case 2:
+                    println(\"two\")
+                case 3:
+                    println(\"three\")
+                }
+            }",
+            "foo.go",
+            |metric| {
+                // standard: unit(1) + fn(1) + 3 cases = 5
+                // modified: unit(1) + fn(1) + switch(1) = 3
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 5.0,
+                      "average": 2.5,
+                      "min": 1.0,
+                      "max": 4.0,
+                      "modified": {
+                        "sum": 3.0,
+                        "average": 1.5,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
                     }"###
                 );
             },
@@ -1153,7 +1693,13 @@ mod tests {
                       "sum": 4.0,
                       "average": 2.0,
                       "min": 1.0,
-                      "max": 3.0
+                      "max": 3.0,
+                      "modified": {
+                        "sum": 3.0,
+                        "average": 1.5,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
                     }"###
                 );
             },
@@ -1180,7 +1726,13 @@ mod tests {
                       "sum": 4.0,
                       "average": 2.0,
                       "min": 1.0,
-                      "max": 3.0
+                      "max": 3.0,
+                      "modified": {
+                        "sum": 3.0,
+                        "average": 1.5,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
                     }"###
                 );
             },
@@ -1204,7 +1756,13 @@ mod tests {
                       "sum": 5.0,
                       "average": 2.5,
                       "min": 1.0,
-                      "max": 4.0
+                      "max": 4.0,
+                      "modified": {
+                        "sum": 5.0,
+                        "average": 2.5,
+                        "min": 1.0,
+                        "max": 4.0
+                      }
                     }"###
                 );
             },
@@ -1229,7 +1787,13 @@ mod tests {
                       "sum": 2.0,
                       "average": 1.0,
                       "min": 1.0,
-                      "max": 1.0
+                      "max": 1.0,
+                      "modified": {
+                        "sum": 2.0,
+                        "average": 1.0,
+                        "min": 1.0,
+                        "max": 1.0
+                      }
                     }"###
                 );
             },
@@ -1249,7 +1813,6 @@ mod tests {
                 public abstract boolean m2(int n); // +1
             }
             public class B { // +1
-
                 public void test() { // +1
                     A a = new A() {
                         public boolean m1(int n) { // +1
@@ -1277,7 +1840,13 @@ mod tests {
                       "sum": 10.0,
                       "average": 1.25,
                       "min": 1.0,
-                      "max": 2.0
+                      "max": 2.0,
+                      "modified": {
+                        "sum": 10.0,
+                        "average": 1.25,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
                     }"###
                 );
             },
@@ -1303,7 +1872,13 @@ mod tests {
                   "sum": 4.0,
                   "average": 2.0,
                   "min": 1.0,
-                  "max": 3.0
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 2.0,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
                 }
                 "#
                 );
@@ -1327,7 +1902,13 @@ mod tests {
                   "sum": 4.0,
                   "average": 2.0,
                   "min": 1.0,
-                  "max": 3.0
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 2.0,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
                 }
                 "#
                 );
@@ -1355,7 +1936,13 @@ mod tests {
                   "sum": 4.0,
                   "average": 2.0,
                   "min": 1.0,
-                  "max": 3.0
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 2.0,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
                 }
                 "#
                 );
@@ -1381,7 +1968,13 @@ mod tests {
                   "sum": 6.0,
                   "average": 3.0,
                   "min": 1.0,
-                  "max": 5.0
+                  "max": 5.0,
+                  "modified": {
+                    "sum": 6.0,
+                    "average": 3.0,
+                    "min": 1.0,
+                    "max": 5.0
+                  }
                 }
                 "#
                 );
@@ -1405,7 +1998,13 @@ mod tests {
                   "sum": 4.0,
                   "average": 2.0,
                   "min": 1.0,
-                  "max": 3.0
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 2.0,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
                 }
                 "#
                 );
@@ -1428,7 +2027,13 @@ mod tests {
                   "sum": 3.0,
                   "average": 1.5,
                   "min": 1.0,
-                  "max": 2.0
+                  "max": 2.0,
+                  "modified": {
+                    "sum": 3.0,
+                    "average": 1.5,
+                    "min": 1.0,
+                    "max": 2.0
+                  }
                 }
                 "#);
             },
@@ -1456,7 +2061,13 @@ mod tests {
                   "sum": 4.0,
                   "average": 2.0,
                   "min": 1.0,
-                  "max": 3.0
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 2.0,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
                 }
                  "#
                 );
@@ -1484,7 +2095,13 @@ mod tests {
                       "sum": 4.0,
                       "average": 2.0,
                       "min": 1.0,
-                      "max": 3.0
+                      "max": 3.0,
+                      "modified": {
+                        "sum": 4.0,
+                        "average": 2.0,
+                        "min": 1.0,
+                        "max": 3.0
+                      }
                     }"###
                 );
             },
@@ -1518,7 +2135,49 @@ mod tests {
                       "sum": 6.0,
                       "average": 3.0,
                       "min": 1.0,
-                      "max": 5.0
+                      "max": 5.0,
+                      "modified": {
+                        "sum": 5.0,
+                        "average": 2.5,
+                        "min": 1.0,
+                        "max": 4.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// Modified CCN: TypeScript switch with 3 cases collapses to 1.
+    #[test]
+    fn typescript_switch_modified() {
+        check_metrics::<TypescriptParser>(
+            "function f(x: number): string {
+                 switch (x) {
+                     case 1: return 'one';
+                     case 2: return 'two';
+                     case 3: return 'three';
+                     default: return 'other';
+                 }
+             }",
+            "foo.ts",
+            |metric| {
+                // standard: unit(1) + fn(1) + 3 cases = 5
+                // modified: unit(1) + fn(1) + switch(1) = 3
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 5.0,
+                      "average": 2.5,
+                      "min": 1.0,
+                      "max": 4.0,
+                      "modified": {
+                        "sum": 3.0,
+                        "average": 1.5,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
                     }"###
                 );
             },
@@ -1552,7 +2211,47 @@ mod tests {
                       "sum": 6.0,
                       "average": 3.0,
                       "min": 1.0,
-                      "max": 5.0
+                      "max": 5.0,
+                      "modified": {
+                        "sum": 5.0,
+                        "average": 2.5,
+                        "min": 1.0,
+                        "max": 4.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// Modified CCN: MozJS switch with 2 cases collapses to 1.
+    #[test]
+    fn mozjs_switch_modified() {
+        check_metrics::<MozjsParser>(
+            "function f(x) {
+                 switch (x) {
+                     case 1: return 1;
+                     case 2: return 2;
+                 }
+             }",
+            "foo.js",
+            |metric| {
+                // standard: unit(1) + fn(1) + 2 cases = 4
+                // modified: unit(1) + fn(1) + switch(1) = 3
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 2.0,
+                      "min": 1.0,
+                      "max": 3.0,
+                      "modified": {
+                        "sum": 3.0,
+                        "average": 1.5,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
                     }"###
                 );
             },
@@ -1592,9 +2291,51 @@ mod tests {
                       "sum": 10.0,
                       "average": 3.3333333333333335,
                       "min": 1.0,
-                      "max": 8.0
+                      "max": 8.0,
+                      "modified": {
+                        "sum": 8.0,
+                        "average": 2.6666666666666665,
+                        "min": 1.0,
+                        "max": 6.0
+                      }
                     }
                     "###
+                );
+            },
+        );
+    }
+
+    /// Modified CCN: Kotlin when with 3 entries collapses to 1.
+    #[test]
+    fn kotlin_when_modified() {
+        check_metrics::<KotlinParser>(
+            "fun describe(x: Int): String {
+                 return when (x) {
+                     1 -> \"one\"
+                     2 -> \"two\"
+                     3 -> \"three\"
+                     else -> \"other\"
+                 }
+             }",
+            "foo.kt",
+            |metric| {
+                // standard: unit(1) + fn(1) + 4 WhenEntry = 6
+                // modified: unit(1) + fn(1) + WhenExpression(1) = 3
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 6.0,
+                      "average": 3.0,
+                      "min": 1.0,
+                      "max": 5.0,
+                      "modified": {
+                        "sum": 3.0,
+                        "average": 1.5,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
+                    }"###
                 );
             },
         );
@@ -1619,7 +2360,13 @@ end",
                   "sum": 4.0,
                   "average": 2.0,
                   "min": 1.0,
-                  "max": 3.0
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 2.0,
+                    "min": 1.0,
+                    "max": 3.0
+                  }
                 }
                 "###);
             },
@@ -1649,7 +2396,13 @@ end",
                   "sum": 5.0,
                   "average": 2.5,
                   "min": 1.0,
-                  "max": 4.0
+                  "max": 4.0,
+                  "modified": {
+                    "sum": 5.0,
+                    "average": 2.5,
+                    "min": 1.0,
+                    "max": 4.0
+                  }
                 }
                 "###);
             },
@@ -1673,7 +2426,13 @@ end",
                   "sum": 5.0,
                   "average": 2.5,
                   "min": 1.0,
-                  "max": 4.0
+                  "max": 4.0,
+                  "modified": {
+                    "sum": 5.0,
+                    "average": 2.5,
+                    "min": 1.0,
+                    "max": 4.0
+                  }
                 }
                 "###);
             },
@@ -1699,6 +2458,27 @@ f() {
                     metric.cyclomatic,
                     {".sum" => insta::rounded_redaction(2)}
                 );
+            },
+        );
+    }
+
+    /// Modified CCN: Bash case…esac with 3 arms collapses to 1.
+    #[test]
+    fn bash_case_modified() {
+        check_metrics::<BashParser>(
+            "#!/bin/bash
+f() {
+    case $1 in
+        one)   echo 1 ;;
+        two)   echo 2 ;;
+        three) echo 3 ;;
+    esac
+}",
+            "foo.sh",
+            |metric| {
+                // standard: unit(1) + fn(1) + case_stmt(1) + 3 case_items = 6
+                // modified: unit(1) + fn(1) + case_stmt(1) = 3
+                insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
     }
@@ -1795,7 +2575,13 @@ f() {
                       "sum": 2.0,
                       "average": 1.0,
                       "min": 1.0,
-                      "max": 1.0
+                      "max": 1.0,
+                      "modified": {
+                        "sum": 2.0,
+                        "average": 1.0,
+                        "min": 1.0,
+                        "max": 1.0
+                      }
                     }
                     "#
                 );
@@ -2098,6 +2884,26 @@ f() {
         );
     }
 
+    /// Modified CCN: TSX switch with 2 cases collapses to 1.
+    #[test]
+    fn tsx_switch_modified() {
+        check_metrics::<TsxParser>(
+            "function f(x: number): string {
+                 switch (x) {
+                     case 1: return 'one';
+                     case 2: return 'two';
+                     default: return 'other';
+                 }
+             }",
+            "foo.tsx",
+            |metric| {
+                // standard: unit(1) + fn(1) + 2 cases = 4
+                // modified: unit(1) + fn(1) + switch(1) = 3
+                insta::assert_json_snapshot!(metric.cyclomatic);
+            },
+        );
+    }
+
     #[test]
     fn php_1_level_nesting() {
         // Mirrors java_simple_class' if-inside-method shape:
@@ -2119,7 +2925,13 @@ f() {
                       "sum": 4.0,
                       "average": 2.0,
                       "min": 1.0,
-                      "max": 3.0
+                      "max": 3.0,
+                      "modified": {
+                        "sum": 4.0,
+                        "average": 2.0,
+                        "min": 1.0,
+                        "max": 3.0
+                      }
                     }"###
                 );
             },
@@ -2151,9 +2963,41 @@ f() {
                       "sum": 5.0,
                       "average": 2.5,
                       "min": 1.0,
-                      "max": 4.0
+                      "max": 4.0,
+                      "modified": {
+                        "sum": 3.0,
+                        "average": 1.5,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
                     }"###
                 );
+            },
+        );
+    }
+
+    /// Modified CCN: PHP switch with 3 cases collapses to 1.
+    #[test]
+    fn php_switch_modified() {
+        check_metrics::<PhpParser>(
+            "<?php
+            function describe(int $n): string {
+                switch ($n) {
+                    case 1:
+                        return 'one';
+                    case 2:
+                        return 'two';
+                    case 3:
+                        return 'three';
+                    default:
+                        return 'other';
+                }
+            }",
+            "foo.php",
+            |metric| {
+                // standard: unit(1) + fn(1) + 3 cases = 5
+                // modified: unit(1) + fn(1) + switch(1) = 3
+                insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
     }
@@ -2179,7 +3023,13 @@ f() {
                       "sum": 3.0,
                       "average": 1.5,
                       "min": 1.0,
-                      "max": 2.0
+                      "max": 2.0,
+                      "modified": {
+                        "sum": 3.0,
+                        "average": 1.5,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
                     }"###
                 );
             },
