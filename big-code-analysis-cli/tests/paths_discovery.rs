@@ -241,6 +241,39 @@ fn paths_from_and_paths_union_both() {
 }
 
 #[test]
+fn paths_from_file_trims_whitespace() {
+    let dir = TempDir::new().unwrap();
+    let (keep, _skip) = make_tree(dir.path());
+    let listfile = dir.path().join("paths.txt");
+    // Line has trailing spaces and a tab — the bug would construct a path
+    // that doesn't exist, causing a "File doesn't exist" warning and no output.
+    std::fs::write(&listfile, format!("{}  \t\n\n   \n", keep.display())).unwrap();
+    let out = dir.path().join("out");
+    std::fs::create_dir(&out).unwrap();
+
+    cli(dir.path())
+        .args([
+            "--paths-from",
+            listfile.to_str().unwrap(),
+            "metrics",
+            "-O",
+            "json",
+            "-o",
+            out.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("doesn't exist").not());
+
+    let names = json_files(&out);
+    assert_eq!(
+        names,
+        vec!["keep.py.json".to_string()],
+        "trailing whitespace must be trimmed before PathBuf construction"
+    );
+}
+
+#[test]
 fn paths_from_missing_file_dies() {
     let dir = TempDir::new().unwrap();
     let missing = dir.path().join("does-not-exist.txt");
