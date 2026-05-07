@@ -222,5 +222,43 @@ const PREDEFINED_MACROS: &[&str] = &[
 ];
 
 pub(crate) fn is_predefined_macros(mac: &str) -> bool {
-    PREDEFINED_MACROS.contains(&mac)
+    PREDEFINED_MACROS.binary_search(&mac).is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn predefined_macros_is_sorted() {
+        assert!(
+            PREDEFINED_MACROS.is_sorted(),
+            "PREDEFINED_MACROS must be sorted for binary_search to work"
+        );
+    }
+
+    #[test]
+    fn predefined_macros_lookup() {
+        assert!(is_predefined_macros("INT32_MAX"));
+        assert!(is_predefined_macros("UINT8_C"));
+        assert!(!is_predefined_macros("FOOBAR"));
+        assert!(!is_predefined_macros(""));
+    }
+
+    #[test]
+    fn predefined_macros_lookup_boundaries() {
+        let first = PREDEFINED_MACROS.first().expect("non-empty list");
+        let last = PREDEFINED_MACROS.last().expect("non-empty list");
+        assert!(
+            is_predefined_macros(first),
+            "first entry {first} must be findable"
+        );
+        assert!(
+            is_predefined_macros(last),
+            "last entry {last} must be findable"
+        );
+        // Lexicographically below the first entry and above the last.
+        assert!(!is_predefined_macros("\u{1}"));
+        assert!(!is_predefined_macros("zzzzz_unknown"));
+    }
 }
