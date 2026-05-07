@@ -361,8 +361,14 @@ impl Checker for JavaCode {
         )
     }
 
-    fn is_else_if(_: &Node) -> bool {
-        false
+    #[inline(always)]
+    fn is_else_if(node: &Node) -> bool {
+        // tree-sitter-java models `else if` as an `Else` keyword token followed
+        // by a nested `if_statement` (no wrapping `else_clause` node).
+        node.kind_id() == Java::IfStatement
+            && node
+                .previous_sibling()
+                .is_some_and(|prev| prev.kind_id() == Java::Else)
     }
 
     fn is_primitive(_id: u16) -> bool {
@@ -446,8 +452,14 @@ impl Checker for CsharpCode {
         )
     }
 
-    fn is_else_if(_: &Node) -> bool {
-        false
+    #[inline(always)]
+    fn is_else_if(node: &Node) -> bool {
+        // tree-sitter-c-sharp models `else if` as an `Else` keyword token
+        // followed by a nested `if_statement` (no wrapping `else_clause` node).
+        node.kind_id() == Csharp::IfStatement
+            && node
+                .previous_sibling()
+                .is_some_and(|prev| prev.kind_id() == Csharp::Else)
     }
 
     fn is_primitive(_id: u16) -> bool {
