@@ -63,5 +63,37 @@ const SPECIALS: &[&str] = &[
 ];
 
 pub(crate) fn is_specials(mac: &str) -> bool {
-    SPECIALS.contains(&mac)
+    SPECIALS.binary_search(&mac).is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn specials_is_sorted() {
+        assert!(
+            SPECIALS.is_sorted(),
+            "SPECIALS must be sorted for binary_search to work"
+        );
+    }
+
+    #[test]
+    fn specials_lookup() {
+        assert!(is_specials("int32_t"));
+        assert!(is_specials("NULL"));
+        assert!(!is_specials("foobar"));
+        assert!(!is_specials(""));
+    }
+
+    #[test]
+    fn specials_lookup_boundaries() {
+        let first = SPECIALS.first().expect("non-empty list");
+        let last = SPECIALS.last().expect("non-empty list");
+        assert!(is_specials(first), "first entry {first} must be findable");
+        assert!(is_specials(last), "last entry {last} must be findable");
+        // Lexicographically below the first entry and above the last.
+        assert!(!is_specials("\u{1}"));
+        assert!(!is_specials("zzzzz_unknown"));
+    }
 }

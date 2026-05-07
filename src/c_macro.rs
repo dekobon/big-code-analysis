@@ -16,7 +16,7 @@ fn is_identifier_starter(c: u8) -> bool {
 
 #[inline(always)]
 fn is_macro<S: ::std::hash::BuildHasher>(mac: &str, macros: &HashSet<String, S>) -> bool {
-    macros.contains(mac) | is_predefined_macros(mac)
+    macros.contains(mac) || is_predefined_macros(mac)
 }
 
 pub fn replace<S: ::std::hash::BuildHasher>(
