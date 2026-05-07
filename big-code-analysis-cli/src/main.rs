@@ -510,14 +510,12 @@ fn load_preproc_data(path: &Path) -> Arc<PreprocResults> {
             path.display()
         ))
     });
-    eprintln!("Load preproc data");
     let parsed = serde_json::from_slice::<PreprocResults>(&data).unwrap_or_else(|e| {
         die(format_args!(
             "failed to parse preproc JSON from {}: {e}",
             path.display()
         ))
     });
-    eprintln!("Load preproc data: finished");
     Arc::new(parsed)
 }
 
