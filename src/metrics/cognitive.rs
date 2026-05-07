@@ -503,10 +503,11 @@ impl Cognitive for CsharpCode {
         let (mut nesting, depth, mut lambda) = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
-            // `Checker::is_else_if` is `false` for C# (the grammar has no
-            // `else_clause`); plain `if` always increases nesting.
-            IfStatement | ForStatement | ForeachStatement | WhileStatement | DoStatement
-            | SwitchStatement | SwitchExpression | CatchClause => {
+            IfStatement if !Self::is_else_if(node) => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
+            }
+            ForStatement | ForeachStatement | WhileStatement | DoStatement | SwitchStatement
+            | SwitchExpression | CatchClause => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
             // `else` is an anonymous keyword token. Each occurrence carries
@@ -4379,6 +4380,103 @@ end",
     }
 
     #[test]
+    fn java_cognitive_else_if_chain() {
+        // Regression for #115: else-if chains must not receive a nesting
+        // increment for the `if` inside `else if`. Expected breakdown:
+        // if(+1) + else(+1) + else(+1) + else(+1) = 4.
+        check_metrics::<JavaParser>(
+            "class X {
+                public static void f(int x) {
+                    if (x > 10) {
+                    } else if (x > 5) {
+                    } else if (x > 0) {
+                    } else {
+                    }
+                }
+            }",
+            "foo.java",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 4.0,
+                      "min": 0.0,
+                      "max": 4.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn java_cognitive_nested_else_if() {
+        // Regression for #115: else-if inside a loop must still respect
+        // the loop's nesting for the initial `if`, but the `else if`
+        // branch should only pay a flat +1 via the `else` keyword.
+        // for(+1) + if at nesting=1(+2) + else(+1) + else(+1) = 5.
+        check_metrics::<JavaParser>(
+            "class X {
+                public static void f(int x) {
+                    for (int i = 0; i < x; i++) {
+                        if (i > 10) {
+                        } else if (i > 5) {
+                        } else {
+                        }
+                    }
+                }
+            }",
+            "foo.java",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 5.0,
+                      "average": 5.0,
+                      "min": 0.0,
+                      "max": 5.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn java_cognitive_if_inside_else_block_is_not_else_if() {
+        // Regression for #115: an `if` whose previous sibling is the block's
+        // opening brace (not the `else` keyword) is a nested independent
+        // statement, NOT an else-if continuation. It must pay the full
+        // nesting penalty.
+        // if(+1, nesting=0) + else(+1) + inner if(+2, nesting=1) = 4.
+        check_metrics::<JavaParser>(
+            "class X {
+                public static void f(int a, int c) {
+                    if (a > 0) {
+                    } else {
+                        if (c > 0) {
+                        }
+                    }
+                }
+            }",
+            "foo.java",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 4.0,
+                      "min": 0.0,
+                      "max": 4.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
     fn java_sibling_bool_sequences() {
         // (a&&b)||(c&&d) — the right-hand && is a sibling, not nested.
         // Expected: &&(+1) + ||(+1) + &&(+1) = 3.
@@ -4408,6 +4506,103 @@ end",
             "foo.java",
             |metric| {
                 insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_cognitive_else_if_chain() {
+        // Regression for #115: else-if chains must not receive a nesting
+        // increment for the `if` inside `else if`. Expected breakdown:
+        // if(+1) + else(+1) + else(+1) + else(+1) = 4.
+        check_metrics::<CsharpParser>(
+            "class X {
+                public static void F(int x) {
+                    if (x > 10) {
+                    } else if (x > 5) {
+                    } else if (x > 0) {
+                    } else {
+                    }
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 4.0,
+                      "min": 0.0,
+                      "max": 4.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_cognitive_nested_else_if() {
+        // Regression for #115: else-if inside a loop must still respect
+        // the loop's nesting for the initial `if`, but the `else if`
+        // branch should only pay a flat +1 via the `else` keyword.
+        // for(+1) + if at nesting=1(+2) + else(+1) + else(+1) = 5.
+        check_metrics::<CsharpParser>(
+            "class X {
+                public static void F(int x) {
+                    for (int i = 0; i < x; i++) {
+                        if (i > 10) {
+                        } else if (i > 5) {
+                        } else {
+                        }
+                    }
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 5.0,
+                      "average": 5.0,
+                      "min": 0.0,
+                      "max": 5.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_cognitive_if_inside_else_block_is_not_else_if() {
+        // Regression for #115: an `if` whose previous sibling is the block's
+        // opening brace (not the `else` keyword) is a nested independent
+        // statement, NOT an else-if continuation. It must pay the full
+        // nesting penalty.
+        // if(+1, nesting=0) + else(+1) + inner if(+2, nesting=1) = 4.
+        check_metrics::<CsharpParser>(
+            "class X {
+                public static void F(int a, int c) {
+                    if (a > 0) {
+                    } else {
+                        if (c > 0) {
+                        }
+                    }
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 4.0,
+                      "min": 0.0,
+                      "max": 4.0
+                    }"###
+                );
             },
         );
     }
