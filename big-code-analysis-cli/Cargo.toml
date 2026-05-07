@@ -2,7 +2,7 @@
 name = "big-code-analysis-cli"
 version = "0.0.25"
 authors = ["Calixte Denizet <cdenizet@mozilla.com>"]
-repository = "https://github.com/dekobon/big-code-analysis/blob/master/big-code-analysis-cli/"
+repository = "https://github.com/dekobon/big-code-analysis/blob/main/big-code-analysis-cli/"
 edition = "2024"
 keywords = ["metrics"]
 description = "Tool to compute and export code metrics"
