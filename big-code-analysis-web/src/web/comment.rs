@@ -20,7 +20,7 @@ pub struct WebCommentResponse {
     pub id: String,
     /// Source code without comments.
     ///
-    /// If `None`, an error occurred processing the request.
+    /// If `None`, no comments were found in the source code.
     pub code: Option<Vec<u8>>,
 }
 
