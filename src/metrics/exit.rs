@@ -431,7 +431,6 @@ mod tests {
                      return a",
             "foo.py",
             |metric| {
-                println!("{:?}", metric.nexits);
                 // 1 function
                 insta::assert_json_snapshot!(
                     metric.nexits,

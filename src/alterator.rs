@@ -133,8 +133,8 @@ impl Alterator for MozjsCode {
     fn alterate(node: &Node, code: &[u8], span: bool, children: Vec<AstNode>) -> AstNode {
         match Mozjs::from(node.kind_id()) {
             Mozjs::String | Mozjs::String2 => {
-                // TODO: have a thought about template_strings:
-                // they may have children for replacement...
+                // Template strings may have interpolation children;
+                // stripping them here is intentional (by design).
                 let (text, span) = Self::get_text_span(node, code, span, true);
                 AstNode::new(node.kind(), text, span, Vec::new())
             }

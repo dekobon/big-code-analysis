@@ -6,11 +6,6 @@ use crate::checker::Checker;
 use crate::macros::implement_metric_trait;
 use crate::*;
 
-// FIX ME: New Java switches are not correctly recognised by tree-sitter-java version 0.19.0
-// However, the issue has already been addressed and resolved upstream on the tree-sitter-java GitHub repository
-// Upstream issue: https://github.com/tree-sitter/tree-sitter-java/issues/69
-// Upstream PR which resolves the issue: https://github.com/tree-sitter/tree-sitter-java/pull/78
-
 /// The `Wmc` metric.
 ///
 /// This metric sums the cyclomatic complexities of all the methods defined in a class.
