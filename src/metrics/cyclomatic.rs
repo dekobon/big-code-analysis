@@ -242,8 +242,25 @@ impl Cyclomatic for RustCode {
             // Lizard counts `match` as a single control-flow keyword; we count
             // each arm, so the modified metric collapses them back to the
             // container.
+            // Bare wildcard `_ =>` arms are skipped to match C-family
+            // `default:` treatment.  Patterns like `Some(_)`, `(_, x)`,
+            // or `_ if guard` are not bare wildcards and still count.
+            // NOTE: assumes tree-sitter-rust =0.24 grammar structure where
+            // (a) bare `_` is a single UNDERSCORE token inside `match_pattern`,
+            // and (b) the `if`-guard is a child of the same `match_pattern`
+            // node (so `_ if guard` has `child_count > 1`).  A grammar bump
+            // that introduces a `wildcard_pattern` named node, hoists the
+            // guard onto `match_arm` directly, or otherwise restructures
+            // `match_pattern` will require this check to be updated.
             MatchArm | MatchArm2 => {
-                stats.cyclomatic += 1.;
+                let is_bare_wildcard = node
+                    .child_by_field_name("pattern")
+                    .filter(|pat| pat.child_count() == 1)
+                    .and_then(|pat| pat.child(0))
+                    .is_some_and(|c| c.kind_id() == UNDERSCORE);
+                if !is_bare_wildcard {
+                    stats.cyclomatic += 1.;
+                }
             }
             // Modified-only: the match expression container.
             MatchExpression => {
@@ -608,10 +625,12 @@ mod tests {
     }
 
     /// Modified CCN: a match with N arms counts as 1 decision, not N.
+    /// Bare `_ =>` wildcard arm does not count toward standard CCN (same
+    /// as C-family `default:`).
     #[test]
     fn rust_match_modified() {
         check_metrics::<RustParser>(
-            "fn f(x: u8) -> &'static str { // standard: +1 (unit) +1 (fn) +3 (arms) = 5; modified: +1 (unit) +1 (fn) +1 (MatchExpr) = 3
+            "fn f(x: u8) -> &'static str { // standard: +1 (unit) +1 (fn) +2 (arms 1,2) = 4; modified: +1 (unit) +1 (fn) +1 (MatchExpr) = 3
                  match x {
                      1 => \"one\",
                      2 => \"two\",
@@ -624,10 +643,10 @@ mod tests {
                     metric.cyclomatic,
                     @r###"
                     {
-                      "sum": 5.0,
-                      "average": 2.5,
+                      "sum": 4.0,
+                      "average": 2.0,
                       "min": 1.0,
-                      "max": 4.0,
+                      "max": 3.0,
                       "modified": {
                         "sum": 3.0,
                         "average": 1.5,
@@ -2987,6 +3006,7 @@ f() {
     }
 
     /// Modified CCN: nested Rust matches each contribute one container.
+    /// Bare `_ =>` arms are skipped.
     #[test]
     fn rust_nested_match_modified() {
         check_metrics::<RustParser>(
@@ -3002,16 +3022,16 @@ f() {
              }",
             "foo.rs",
             |metric| {
-                // standard: unit(1) + fn(1) + 5 arms     = 7
+                // standard: unit(1) + fn(1) + 3 arms (1,10,20; both _ skipped) = 5
                 // modified: unit(1) + fn(1) + 2 matches  = 4
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r###"
                     {
-                      "sum": 7.0,
-                      "average": 3.5,
+                      "sum": 5.0,
+                      "average": 2.5,
                       "min": 1.0,
-                      "max": 6.0,
+                      "max": 4.0,
                       "modified": {
                         "sum": 4.0,
                         "average": 2.0,
@@ -3066,14 +3086,225 @@ f() {
              }",
             "foo.rs",
             |metric| {
-                // standard sum: unit(1) + fn(1 + 3 arms)        = 5
-                // modified sum: unit(1) + fn(1 + 1 MatchExpr)   = 3
+                // standard sum: unit(1) + fn(1 + 2 arms, _ skipped) = 4
+                // modified sum: unit(1) + fn(1 + 1 MatchExpr)       = 3
                 let s = &metric.cyclomatic;
                 assert_eq!(s.cyclomatic_modified_sum(), 3.0);
                 assert_eq!(s.cyclomatic_modified_min(), 1.0);
                 assert_eq!(s.cyclomatic_modified_max(), 2.0);
                 assert_eq!(s.cyclomatic_modified_average(), 1.5);
                 assert!(s.cyclomatic_modified_sum() <= s.cyclomatic_sum());
+            },
+        );
+    }
+
+    /// Bare `_ =>` wildcard is not counted (matches C-family `default:`).
+    #[test]
+    fn rust_wildcard_only_match() {
+        check_metrics::<RustParser>(
+            "fn f(x: u8) -> &'static str {
+                 match x {
+                     _ => \"fallback\",
+                 }
+             }",
+            "foo.rs",
+            |metric| {
+                // standard: unit(1) + fn(1) + 0 arms (bare wildcard skipped) = 2
+                // modified: unit(1) + fn(1) + MatchExpr(1) = 3
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 1.0,
+                      "min": 1.0,
+                      "max": 1.0,
+                      "modified": {
+                        "sum": 3.0,
+                        "average": 1.5,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// Wildcard arm plus explicit arms: only explicit arms count.
+    #[test]
+    fn rust_wildcard_plus_explicit_arms() {
+        check_metrics::<RustParser>(
+            "fn f(x: u8) -> &'static str {
+                 match x {
+                     1 => \"one\",
+                     2 => \"two\",
+                     3 => \"three\",
+                     _ => \"other\",
+                 }
+             }",
+            "foo.rs",
+            |metric| {
+                // standard: unit(1) + fn(1) + 3 arms (1,2,3) = 5
+                // modified: unit(1) + fn(1) + MatchExpr(1) = 3
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 5.0,
+                      "average": 2.5,
+                      "min": 1.0,
+                      "max": 4.0,
+                      "modified": {
+                        "sum": 3.0,
+                        "average": 1.5,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// `Some(_)` is NOT a bare wildcard — still counts.
+    #[test]
+    fn rust_some_wildcard_still_counts() {
+        check_metrics::<RustParser>(
+            "fn f(x: Option<u8>) -> u8 {
+                 match x {
+                     Some(_) => 1,
+                     None => 0,
+                 }
+             }",
+            "foo.rs",
+            |metric| {
+                // standard: unit(1) + fn(1) + 2 arms (Some(_), None) = 4
+                // modified: unit(1) + fn(1) + MatchExpr(1) = 3
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 2.0,
+                      "min": 1.0,
+                      "max": 3.0,
+                      "modified": {
+                        "sum": 3.0,
+                        "average": 1.5,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// Tuple pattern `(_, x)` is NOT a bare wildcard — still counts.
+    #[test]
+    fn rust_tuple_wildcard_still_counts() {
+        check_metrics::<RustParser>(
+            "fn f(x: (u8, u8)) -> u8 {
+                 match x {
+                     (0, y) => y,
+                     (_, y) => y + 1,
+                 }
+             }",
+            "foo.rs",
+            |metric| {
+                // standard: unit(1) + fn(1) + 2 arms = 4
+                // modified: unit(1) + fn(1) + MatchExpr(1) = 3
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 2.0,
+                      "min": 1.0,
+                      "max": 3.0,
+                      "modified": {
+                        "sum": 3.0,
+                        "average": 1.5,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// `_ if guard` is NOT a bare wildcard — still counts.
+    /// The `if` keyword inside the guard also contributes +1 standard/modified.
+    #[test]
+    fn rust_guarded_wildcard_still_counts() {
+        check_metrics::<RustParser>(
+            "fn f(x: u8) -> &'static str {
+                 match x {
+                     1 => \"one\",
+                     _ if x > 100 => \"big\",
+                     _ => \"other\",
+                 }
+             }",
+            "foo.rs",
+            |metric| {
+                // standard: unit(1) + fn(1 + arm(1) + guarded_arm(1) + if_kw(1)) = 5
+                // modified: unit(1) + fn(1 + MatchExpr(1) + if_kw(1)) = 4
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 5.0,
+                      "average": 2.5,
+                      "min": 1.0,
+                      "max": 4.0,
+                      "modified": {
+                        "sum": 4.0,
+                        "average": 2.0,
+                        "min": 1.0,
+                        "max": 3.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// Nested matches with wildcards: only bare `_` skipped at each level.
+    #[test]
+    fn rust_nested_match_with_wildcards() {
+        check_metrics::<RustParser>(
+            "fn f(x: u8, y: u8) -> &'static str {
+                 match x {
+                     1 => match y {
+                         1 => \"one-one\",
+                         _ => \"one-other\",
+                     },
+                     _ => \"other\",
+                 }
+             }",
+            "foo.rs",
+            |metric| {
+                // standard: unit(1) + fn(1) + outer arm 1(+1) + inner arm 1(+1)
+                //           + outer bare _(0) + inner bare _(0) = 4
+                // modified: unit(1) + fn(1) + 2 MatchExpr(+2) = 4
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 2.0,
+                      "min": 1.0,
+                      "max": 3.0,
+                      "modified": {
+                        "sum": 4.0,
+                        "average": 2.0,
+                        "min": 1.0,
+                        "max": 3.0
+                      }
+                    }"###
+                );
             },
         );
     }
