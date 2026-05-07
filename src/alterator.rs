@@ -146,7 +146,7 @@ impl Alterator for MozjsCode {
 impl Alterator for JavascriptCode {
     fn alterate(node: &Node, code: &[u8], span: bool, children: Vec<AstNode>) -> AstNode {
         match Javascript::from(node.kind_id()) {
-            Javascript::String => {
+            Javascript::String | Javascript::String2 => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
                 AstNode::new(node.kind(), text, span, Vec::new())
             }
@@ -158,7 +158,7 @@ impl Alterator for JavascriptCode {
 impl Alterator for TypescriptCode {
     fn alterate(node: &Node, code: &[u8], span: bool, children: Vec<AstNode>) -> AstNode {
         match Typescript::from(node.kind_id()) {
-            Typescript::String => {
+            Typescript::String | Typescript::String2 => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
                 AstNode::new(node.kind(), text, span, Vec::new())
             }
@@ -170,7 +170,7 @@ impl Alterator for TypescriptCode {
 impl Alterator for TsxCode {
     fn alterate(node: &Node, code: &[u8], span: bool, children: Vec<AstNode>) -> AstNode {
         match Tsx::from(node.kind_id()) {
-            Tsx::String => {
+            Tsx::String | Tsx::String2 | Tsx::String3 => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
                 AstNode::new(node.kind(), text, span, Vec::new())
             }
@@ -271,5 +271,94 @@ mod tests {
             text.contains('\u{FFFD}'),
             "expected U+FFFD replacement char for non-UTF-8 source, got: {text:?}"
         );
+    }
+
+    /// Collects all AstNode entries whose type matches `target_kind`,
+    /// recursively walking the tree.
+    fn collect_nodes_by_kind<'a>(node: &'a AstNode, target_kind: &str, out: &mut Vec<&'a AstNode>) {
+        if node.r#type == target_kind {
+            out.push(node);
+        }
+        for child in &node.children {
+            collect_nodes_by_kind(child, target_kind, out);
+        }
+    }
+
+    /// Builds an AST from source code using the given parser type.
+    fn build_ast<P: ParserTrait>(code: &[u8], filename: &str) -> AstNode {
+        let path = PathBuf::from(filename);
+        let parser = P::new(code.to_vec(), &path, None);
+        let cfg = crate::AstCfg {
+            id: String::new(),
+            comment: false,
+            span: false,
+        };
+        let resp = crate::AstCallback::call(cfg, &parser);
+        resp.root.expect("parser should produce a root AST node")
+    }
+
+    /// Asserts that every `"string"` node in the AST is flattened:
+    /// non-empty text value and no children.
+    fn assert_strings_flattened(root: &AstNode) {
+        let mut strings = Vec::new();
+        collect_nodes_by_kind(root, "string", &mut strings);
+        assert!(
+            !strings.is_empty(),
+            "expected at least one 'string' node in the AST"
+        );
+        for node in &strings {
+            assert!(
+                node.children.is_empty(),
+                "string node should be flattened (no children), got {} children; value={:?}",
+                node.children.len(),
+                node.value,
+            );
+            assert!(
+                !node.value.is_empty(),
+                "flattened string node should have non-empty text value"
+            );
+        }
+    }
+
+    // Regression tests for #119: String2 (and String3) variants must be
+    // flattened the same way as String. These exercises string literals in
+    // multiple grammatical positions to cover aliased kind_ids.
+    #[test]
+    fn javascript_string_nodes_all_flattened() {
+        // Strings in expression, property key, and import positions
+        // exercise different grammar productions (String vs String2).
+        let code = br#"
+            const a = 'single';
+            const b = "double";
+            const obj = {"key": 1};
+            import "module";
+        "#;
+        let root = build_ast::<crate::JavascriptParser>(code, "test.js");
+        assert_strings_flattened(&root);
+    }
+
+    #[test]
+    fn typescript_string_nodes_all_flattened() {
+        let code = br#"
+            const a: string = 'single';
+            const b: string = "double";
+            const obj: Record<string, number> = {"key": 1};
+            import "module";
+        "#;
+        let root = build_ast::<crate::TypescriptParser>(code, "test.ts");
+        assert_strings_flattened(&root);
+    }
+
+    #[test]
+    fn tsx_string_nodes_all_flattened() {
+        // TSX has String, String2, and String3 — exercise JSX attribute
+        // strings and regular string expressions.
+        let code = br#"
+            const a = 'single';
+            const b = "double";
+            const el = <div className="cls">{"text"}</div>;
+        "#;
+        let root = build_ast::<crate::TsxParser>(code, "test.tsx");
+        assert_strings_flattened(&root);
     }
 }
