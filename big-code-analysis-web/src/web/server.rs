@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use actix_web::{
@@ -31,6 +32,10 @@ struct ParseConfig {
     /// `None` means no timeout (`parse_timeout_secs = 0`).
     timeout: Option<Duration>,
     semaphore: Arc<Semaphore>,
+    /// Running count of blocking tasks that timed out but have not yet finished.
+    orphaned_tasks: Arc<AtomicUsize>,
+    /// Reject new requests with 503 once orphaned task count reaches this limit.
+    max_orphaned_tasks: usize,
 }
 
 const PARSE_TIMEOUT: &str = "Parse timed out";
@@ -43,30 +48,53 @@ pub const DEFAULT_PARSE_TIMEOUT_SECS: u64 = 30;
 ///
 /// The permit is held for the lifetime of this future (until the task
 /// completes or the deadline fires), then released. A timed-out blocking task
-/// continues running on the thread pool but no longer holds a permit, so new
-/// requests can proceed immediately.
+/// continues running on the thread pool but no longer holds a permit; its
+/// existence is tracked via `config.orphaned_tasks`. When that counter reaches
+/// `config.max_orphaned_tasks`, new requests are rejected with 503 rather than
+/// spawning another thread that would never be reclaimed in time.
 async fn run_parse<T: Send + 'static>(
     config: &web::Data<ParseConfig>,
     f: impl FnOnce() -> T + Send + 'static,
 ) -> Result<T, actix_web::Error> {
+    // Soft limit: Relaxed ordering means concurrent requests may briefly exceed
+    // this threshold before the counter stabilises, but that is acceptable —
+    // the check is a heuristic admission gate, not a hard guarantee.
+    if config.orphaned_tasks.load(Ordering::Relaxed) >= config.max_orphaned_tasks {
+        return Err(actix_web::error::ErrorServiceUnavailable(
+            "parse pool saturated",
+        ));
+    }
+
     let permit = Arc::clone(&config.semaphore)
         .acquire_owned()
         .await
         .map_err(|_| actix_web::error::ErrorServiceUnavailable("parse pool shut down"))?;
-    let task = web::block(f);
+
+    let mut handle = tokio::task::spawn_blocking(f);
+
     let result = if let Some(deadline) = config.timeout {
-        match tokio::time::timeout(deadline, task).await {
+        match tokio::time::timeout(deadline, &mut handle).await {
             Ok(Ok(result)) => Ok(result),
             Ok(Err(e)) => {
+                // Log the full error server-side for ops diagnostics; the
+                // client only sees the generic "Internal server error" string.
                 eprintln!("Parse task failed: {e}");
                 Err(actix_web::error::ErrorInternalServerError(
                     "Internal server error",
                 ))
             }
-            Err(_) => Err(actix_web::error::ErrorGatewayTimeout(PARSE_TIMEOUT)),
+            Err(_) => {
+                let counter = Arc::clone(&config.orphaned_tasks);
+                counter.fetch_add(1, Ordering::Relaxed);
+                tokio::spawn(async move {
+                    let _ = handle.await;
+                    counter.fetch_sub(1, Ordering::Relaxed);
+                });
+                Err(actix_web::error::ErrorGatewayTimeout(PARSE_TIMEOUT))
+            }
         }
     } else {
-        task.await.map_err(|e| {
+        handle.await.map_err(|e| {
             eprintln!("Parse task failed: {e}");
             actix_web::error::ErrorInternalServerError("Internal server error")
         })
@@ -315,6 +343,16 @@ pub async fn run(host: &str, port: u16, n_threads: usize) -> std::io::Result<()>
 ///
 /// `parse_timeout_secs = 0` disables the deadline (no timeout).
 ///
+/// ## Orphaned-task admission control
+///
+/// When a parse times out, its blocking thread keeps running on tokio's
+/// blocking pool until the work itself completes. To prevent unbounded
+/// growth from sustained pathological inputs, new requests are rejected
+/// with `503` once the orphan count reaches a soft cap. The cap defaults
+/// to `max(n_threads * 2, 4)` and can be overridden by the
+/// `BCA_MAX_ORPHANED_TASKS` environment variable (parsed as `usize`;
+/// invalid or zero values fall back to the default).
+///
 /// # Errors
 ///
 /// Returns an error if the server fails to bind or encounters an I/O error.
@@ -325,6 +363,12 @@ pub async fn run_with_timeout(
     parse_timeout_secs: u64,
 ) -> std::io::Result<()> {
     let max_size = 1_024 * 1_024 * 4;
+    let default_max_orphaned = n_threads.saturating_mul(2).max(4);
+    let max_orphaned_tasks = std::env::var("BCA_MAX_ORPHANED_TASKS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(default_max_orphaned);
     let config = web::Data::new(ParseConfig {
         timeout: if parse_timeout_secs == 0 {
             None
@@ -332,6 +376,8 @@ pub async fn run_with_timeout(
             Some(Duration::from_secs(parse_timeout_secs))
         },
         semaphore: Arc::new(Semaphore::new(n_threads)),
+        orphaned_tasks: Arc::new(AtomicUsize::new(0)),
+        max_orphaned_tasks,
     });
 
     HttpServer::new(move || {
@@ -404,7 +450,39 @@ mod tests {
         web::Data::new(ParseConfig {
             timeout: None,
             semaphore: Arc::new(Semaphore::new(4)),
+            orphaned_tasks: Arc::new(AtomicUsize::new(0)),
+            max_orphaned_tasks: 64,
         })
+    }
+
+    fn test_config_with_timeout(d: Duration) -> web::Data<ParseConfig> {
+        web::Data::new(ParseConfig {
+            timeout: Some(d),
+            semaphore: Arc::new(Semaphore::new(4)),
+            orphaned_tasks: Arc::new(AtomicUsize::new(0)),
+            max_orphaned_tasks: 64,
+        })
+    }
+
+    async fn assert_error_sanitized(result: Result<String, actix_web::Error>) {
+        let err = result.unwrap_err();
+        let resp = err.error_response();
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let body = actix_web::body::to_bytes(resp.into_body()).await.unwrap();
+        let body_str = String::from_utf8_lossy(&body);
+        assert!(
+            !body_str.contains("BlockingError"),
+            "response body must not contain BlockingError: {body_str}"
+        );
+        assert!(
+            !body_str.contains("panicked"),
+            "response body must not contain panic details: {body_str}"
+        );
+        assert!(
+            !body_str.contains("secret internal detail"),
+            "response body must not contain the panic message: {body_str}"
+        );
+        assert_eq!(body_str, "Internal server error");
     }
 
     #[actix_rt::test]
@@ -1056,56 +1134,88 @@ mod tests {
     async fn test_run_parse_error_does_not_leak_internals() {
         let config = test_config();
         let result = run_parse(&config, || -> String { panic!("secret internal detail") }).await;
-        let err = result.unwrap_err();
-        let resp = err.error_response();
-
-        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
-
-        let body = actix_web::body::to_bytes(resp.into_body()).await.unwrap();
-        let body_str = String::from_utf8_lossy(&body);
-
-        assert!(
-            !body_str.contains("BlockingError"),
-            "response body must not contain BlockingError: {body_str}"
-        );
-        assert!(
-            !body_str.contains("panicked"),
-            "response body must not contain panic details: {body_str}"
-        );
-        assert!(
-            !body_str.contains("secret internal detail"),
-            "response body must not contain the panic message: {body_str}"
-        );
-        assert_eq!(body_str, "Internal server error");
+        assert_error_sanitized(result).await;
     }
 
     #[actix_rt::test]
     async fn test_run_parse_error_with_timeout_does_not_leak_internals() {
-        let config = web::Data::new(ParseConfig {
-            timeout: Some(std::time::Duration::from_secs(5)),
-            semaphore: Arc::new(Semaphore::new(4)),
-        });
+        let config = test_config_with_timeout(Duration::from_secs(5));
         let result = run_parse(&config, || -> String { panic!("secret internal detail") }).await;
+        assert_error_sanitized(result).await;
+    }
+
+    #[actix_rt::test]
+    async fn test_run_parse_timeout_returns_504() {
+        let config = test_config_with_timeout(Duration::from_millis(50));
+        // The blocking task outlives the timeout, but exits shortly after to keep
+        // the test fast (the cleanup task awaits the JoinHandle).
+        let result = run_parse(&config, || {
+            std::thread::sleep(Duration::from_millis(200));
+            "completed"
+        })
+        .await;
+
         let err = result.unwrap_err();
         let resp = err.error_response();
-
-        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
-
+        assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT);
         let body = actix_web::body::to_bytes(resp.into_body()).await.unwrap();
-        let body_str = String::from_utf8_lossy(&body);
+        assert_eq!(String::from_utf8_lossy(&body), PARSE_TIMEOUT);
+    }
 
-        assert!(
-            !body_str.contains("BlockingError"),
-            "response body must not contain BlockingError: {body_str}"
-        );
-        assert!(
-            !body_str.contains("panicked"),
-            "response body must not contain panic details: {body_str}"
-        );
-        assert!(
-            !body_str.contains("secret internal detail"),
-            "response body must not contain the panic message: {body_str}"
-        );
-        assert_eq!(body_str, "Internal server error");
+    #[actix_rt::test]
+    async fn test_run_parse_timeout_increments_orphan_counter_and_decrements_on_completion() {
+        let orphaned = Arc::new(AtomicUsize::new(0));
+        // Use a channel so the blocking task exits quickly after the timeout fires.
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+
+        let config = web::Data::new(ParseConfig {
+            timeout: Some(Duration::from_millis(50)),
+            semaphore: Arc::new(Semaphore::new(4)),
+            orphaned_tasks: Arc::clone(&orphaned),
+            max_orphaned_tasks: 64,
+        });
+
+        let err = run_parse(&config, move || {
+            // Block until the test signals completion.
+            let _ = rx.recv();
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(err.error_response().status(), StatusCode::GATEWAY_TIMEOUT);
+
+        // Counter must be 1 immediately after timeout.
+        assert_eq!(orphaned.load(Ordering::Relaxed), 1);
+
+        // Unblock the orphaned task so it can finish.
+        let _ = tx.send(());
+
+        // Poll until the cleanup task has decremented the counter.
+        for _ in 0..200 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            if orphaned.load(Ordering::Relaxed) == 0 {
+                break;
+            }
+        }
+        assert_eq!(orphaned.load(Ordering::Relaxed), 0);
+    }
+
+    #[actix_rt::test]
+    async fn test_run_parse_rejects_with_503_when_orphan_threshold_exceeded() {
+        // Pre-fill the counter to the threshold.
+        let orphaned = Arc::new(AtomicUsize::new(10));
+        let config = web::Data::new(ParseConfig {
+            timeout: Some(Duration::from_secs(5)),
+            semaphore: Arc::new(Semaphore::new(4)),
+            orphaned_tasks: Arc::clone(&orphaned),
+            max_orphaned_tasks: 10,
+        });
+
+        // The closure should never run because the threshold check fires first.
+        let result = run_parse(&config, || "should not run").await;
+        let err = result.unwrap_err();
+        let resp = err.error_response();
+        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body = actix_web::body::to_bytes(resp.into_body()).await.unwrap();
+        assert_eq!(String::from_utf8_lossy(&body), "parse pool saturated");
     }
 }
