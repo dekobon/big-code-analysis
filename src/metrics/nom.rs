@@ -65,11 +65,11 @@ impl fmt::Display for Stats {
              closures: {}, \
              functions_average: {}, \
              closures_average: {}, \
-             total: {} \
-             average: {} \
-             functions_min: {} \
-             functions_max: {} \
-             closures_min: {} \
+             total: {}, \
+             average: {}, \
+             functions_min: {}, \
+             functions_max: {}, \
+             closures_min: {}, \
              closures_max: {}",
             self.functions_sum(),
             self.closures_sum(),
@@ -1484,5 +1484,42 @@ outer() {
                 );
             },
         );
+    }
+
+    #[test]
+    fn stats_display_commas_between_all_fields() {
+        let stats = Stats {
+            functions: 0,
+            closures: 0,
+            functions_sum: 3,
+            closures_sum: 1,
+            functions_min: 0,
+            functions_max: 2,
+            closures_min: 0,
+            closures_max: 1,
+            space_count: 2,
+        };
+        let formatted = format!("{stats}");
+
+        // Every adjacent pair of labels must appear with ", " between the
+        // previous field's value and the next label.
+        let expected_fragments = [
+            "functions: 3, closures: 1",
+            "closures: 1, functions_average:",
+            "functions_average: 1.5, closures_average:",
+            "closures_average: 0.5, total:",
+            "total: 4, average:",
+            "average: 2, functions_min:",
+            "functions_min: 0, functions_max:",
+            "functions_max: 2, closures_min:",
+            "closures_min: 0, closures_max:",
+        ];
+
+        for fragment in expected_fragments {
+            assert!(
+                formatted.contains(fragment),
+                "missing fragment {fragment:?} in: {formatted}"
+            );
+        }
     }
 }
