@@ -543,7 +543,8 @@ fn collect_path_lines<R: std::io::BufRead>(reader: R, label: &str) -> Vec<PathBu
             let line = r.unwrap_or_else(|e| {
                 die(format_args!("{label}: read error on line {}: {e}", i + 1))
             });
-            (!line.trim().is_empty()).then(|| PathBuf::from(line))
+            let trimmed = line.trim();
+            (!trimmed.is_empty()).then(|| PathBuf::from(trimmed))
         })
         .collect()
 }
