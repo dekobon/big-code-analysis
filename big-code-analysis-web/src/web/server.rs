@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use actix_web::{
-    App, HttpRequest, HttpResponse, HttpServer, guard, http,
+    App, HttpResponse, HttpServer, guard, http,
     web::{self, BytesMut, Query},
 };
 use futures::StreamExt;
@@ -227,7 +227,6 @@ async fn metrics_plain(
 
 async fn function_json(
     item: web::Json<WebFunctionPayload>,
-    _req: HttpRequest,
     config: web::Data<ParseConfig>,
 ) -> Result<HttpResponse, actix_web::Error> {
     let path = PathBuf::from(&item.file_name);
