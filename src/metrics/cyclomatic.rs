@@ -45,10 +45,7 @@ impl Default for Stats {
 struct ModifiedStats<'a>(&'a Stats);
 
 impl Serialize for ModifiedStats<'_> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let s = self.0;
         let mut st = serializer.serialize_struct("cyclomatic_modified", 4)?;
         st.serialize_field("sum", &s.cyclomatic_modified_sum())?;
@@ -60,10 +57,7 @@ impl Serialize for ModifiedStats<'_> {
 }
 
 impl Serialize for Stats {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut st = serializer.serialize_struct("cyclomatic", 5)?;
         st.serialize_field("sum", &self.cyclomatic_sum())?;
         st.serialize_field("average", &self.cyclomatic_average())?;
@@ -550,16 +544,12 @@ impl Cyclomatic for BashCode {
             Bash::CaseItem | Bash::CaseItem2 => {
                 stats.cyclomatic += 1.;
             }
-            // The case…esac container counts for both standard and modified.
-            // Standard preserves the existing behavior (+1 for the container
-            // in addition to +1 per arm); modified collapses all arms into
-            // just this one container decision.
-            Bash::CaseStatement => {
-                stats.cyclomatic += 1.;
-                stats.cyclomatic_modified += 1.;
-            }
             // Both standard and modified.
-            Bash::IfStatement
+            // `CaseStatement` counts for both: standard preserves the existing
+            // behavior (+1 for the container in addition to +1 per arm);
+            // modified collapses all arms into just this one container.
+            Bash::CaseStatement
+            | Bash::IfStatement
             | Bash::ElifClause
             | Bash::ForStatement
             | Bash::CStyleForStatement
