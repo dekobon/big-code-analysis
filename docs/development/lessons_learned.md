@@ -94,8 +94,19 @@ shipped *after* this lesson was already documented — the bug class
 applies just as much to a fresh language addition as it does to a
 grammar bump.
 
+**JS/TS/TSX `String2` (and TSX `String3`) not matched in alterator**
+(#119, `9c43253`). The `MozjsCode` alterator correctly flattened both
+`String | String2`, but the three forked JS-family alterators matched
+only `String`. TSX had a third alias (`String3`) for JSX attribute
+strings that even the issue description missed — discovered only by
+enumerating all variants mapping to `"string"` in the language enum.
+The bug class extends beyond `getter.rs` / `checker.rs` to any match
+on a grammar rule: `alterator.rs`, `metrics/*.rs`, and `spaces.rs`
+are equally susceptible.
+
 **Lesson:** After bumping any tree-sitter grammar pin in `Cargo.toml`,
-run `rg 'Lang::([A-Za-z]+)\b' src/getter.rs src/checker.rs` against
+run `rg 'Lang::([A-Za-z]+)\b' src/getter.rs src/checker.rs
+src/alterator.rs src/spaces.rs src/metrics/` against
 the regenerated `language_<lang>.rs` and confirm every numeric-suffix
 variant of every matched rule is either explicitly listed or
 explicitly excluded with a comment. Mutation tests (or simple
@@ -412,5 +423,54 @@ parser happened to return. Add a regression test that asserts
 `blank ≥ 0` for every fixture in the corpus — the invariant is cheap
 to check and catches this entire class of bug, plus arithmetic errors
 in the LOC computation itself.
+
+---
+
+## 10. Same language construct, different AST shape — detection must be grammar-aware
+
+A single language construct — `else if`, ternary expression, lambda,
+string literal — can have fundamentally different AST representations
+across tree-sitter grammars. Code that works for one grammar family
+(e.g., detecting `else if` by checking whether the parent is an
+`ElseClause`) silently fails for another family that models the same
+construct differently (e.g., `else` as a keyword sibling with no
+wrapping clause node). Unlike the aliased-variant problem (lesson 2),
+where the grammar generates multiple kind_ids for the same rule, this
+is a structural divergence: the node relationships themselves differ.
+
+**Java and C# `is_else_if` always returned `false`** (#115,
+`df9b10c`). The C++/JS-family grammars wrap `else if` in an
+`ElseClause` parent node, so `is_else_if` checks
+`parent().kind_id() == ElseClause`. Java and C# grammars emit `else`
+as a bare keyword token preceding a nested `if_statement` — no
+wrapping node. The initial implementations returned `false`
+unconditionally, causing every `else if` to receive a nesting
+increment instead of a flat +1. Cognitive complexity was
+systematically inflated; the error grew linearly with chain length
+and exponentially with nesting depth (each false nesting
+increment inflated the penalty for all nested constructs inside
+the chain). The fix adopted Kotlin's strategy:
+check `previous_sibling().kind_id() == Else`. A post-fix audit of
+all 16 `is_else_if` implementations catalogued four distinct detection
+strategies across the supported languages:
+
+| Grammar model | Languages | Check |
+| --- | --- | --- |
+| `else_clause` wrapper | C++, Mozjs, JS, TS, TSX, Rust | `parent()` |
+| `Else` keyword sibling | Java, C#, Kotlin | `prev_sibling()` |
+| Nested `if_statement` | Go | `parent()` |
+| Dedicated clause node | Python, Perl, Lua, Bash, Tcl, PHP | kind match |
+
+**Lesson:** When implementing a semantic check that depends on AST
+structure (not just node kind), do not assume all grammars use the same
+structural model. Before writing the implementation, examine the
+grammar's `node-types.json` or parse a representative snippet to
+confirm how the construct is actually represented. When a stub
+`is_else_if`-style function returns a constant, treat it as a
+to-do item, not a finished implementation — add a test that would fail
+if the function were a no-op (e.g., an `else if` chain that must
+produce a lower cognitive score than the same chain with independent
+`if` blocks). After fixing one grammar family, audit all others for
+the same stub pattern.
 
 ---
