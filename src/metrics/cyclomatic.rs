@@ -14,11 +14,6 @@ pub struct Stats {
     n: usize,
     cyclomatic_max: f64,
     cyclomatic_min: f64,
-    /// Modified cyclomatic: collapses all case/arm nodes inside a single
-    /// switch/match/when/select into one decision point.  All other
-    /// branching constructs (if, for, &&, …) contribute the same +1 as
-    /// standard cyclomatic.  The container node (e.g. `SwitchStatement`)
-    /// contributes +1 while its individual case arm nodes contribute 0.
     cyclomatic_modified_sum: f64,
     cyclomatic_modified: f64,
     cyclomatic_modified_max: f64,
@@ -133,6 +128,11 @@ impl Stats {
     /// Modified cyclomatic counts each switch/match/when/select container as
     /// one decision point regardless of how many case arms it contains.  All
     /// other branching constructs are weighted identically to standard CCN.
+    ///
+    /// Edge case: an empty switch (`switch (x) {}`) yields modified = 1
+    /// and standard = 0, so modified can exceed standard for arm-less
+    /// containers.  This matches Lizard's `-m` convention, which keys on
+    /// the switch keyword rather than the presence of arms.
     pub fn cyclomatic_modified(&self) -> f64 {
         self.cyclomatic_modified
     }
@@ -205,88 +205,33 @@ impl Cyclomatic for PythonCode {
     }
 }
 
-impl Cyclomatic for MozjsCode {
-    fn compute(node: &Node, stats: &mut Stats) {
-        use Mozjs::*;
-
-        match node.kind_id().into() {
-            // Standard-only: individual case arms.
-            Case => {
-                stats.cyclomatic += 1.;
+/// C-family cyclomatic: `Case` adds standard, `SwitchStatement` adds
+/// modified, and the shared branching kinds add both.  The ternary token
+/// name varies (`TernaryExpression` for JS-family, `ConditionalExpression`
+/// for Cpp), so it's a parameter.
+macro_rules! impl_cyclomatic_c_family {
+    ($code:ty, $lang:ident, $ternary:ident) => {
+        impl Cyclomatic for $code {
+            fn compute(node: &Node, stats: &mut Stats) {
+                use $lang::*;
+                match node.kind_id().into() {
+                    Case => stats.cyclomatic += 1.,
+                    SwitchStatement => stats.cyclomatic_modified += 1.,
+                    If | For | While | Catch | $ternary | AMPAMP | PIPEPIPE => {
+                        stats.cyclomatic += 1.;
+                        stats.cyclomatic_modified += 1.;
+                    }
+                    _ => {}
+                }
             }
-            // Modified-only: switch container collapses all arms to one.
-            SwitchStatement => {
-                stats.cyclomatic_modified += 1.;
-            }
-            // Both standard and modified.
-            If | For | While | Catch | TernaryExpression | AMPAMP | PIPEPIPE => {
-                stats.cyclomatic += 1.;
-                stats.cyclomatic_modified += 1.;
-            }
-            _ => {}
         }
-    }
+    };
 }
 
-impl Cyclomatic for JavascriptCode {
-    fn compute(node: &Node, stats: &mut Stats) {
-        use Javascript::*;
-
-        match node.kind_id().into() {
-            Case => {
-                stats.cyclomatic += 1.;
-            }
-            SwitchStatement => {
-                stats.cyclomatic_modified += 1.;
-            }
-            If | For | While | Catch | TernaryExpression | AMPAMP | PIPEPIPE => {
-                stats.cyclomatic += 1.;
-                stats.cyclomatic_modified += 1.;
-            }
-            _ => {}
-        }
-    }
-}
-
-impl Cyclomatic for TypescriptCode {
-    fn compute(node: &Node, stats: &mut Stats) {
-        use Typescript::*;
-
-        match node.kind_id().into() {
-            Case => {
-                stats.cyclomatic += 1.;
-            }
-            SwitchStatement => {
-                stats.cyclomatic_modified += 1.;
-            }
-            If | For | While | Catch | TernaryExpression | AMPAMP | PIPEPIPE => {
-                stats.cyclomatic += 1.;
-                stats.cyclomatic_modified += 1.;
-            }
-            _ => {}
-        }
-    }
-}
-
-impl Cyclomatic for TsxCode {
-    fn compute(node: &Node, stats: &mut Stats) {
-        use Tsx::*;
-
-        match node.kind_id().into() {
-            Case => {
-                stats.cyclomatic += 1.;
-            }
-            SwitchStatement => {
-                stats.cyclomatic_modified += 1.;
-            }
-            If | For | While | Catch | TernaryExpression | AMPAMP | PIPEPIPE => {
-                stats.cyclomatic += 1.;
-                stats.cyclomatic_modified += 1.;
-            }
-            _ => {}
-        }
-    }
-}
+impl_cyclomatic_c_family!(MozjsCode, Mozjs, TernaryExpression);
+impl_cyclomatic_c_family!(JavascriptCode, Javascript, TernaryExpression);
+impl_cyclomatic_c_family!(TypescriptCode, Typescript, TernaryExpression);
+impl_cyclomatic_c_family!(TsxCode, Tsx, TernaryExpression);
 
 impl Cyclomatic for RustCode {
     fn compute(node: &Node, stats: &mut Stats) {
@@ -314,25 +259,7 @@ impl Cyclomatic for RustCode {
     }
 }
 
-impl Cyclomatic for CppCode {
-    fn compute(node: &Node, stats: &mut Stats) {
-        use Cpp::*;
-
-        match node.kind_id().into() {
-            Case => {
-                stats.cyclomatic += 1.;
-            }
-            SwitchStatement => {
-                stats.cyclomatic_modified += 1.;
-            }
-            If | For | While | Catch | ConditionalExpression | AMPAMP | PIPEPIPE => {
-                stats.cyclomatic += 1.;
-                stats.cyclomatic_modified += 1.;
-            }
-            _ => {}
-        }
-    }
-}
+impl_cyclomatic_c_family!(CppCode, Cpp, ConditionalExpression);
 
 impl Cyclomatic for JavaCode {
     fn compute(node: &Node, stats: &mut Stats) {
@@ -422,9 +349,6 @@ impl Cyclomatic for PerlCode {
     fn compute(node: &Node, stats: &mut Stats) {
         use Perl as P;
 
-        // Perl has no switch/case construct in the grammar that we count
-        // (WhenSimpleStatement is rare given/when), so standard and modified
-        // are always identical.
         match node.kind_id().into() {
             P::IfStatement
             | P::UnlessStatement
@@ -479,8 +403,6 @@ impl Cyclomatic for KotlinCode {
 
 impl Cyclomatic for LuaCode {
     fn compute(node: &Node, stats: &mut Stats) {
-        // Lua has no switch/case construct, so standard and modified are
-        // always identical.
         match node.kind_id().into() {
             Lua::IfStatement
             | Lua::ElseifStatement
@@ -566,8 +488,6 @@ impl Cyclomatic for BashCode {
 
 impl Cyclomatic for TclCode {
     fn compute(node: &Node, stats: &mut Stats) {
-        // Tcl has no switch/case construct in the grammar we count, so
-        // standard and modified are always identical.
         match node.kind_id().into() {
             Tcl::If
             | Tcl::Elseif
@@ -3022,6 +2942,138 @@ f() {
                       }
                     }"###
                 );
+            },
+        );
+    }
+
+    /// Modified CCN: nested switches contribute one decision each, not one
+    /// total — the outer container does not absorb the inner one.
+    #[test]
+    fn cpp_nested_switch_modified() {
+        check_metrics::<CppParser>(
+            "void f() {
+                 switch (x) {
+                     case 1:
+                         switch (y) {
+                             case 10: break;
+                             case 20: break;
+                         }
+                         break;
+                     case 2: break;
+                 }
+             }",
+            "foo.c",
+            |metric| {
+                // standard: unit(1) + fn(1) + 4 cases  = 6
+                // modified: unit(1) + fn(1) + 2 switches = 4
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 6.0,
+                      "average": 3.0,
+                      "min": 1.0,
+                      "max": 5.0,
+                      "modified": {
+                        "sum": 4.0,
+                        "average": 2.0,
+                        "min": 1.0,
+                        "max": 3.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// Modified CCN: nested Rust matches each contribute one container.
+    #[test]
+    fn rust_nested_match_modified() {
+        check_metrics::<RustParser>(
+            "fn f(x: u8) -> u8 {
+                 match x {
+                     1 => match x {
+                         10 => 1,
+                         20 => 2,
+                         _ => 0,
+                     },
+                     _ => 0,
+                 }
+             }",
+            "foo.rs",
+            |metric| {
+                // standard: unit(1) + fn(1) + 5 arms     = 7
+                // modified: unit(1) + fn(1) + 2 matches  = 4
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 7.0,
+                      "average": 3.5,
+                      "min": 1.0,
+                      "max": 6.0,
+                      "modified": {
+                        "sum": 4.0,
+                        "average": 2.0,
+                        "min": 1.0,
+                        "max": 3.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// Pin the empty-switch edge case: standard counts no arms (0) while
+    /// modified still counts the container (+1) per Lizard's `-m`.
+    #[test]
+    fn cpp_empty_switch_modified() {
+        check_metrics::<CppParser>("void f() { switch (x) {} }", "foo.c", |metric| {
+            // standard: unit(1) + fn(1) + 0 cases    = 2
+            // modified: unit(1) + fn(1) + 1 switch   = 3
+            insta::assert_json_snapshot!(
+                metric.cyclomatic,
+                @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 1.0,
+                      "min": 1.0,
+                      "max": 1.0,
+                      "modified": {
+                        "sum": 3.0,
+                        "average": 1.5,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
+                    }"###
+            );
+        });
+    }
+
+    /// Direct accessor coverage: assert the modified-CCN getters return
+    /// the values we expect from a known fixture, bypassing the JSON
+    /// serializer.  Modified must never exceed standard for non-degenerate
+    /// inputs (a switch with at least one arm).
+    #[test]
+    fn cyclomatic_modified_accessors() {
+        check_metrics::<RustParser>(
+            "fn f(x: u8) -> u8 {
+                 match x {
+                     1 => 1,
+                     2 => 2,
+                     _ => 0,
+                 }
+             }",
+            "foo.rs",
+            |metric| {
+                // standard sum: unit(1) + fn(1 + 3 arms)        = 5
+                // modified sum: unit(1) + fn(1 + 1 MatchExpr)   = 3
+                let s = &metric.cyclomatic;
+                assert_eq!(s.cyclomatic_modified_sum(), 3.0);
+                assert_eq!(s.cyclomatic_modified_min(), 1.0);
+                assert_eq!(s.cyclomatic_modified_max(), 2.0);
+                assert_eq!(s.cyclomatic_modified_average(), 1.5);
+                assert!(s.cyclomatic_modified_sum() <= s.cyclomatic_sum());
             },
         );
     }
