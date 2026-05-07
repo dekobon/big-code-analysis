@@ -135,7 +135,7 @@ fn dump_cognitive(
 
     let prefix = format!("{prefix}{pref_child}");
 
-    dump_value("sum", stats.cognitive(), &prefix, false, stdout)?;
+    dump_value("sum", stats.cognitive_sum(), &prefix, false, stdout)?;
     dump_value("average", stats.cognitive_average(), &prefix, true, stdout)
 }
 
@@ -155,7 +155,7 @@ fn dump_cyclomatic(
 
     let prefix = format!("{prefix}{pref_child}");
 
-    dump_value("sum", stats.cyclomatic(), &prefix, false, stdout)?;
+    dump_value("sum", stats.cyclomatic_sum(), &prefix, false, stdout)?;
     dump_value("average", stats.cyclomatic_average(), &prefix, true, stdout)
 }
 
