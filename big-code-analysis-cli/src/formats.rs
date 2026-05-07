@@ -93,10 +93,14 @@ fn handle_path(path: PathBuf, output_path: &Path, extension: &str) -> PathBuf {
     // Remove root ./
     let path = path.strip_prefix("./").unwrap_or(path);
 
-    // Replace .. with . to keep files inside the output folder, skip non-UTF-8 components
+    // Replace .. with . to keep files inside the output folder, warn on non-UTF-8 components
     let mut cleaned = PathBuf::new();
     for component in path.iter() {
         let Some(s) = component.to_str() else {
+            eprintln!(
+                "Warning: non-UTF-8 path component dropped from output path: {}",
+                path.display()
+            );
             continue;
         };
         cleaned.push(if s == ".." { "." } else { s });
@@ -289,7 +293,8 @@ mod tests {
         let bad_component = OsStr::from_bytes(b"\xff\xfe");
         let path = PathBuf::from("src").join(bad_component).join("bar.rs");
         let result = handle_path(path, Path::new("out"), ".json");
-        // The non-UTF-8 component is skipped, leaving only src and bar.rs
+        // The non-UTF-8 component is dropped and a warning is emitted to stderr;
+        // only the valid components (src, bar.rs) appear in the output path.
         assert_eq!(result, PathBuf::from("out/src/bar.rs.json"));
     }
 }
