@@ -57,12 +57,19 @@ async fn run_parse<T: Send + 'static>(
     let result = if let Some(deadline) = config.timeout {
         match tokio::time::timeout(deadline, task).await {
             Ok(Ok(result)) => Ok(result),
-            Ok(Err(e)) => Err(actix_web::error::ErrorInternalServerError(e)),
+            Ok(Err(e)) => {
+                eprintln!("Parse task failed: {e}");
+                Err(actix_web::error::ErrorInternalServerError(
+                    "Internal server error",
+                ))
+            }
             Err(_) => Err(actix_web::error::ErrorGatewayTimeout(PARSE_TIMEOUT)),
         }
     } else {
-        task.await
-            .map_err(actix_web::error::ErrorInternalServerError)
+        task.await.map_err(|e| {
+            eprintln!("Parse task failed: {e}");
+            actix_web::error::ErrorInternalServerError("Internal server error")
+        })
     };
     drop(permit);
     result
@@ -1043,5 +1050,62 @@ mod tests {
         });
 
         assert_eq!(res, expected);
+    }
+
+    #[actix_rt::test]
+    async fn test_run_parse_error_does_not_leak_internals() {
+        let config = test_config();
+        let result = run_parse(&config, || -> String { panic!("secret internal detail") }).await;
+        let err = result.unwrap_err();
+        let resp = err.error_response();
+
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+
+        let body = actix_web::body::to_bytes(resp.into_body()).await.unwrap();
+        let body_str = String::from_utf8_lossy(&body);
+
+        assert!(
+            !body_str.contains("BlockingError"),
+            "response body must not contain BlockingError: {body_str}"
+        );
+        assert!(
+            !body_str.contains("panicked"),
+            "response body must not contain panic details: {body_str}"
+        );
+        assert!(
+            !body_str.contains("secret internal detail"),
+            "response body must not contain the panic message: {body_str}"
+        );
+        assert_eq!(body_str, "Internal server error");
+    }
+
+    #[actix_rt::test]
+    async fn test_run_parse_error_with_timeout_does_not_leak_internals() {
+        let config = web::Data::new(ParseConfig {
+            timeout: Some(std::time::Duration::from_secs(5)),
+            semaphore: Arc::new(Semaphore::new(4)),
+        });
+        let result = run_parse(&config, || -> String { panic!("secret internal detail") }).await;
+        let err = result.unwrap_err();
+        let resp = err.error_response();
+
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+
+        let body = actix_web::body::to_bytes(resp.into_body()).await.unwrap();
+        let body_str = String::from_utf8_lossy(&body);
+
+        assert!(
+            !body_str.contains("BlockingError"),
+            "response body must not contain BlockingError: {body_str}"
+        );
+        assert!(
+            !body_str.contains("panicked"),
+            "response body must not contain panic details: {body_str}"
+        );
+        assert!(
+            !body_str.contains("secret internal detail"),
+            "response body must not contain the panic message: {body_str}"
+        );
+        assert_eq!(body_str, "Internal server error");
     }
 }
