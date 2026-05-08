@@ -20,21 +20,19 @@
 //! }
 //! ```
 
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::io::{self, Write};
 
 use serde::Serialize;
 
-use crate::output::offenders::{OffenderRecord, Severity};
-
-/// File extension used when writing SARIF output to a file path.
-pub const SARIF_EXTENSION: &str = ".sarif.json";
+#[cfg(test)]
+use crate::output::offenders::Severity;
+use crate::output::offenders::{OffenderRecord, TOOL_ID, warn_non_utf8_path};
 
 /// SARIF schema URL — pinned to 2.1.0 (the version GitHub Code
 /// Scanning ingests).
 const SARIF_SCHEMA: &str = "https://json.schemastore.org/sarif-2.1.0.json";
 const SARIF_VERSION: &str = "2.1.0";
-const TOOL_NAME: &str = "big-code-analysis";
 
 /// Short rule descriptions used in `tool.driver.rules[]`. Metrics not
 /// listed fall back to the metric name itself — never fail.
@@ -141,18 +139,14 @@ fn rule_description(metric: &str) -> &str {
 /// integrate before the threshold engine (#96) lands.
 pub fn write_sarif<W: Write>(offenders: &[OffenderRecord], mut writer: W) -> io::Result<()> {
     let mut results: Vec<SarifResult<'_>> = Vec::with_capacity(offenders.len());
-    // BTreeMap so the rules array is deterministic (alphabetical by id).
-    let mut rule_ids: BTreeMap<&str, ()> = BTreeMap::new();
+    // BTreeSet so the rules array is deterministic (alphabetical by id).
+    let mut rule_ids: BTreeSet<&str> = BTreeSet::new();
 
     for record in offenders {
-        let Some(uri) = record.path.to_str() else {
-            eprintln!(
-                "Warning: skipping non-UTF-8 path in SARIF output: {}",
-                record.path.display()
-            );
+        let Some(uri) = warn_non_utf8_path("SARIF", &record.path) else {
             continue;
         };
-        rule_ids.insert(record.metric.as_str(), ());
+        rule_ids.insert(record.metric.as_str());
 
         let logical_locations = record.function.as_deref().map(|name| {
             vec![LogicalLocation {
@@ -162,10 +156,7 @@ pub fn write_sarif<W: Write>(offenders: &[OffenderRecord], mut writer: W) -> io:
 
         results.push(SarifResult {
             rule_id: &record.metric,
-            level: match record.severity {
-                Severity::Warning => "warning",
-                Severity::Error => "error",
-            },
+            level: record.severity.as_str(),
             message: Message {
                 text: record.default_message(),
             },
@@ -184,7 +175,7 @@ pub fn write_sarif<W: Write>(offenders: &[OffenderRecord], mut writer: W) -> io:
     }
 
     let rules: Vec<Rule<'_>> = rule_ids
-        .keys()
+        .iter()
         .map(|id| Rule {
             id,
             short_description: Description {
@@ -199,7 +190,7 @@ pub fn write_sarif<W: Write>(offenders: &[OffenderRecord], mut writer: W) -> io:
         runs: vec![Run {
             tool: Tool {
                 driver: Driver {
-                    name: TOOL_NAME,
+                    name: TOOL_ID,
                     version: env!("CARGO_PKG_VERSION"),
                     rules,
                 },
@@ -412,7 +403,7 @@ mod tests {
             .as_array()
             .expect("array");
         assert_eq!(rules.len(), 2);
-        // BTreeMap key order: alphabetical.
+        // BTreeSet iteration order: alphabetical.
         assert_eq!(rules[0]["id"], "cyclomatic");
         assert_eq!(rules[1]["id"], "loc.lloc");
     }

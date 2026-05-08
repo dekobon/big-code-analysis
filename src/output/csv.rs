@@ -23,7 +23,13 @@
 use std::io::{self, Write};
 use std::path::Path;
 
+use crate::output::funcspace_row::{IDENTITY_COLUMNS, METRIC_COUNT, metric_values};
+use crate::output::numfmt::CellMetric;
 use crate::spaces::FuncSpace;
+
+// Compile-time guarantee that the metric tuple matches CSV_HEADER —
+// catches drift the moment a metric is added to one without the other.
+const _: () = assert!(IDENTITY_COLUMNS + METRIC_COUNT == CSV_HEADER.len());
 
 /// File extension used when writing CSV output to a file path.
 pub const CSV_EXTENSION: &str = ".csv";
@@ -206,20 +212,7 @@ fn write_one_row<W: Write>(
     path_str: &str,
     space: &FuncSpace,
 ) -> io::Result<()> {
-    let m = &space.metrics;
-    let cyc = &m.cyclomatic;
-    let cog = &m.cognitive;
-    let hal = &m.halstead;
-    let l = &m.loc;
-    let nm = &m.nom;
-    let nrg = &m.nargs;
-    let nex = &m.nexits;
-    let tok = &m.tokens;
-    let a = &m.abc;
-    let w = &m.wmc;
-    let pm = &m.npm;
-    let pa = &m.npa;
-    let mi_ = &m.mi;
+    let metrics = metric_values(space);
 
     let mut row: Vec<String> = Vec::with_capacity(CSV_HEADER.len());
     row.push(path_str.to_owned());
@@ -228,174 +221,23 @@ fn write_one_row<W: Write>(
     row.push(space.start_line.to_string());
     row.push(space.end_line.to_string());
 
-    let metrics: [f64; CSV_HEADER.len() - 5] = [
-        // cognitive
-        cog.cognitive_sum(),
-        cog.cognitive_average(),
-        cog.cognitive_min(),
-        cog.cognitive_max(),
-        // cyclomatic
-        cyc.cyclomatic_sum(),
-        cyc.cyclomatic_average(),
-        cyc.cyclomatic_min(),
-        cyc.cyclomatic_max(),
-        cyc.cyclomatic_modified_sum(),
-        cyc.cyclomatic_modified_average(),
-        cyc.cyclomatic_modified_min(),
-        cyc.cyclomatic_modified_max(),
-        // halstead
-        hal.u_operators(),
-        hal.operators(),
-        hal.u_operands(),
-        hal.operands(),
-        hal.length(),
-        hal.estimated_program_length(),
-        hal.purity_ratio(),
-        hal.vocabulary(),
-        hal.volume(),
-        hal.difficulty(),
-        hal.level(),
-        hal.effort(),
-        hal.time(),
-        hal.bugs(),
-        // loc
-        l.sloc(),
-        l.ploc(),
-        l.lloc(),
-        l.cloc(),
-        l.blank(),
-        l.sloc_average(),
-        l.ploc_average(),
-        l.lloc_average(),
-        l.cloc_average(),
-        l.blank_average(),
-        l.sloc_min(),
-        l.sloc_max(),
-        l.cloc_min(),
-        l.cloc_max(),
-        l.ploc_min(),
-        l.ploc_max(),
-        l.lloc_min(),
-        l.lloc_max(),
-        l.blank_min(),
-        l.blank_max(),
-        // nom
-        nm.functions_sum(),
-        nm.closures_sum(),
-        nm.functions_average(),
-        nm.closures_average(),
-        nm.total(),
-        nm.average(),
-        nm.functions_min(),
-        nm.functions_max(),
-        nm.closures_min(),
-        nm.closures_max(),
-        // nargs
-        nrg.fn_args_sum(),
-        nrg.closure_args_sum(),
-        nrg.fn_args_average(),
-        nrg.closure_args_average(),
-        nrg.nargs_total(),
-        nrg.nargs_average(),
-        nrg.fn_args_min(),
-        nrg.fn_args_max(),
-        nrg.closure_args_min(),
-        nrg.closure_args_max(),
-        // nexits
-        nex.exit_sum(),
-        nex.exit_average(),
-        nex.exit_min(),
-        nex.exit_max(),
-        // tokens
-        tok.tokens_sum(),
-        tok.tokens_average(),
-        tok.tokens_min(),
-        tok.tokens_max(),
-        // abc
-        a.assignments_sum(),
-        a.branches_sum(),
-        a.conditions_sum(),
-        a.magnitude_sum(),
-        a.assignments_average(),
-        a.branches_average(),
-        a.conditions_average(),
-        a.assignments_min(),
-        a.assignments_max(),
-        a.branches_min(),
-        a.branches_max(),
-        a.conditions_min(),
-        a.conditions_max(),
-        // wmc
-        w.class_wmc_sum(),
-        w.interface_wmc_sum(),
-        w.total_wmc(),
-        // npm
-        pm.class_npm_sum(),
-        pm.interface_npm_sum(),
-        pm.class_nm_sum(),
-        pm.interface_nm_sum(),
-        pm.class_coa(),
-        pm.interface_coa(),
-        pm.total_npm(),
-        pm.total_nm(),
-        pm.total_coa(),
-        // npa
-        pa.class_npa_sum(),
-        pa.interface_npa_sum(),
-        pa.class_na_sum(),
-        pa.interface_na_sum(),
-        pa.class_cda(),
-        pa.interface_cda(),
-        pa.total_npa(),
-        pa.total_na(),
-        pa.total_cda(),
-        // mi
-        mi_.mi_original(),
-        mi_.mi_sei(),
-        mi_.mi_visual_studio(),
-    ];
-    debug_assert_eq!(metrics.len(), CSV_HEADER.len() - 5);
-
     for v in metrics {
-        row.push(format_metric(v));
+        row.push(CellMetric(v).to_string());
     }
 
     wtr.write_record(&row).map_err(csv_err)
-}
-
-/// Format a metric value as a CSV cell. Non-finite (`NaN`, `±inf`)
-/// values map to an empty string so they read as "not applicable" in
-/// downstream tools rather than as `0` or `NaN`. Integer-valued
-/// finite values render without a trailing `.0`, matching the
-/// `serde_json` default; everything else uses the standard `{}`
-/// f64 formatter.
-fn format_metric(v: f64) -> String {
-    if !v.is_finite() {
-        return String::new();
-    }
-    // Bound the integer fast-path at 2^53 so we never lose precision
-    // (and never trigger the `as i64` saturation that would mangle
-    // sentinel values like `f64::MAX`).
-    const I64_EXACT_F64_LIMIT: f64 = (1u64 << 53) as f64;
-    if v.fract() == 0.0 && v.abs() < I64_EXACT_F64_LIMIT {
-        (v as i64).to_string()
-    } else {
-        v.to_string()
-    }
 }
 
 fn csv_err(e: csv::Error) -> io::Error {
     // csv::Error wraps an io::Error for I/O failures; propagate
     // unchanged so callers see the original errno. Other variants
     // collapse into InvalidData since they are protocol-level
-    // problems, not I/O.
-    if matches!(e.kind(), csv::ErrorKind::Io(_)) {
-        let csv::ErrorKind::Io(io_err) = e.into_kind() else {
-            unreachable!("checked by matches! above")
-        };
-        io_err
-    } else {
-        io::Error::new(io::ErrorKind::InvalidData, e)
+    // problems, not I/O. csv::Error has no public From<ErrorKind>
+    // constructor, so format the kind via Debug to retain diagnostic
+    // detail.
+    match e.into_kind() {
+        csv::ErrorKind::Io(io_err) => io_err,
+        other => io::Error::new(io::ErrorKind::InvalidData, format!("{other:?}")),
     }
 }
 

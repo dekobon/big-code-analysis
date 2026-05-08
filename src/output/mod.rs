@@ -8,10 +8,14 @@ pub(crate) mod dump_ops;
 pub use dump_ops::*;
 
 pub mod offenders;
-pub use offenders::{OffenderRecord, Severity};
+pub use offenders::{OffenderRecord, Severity, TOOL_ID};
+
+pub(crate) mod numfmt;
 
 pub mod checkstyle;
-pub use checkstyle::{CHECKSTYLE_EXTENSION, CHECKSTYLE_SOURCE_PREFIX, write_checkstyle};
+pub use checkstyle::write_checkstyle;
+
+pub(crate) mod funcspace_row;
 
 pub mod csv;
 pub use csv::{CSV_EXTENSION, CSV_HEADER, write_csv};
@@ -20,9 +24,7 @@ pub mod html;
 pub use html::{HTML_EXTENSION, write_html};
 
 pub mod sarif;
-pub use sarif::{SARIF_EXTENSION, write_sarif};
+pub use sarif::write_sarif;
 
 pub mod warning_line;
-pub use warning_line::{
-    CLANG_WARNING_EXTENSION, MSVC_WARNING_EXTENSION, write_clang_warning, write_msvc_warning,
-};
+pub use warning_line::{write_clang_warning, write_msvc_warning};

@@ -25,15 +25,12 @@ use std::io::{self, Write};
 use std::path::Path;
 
 use crate::output::csv::CSV_HEADER;
+use crate::output::funcspace_row::{IDENTITY_COLUMNS, metric_values};
+use crate::output::numfmt::CellMetric;
 use crate::spaces::FuncSpace;
 
 /// File extension used when writing HTML output to a file path.
 pub const HTML_EXTENSION: &str = ".html";
-
-/// Number of identity columns at the start of [`CSV_HEADER`]
-/// (`path`, `space_name`, `space_kind`, `start_line`, `end_line`).
-/// The remaining columns are numeric metric values.
-const IDENTITY_COLUMNS: usize = 5;
 
 const INLINE_CSS: &str = "\
 body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;\
@@ -176,21 +173,6 @@ fn write_space_rows<W: Write>(writer: &mut W, path_str: &str, space: &FuncSpace)
 }
 
 fn write_one_row<W: Write>(writer: &mut W, path_str: &str, space: &FuncSpace) -> io::Result<()> {
-    let m = &space.metrics;
-    let cyc = &m.cyclomatic;
-    let cog = &m.cognitive;
-    let hal = &m.halstead;
-    let l = &m.loc;
-    let nm = &m.nom;
-    let nrg = &m.nargs;
-    let nex = &m.nexits;
-    let tok = &m.tokens;
-    let a = &m.abc;
-    let w = &m.wmc;
-    let pm = &m.npm;
-    let pa = &m.npa;
-    let mi_ = &m.mi;
-
     writer.write_all(b"<tr>")?;
 
     // Identity cells (text columns: path, space_name, space_kind +
@@ -202,133 +184,7 @@ fn write_one_row<W: Write>(writer: &mut W, path_str: &str, space: &FuncSpace) ->
     write_numeric_cell(writer, "start_line", space.start_line as f64)?;
     write_numeric_cell(writer, "end_line", space.end_line as f64)?;
 
-    let metrics: [f64; CSV_HEADER.len() - IDENTITY_COLUMNS] = [
-        // cognitive
-        cog.cognitive_sum(),
-        cog.cognitive_average(),
-        cog.cognitive_min(),
-        cog.cognitive_max(),
-        // cyclomatic
-        cyc.cyclomatic_sum(),
-        cyc.cyclomatic_average(),
-        cyc.cyclomatic_min(),
-        cyc.cyclomatic_max(),
-        cyc.cyclomatic_modified_sum(),
-        cyc.cyclomatic_modified_average(),
-        cyc.cyclomatic_modified_min(),
-        cyc.cyclomatic_modified_max(),
-        // halstead
-        hal.u_operators(),
-        hal.operators(),
-        hal.u_operands(),
-        hal.operands(),
-        hal.length(),
-        hal.estimated_program_length(),
-        hal.purity_ratio(),
-        hal.vocabulary(),
-        hal.volume(),
-        hal.difficulty(),
-        hal.level(),
-        hal.effort(),
-        hal.time(),
-        hal.bugs(),
-        // loc
-        l.sloc(),
-        l.ploc(),
-        l.lloc(),
-        l.cloc(),
-        l.blank(),
-        l.sloc_average(),
-        l.ploc_average(),
-        l.lloc_average(),
-        l.cloc_average(),
-        l.blank_average(),
-        l.sloc_min(),
-        l.sloc_max(),
-        l.cloc_min(),
-        l.cloc_max(),
-        l.ploc_min(),
-        l.ploc_max(),
-        l.lloc_min(),
-        l.lloc_max(),
-        l.blank_min(),
-        l.blank_max(),
-        // nom
-        nm.functions_sum(),
-        nm.closures_sum(),
-        nm.functions_average(),
-        nm.closures_average(),
-        nm.total(),
-        nm.average(),
-        nm.functions_min(),
-        nm.functions_max(),
-        nm.closures_min(),
-        nm.closures_max(),
-        // nargs
-        nrg.fn_args_sum(),
-        nrg.closure_args_sum(),
-        nrg.fn_args_average(),
-        nrg.closure_args_average(),
-        nrg.nargs_total(),
-        nrg.nargs_average(),
-        nrg.fn_args_min(),
-        nrg.fn_args_max(),
-        nrg.closure_args_min(),
-        nrg.closure_args_max(),
-        // nexits
-        nex.exit_sum(),
-        nex.exit_average(),
-        nex.exit_min(),
-        nex.exit_max(),
-        // tokens
-        tok.tokens_sum(),
-        tok.tokens_average(),
-        tok.tokens_min(),
-        tok.tokens_max(),
-        // abc
-        a.assignments_sum(),
-        a.branches_sum(),
-        a.conditions_sum(),
-        a.magnitude_sum(),
-        a.assignments_average(),
-        a.branches_average(),
-        a.conditions_average(),
-        a.assignments_min(),
-        a.assignments_max(),
-        a.branches_min(),
-        a.branches_max(),
-        a.conditions_min(),
-        a.conditions_max(),
-        // wmc
-        w.class_wmc_sum(),
-        w.interface_wmc_sum(),
-        w.total_wmc(),
-        // npm
-        pm.class_npm_sum(),
-        pm.interface_npm_sum(),
-        pm.class_nm_sum(),
-        pm.interface_nm_sum(),
-        pm.class_coa(),
-        pm.interface_coa(),
-        pm.total_npm(),
-        pm.total_nm(),
-        pm.total_coa(),
-        // npa
-        pa.class_npa_sum(),
-        pa.interface_npa_sum(),
-        pa.class_na_sum(),
-        pa.interface_na_sum(),
-        pa.class_cda(),
-        pa.interface_cda(),
-        pa.total_npa(),
-        pa.total_na(),
-        pa.total_cda(),
-        // mi
-        mi_.mi_original(),
-        mi_.mi_sei(),
-        mi_.mi_visual_studio(),
-    ];
-    debug_assert_eq!(metrics.len(), CSV_HEADER.len() - IDENTITY_COLUMNS);
+    let metrics = metric_values(space);
 
     for (offset, value) in metrics.iter().enumerate() {
         // Safe: offset < metrics.len() == CSV_HEADER.len() - IDENTITY_COLUMNS,
@@ -350,31 +206,15 @@ fn write_text_cell<W: Write>(writer: &mut W, metric: &str, value: &str) -> io::R
 }
 
 fn write_numeric_cell<W: Write>(writer: &mut W, metric: &str, value: f64) -> io::Result<()> {
-    let formatted = format_metric(value);
+    let cell = CellMetric(value);
     let escaped_metric = escape_html(metric);
-    // Formatted numbers never contain HTML-special characters, so the
-    // formatted string is its own escape — no entity encoding needed.
+    // Formatted numbers never contain HTML-special characters, so we
+    // write the `CellMetric` Display adapter directly into the
+    // formatter twice — no per-cell `String` allocation.
     write!(
         writer,
-        "<td class=\"metric numeric\" data-metric=\"{escaped_metric}\" data-value=\"{formatted}\">{formatted}</td>",
+        "<td class=\"metric numeric\" data-metric=\"{escaped_metric}\" data-value=\"{cell}\">{cell}</td>",
     )
-}
-
-/// Format a metric value as an HTML cell. Non-finite (`NaN`, `±inf`)
-/// values map to an empty string so they read as "not applicable" in
-/// downstream tools rather than as `0` or `NaN`. Integer-valued finite
-/// values render without a trailing `.0`, matching the CSV and JSON
-/// serializer conventions.
-fn format_metric(v: f64) -> String {
-    if !v.is_finite() {
-        return String::new();
-    }
-    const I64_EXACT_F64_LIMIT: f64 = (1u64 << 53) as f64;
-    if v.fract() == 0.0 && v.abs() < I64_EXACT_F64_LIMIT {
-        (v as i64).to_string()
-    } else {
-        v.to_string()
-    }
 }
 
 #[cfg(test)]

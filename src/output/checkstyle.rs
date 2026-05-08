@@ -22,15 +22,7 @@
 use std::collections::BTreeMap;
 use std::io::{self, Write};
 
-use crate::output::offenders::OffenderRecord;
-
-/// File extension used when writing Checkstyle output to a file path.
-pub const CHECKSTYLE_EXTENSION: &str = ".checkstyle.xml";
-
-/// Source identifier used in the `source="..."` attribute on every
-/// `<error>` element. CI plugins use this to namespace findings; the
-/// per-record metric name is appended (`source="big-code-analysis.cyclomatic"`).
-pub const CHECKSTYLE_SOURCE_PREFIX: &str = "big-code-analysis";
+use crate::output::offenders::{OffenderRecord, TOOL_ID, warn_non_utf8_path};
 
 /// Write Checkstyle 4.3 XML for `offenders` to `writer`.
 ///
@@ -45,25 +37,18 @@ pub const CHECKSTYLE_SOURCE_PREFIX: &str = "big-code-analysis";
 pub fn write_checkstyle<W: Write>(offenders: &[OffenderRecord], mut writer: W) -> io::Result<()> {
     writer.write_all(b"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")?;
 
-    if offenders.is_empty() {
-        writer.write_all(b"<checkstyle version=\"4.3\"/>\n")?;
-        return Ok(());
-    }
-
     // Group while preserving per-file insertion order. BTreeMap key is
     // the UTF-8 path; this also gives us deterministic file ordering.
     let mut by_file: BTreeMap<&str, Vec<&OffenderRecord>> = BTreeMap::new();
     for record in offenders {
-        let Some(path_str) = record.path.to_str() else {
-            eprintln!(
-                "Warning: skipping non-UTF-8 path in Checkstyle output: {}",
-                record.path.display()
-            );
+        let Some(path_str) = warn_non_utf8_path("Checkstyle", &record.path) else {
             continue;
         };
         by_file.entry(path_str).or_default().push(record);
     }
 
+    // Empty input *and* all-non-UTF-8 input both end up here with an
+    // empty `by_file`, so one branch covers both cases.
     if by_file.is_empty() {
         writer.write_all(b"<checkstyle version=\"4.3\"/>\n")?;
         return Ok(());
@@ -91,7 +76,7 @@ fn write_error<W: Write>(writer: &mut W, record: &OffenderRecord) -> io::Result<
         " severity=\"{}\" message=\"{}\" source=\"{}.{}\"/>",
         record.severity.as_str(),
         XmlAttr(&message),
-        CHECKSTYLE_SOURCE_PREFIX,
+        TOOL_ID,
         XmlAttr(&record.metric),
     )
 }
