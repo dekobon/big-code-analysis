@@ -90,7 +90,7 @@ impl<'a> Node<'a> {
     #[inline(always)]
     pub(crate) fn has_sibling(&self, id: u16) -> bool {
         self.0.parent().is_some_and(|parent| {
-            self.0
+            parent
                 .children(&mut parent.walk())
                 .any(|child| child.kind_id() == id)
         })

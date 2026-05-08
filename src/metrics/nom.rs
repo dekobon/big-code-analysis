@@ -540,6 +540,53 @@ mod tests {
         );
     }
 
+    fn check_returned_object_arrow_nom<T: ParserTrait>(file_name: &str) {
+        check_metrics::<T>(
+            "function f() { return { foo: x => x }; }",
+            file_name,
+            |metric| {
+                insta::allow_duplicates! {
+                    insta::assert_json_snapshot!(
+                        metric.nom,
+                        @r###"
+                        {
+                          "functions": 2.0,
+                          "closures": 0.0,
+                          "functions_average": 0.6666666666666666,
+                          "closures_average": 0.0,
+                          "total": 2.0,
+                          "average": 0.6666666666666666,
+                          "functions_min": 0.0,
+                          "functions_max": 1.0,
+                          "closures_min": 0.0,
+                          "closures_max": 0.0
+                        }"###
+                    );
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_returned_object_arrow_nom() {
+        check_returned_object_arrow_nom::<JavascriptParser>("foo.js");
+    }
+
+    #[test]
+    fn mozjs_returned_object_arrow_nom() {
+        check_returned_object_arrow_nom::<MozjsParser>("foo.js");
+    }
+
+    #[test]
+    fn typescript_returned_object_arrow_nom() {
+        check_returned_object_arrow_nom::<TypescriptParser>("foo.ts");
+    }
+
+    #[test]
+    fn tsx_returned_object_arrow_nom() {
+        check_returned_object_arrow_nom::<TsxParser>("foo.tsx");
+    }
+
     #[test]
     fn javascript_unnamed_nom() {
         check_metrics::<JavascriptParser>(
