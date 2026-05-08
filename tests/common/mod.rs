@@ -8,6 +8,12 @@ use big_code_analysis::LANG;
 use big_code_analysis::*;
 
 #[allow(dead_code)]
+pub mod fixtures;
+
+#[allow(dead_code)]
+pub mod validators;
+
+#[allow(dead_code)]
 const REPO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/", "repositories");
 const SNAPSHOT_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
