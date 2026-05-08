@@ -235,7 +235,7 @@ into the sort functions and replaced `unwrap` with `f64::total_cmp`.
 tree-sitter bumps emit new aliased kind_ids (see lesson 2), match
 expressions in `getter.rs` / `checker.rs` that fall through to an
 `Unknown` arm are safe; `unreachable!()` would crash. The same
-applies to `OutputFormat` matches in the CLI when a new format
+applies to `MetricsFormat` matches in the CLI when a new format
 variant is added in one place and forgotten in another.
 
 **Lesson:** Treat `unwrap` / `expect` / `panic!` / `assert!` /
@@ -472,5 +472,150 @@ if the function were a no-op (e.g., an `else if` chain that must
 produce a lower cognitive score than the same chain with independent
 `if` blocks). After fixing one grammar family, audit all others for
 the same stub pattern.
+
+---
+
+## 11. The same metric across languages must agree on the same logical construct
+
+Each language's metric implementation under `src/metrics/` is written
+against that language's grammar, not against a shared specification. When
+two grammars represent the same logical construct differently (a
+`switch`/`match` with a fallback arm; a `case…esac` that wraps its arms in
+a parent node), the per-language `Cyclomatic` / `Cognitive` / `Halstead`
+impl can quietly diverge — each language's snapshot tests still pass,
+because every snapshot was written against that language's own (wrong)
+output. The drift is invisible until someone compares CCN sums across
+languages on equivalent code. Lesson 6 covers per-language snapshot
+provenance; this lesson covers *cross-language* metric agreement, which
+even an externally-anchored single-language test cannot catch.
+
+**Rust counts wildcard `_ =>` while C-family does not count `default:`**
+(#106, `a54b073`). `impl Cyclomatic for RustCode` matched `MatchArm |
+MatchArm2` for every arm of a `match`, including the wildcard `_ =>`. The
+equivalent `default:` clause in C / C++ / C# / Java / JS / TS / TSX / Mozjs
+/ PHP is intentionally not counted (those impls match the `Case` node,
+which the wildcard arm does not produce). Two-branch
+`match { 1 => …, _ => … }` reported standard CCN +2 in Rust, while the
+equivalent `switch { case 1: …; default: … }` reported +1 in C. The
+recently-added modified-CCN variant (`16cd610`) collapsed all arms to one
+container decision, which papered over the asymmetry but left standard
+CCN divergent.
+
+**Bash double-counts `case…esac` container plus arms** (#107, `e668f14`).
+`impl Cyclomatic for BashCode` matched `Bash::CaseStatement` *and*
+`Bash::CaseItem | Bash::CaseItem2`, incrementing once for the wrapper
+node and once per arm. C / Java / C# / JavaScript / TypeScript count
+only arms — the `switch` / `case` / `match` container is silent. A Bash
+function with a 3-arm `case` reported standard CCN 6 against an
+equivalent C `switch`'s 5. Same paper-over via `16cd610`'s modified
+variant; same residual asymmetry in standard CCN.
+
+**Lesson:** When adding or touching a metric implementation, write the
+fixture in *every* affected language and assert the metrics agree on
+logically equivalent code (modulo documented exceptions). One fixture
+file per language under a shared test such as
+`cyclomatic_cross_language_parity` is enough; the test fails the moment a
+language drifts. Per-language snapshot tests pin behaviour against that
+language's own history — they cannot detect that two languages disagree
+about the same construct. Whenever a "modified" or "alternative"
+metric variant is introduced to mask a per-language quirk, audit the
+standard variant as well: the variant probably exists because the
+standard variant is wrong, and the standard one is what most consumers
+read.
+
+---
+
+## 12. tree-sitter `Node::children(cursor)` resets the cursor to `self`
+
+`tree_sitter::Node::children(cursor)` calls `cursor.reset(self)` before
+iterating, so the `TreeCursor` argument's prior position is silently
+discarded. Code that constructs a cursor from one node and passes it to
+another node's `children()` call iterates the second node's children, not
+the first's. The compiler accepts this — `TreeCursor` has no compile-time
+binding to a specific node — and the function quietly does the wrong
+thing. Lesson 2 covers a related tree-sitter surprise (aliased `kind_id`s);
+this lesson covers cursor scoping, a distinct gotcha class.
+
+**`Node::has_sibling` was structurally identical to `Node::is_child`**
+(#127, `7a0d4ac`). The implementation was
+
+```rust
+self.0.parent().is_some_and(|parent| {
+    self.0.children(&mut parent.walk())          // parent.walk() ignored
+        .any(|child| child.kind_id() == id)
+})
+```
+
+The intent was "walk the parent's children," but `self.0.children(...)`
+resets the cursor to `self.0` and iterates `self.0`'s children. The
+single call site `check_if_arrow_func!` in `src/checker.rs:48` invoked
+`has_sibling(PropertyIdentifier)` to detect `{ foo: x => x }`-style
+shorthand-method arrow functions; because `PropertyIdentifier` is never
+a child of `ArrowFunction`, the check returned `false` unconditionally.
+The bug was masked because `count_specific_ancestors` caught the common
+case via a different traversal — the dead branch only mattered for inputs
+where the ancestor walk exited early. The fix calls `parent.children(...)`
+directly, dropping the misleading cursor argument entirely.
+
+**Lesson:** The cursor passed to a tree-sitter iteration method does not
+determine its scope — the node the method is called on does. Whenever a
+helper takes a `TreeCursor` argument and calls `node.children(cursor)`
+or `node.named_children(cursor)` on a node that isn't `cursor`'s root,
+the cursor argument is dead weight. Prefer calling iteration methods
+directly on the node you want to traverse (`parent.children(&mut
+parent.walk())`) and use the parameter only when you genuinely need to
+share an allocated cursor across siblings. When reviewing helpers like
+`has_sibling`, write a unit test that distinguishes "iterates self's
+children" from "iterates parent's children" with a fixture where the
+two would disagree — without that test, the bug is invisible.
+
+---
+
+## 13. `tokio::task::spawn_blocking` is uncancellable
+
+`tokio::time::timeout(deadline, spawn_blocking_handle).await` resolves
+when the deadline fires, but the underlying blocking task continues
+running on Tokio's blocking thread pool until its closure returns.
+Dropping the `JoinHandle` (or any future wrapping it) does **not**
+cancel the task — the Tokio docs state this explicitly, and `actix-web`'s
+`web::block` inherits the behavior. A request handler that pairs a
+semaphore (to bound concurrency) with `tokio::time::timeout` (to bound
+latency) bounds neither the blocking pool nor the actual CPU time spent
+on a single request: timed-out tasks release the permit but keep their
+thread-pool slot, and a sustained rate of pathological input fills the
+512-thread default pool, after which all `spawn_blocking` callers queue
+indefinitely.
+
+**Pathological source code DoS in `big-code-analysis-web`** (#110,
+`94c8141`, configurability follow-up `b808180`). `run_parse` in
+`big-code-analysis-web/src/web/server.rs` acquired a semaphore permit,
+called `web::block(parse_fn)`, and wrapped the join handle in
+`tokio::time::timeout`. When the timeout fired, the handler returned a
+504 to the client and dropped the permit, but the parse closure kept
+running. A modest sustained rate of inputs that exceed the timeout
+(e.g., ~18 req/s at a 30s deadline) saturates the 512-thread default
+blocking pool; after that, every new request — including healthy
+ones — queues until an orphaned task happens to finish. Permit limits
+on concurrent requests do nothing because the bottleneck is the
+thread pool, not the permit count. The fix added an orphan-task
+counter that 503s new requests once the threshold (configurable via
+`BCA_MAX_ORPHANED_TASKS`) is exceeded, giving the pool time to drain.
+
+**Lesson:** `tokio::time::timeout` does not cancel `spawn_blocking`
+work — it cancels the *await* of the join handle and nothing else.
+Anywhere `spawn_blocking` (or `actix_web::web::block`) runs against
+user-controlled input with a non-trivial worst-case runtime, three
+things must hold: (1) the work itself must check for cancellation
+periodically and exit early, OR (2) the server must explicitly track
+orphaned tasks and reject new work once the orphan count or a
+proxy-for-orphans (active threads minus active permits) crosses a
+threshold, OR (3) the input must be size-bounded such that the
+worst-case runtime is a small multiple of the timeout. A semaphore
+alone is not sufficient. When adding a new blocking endpoint, write a
+test that submits requests at a rate slightly above
+`blocking_pool_size / timeout_seconds` per second and asserts the
+server rejects rather than queues. The `tokio::time::timeout` +
+`spawn_blocking` combination *looks* defensive in code review precisely
+because each piece is correct in isolation; the gap is at the seam.
 
 ---
