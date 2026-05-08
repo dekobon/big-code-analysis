@@ -1,0 +1,7 @@
+---
+source: src/output/warning_line.rs
+expression: render_msvc(&offenders)
+---
+src/alpha.rs(42,5): warning : cyclomatic 17 exceeds limit 15
+src/alpha.rs(42,5): warning : loc.lloc 250 exceeds limit 100
+src/zeta.rs(42,1): error : cognitive 30 exceeds limit 15

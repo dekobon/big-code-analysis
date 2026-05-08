@@ -6,7 +6,8 @@ use clap::ValueEnum;
 use serde::Serialize;
 
 use big_code_analysis::{
-    CSV_EXTENSION, FuncSpace, OffenderRecord, write_checkstyle, write_csv, write_sarif,
+    CSV_EXTENSION, FuncSpace, OffenderRecord, write_checkstyle, write_clang_warning, write_csv,
+    write_msvc_warning, write_sarif,
 };
 
 pub(crate) const CBOR_STDOUT_ERROR: &str =
@@ -25,8 +26,12 @@ fn ser_err(e: impl std::error::Error + Send + Sync + 'static) -> std::io::Error 
 pub(crate) enum MetricsFormat {
     Cbor,
     Checkstyle,
+    #[value(name = "clang-warning")]
+    ClangWarning,
     Csv,
     Json,
+    #[value(name = "msvc-warning")]
+    MsvcWarning,
     Sarif,
     Toml,
     Yaml,
@@ -45,7 +50,10 @@ impl MetricsFormat {
     /// rather than emitting one document per source file. The CLI
     /// short-circuits the per-file dispatch for these.
     pub(crate) fn is_aggregated(self) -> bool {
-        matches!(self, Self::Checkstyle | Self::Sarif)
+        matches!(
+            self,
+            Self::Checkstyle | Self::Sarif | Self::ClangWarning | Self::MsvcWarning
+        )
     }
 
     /// True for formats whose row shape is fixed and therefore not
@@ -72,7 +80,7 @@ impl MetricsFormat {
                 Self::Yaml => Yaml::with_writer(space, path, output_path),
                 // Aggregated formats are emitted once after the walk,
                 // not per file — skip silently here.
-                Self::Checkstyle | Self::Sarif => Ok(()),
+                Self::Checkstyle | Self::Sarif | Self::ClangWarning | Self::MsvcWarning => Ok(()),
                 // CSV is dispatched via `dump_csv` from the Metrics
                 // action; reaching this arm means the dispatcher
                 // missed a case.
@@ -87,7 +95,7 @@ impl MetricsFormat {
                     std::io::ErrorKind::InvalidInput,
                     CBOR_STDOUT_ERROR,
                 )),
-                Self::Checkstyle | Self::Sarif => Ok(()),
+                Self::Checkstyle | Self::Sarif | Self::ClangWarning | Self::MsvcWarning => Ok(()),
                 Self::Csv => unreachable_csv(),
             }
         }
@@ -163,6 +171,46 @@ pub(crate) fn dump_sarif(
         write_sarif(offenders, File::create(path)?)
     } else {
         write_sarif(offenders, std::io::stdout().lock())
+    }
+}
+
+/// Emit Clang/GCC-style warning lines for `offenders`. If
+/// `output_path` is `Some`, the output is written to that single
+/// `.txt` file (parent directories created as needed); otherwise it
+/// streams to stdout, one line per offender.
+pub(crate) fn dump_clang_warning(
+    offenders: &[OffenderRecord],
+    output_path: Option<&Path>,
+) -> std::io::Result<()> {
+    if let Some(path) = output_path {
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            create_dir_all(parent)?;
+        }
+        write_clang_warning(offenders, File::create(path)?)
+    } else {
+        write_clang_warning(offenders, std::io::stdout().lock())
+    }
+}
+
+/// Emit MSVC-style warning lines for `offenders`. If `output_path` is
+/// `Some`, the output is written to that single `.txt` file (parent
+/// directories created as needed); otherwise it streams to stdout,
+/// one line per offender.
+pub(crate) fn dump_msvc_warning(
+    offenders: &[OffenderRecord],
+    output_path: Option<&Path>,
+) -> std::io::Result<()> {
+    if let Some(path) = output_path {
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            create_dir_all(parent)?;
+        }
+        write_msvc_warning(offenders, File::create(path)?)
+    } else {
+        write_msvc_warning(offenders, std::io::stdout().lock())
     }
 }
 

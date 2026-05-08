@@ -1,0 +1,5 @@
+---
+source: src/output/warning_line.rs
+expression: "render_clang(&[])"
+---
+

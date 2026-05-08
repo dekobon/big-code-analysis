@@ -14,7 +14,8 @@ use clap::{Args, Parser, Subcommand};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 
 use formats::{
-    CBOR_STDOUT_ERROR, MetricsFormat, ReportFormat, dump_checkstyle, dump_csv, dump_sarif,
+    CBOR_STDOUT_ERROR, MetricsFormat, ReportFormat, dump_checkstyle, dump_clang_warning, dump_csv,
+    dump_msvc_warning, dump_sarif,
 };
 use markdown_report::{FunctionSummary, extract_summaries, generate_report};
 use metric_catalog::{ListMetricsMode, write_metrics};
@@ -680,12 +681,22 @@ fn main() {
                     && out.is_dir()
                 {
                     die(
-                        "--output must be a file path for aggregated formats (e.g. checkstyle, sarif)",
+                        "--output must be a file path for aggregated formats (e.g. checkstyle, sarif, clang-warning, msvc-warning)",
                     );
                 }
                 match args.output_format {
                     Some(MetricsFormat::Sarif) => dump_sarif(&[], args.output.as_deref())
                         .unwrap_or_else(|e| die(format_args!("failed to write sarif: {e}"))),
+                    Some(MetricsFormat::ClangWarning) => {
+                        dump_clang_warning(&[], args.output.as_deref()).unwrap_or_else(|e| {
+                            die(format_args!("failed to write clang-warning: {e}"))
+                        })
+                    }
+                    Some(MetricsFormat::MsvcWarning) => {
+                        dump_msvc_warning(&[], args.output.as_deref()).unwrap_or_else(|e| {
+                            die(format_args!("failed to write msvc-warning: {e}"))
+                        })
+                    }
                     _ => dump_checkstyle(&[], args.output.as_deref())
                         .unwrap_or_else(|e| die(format_args!("failed to write checkstyle: {e}"))),
                 }
@@ -714,7 +725,7 @@ fn main() {
             }
             if matches!(args.output_format, Some(fmt) if fmt.is_aggregated()) {
                 die(
-                    "aggregated formats (checkstyle, sarif) are not supported by `ops`; use `bca metrics --output-format <fmt>`",
+                    "aggregated formats (checkstyle, sarif, clang-warning, msvc-warning) are not supported by `ops`; use `bca metrics --output-format <fmt>`",
                 );
             }
             if matches!(args.output_format, Some(fmt) if fmt.requires_funcspace()) {
@@ -1052,6 +1063,16 @@ mod tests {
     #[test]
     fn metrics_accepts_sarif_format() {
         assert!(parse(&["metrics", "-O", "sarif"]).is_ok());
+    }
+
+    #[test]
+    fn metrics_accepts_clang_warning_format() {
+        assert!(parse(&["metrics", "-O", "clang-warning"]).is_ok());
+    }
+
+    #[test]
+    fn metrics_accepts_msvc_warning_format() {
+        assert!(parse(&["metrics", "-O", "msvc-warning"]).is_ok());
     }
 
     #[test]

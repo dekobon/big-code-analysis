@@ -38,6 +38,10 @@ from every analyzed file into a single document:
   SonarQube, GitLab, and most "warnings plugin" CI integrations)
 - SARIF (SARIF 2.1.0 JSON, the OASIS standard ingested natively by
   GitHub Code Scanning and most modern IDE/security tooling)
+- Clang/GCC warning lines (one offender per line, recognized by
+  editor quickfix parsers and GitHub Actions problem matchers)
+- MSVC warning lines (Visual Studio's `cl.exe` diagnostic format,
+  recognized by Visual Studio, VS Code, and Windows CI runners)
 
 ### Export command
 
@@ -50,13 +54,14 @@ big-code-analysis-cli --paths /path/to/your/file/or/directory metrics \
 
 - `-O, --output-format`: per-file output format (`cbor`, `csv`,
   `json`, `toml`, `yaml`) or aggregated CI format (`checkstyle`,
-  `sarif`).
+  `sarif`, `clang-warning`, `msvc-warning`).
 - `-o, --output`: directory to save output files for per-file formats.
   Filenames mirror the input file plus the format extension. If
   omitted, results are printed to stdout. CBOR is binary and therefore
-  requires `-o`. For aggregated formats (`checkstyle`, `sarif`),
-  `--output` names a single output **file** (extension
-  `.checkstyle.xml` or `.sarif.json`) rather than a directory.
+  requires `-o`. For aggregated formats (`checkstyle`, `sarif`,
+  `clang-warning`, `msvc-warning`), `--output` names a single output
+  **file** (extension `.checkstyle.xml`, `.sarif.json`, or `.txt`)
+  rather than a directory.
 
 ### CSV (spreadsheets and Pandas)
 
@@ -146,6 +151,73 @@ jobs:
         with:
           sarif_file: report.sarif.json
 ```
+
+### Clang/GCC warning lines (editor quickfix and CI annotators)
+
+```bash
+big-code-analysis-cli --paths /path/to/your/code metrics \
+    -O clang-warning -o report.txt
+```
+
+The Clang format emits one offender per line in the conventional
+compiler-warning shape:
+
+```text
+path/to/file.rs:42:5: warning: cyclomatic 17 exceeds limit 15 [big-code-analysis-cyclomatic]
+```
+
+This is the format `clang -fdiagnostics-format=` produces and the
+shape every editor quickfix parser (VS Code, IntelliJ, Vim) and most
+CI annotators understand without configuration. The threshold engine
+that produces these violation records is tracked under
+[issue #96](https://github.com/dekobon/big-code-analysis/issues/96);
+until it lands the writer emits an empty file (zero bytes), so CI
+pipelines can already wire up the consumer.
+
+GitHub Actions surfaces the lines as inline annotations on the PR
+diff via the built-in GCC problem matcher (or any community
+`compiler-problem-matchers` action):
+
+```yaml
+name: bca-clang-warnings
+on: [push, pull_request]
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enable GCC problem matcher
+        run: echo "::add-matcher::$RUNNER_TOOL_CACHE/problem-matchers/gcc.json"
+      - name: Run big-code-analysis
+        run: |
+          big-code-analysis-cli --paths . metrics \
+              -O clang-warning -o /dev/stdout
+```
+
+If your runner does not ship a GCC matcher, fall back to streaming
+the lines and re-emitting them as `::warning file=...,line=...::`
+workflow commands.
+
+### MSVC warning lines (Visual Studio and Windows CI)
+
+```bash
+big-code-analysis-cli --paths /path/to/your/code metrics \
+    -O msvc-warning -o report.txt
+```
+
+The MSVC format emits one offender per line in Visual Studio's
+`cl.exe` diagnostic shape:
+
+```text
+path\to\file.rs(42,5): warning : cyclomatic 17 exceeds limit 15
+```
+
+Note the space before the colon after `warning`/`error` — that is
+the MSVC convention. On Windows the path is normalized to use `\`
+separators (matching cl.exe output); on other platforms the path is
+emitted as-is. Visual Studio, VS Code with the C/C++ extension, and
+Windows CI runners (Azure Pipelines, GitHub Actions on
+`windows-latest`) parse these inline without extra configuration.
 
 ### Pretty print
 

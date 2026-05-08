@@ -18,3 +18,8 @@ pub use csv::{CSV_EXTENSION, CSV_HEADER, write_csv};
 
 pub mod sarif;
 pub use sarif::{SARIF_EXTENSION, write_sarif};
+
+pub mod warning_line;
+pub use warning_line::{
+    CLANG_WARNING_EXTENSION, MSVC_WARNING_EXTENSION, write_clang_warning, write_msvc_warning,
+};
