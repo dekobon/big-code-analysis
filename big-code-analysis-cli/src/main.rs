@@ -15,7 +15,7 @@ use globset::{Glob, GlobSet, GlobSetBuilder};
 
 use formats::{
     CBOR_STDOUT_ERROR, MetricsFormat, ReportFormat, dump_checkstyle, dump_clang_warning, dump_csv,
-    dump_msvc_warning, dump_sarif,
+    dump_html, dump_msvc_warning, dump_sarif,
 };
 use markdown_report::{FunctionSummary, extract_summaries, generate_report};
 use metric_catalog::{ListMetricsMode, write_metrics};
@@ -342,13 +342,15 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
             if let Some(fmt) = format {
                 if let Some(space) = get_function_spaces(&language, source, &path, pr) {
                     if fmt.requires_funcspace() {
-                        // CSV (and any future per-file format with a
-                        // metric-shaped row schema) takes a concrete
-                        // &FuncSpace rather than going through the
-                        // generic Serialize dispatch. Today CSV is
-                        // the sole such format.
-                        debug_assert!(matches!(fmt, MetricsFormat::Csv));
-                        dump_csv(&space, path, cfg.output.as_ref())?;
+                        // CSV and HTML (and any future per-file format
+                        // with a metric-shaped row schema) take a
+                        // concrete &FuncSpace rather than going through
+                        // the generic Serialize dispatch.
+                        match fmt {
+                            MetricsFormat::Csv => dump_csv(&space, path, cfg.output.as_ref())?,
+                            MetricsFormat::Html => dump_html(&space, path, cfg.output.as_ref())?,
+                            _ => unreachable!("requires_funcspace() must agree with this match",),
+                        }
                     } else {
                         fmt.dump(space, path, cfg.output.as_ref(), *pretty)?;
                     }

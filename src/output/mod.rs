@@ -16,6 +16,9 @@ pub use checkstyle::{CHECKSTYLE_EXTENSION, CHECKSTYLE_SOURCE_PREFIX, write_check
 pub mod csv;
 pub use csv::{CSV_EXTENSION, CSV_HEADER, write_csv};
 
+pub mod html;
+pub use html::{HTML_EXTENSION, write_html};
+
 pub mod sarif;
 pub use sarif::{SARIF_EXTENSION, write_sarif};
 

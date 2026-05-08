@@ -6,8 +6,8 @@ use clap::ValueEnum;
 use serde::Serialize;
 
 use big_code_analysis::{
-    CSV_EXTENSION, FuncSpace, OffenderRecord, write_checkstyle, write_clang_warning, write_csv,
-    write_msvc_warning, write_sarif,
+    CSV_EXTENSION, FuncSpace, HTML_EXTENSION, OffenderRecord, write_checkstyle,
+    write_clang_warning, write_csv, write_html, write_msvc_warning, write_sarif,
 };
 
 pub(crate) const CBOR_STDOUT_ERROR: &str =
@@ -29,6 +29,7 @@ pub(crate) enum MetricsFormat {
     #[value(name = "clang-warning")]
     ClangWarning,
     Csv,
+    Html,
     Json,
     #[value(name = "msvc-warning")]
     MsvcWarning,
@@ -58,11 +59,13 @@ impl MetricsFormat {
 
     /// True for formats whose row shape is fixed and therefore not
     /// representable through the generic `T: Serialize` dispatch (CSV
-    /// today). The Metrics action handles these on a separate code
-    /// path that takes a concrete `&FuncSpace`; the Ops action
-    /// rejects them at runtime since CSV columns are metric-shaped.
+    /// and HTML today, both of which flatten the FuncSpace tree into
+    /// metric-shaped rows). The Metrics action handles these on a
+    /// separate code path that takes a concrete `&FuncSpace`; the Ops
+    /// action rejects them at runtime since the columns are
+    /// metric-shaped.
     pub(crate) fn requires_funcspace(self) -> bool {
-        matches!(self, Self::Csv)
+        matches!(self, Self::Csv | Self::Html)
     }
 
     pub(crate) fn dump<T: Serialize>(
@@ -81,10 +84,10 @@ impl MetricsFormat {
                 // Aggregated formats are emitted once after the walk,
                 // not per file — skip silently here.
                 Self::Checkstyle | Self::Sarif | Self::ClangWarning | Self::MsvcWarning => Ok(()),
-                // CSV is dispatched via `dump_csv` from the Metrics
-                // action; reaching this arm means the dispatcher
-                // missed a case.
-                Self::Csv => unreachable_csv(),
+                // CSV and HTML are dispatched via dedicated functions
+                // from the Metrics action; reaching this arm means the
+                // dispatcher missed a case.
+                Self::Csv | Self::Html => unreachable_funcspace(),
             }
         } else {
             match self {
@@ -96,15 +99,15 @@ impl MetricsFormat {
                     CBOR_STDOUT_ERROR,
                 )),
                 Self::Checkstyle | Self::Sarif | Self::ClangWarning | Self::MsvcWarning => Ok(()),
-                Self::Csv => unreachable_csv(),
+                Self::Csv | Self::Html => unreachable_funcspace(),
             }
         }
     }
 }
 
-fn unreachable_csv() -> std::io::Result<()> {
+fn unreachable_funcspace() -> std::io::Result<()> {
     Err(std::io::Error::other(
-        "internal error: CSV format must be dispatched via dump_csv, not dump",
+        "internal error: CSV/HTML formats must be dispatched via their dedicated dump_* functions, not dump",
     ))
 }
 
@@ -125,6 +128,26 @@ pub(crate) fn dump_csv(
         write_csv(space, &path, File::create(format_path)?)
     } else {
         write_csv(space, &path, std::io::stdout().lock())
+    }
+}
+
+/// Emit a self-contained HTML document for the metric tree rooted at
+/// `space`. If `output_path` is `Some`, the document is written to a
+/// file in the directory whose name mirrors the input path (with
+/// `.html` appended); otherwise it goes to stdout.
+pub(crate) fn dump_html(
+    space: &FuncSpace,
+    path: PathBuf,
+    output_path: Option<&PathBuf>,
+) -> std::io::Result<()> {
+    if let Some(output_path) = output_path {
+        let format_path = handle_path(path.clone(), output_path, HTML_EXTENSION);
+        if let Some(parent) = format_path.parent() {
+            create_dir_all(parent)?;
+        }
+        write_html(space, &path, File::create(format_path)?)
+    } else {
+        write_html(space, &path, std::io::stdout().lock())
     }
 }
 
