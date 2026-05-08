@@ -1,6 +1,5 @@
 use std::path::Path;
 use std::path::PathBuf;
-use std::process;
 
 use globset::{Glob, GlobSetBuilder};
 
@@ -45,7 +44,9 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
     };
 
     // Get FuncSpace struct
-    let funcspace_struct = get_function_spaces(&language, source, &path, None).unwrap();
+    let funcspace_struct = get_function_spaces(&language, source, &path, None).expect(
+        "get_function_spaces returned None for fixture; the parser may have rejected the source",
+    );
 
     insta::with_settings!({snapshot_path => Path::new(SNAPSHOT_PATH)
                 .join(path.strip_prefix(&cfg.source_root).unwrap())
@@ -117,7 +118,9 @@ pub fn compare_rca_output_with_files_under(
     };
 
     if let Err(e) = ConcurrentRunner::new(num_jobs, act_on_file).run(cfg, files_data) {
-        eprintln!("{e:?}");
-        process::exit(1);
+        // Use panic! rather than process::exit so the failure surfaces
+        // through cargo test's per-test reporting and lets the rest of
+        // the binary's tests produce their own diagnostics.
+        panic!("ConcurrentRunner failed: {e:?}");
     }
 }
