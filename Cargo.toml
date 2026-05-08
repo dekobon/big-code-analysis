@@ -16,6 +16,7 @@ license = "MPL-2.0"
 [dependencies]
 aho-corasick = "^1.0"
 crossbeam = { version = "^0.8", features = ["crossbeam-channel"] }
+csv = "=1.4.0"
 globset = "^0.4"
 num = "^0.4"
 num-derive = "^0.4"

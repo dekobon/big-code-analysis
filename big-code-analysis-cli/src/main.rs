@@ -13,7 +13,7 @@ use std::thread::available_parallelism;
 use clap::{Args, Parser, Subcommand};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 
-use formats::{CBOR_STDOUT_ERROR, MetricsFormat, ReportFormat, dump_checkstyle};
+use formats::{CBOR_STDOUT_ERROR, MetricsFormat, ReportFormat, dump_checkstyle, dump_csv};
 use markdown_report::{FunctionSummary, extract_summaries, generate_report};
 use metric_catalog::{ListMetricsMode, write_metrics};
 
@@ -338,7 +338,17 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
         Action::Metrics { format, pretty } => {
             if let Some(fmt) = format {
                 if let Some(space) = get_function_spaces(&language, source, &path, pr) {
-                    fmt.dump(space, path, cfg.output.as_ref(), *pretty)?;
+                    if fmt.requires_funcspace() {
+                        // CSV (and any future per-file format with a
+                        // metric-shaped row schema) takes a concrete
+                        // &FuncSpace rather than going through the
+                        // generic Serialize dispatch. Today CSV is
+                        // the sole such format.
+                        debug_assert!(matches!(fmt, MetricsFormat::Csv));
+                        dump_csv(&space, path, cfg.output.as_ref())?;
+                    } else {
+                        fmt.dump(space, path, cfg.output.as_ref(), *pretty)?;
+                    }
                 }
                 Ok(())
             } else {
@@ -697,6 +707,11 @@ fn main() {
             if matches!(args.output_format, Some(fmt) if fmt.is_aggregated()) {
                 die(
                     "aggregated formats (e.g. checkstyle) are not supported by `ops`; use `bca metrics --output-format checkstyle`",
+                );
+            }
+            if matches!(args.output_format, Some(fmt) if fmt.requires_funcspace()) {
+                die(
+                    "CSV is not supported by `ops` because its column schema is metric-shaped; use `bca metrics --output-format csv`",
                 );
             }
             if args.output_format.is_some()
