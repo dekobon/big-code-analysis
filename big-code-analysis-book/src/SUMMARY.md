@@ -7,6 +7,7 @@
 - [Commands](commands/README.md)
   - [Metrics](commands/metrics.md)
   - [Report](commands/report.md)
+  - [Check](commands/check.md)
   - [Nodes](commands/nodes.md)
   - [Rest API](commands/rest.md)
 - [Recipes](recipes/README.md)

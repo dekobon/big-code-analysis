@@ -1,8 +1,9 @@
 mod formats;
 mod markdown_report;
 mod metric_catalog;
+mod thresholds;
 
-use std::collections::{HashMap, hash_map};
+use std::collections::{BTreeMap, HashMap, hash_map};
 use std::ffi::OsString;
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
@@ -16,6 +17,7 @@ use globset::{Glob, GlobSet, GlobSetBuilder};
 use formats::{CBOR_STDOUT_ERROR, MetricsDispatch, MetricsFormat, ReportFormat};
 use markdown_report::{FunctionSummary, extract_summaries, generate_report};
 use metric_catalog::{ListMetricsMode, write_metrics};
+use thresholds::{ThresholdConfig, ThresholdSet, Violation, parse_cli_threshold};
 
 use big_code_analysis::LANG;
 use big_code_analysis::ParserTrait;
@@ -137,6 +139,10 @@ enum Command {
     Preproc(PreprocArgs),
     /// List the metrics this tool can compute and exit.
     ListMetrics(ListMetricsArgs),
+    /// Check per-function metrics against thresholds. Exits 2 when any
+    /// threshold is exceeded; reserve exit 1 for tool errors so CI can
+    /// distinguish "metric regression" from "tool crashed".
+    Check(CheckArgs),
 }
 
 /// Shared shape for `metrics` and `ops`: same format set, same output
@@ -193,6 +199,30 @@ struct PreprocArgs {
 }
 
 #[derive(Args, Debug)]
+struct CheckArgs {
+    /// Threshold expressed as `<metric>=<limit>`. Repeatable. Metric
+    /// names match `bca list-metrics`; sub-metrics use a dotted form
+    /// (e.g. `loc.lloc`, `halstead.volume`). CLI flags override values
+    /// from `--config`. Limits must be finite and non-negative; `0` is
+    /// allowed and means "no value permitted".
+    #[clap(long = "threshold", value_parser = parse_cli_threshold)]
+    thresholds: Vec<(String, f64)>,
+    /// Path to a TOML config with a `[thresholds]` table:
+    ///
+    /// ```toml
+    /// [thresholds]
+    /// cyclomatic = 15
+    /// "loc.lloc" = 200
+    /// ```
+    #[clap(long, value_parser)]
+    config: Option<PathBuf>,
+    /// Print offenders to stderr but exit 0 even when thresholds are
+    /// exceeded. Useful while adopting baselines without flipping CI red.
+    #[clap(long = "no-fail")]
+    no_fail: bool,
+}
+
+#[derive(Args, Debug)]
 struct ListMetricsArgs {
     /// What to print: `names` (one per line) or `descriptions`
     /// (name + one-line summary).
@@ -224,6 +254,8 @@ enum Action {
     Report,
     /// Walks source to accumulate preprocessor data (no per-file output).
     PreprocProduce,
+    /// Walks source and streams threshold violations to a channel.
+    Check,
 }
 
 #[derive(Debug)]
@@ -241,6 +273,12 @@ struct Config {
     markdown_tx: Option<Mutex<std::sync::mpsc::Sender<FunctionSummary>>>,
     /// Path prefix stripped from file paths in the markdown report.
     strip_prefix: String,
+    /// Pre-resolved thresholds for `Action::Check`. `None` for every
+    /// other action.
+    threshold_set: Option<Arc<ThresholdSet>>,
+    /// Sender for streaming [`Violation`] records when running `check`.
+    /// Wrapped in `Mutex` for the same reason as `markdown_tx`.
+    check_tx: Option<Mutex<std::sync::mpsc::Sender<Violation>>>,
     warning: bool,
     /// When true, files whose head matches a generated-code marker are
     /// skipped before parsing. Defaults on; flipped off by
@@ -272,6 +310,8 @@ impl Config {
             count_lock: None,
             markdown_tx: None,
             strip_prefix: String::new(),
+            threshold_set: None,
+            check_tx: None,
             warning: globals.warning,
             skip_generated: !globals.no_skip_generated,
             report_skipped: globals.report_skipped,
@@ -456,6 +496,43 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
             }
             Ok(())
         }
+        Action::Check => {
+            if let Some(space) = get_function_spaces(&language, source, &path, pr)
+                && let (Some(set), Some(tx)) = (cfg.threshold_set.as_ref(), cfg.check_tx.as_ref())
+                && !matches!(language, LANG::Preproc | LANG::Ccomment)
+            {
+                // Skip non-UTF-8 paths: the offender format is part of a
+                // parseable stderr contract, so we'd rather drop a file
+                // (with a warning) than emit a U+FFFD that desyncs
+                // downstream tooling.
+                let Some(path_str) = path.to_str() else {
+                    if cfg.warning {
+                        eprintln!(
+                            "warning: skipping non-UTF-8 path in check: {}",
+                            path.display()
+                        );
+                    }
+                    return Ok(());
+                };
+                let mut violations = Vec::new();
+                set.evaluate(path_str, &space, &mut violations);
+                if !violations.is_empty() {
+                    let Ok(sender) = tx.lock() else {
+                        if cfg.warning {
+                            eprintln!(
+                                "warning: skipping {}: check channel lock poisoned",
+                                path.display()
+                            );
+                        }
+                        return Ok(());
+                    };
+                    for v in violations {
+                        let _ = sender.send(v);
+                    }
+                }
+            }
+            Ok(())
+        }
         Action::PreprocProduce => {
             if let Some(preproc_lock) = &cfg.preproc_lock
                 && let Some(language) = guess_language(&source, &path).0
@@ -633,6 +710,80 @@ fn run_walk(globals: GlobalOpts, cfg: Config) -> HashMap<String, Vec<PathBuf>> {
         .set_proc_dir_paths(process_dir_path)
         .run(cfg, files_data)
         .unwrap_or_else(|e| die(format_args!("{e:?}")))
+}
+
+/// Load a `[thresholds]` table from `path`, returning the parsed map.
+/// On any I/O or parse error the process dies with exit code 1, keeping
+/// exit 2 reserved for the "thresholds exceeded" case.
+fn load_threshold_config(path: &Path) -> BTreeMap<String, f64> {
+    let bytes = read_file(path).unwrap_or_else(|e| {
+        die(format_args!(
+            "failed to read threshold config {}: {e}",
+            path.display()
+        ))
+    });
+    let text = std::str::from_utf8(&bytes).unwrap_or_else(|e| {
+        die(format_args!(
+            "threshold config {} is not valid UTF-8: {e}",
+            path.display()
+        ))
+    });
+    let cfg: ThresholdConfig = toml::from_str(text).unwrap_or_else(|e| {
+        die(format_args!(
+            "failed to parse threshold config {}: {e}",
+            path.display()
+        ))
+    });
+    cfg.thresholds
+}
+
+/// Drive the `check` subcommand: build the threshold set, walk the
+/// source tree, drain violations, and exit 0 / 2 per the contract.
+fn run_check(globals: GlobalOpts, args: CheckArgs, preproc: Option<Arc<PreprocResults>>) {
+    let mut merged: BTreeMap<String, f64> = args
+        .config
+        .as_deref()
+        .map(load_threshold_config)
+        .unwrap_or_default();
+    // CLI flags override config values for the same metric name.
+    for (name, limit) in args.thresholds {
+        merged.insert(name, limit);
+    }
+    let set = ThresholdSet::build(&merged).unwrap_or_else(|e| die(e));
+    if set.is_empty() {
+        die("no thresholds configured; pass --threshold or --config");
+    }
+    let set = Arc::new(set);
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    let cfg = Config {
+        threshold_set: Some(Arc::clone(&set)),
+        check_tx: Some(Mutex::new(tx)),
+        ..Config::new(Action::Check, &globals, preproc)
+    };
+    run_walk(globals, cfg);
+
+    // Workers have all joined by the time `run_walk` returns, so the
+    // sender side is dropped and `rx.into_iter()` terminates cleanly.
+    let mut violations: Vec<Violation> = rx.into_iter().collect();
+    // Stable, deterministic stderr output: by path, then start line, then
+    // metric name. Different runs over the same tree produce identical
+    // output, which CI diff tooling relies on.
+    violations.sort_by(|a, b| {
+        a.path
+            .cmp(&b.path)
+            .then(a.start_line.cmp(&b.start_line))
+            .then(a.metric.cmp(b.metric))
+    });
+
+    let mut stderr = std::io::stderr().lock();
+    for v in &violations {
+        let _ = writeln!(stderr, "{v}");
+    }
+
+    if !violations.is_empty() && !args.no_fail {
+        process::exit(2);
+    }
 }
 
 fn main() {
@@ -815,6 +966,9 @@ fn main() {
             let cfg = Config::new(action, &cli.globals, preproc);
             run_walk(cli.globals, cfg);
         }
+        Command::Check(args) => {
+            run_check(cli.globals, args, preproc);
+        }
         Command::Preproc(args) => {
             let preproc_lock = Arc::new(Mutex::new(PreprocResults::default()));
             let output = args.output;
@@ -860,6 +1014,7 @@ const SUBCOMMANDS: &[&str] = &[
     "strip-comments",
     "preproc",
     "list-metrics",
+    "check",
 ];
 
 /// If `argv` looks like an invocation of the pre-restructure CLI, return a
@@ -977,6 +1132,8 @@ mod tests {
             count_lock: None,
             markdown_tx: None,
             strip_prefix: String::new(),
+            threshold_set: None,
+            check_tx: None,
             warning: false,
             skip_generated: true,
             report_skipped: false,
