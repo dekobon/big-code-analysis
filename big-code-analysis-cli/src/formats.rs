@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 use clap::ValueEnum;
 use serde::Serialize;
 
+use big_code_analysis::{OffenderRecord, write_checkstyle};
+
 pub(crate) const CBOR_STDOUT_ERROR: &str =
     "CBOR is binary and cannot be printed to stdout; use --output";
 
@@ -14,11 +16,13 @@ fn ser_err(e: impl std::error::Error + Send + Sync + 'static) -> std::io::Error 
 
 /// Per-file serialization formats accepted by `bca metrics` and `bca ops`.
 /// Aggregated formats (e.g. markdown) live on `bca report` instead — see
-/// [`ReportFormat`].
+/// [`ReportFormat`]. CI/IDE formats (e.g. Checkstyle) aggregate offender
+/// records across the whole walk and bypass the per-file dispatch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 #[clap(rename_all = "lower")]
 pub(crate) enum MetricsFormat {
     Cbor,
+    Checkstyle,
     Json,
     Toml,
     Yaml,
@@ -33,6 +37,13 @@ pub(crate) enum ReportFormat {
 }
 
 impl MetricsFormat {
+    /// Formats that aggregate offender records across the entire walk
+    /// rather than emitting one document per source file. The CLI
+    /// short-circuits the per-file dispatch for these.
+    pub(crate) fn is_aggregated(self) -> bool {
+        matches!(self, Self::Checkstyle)
+    }
+
     pub(crate) fn dump<T: Serialize>(
         self,
         space: T,
@@ -46,6 +57,9 @@ impl MetricsFormat {
                 Self::Json => Json::with_pretty_writer(space, path, output_path, pretty),
                 Self::Toml => Toml::with_pretty_writer(space, path, output_path, pretty),
                 Self::Yaml => Yaml::with_writer(space, path, output_path),
+                // Aggregated formats are emitted once after the walk,
+                // not per file — skip silently here.
+                Self::Checkstyle => Ok(()),
             }
         } else {
             match self {
@@ -56,8 +70,32 @@ impl MetricsFormat {
                     std::io::ErrorKind::InvalidInput,
                     CBOR_STDOUT_ERROR,
                 )),
+                Self::Checkstyle => Ok(()),
             }
         }
+    }
+}
+
+/// Emit a Checkstyle 4.3 XML document for `offenders`. If
+/// `output_path` is `Some`, the document is written there (parent
+/// directories created as needed); otherwise it goes to stdout.
+///
+/// Until the threshold engine (#96) lands, the CLI invokes this with
+/// an empty slice so `--format checkstyle` produces a well-formed
+/// (and stable) document that CI consumers can already wire up.
+pub(crate) fn dump_checkstyle(
+    offenders: &[OffenderRecord],
+    output_path: Option<&Path>,
+) -> std::io::Result<()> {
+    if let Some(path) = output_path {
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            create_dir_all(parent)?;
+        }
+        write_checkstyle(offenders, File::create(path)?)
+    } else {
+        write_checkstyle(offenders, std::io::stdout().lock())
     }
 }
 

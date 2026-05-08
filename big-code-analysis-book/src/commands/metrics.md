@@ -30,6 +30,12 @@ big-code-analysis-cli --paths /path/to/your/file/or/directory metrics
 
 Both JSON and TOML can be exported as pretty-printed.
 
+It also supports one aggregated CI/IDE format that combines findings
+from every analyzed file into a single document:
+
+- Checkstyle (Checkstyle 4.3 XML, the lingua franca for Jenkins,
+  SonarQube, GitLab, and most "warnings plugin" CI integrations)
+
 ### Export command
 
 To export metrics as JSON files:
@@ -40,11 +46,29 @@ big-code-analysis-cli --paths /path/to/your/file/or/directory metrics \
 ```
 
 - `-O, --output-format`: per-file output format (`cbor`, `json`,
-  `toml`, `yaml`).
-- `-o, --output`: directory to save output files. The output filename
-  mirrors the input file plus the format extension. If omitted,
-  results are printed to stdout. CBOR is binary and therefore requires
-  `-o`.
+  `toml`, `yaml`) or aggregated CI format (`checkstyle`).
+- `-o, --output`: directory to save output files for per-file formats.
+  Filenames mirror the input file plus the format extension. If
+  omitted, results are printed to stdout. CBOR is binary and therefore
+  requires `-o`. For aggregated formats (`checkstyle`), `--output`
+  names a single output **file** (extension `.checkstyle.xml`) rather
+  than a directory.
+
+### Checkstyle (CI integration)
+
+```bash
+big-code-analysis-cli --paths /path/to/your/code metrics \
+    -O checkstyle -o report.checkstyle.xml
+```
+
+The Checkstyle writer emits a single `<checkstyle version="4.3">`
+document containing one `<file>` element per source path, each
+holding one `<error>` per metric-threshold violation. The threshold
+engine that produces these violation records is tracked under
+[issue #96](https://github.com/dekobon/big-code-analysis/issues/96).
+Until that lands the writer emits a well-formed but empty
+`<checkstyle version="4.3"/>` document, so CI pipelines can already
+wire up the consumer without waiting on the producer.
 
 ### Pretty print
 
