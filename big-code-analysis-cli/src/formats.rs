@@ -5,7 +5,9 @@ use std::path::{Path, PathBuf};
 use clap::ValueEnum;
 use serde::Serialize;
 
-use big_code_analysis::{CSV_EXTENSION, FuncSpace, OffenderRecord, write_checkstyle, write_csv};
+use big_code_analysis::{
+    CSV_EXTENSION, FuncSpace, OffenderRecord, write_checkstyle, write_csv, write_sarif,
+};
 
 pub(crate) const CBOR_STDOUT_ERROR: &str =
     "CBOR is binary and cannot be printed to stdout; use --output";
@@ -25,6 +27,7 @@ pub(crate) enum MetricsFormat {
     Checkstyle,
     Csv,
     Json,
+    Sarif,
     Toml,
     Yaml,
 }
@@ -42,7 +45,7 @@ impl MetricsFormat {
     /// rather than emitting one document per source file. The CLI
     /// short-circuits the per-file dispatch for these.
     pub(crate) fn is_aggregated(self) -> bool {
-        matches!(self, Self::Checkstyle)
+        matches!(self, Self::Checkstyle | Self::Sarif)
     }
 
     /// True for formats whose row shape is fixed and therefore not
@@ -69,7 +72,7 @@ impl MetricsFormat {
                 Self::Yaml => Yaml::with_writer(space, path, output_path),
                 // Aggregated formats are emitted once after the walk,
                 // not per file — skip silently here.
-                Self::Checkstyle => Ok(()),
+                Self::Checkstyle | Self::Sarif => Ok(()),
                 // CSV is dispatched via `dump_csv` from the Metrics
                 // action; reaching this arm means the dispatcher
                 // missed a case.
@@ -84,7 +87,7 @@ impl MetricsFormat {
                     std::io::ErrorKind::InvalidInput,
                     CBOR_STDOUT_ERROR,
                 )),
-                Self::Checkstyle => Ok(()),
+                Self::Checkstyle | Self::Sarif => Ok(()),
                 Self::Csv => unreachable_csv(),
             }
         }
@@ -137,6 +140,29 @@ pub(crate) fn dump_checkstyle(
         write_checkstyle(offenders, File::create(path)?)
     } else {
         write_checkstyle(offenders, std::io::stdout().lock())
+    }
+}
+
+/// Emit a SARIF 2.1.0 JSON document for `offenders`. If `output_path`
+/// is `Some`, the document is written there (parent directories
+/// created as needed); otherwise it goes to stdout.
+///
+/// Until the threshold engine (#96) lands, the CLI invokes this with
+/// an empty slice so `--format sarif` produces a well-formed (and
+/// stable) document that GitHub Code Scanning can already ingest.
+pub(crate) fn dump_sarif(
+    offenders: &[OffenderRecord],
+    output_path: Option<&Path>,
+) -> std::io::Result<()> {
+    if let Some(path) = output_path {
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            create_dir_all(parent)?;
+        }
+        write_sarif(offenders, File::create(path)?)
+    } else {
+        write_sarif(offenders, std::io::stdout().lock())
     }
 }
 
