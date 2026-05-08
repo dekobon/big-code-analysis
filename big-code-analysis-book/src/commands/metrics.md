@@ -31,11 +31,13 @@ big-code-analysis-cli --paths /path/to/your/file/or/directory metrics
 
 Both JSON and TOML can be exported as pretty-printed.
 
-It also supports one aggregated CI/IDE format that combines findings
+It also supports two aggregated CI/IDE formats that combine findings
 from every analyzed file into a single document:
 
 - Checkstyle (Checkstyle 4.3 XML, the lingua franca for Jenkins,
   SonarQube, GitLab, and most "warnings plugin" CI integrations)
+- SARIF (SARIF 2.1.0 JSON, the OASIS standard ingested natively by
+  GitHub Code Scanning and most modern IDE/security tooling)
 
 ### Export command
 
@@ -47,13 +49,14 @@ big-code-analysis-cli --paths /path/to/your/file/or/directory metrics \
 ```
 
 - `-O, --output-format`: per-file output format (`cbor`, `csv`,
-  `json`, `toml`, `yaml`) or aggregated CI format (`checkstyle`).
+  `json`, `toml`, `yaml`) or aggregated CI format (`checkstyle`,
+  `sarif`).
 - `-o, --output`: directory to save output files for per-file formats.
   Filenames mirror the input file plus the format extension. If
   omitted, results are printed to stdout. CBOR is binary and therefore
-  requires `-o`. For aggregated formats (`checkstyle`), `--output`
-  names a single output **file** (extension `.checkstyle.xml`) rather
-  than a directory.
+  requires `-o`. For aggregated formats (`checkstyle`, `sarif`),
+  `--output` names a single output **file** (extension
+  `.checkstyle.xml` or `.sarif.json`) rather than a directory.
 
 ### CSV (spreadsheets and Pandas)
 
@@ -103,6 +106,46 @@ engine that produces these violation records is tracked under
 Until that lands the writer emits a well-formed but empty
 `<checkstyle version="4.3"/>` document, so CI pipelines can already
 wire up the consumer without waiting on the producer.
+
+### SARIF (GitHub Code Scanning)
+
+```bash
+big-code-analysis-cli --paths /path/to/your/code metrics \
+    -O sarif -o report.sarif.json
+```
+
+The SARIF writer emits a single SARIF 2.1.0 JSON document with one
+`runs[]` element. Each metric-threshold violation becomes a `result`
+under `runs[0].results[]`; the metric names appearing in the run are
+deduplicated into `runs[0].tool.driver.rules[]` with short
+descriptions. The threshold engine that produces these records is
+tracked under
+[issue #96](https://github.com/dekobon/big-code-analysis/issues/96).
+Until that lands the writer emits a well-formed run with empty
+`results` and `rules` arrays, so CI pipelines can already wire up the
+consumer without waiting on the producer.
+
+To upload a SARIF file to GitHub Code Scanning from a workflow:
+
+```yaml
+name: bca-sarif
+on: [push, pull_request]
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run big-code-analysis
+        run: |
+          big-code-analysis-cli --paths . metrics \
+              -O sarif -o report.sarif.json
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: report.sarif.json
+```
 
 ### Pretty print
 

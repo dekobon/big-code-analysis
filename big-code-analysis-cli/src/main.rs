@@ -13,7 +13,9 @@ use std::thread::available_parallelism;
 use clap::{Args, Parser, Subcommand};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 
-use formats::{CBOR_STDOUT_ERROR, MetricsFormat, ReportFormat, dump_checkstyle, dump_csv};
+use formats::{
+    CBOR_STDOUT_ERROR, MetricsFormat, ReportFormat, dump_checkstyle, dump_csv, dump_sarif,
+};
 use markdown_report::{FunctionSummary, extract_summaries, generate_report};
 use metric_catalog::{ListMetricsMode, write_metrics};
 
@@ -677,10 +679,16 @@ fn main() {
                     && out.exists()
                     && out.is_dir()
                 {
-                    die("--output must be a file path for aggregated formats (e.g. checkstyle)");
+                    die(
+                        "--output must be a file path for aggregated formats (e.g. checkstyle, sarif)",
+                    );
                 }
-                dump_checkstyle(&[], args.output.as_deref())
-                    .unwrap_or_else(|e| die(format_args!("failed to write checkstyle: {e}")));
+                match args.output_format {
+                    Some(MetricsFormat::Sarif) => dump_sarif(&[], args.output.as_deref())
+                        .unwrap_or_else(|e| die(format_args!("failed to write sarif: {e}"))),
+                    _ => dump_checkstyle(&[], args.output.as_deref())
+                        .unwrap_or_else(|e| die(format_args!("failed to write checkstyle: {e}"))),
+                }
                 return;
             }
             if args.output_format.is_some()
@@ -706,7 +714,7 @@ fn main() {
             }
             if matches!(args.output_format, Some(fmt) if fmt.is_aggregated()) {
                 die(
-                    "aggregated formats (e.g. checkstyle) are not supported by `ops`; use `bca metrics --output-format checkstyle`",
+                    "aggregated formats (checkstyle, sarif) are not supported by `ops`; use `bca metrics --output-format <fmt>`",
                 );
             }
             if matches!(args.output_format, Some(fmt) if fmt.requires_funcspace()) {
@@ -1039,6 +1047,11 @@ mod tests {
     #[test]
     fn metrics_accepts_checkstyle_format() {
         assert!(parse(&["metrics", "-O", "checkstyle"]).is_ok());
+    }
+
+    #[test]
+    fn metrics_accepts_sarif_format() {
+        assert!(parse(&["metrics", "-O", "sarif"]).is_ok());
     }
 
     #[test]

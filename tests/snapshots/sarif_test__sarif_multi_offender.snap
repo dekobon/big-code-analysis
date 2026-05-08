@@ -1,0 +1,112 @@
+---
+source: tests/sarif_test.rs
+expression: out
+---
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "big-code-analysis",
+          "version": "0.0.25",
+          "rules": [
+            {
+              "id": "cyclomatic",
+              "shortDescription": {
+                "text": "Cyclomatic complexity exceeds the configured threshold."
+              }
+            },
+            {
+              "id": "halstead.volume",
+              "shortDescription": {
+                "text": "Halstead volume exceeds the configured threshold."
+              }
+            },
+            {
+              "id": "loc.lloc",
+              "shortDescription": {
+                "text": "Logical lines of code exceed the configured threshold."
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "cyclomatic",
+          "level": "warning",
+          "message": {
+            "text": "cyclomatic 17 exceeds limit 15"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/alpha.rs"
+                },
+                "region": {
+                  "startLine": 12,
+                  "endLine": 48,
+                  "startColumn": 4
+                }
+              },
+              "logicalLocations": [
+                {
+                  "fullyQualifiedName": "compute"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ruleId": "loc.lloc",
+          "level": "warning",
+          "message": {
+            "text": "loc.lloc 250 exceeds limit 100"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/alpha.rs"
+                },
+                "region": {
+                  "startLine": 12,
+                  "endLine": 48,
+                  "startColumn": 4
+                }
+              },
+              "logicalLocations": [
+                {
+                  "fullyQualifiedName": "compute"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ruleId": "halstead.volume",
+          "level": "error",
+          "message": {
+            "text": "halstead.volume 1234.5 exceeds limit 1000"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/zeta.rs"
+                },
+                "region": {
+                  "startLine": 1,
+                  "endLine": 200
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

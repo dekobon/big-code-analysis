@@ -1,0 +1,112 @@
+---
+source: src/output/sarif.rs
+expression: render(&offenders)
+---
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "big-code-analysis",
+          "version": "0.0.25",
+          "rules": [
+            {
+              "id": "cognitive",
+              "shortDescription": {
+                "text": "Cognitive complexity exceeds the configured threshold."
+              }
+            },
+            {
+              "id": "cyclomatic",
+              "shortDescription": {
+                "text": "Cyclomatic complexity exceeds the configured threshold."
+              }
+            },
+            {
+              "id": "loc.lloc",
+              "shortDescription": {
+                "text": "Logical lines of code exceed the configured threshold."
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "cyclomatic",
+          "level": "warning",
+          "message": {
+            "text": "cyclomatic 17 exceeds limit 15"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/alpha.rs"
+                },
+                "region": {
+                  "startLine": 42,
+                  "endLine": 50,
+                  "startColumn": 5
+                }
+              },
+              "logicalLocations": [
+                {
+                  "fullyQualifiedName": "f"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ruleId": "loc.lloc",
+          "level": "warning",
+          "message": {
+            "text": "loc.lloc 250 exceeds limit 100"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/alpha.rs"
+                },
+                "region": {
+                  "startLine": 42,
+                  "endLine": 50,
+                  "startColumn": 5
+                }
+              },
+              "logicalLocations": [
+                {
+                  "fullyQualifiedName": "f"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ruleId": "cognitive",
+          "level": "error",
+          "message": {
+            "text": "cognitive 30 exceeds limit 15"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/zeta.rs"
+                },
+                "region": {
+                  "startLine": 42,
+                  "endLine": 50
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
