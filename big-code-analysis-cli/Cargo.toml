@@ -24,5 +24,8 @@ toml = "^1.1"
 
 [dev-dependencies]
 assert_cmd = "^2.0"
+csv = "=1.4.0"
+jsonschema = "^0.46"
 predicates = "^3.0"
+quick-xml = "^0.39"
 tempfile = "^3.0"
