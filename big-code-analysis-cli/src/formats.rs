@@ -46,28 +46,48 @@ pub(crate) enum ReportFormat {
     Markdown,
 }
 
-impl MetricsFormat {
-    /// Formats that aggregate offender records across the entire walk
-    /// rather than emitting one document per source file. The CLI
-    /// short-circuits the per-file dispatch for these.
-    pub(crate) fn is_aggregated(self) -> bool {
-        matches!(
-            self,
-            Self::Checkstyle | Self::Sarif | Self::ClangWarning | Self::MsvcWarning
-        )
-    }
+/// How a `MetricsFormat` should be dispatched. Carries enough type
+/// information that the compiler — not a pair of boolean predicates
+/// in lock-step with a downstream `match` — enforces that every
+/// variant is routed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MetricsDispatch {
+    /// Per-file output through the generic `T: Serialize` writer.
+    Generic(GenericFormat),
+    /// Per-file output that needs a concrete `&FuncSpace` because its
+    /// row shape is metric-specific.
+    FuncSpace(FuncSpaceFormat),
+    /// Single document aggregated across the whole walk; emitted
+    /// after the walk completes.
+    Aggregated(AggregatedFormat),
+}
 
-    /// True for formats whose row shape is fixed and therefore not
-    /// representable through the generic `T: Serialize` dispatch (CSV
-    /// and HTML today, both of which flatten the FuncSpace tree into
-    /// metric-shaped rows). The Metrics action handles these on a
-    /// separate code path that takes a concrete `&FuncSpace`; the Ops
-    /// action rejects them at runtime since the columns are
-    /// metric-shaped.
-    pub(crate) fn requires_funcspace(self) -> bool {
-        matches!(self, Self::Csv | Self::Html)
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GenericFormat {
+    Cbor,
+    Json,
+    Toml,
+    Yaml,
+}
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FuncSpaceFormat {
+    Csv,
+    Html,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AggregatedFormat {
+    Checkstyle,
+    Sarif,
+    ClangWarning,
+    MsvcWarning,
+}
+
+impl GenericFormat {
+    /// Dispatch a generic per-file format through its
+    /// `T: Serialize` writer. Exhaustive over `GenericFormat` — every
+    /// variant is handled, no wildcards.
     pub(crate) fn dump<T: Serialize>(
         self,
         space: T,
@@ -77,38 +97,137 @@ impl MetricsFormat {
     ) -> std::io::Result<()> {
         if let Some(output_path) = output_path {
             match self {
-                Self::Cbor => Cbor::with_writer(space, path, output_path),
-                Self::Json => Json::with_pretty_writer(space, path, output_path, pretty),
-                Self::Toml => Toml::with_pretty_writer(space, path, output_path, pretty),
-                Self::Yaml => Yaml::with_writer(space, path, output_path),
-                // Aggregated formats are emitted once after the walk,
-                // not per file — skip silently here.
-                Self::Checkstyle | Self::Sarif | Self::ClangWarning | Self::MsvcWarning => Ok(()),
-                // CSV and HTML are dispatched via dedicated functions
-                // from the Metrics action; reaching this arm means the
-                // dispatcher missed a case.
-                Self::Csv | Self::Html => unreachable_funcspace(),
+                Self::Cbor => Cbor::with_writer(space, &path, output_path),
+                Self::Json => Json::with_pretty_writer(space, &path, output_path, pretty),
+                Self::Toml => Toml::with_pretty_writer(space, &path, output_path, pretty),
+                Self::Yaml => Yaml::with_writer(space, &path, output_path),
             }
         } else {
             match self {
-                Self::Json => Json::write_on_stdout_pretty(space, pretty),
-                Self::Toml => Toml::write_on_stdout_pretty(space, pretty),
-                Self::Yaml => Yaml::write_on_stdout(space),
                 Self::Cbor => Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,
                     CBOR_STDOUT_ERROR,
                 )),
-                Self::Checkstyle | Self::Sarif | Self::ClangWarning | Self::MsvcWarning => Ok(()),
-                Self::Csv | Self::Html => unreachable_funcspace(),
+                Self::Json => Json::write_on_stdout_pretty(space, pretty),
+                Self::Toml => Toml::write_on_stdout_pretty(space, pretty),
+                Self::Yaml => Yaml::write_on_stdout(space),
             }
         }
     }
 }
 
-fn unreachable_funcspace() -> std::io::Result<()> {
-    Err(std::io::Error::other(
-        "internal error: CSV/HTML formats must be dispatched via their dedicated dump_* functions, not dump",
-    ))
+impl FuncSpaceFormat {
+    pub(crate) fn dump(
+        self,
+        space: &FuncSpace,
+        path: PathBuf,
+        output_path: Option<&PathBuf>,
+    ) -> std::io::Result<()> {
+        match self {
+            Self::Csv => dump_csv(space, path, output_path),
+            Self::Html => dump_html(space, path, output_path),
+        }
+    }
+}
+
+impl AggregatedFormat {
+    /// Human-readable name used in error messages when the writer
+    /// fails.
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Checkstyle => "checkstyle",
+            Self::Sarif => "sarif",
+            Self::ClangWarning => "clang-warning",
+            Self::MsvcWarning => "msvc-warning",
+        }
+    }
+
+    /// Emit a well-formed (and stable) document for the given offender
+    /// records. Until the threshold engine (#96) lands, callers pass
+    /// an empty slice so CI consumers can wire up the format
+    /// immediately.
+    pub(crate) fn dump(
+        self,
+        offenders: &[OffenderRecord],
+        output_path: Option<&Path>,
+    ) -> std::io::Result<()> {
+        match self {
+            Self::Checkstyle => dump_checkstyle(offenders, output_path),
+            Self::Sarif => dump_sarif(offenders, output_path),
+            Self::ClangWarning => dump_clang_warning(offenders, output_path),
+            Self::MsvcWarning => dump_msvc_warning(offenders, output_path),
+        }
+    }
+}
+
+impl MetricsFormat {
+    /// Classify this format for dispatch. Exhaustive — adding a new
+    /// `MetricsFormat` variant is a compile error here, which is the
+    /// point.
+    pub(crate) fn dispatch(self) -> MetricsDispatch {
+        match self {
+            Self::Cbor => MetricsDispatch::Generic(GenericFormat::Cbor),
+            Self::Json => MetricsDispatch::Generic(GenericFormat::Json),
+            Self::Toml => MetricsDispatch::Generic(GenericFormat::Toml),
+            Self::Yaml => MetricsDispatch::Generic(GenericFormat::Yaml),
+            Self::Csv => MetricsDispatch::FuncSpace(FuncSpaceFormat::Csv),
+            Self::Html => MetricsDispatch::FuncSpace(FuncSpaceFormat::Html),
+            Self::Checkstyle => MetricsDispatch::Aggregated(AggregatedFormat::Checkstyle),
+            Self::Sarif => MetricsDispatch::Aggregated(AggregatedFormat::Sarif),
+            Self::ClangWarning => MetricsDispatch::Aggregated(AggregatedFormat::ClangWarning),
+            Self::MsvcWarning => MetricsDispatch::Aggregated(AggregatedFormat::MsvcWarning),
+        }
+    }
+}
+
+/// Run `write` against either `path` (creating any missing parent
+/// directories) or stdout. Shared scaffolding for the aggregated
+/// `dump_*` helpers; the writer signature is generic over `W: Write`,
+/// and `&mut dyn Write` satisfies that bound.
+fn write_to_path_or_stdout<F>(output_path: Option<&Path>, write: F) -> std::io::Result<()>
+where
+    F: FnOnce(&mut dyn Write) -> std::io::Result<()>,
+{
+    if let Some(path) = output_path {
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            create_dir_all(parent)?;
+        }
+        let mut file = File::create(path)?;
+        write(&mut file)
+    } else {
+        let stdout = std::io::stdout();
+        let mut handle = stdout.lock();
+        write(&mut handle)
+    }
+}
+
+/// Run `write` against either a per-file path under `output_dir`
+/// (with `extension` appended and any missing parent directories
+/// created) or stdout. Shared scaffolding for the per-file `dump_*`
+/// helpers (CSV, HTML).
+fn write_per_file_or_stdout<F>(
+    input_path: &Path,
+    output_dir: Option<&PathBuf>,
+    extension: &str,
+    write: F,
+) -> std::io::Result<()>
+where
+    F: FnOnce(&mut dyn Write) -> std::io::Result<()>,
+{
+    if let Some(output_dir) = output_dir {
+        let format_path = handle_path(input_path, output_dir, extension);
+        if let Some(parent) = format_path.parent() {
+            create_dir_all(parent)?;
+        }
+        let mut file = File::create(format_path)?;
+        write(&mut file)
+    } else {
+        let stdout = std::io::stdout();
+        let mut handle = stdout.lock();
+        write(&mut handle)
+    }
 }
 
 /// Emit a CSV document for the metric tree rooted at `space`. If
@@ -120,15 +239,9 @@ pub(crate) fn dump_csv(
     path: PathBuf,
     output_path: Option<&PathBuf>,
 ) -> std::io::Result<()> {
-    if let Some(output_path) = output_path {
-        let format_path = handle_path(path.clone(), output_path, CSV_EXTENSION);
-        if let Some(parent) = format_path.parent() {
-            create_dir_all(parent)?;
-        }
-        write_csv(space, &path, File::create(format_path)?)
-    } else {
-        write_csv(space, &path, std::io::stdout().lock())
-    }
+    write_per_file_or_stdout(&path, output_path, CSV_EXTENSION, |w| {
+        write_csv(space, &path, w)
+    })
 }
 
 /// Emit a self-contained HTML document for the metric tree rooted at
@@ -140,15 +253,9 @@ pub(crate) fn dump_html(
     path: PathBuf,
     output_path: Option<&PathBuf>,
 ) -> std::io::Result<()> {
-    if let Some(output_path) = output_path {
-        let format_path = handle_path(path.clone(), output_path, HTML_EXTENSION);
-        if let Some(parent) = format_path.parent() {
-            create_dir_all(parent)?;
-        }
-        write_html(space, &path, File::create(format_path)?)
-    } else {
-        write_html(space, &path, std::io::stdout().lock())
-    }
+    write_per_file_or_stdout(&path, output_path, HTML_EXTENSION, |w| {
+        write_html(space, &path, w)
+    })
 }
 
 /// Emit a Checkstyle 4.3 XML document for `offenders`. If
@@ -162,16 +269,7 @@ pub(crate) fn dump_checkstyle(
     offenders: &[OffenderRecord],
     output_path: Option<&Path>,
 ) -> std::io::Result<()> {
-    if let Some(path) = output_path {
-        if let Some(parent) = path.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            create_dir_all(parent)?;
-        }
-        write_checkstyle(offenders, File::create(path)?)
-    } else {
-        write_checkstyle(offenders, std::io::stdout().lock())
-    }
+    write_to_path_or_stdout(output_path, |w| write_checkstyle(offenders, w))
 }
 
 /// Emit a SARIF 2.1.0 JSON document for `offenders`. If `output_path`
@@ -185,16 +283,7 @@ pub(crate) fn dump_sarif(
     offenders: &[OffenderRecord],
     output_path: Option<&Path>,
 ) -> std::io::Result<()> {
-    if let Some(path) = output_path {
-        if let Some(parent) = path.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            create_dir_all(parent)?;
-        }
-        write_sarif(offenders, File::create(path)?)
-    } else {
-        write_sarif(offenders, std::io::stdout().lock())
-    }
+    write_to_path_or_stdout(output_path, |w| write_sarif(offenders, w))
 }
 
 /// Emit Clang/GCC-style warning lines for `offenders`. If
@@ -205,16 +294,7 @@ pub(crate) fn dump_clang_warning(
     offenders: &[OffenderRecord],
     output_path: Option<&Path>,
 ) -> std::io::Result<()> {
-    if let Some(path) = output_path {
-        if let Some(parent) = path.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            create_dir_all(parent)?;
-        }
-        write_clang_warning(offenders, File::create(path)?)
-    } else {
-        write_clang_warning(offenders, std::io::stdout().lock())
-    }
+    write_to_path_or_stdout(output_path, |w| write_clang_warning(offenders, w))
 }
 
 /// Emit MSVC-style warning lines for `offenders`. If `output_path` is
@@ -225,16 +305,7 @@ pub(crate) fn dump_msvc_warning(
     offenders: &[OffenderRecord],
     output_path: Option<&Path>,
 ) -> std::io::Result<()> {
-    if let Some(path) = output_path {
-        if let Some(parent) = path.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            create_dir_all(parent)?;
-        }
-        write_msvc_warning(offenders, File::create(path)?)
-    } else {
-        write_msvc_warning(offenders, std::io::stdout().lock())
-    }
+    write_to_path_or_stdout(output_path, |w| write_msvc_warning(offenders, w))
 }
 
 #[inline(always)]
@@ -262,9 +333,9 @@ trait WritePrettyOnStdout: WriteOnStdout {
     fn format_pretty<T: Serialize>(content: T) -> std::io::Result<String>;
 }
 
-fn handle_path(path: PathBuf, output_path: &Path, extension: &str) -> PathBuf {
+fn handle_path(path: &Path, output_path: &Path, extension: &str) -> PathBuf {
     // Remove root /
-    let path = path.as_path().strip_prefix("/").unwrap_or(path.as_path());
+    let path = path.strip_prefix("/").unwrap_or(path);
 
     // Remove root ./
     let path = path.strip_prefix("./").unwrap_or(path);
@@ -291,7 +362,7 @@ fn handle_path(path: PathBuf, output_path: &Path, extension: &str) -> PathBuf {
 trait WriteFile {
     const EXTENSION: &'static str;
 
-    fn open_file(path: PathBuf, output_path: &Path) -> std::io::Result<File> {
+    fn open_file(path: &Path, output_path: &Path) -> std::io::Result<File> {
         let format_path = handle_path(path, output_path, Self::EXTENSION);
         if let Some(parent) = format_path.parent() {
             create_dir_all(parent)?;
@@ -301,7 +372,7 @@ trait WriteFile {
 
     fn with_writer<T: Serialize>(
         content: T,
-        path: PathBuf,
+        path: &Path,
         output_path: &Path,
     ) -> std::io::Result<()>;
 }
@@ -309,7 +380,7 @@ trait WriteFile {
 trait WritePrettyFile: WriteFile {
     fn with_pretty_writer<T: Serialize>(
         content: T,
-        path: PathBuf,
+        path: &Path,
         output_path: &Path,
         pretty: bool,
     ) -> std::io::Result<()>;
@@ -334,7 +405,7 @@ impl WriteFile for Json {
 
     fn with_writer<T: Serialize>(
         content: T,
-        path: PathBuf,
+        path: &Path,
         output_path: &Path,
     ) -> std::io::Result<()> {
         serde_json::to_writer(Self::open_file(path, output_path)?, &content).map_err(ser_err)
@@ -344,7 +415,7 @@ impl WriteFile for Json {
 impl WritePrettyFile for Json {
     fn with_pretty_writer<T: Serialize>(
         content: T,
-        path: PathBuf,
+        path: &Path,
         output_path: &Path,
         pretty: bool,
     ) -> std::io::Result<()> {
@@ -376,7 +447,7 @@ impl WriteFile for Toml {
 
     fn with_writer<T: Serialize>(
         content: T,
-        path: PathBuf,
+        path: &Path,
         output_path: &Path,
     ) -> std::io::Result<()> {
         Self::open_file(path, output_path)?.write_all(Self::format(content)?.as_bytes())
@@ -386,7 +457,7 @@ impl WriteFile for Toml {
 impl WritePrettyFile for Toml {
     fn with_pretty_writer<T: Serialize>(
         content: T,
-        path: PathBuf,
+        path: &Path,
         output_path: &Path,
         pretty: bool,
     ) -> std::io::Result<()> {
@@ -411,7 +482,7 @@ impl WriteFile for Yaml {
 
     fn with_writer<T: Serialize>(
         content: T,
-        path: PathBuf,
+        path: &Path,
         output_path: &Path,
     ) -> std::io::Result<()> {
         serde_yaml::to_writer(Self::open_file(path, output_path)?, &content).map_err(ser_err)
@@ -425,7 +496,7 @@ impl WriteFile for Cbor {
 
     fn with_writer<T: Serialize>(
         content: T,
-        path: PathBuf,
+        path: &Path,
         output_path: &Path,
     ) -> std::io::Result<()> {
         serde_cbor::to_writer(Self::open_file(path, output_path)?, &content).map_err(ser_err)
@@ -438,25 +509,25 @@ mod tests {
 
     #[test]
     fn handle_path_strips_root_slash() {
-        let result = handle_path(PathBuf::from("/foo/bar.rs"), Path::new("out"), ".json");
+        let result = handle_path(Path::new("/foo/bar.rs"), Path::new("out"), ".json");
         assert_eq!(result, PathBuf::from("out/foo/bar.rs.json"));
     }
 
     #[test]
     fn handle_path_strips_dot_slash() {
-        let result = handle_path(PathBuf::from("./foo/bar.rs"), Path::new("out"), ".json");
+        let result = handle_path(Path::new("./foo/bar.rs"), Path::new("out"), ".json");
         assert_eq!(result, PathBuf::from("out/foo/bar.rs.json"));
     }
 
     #[test]
     fn handle_path_replaces_dotdot_with_dot() {
-        let result = handle_path(PathBuf::from("a/../b.rs"), Path::new("out"), ".json");
+        let result = handle_path(Path::new("a/../b.rs"), Path::new("out"), ".json");
         assert_eq!(result, PathBuf::from("out/a/./b.rs.json"));
     }
 
     #[test]
     fn handle_path_plain_relative() {
-        let result = handle_path(PathBuf::from("src/main.rs"), Path::new("out"), ".json");
+        let result = handle_path(Path::new("src/main.rs"), Path::new("out"), ".json");
         assert_eq!(result, PathBuf::from("out/src/main.rs.json"));
     }
 
@@ -468,7 +539,7 @@ mod tests {
 
         let bad_component = OsStr::from_bytes(b"\xff\xfe");
         let path = PathBuf::from("src").join(bad_component).join("bar.rs");
-        let result = handle_path(path, Path::new("out"), ".json");
+        let result = handle_path(&path, Path::new("out"), ".json");
         // The non-UTF-8 component is dropped and a warning is emitted to stderr;
         // only the valid components (src, bar.rs) appear in the output path.
         assert_eq!(result, PathBuf::from("out/src/bar.rs.json"));

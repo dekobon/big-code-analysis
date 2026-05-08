@@ -13,10 +13,7 @@ use std::thread::available_parallelism;
 use clap::{Args, Parser, Subcommand};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 
-use formats::{
-    CBOR_STDOUT_ERROR, MetricsFormat, ReportFormat, dump_checkstyle, dump_clang_warning, dump_csv,
-    dump_html, dump_msvc_warning, dump_sarif,
-};
+use formats::{CBOR_STDOUT_ERROR, MetricsDispatch, MetricsFormat, ReportFormat};
 use markdown_report::{FunctionSummary, extract_summaries, generate_report};
 use metric_catalog::{ListMetricsMode, write_metrics};
 
@@ -341,18 +338,17 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
         Action::Metrics { format, pretty } => {
             if let Some(fmt) = format {
                 if let Some(space) = get_function_spaces(&language, source, &path, pr) {
-                    if fmt.requires_funcspace() {
-                        // CSV and HTML (and any future per-file format
-                        // with a metric-shaped row schema) take a
-                        // concrete &FuncSpace rather than going through
-                        // the generic Serialize dispatch.
-                        match fmt {
-                            MetricsFormat::Csv => dump_csv(&space, path, cfg.output.as_ref())?,
-                            MetricsFormat::Html => dump_html(&space, path, cfg.output.as_ref())?,
-                            _ => unreachable!("requires_funcspace() must agree with this match",),
+                    match fmt.dispatch() {
+                        MetricsDispatch::Generic(g) => {
+                            g.dump(space, path, cfg.output.as_ref(), *pretty)?;
                         }
-                    } else {
-                        fmt.dump(space, path, cfg.output.as_ref(), *pretty)?;
+                        MetricsDispatch::FuncSpace(f) => {
+                            f.dump(&space, path, cfg.output.as_ref())?;
+                        }
+                        // Aggregated formats are emitted once after
+                        // the walk in the run() entry point, not per
+                        // file — skip silently here.
+                        MetricsDispatch::Aggregated(_) => {}
                     }
                 }
                 Ok(())
@@ -365,7 +361,17 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
         Action::Ops { format, pretty } => {
             if let Some(fmt) = format {
                 if let Some(ops) = get_ops(&language, source, &path, pr) {
-                    fmt.dump(ops, path, cfg.output.as_ref(), *pretty)?;
+                    // Aggregated and FuncSpace formats are rejected
+                    // upstream in `run()` for the Ops command, so the
+                    // dispatch here is always Generic. The match is
+                    // still exhaustive to keep the compiler honest if
+                    // those upstream guards ever drift.
+                    match fmt.dispatch() {
+                        MetricsDispatch::Generic(g) => {
+                            g.dump(ops, path, cfg.output.as_ref(), *pretty)?;
+                        }
+                        MetricsDispatch::FuncSpace(_) | MetricsDispatch::Aggregated(_) => {}
+                    }
                 }
                 Ok(())
             } else {
@@ -677,7 +683,9 @@ fn main() {
             // producer (#96) is not wired yet — for now we emit an
             // empty offender list, which yields a well-formed, stable
             // document that CI consumers can already integrate against.
-            if matches!(args.output_format, Some(fmt) if fmt.is_aggregated()) {
+            if let Some(MetricsDispatch::Aggregated(agg)) =
+                args.output_format.map(MetricsFormat::dispatch)
+            {
                 if let Some(ref out) = args.output
                     && out.exists()
                     && out.is_dir()
@@ -686,22 +694,8 @@ fn main() {
                         "--output must be a file path for aggregated formats (e.g. checkstyle, sarif, clang-warning, msvc-warning)",
                     );
                 }
-                match args.output_format {
-                    Some(MetricsFormat::Sarif) => dump_sarif(&[], args.output.as_deref())
-                        .unwrap_or_else(|e| die(format_args!("failed to write sarif: {e}"))),
-                    Some(MetricsFormat::ClangWarning) => {
-                        dump_clang_warning(&[], args.output.as_deref()).unwrap_or_else(|e| {
-                            die(format_args!("failed to write clang-warning: {e}"))
-                        })
-                    }
-                    Some(MetricsFormat::MsvcWarning) => {
-                        dump_msvc_warning(&[], args.output.as_deref()).unwrap_or_else(|e| {
-                            die(format_args!("failed to write msvc-warning: {e}"))
-                        })
-                    }
-                    _ => dump_checkstyle(&[], args.output.as_deref())
-                        .unwrap_or_else(|e| die(format_args!("failed to write checkstyle: {e}"))),
-                }
+                agg.dump(&[], args.output.as_deref())
+                    .unwrap_or_else(|e| die(format_args!("failed to write {}: {e}", agg.name())));
                 return;
             }
             if args.output_format.is_some()
@@ -725,14 +719,18 @@ fn main() {
             if matches!(args.output_format, Some(MetricsFormat::Cbor)) && args.output.is_none() {
                 die(CBOR_STDOUT_ERROR);
             }
-            if matches!(args.output_format, Some(fmt) if fmt.is_aggregated()) {
+            if let Some(MetricsDispatch::Aggregated(_)) =
+                args.output_format.map(MetricsFormat::dispatch)
+            {
                 die(
                     "aggregated formats (checkstyle, sarif, clang-warning, msvc-warning) are not supported by `ops`; use `bca metrics --output-format <fmt>`",
                 );
             }
-            if matches!(args.output_format, Some(fmt) if fmt.requires_funcspace()) {
+            if let Some(MetricsDispatch::FuncSpace(_)) =
+                args.output_format.map(MetricsFormat::dispatch)
+            {
                 die(
-                    "CSV is not supported by `ops` because its column schema is metric-shaped; use `bca metrics --output-format csv`",
+                    "CSV/HTML are not supported by `ops` because their column schemas are metric-shaped; use `bca metrics --output-format <fmt>`",
                 );
             }
             if args.output_format.is_some()
@@ -1077,13 +1075,11 @@ mod tests {
         assert!(parse(&["metrics", "-O", "msvc-warning"]).is_ok());
     }
 
-    #[test]
-    fn ops_rejects_checkstyle_format_at_runtime() {
-        // clap parses it (Checkstyle is on the shared MetricsFormat
-        // enum), but `ops` rejects it at dispatch with a die() — we
-        // can only assert parsing here without spawning a process.
-        assert!(parse(&["ops", "-O", "checkstyle"]).is_ok());
-    }
+    // Note: runtime rejection of `ops -O checkstyle|sarif|...|csv|html`
+    // is covered by `ops_rejects_aggregated_formats_at_runtime` /
+    // `ops_rejects_funcspace_formats_at_runtime` in
+    // tests/action_enforcement.rs, which spawn the binary so the
+    // dispatcher's die() can be observed.
 
     #[test]
     fn metrics_rejects_markdown_format() {

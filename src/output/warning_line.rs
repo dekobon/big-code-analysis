@@ -24,21 +24,7 @@
 
 use std::io::{self, Write};
 
-use crate::output::offenders::OffenderRecord;
-
-/// File extension used when writing Clang/GCC warning-line output to a
-/// file path. `.txt` because the format is plain text intended for
-/// human + parser consumption, not a structured document.
-pub const CLANG_WARNING_EXTENSION: &str = ".txt";
-
-/// File extension used when writing MSVC warning-line output to a file
-/// path. Same `.txt` rationale as [`CLANG_WARNING_EXTENSION`].
-pub const MSVC_WARNING_EXTENSION: &str = ".txt";
-
-/// Source identifier prefix used in the `[big-code-analysis-<metric>]`
-/// rule tag of the Clang format. Matches the Checkstyle prefix so a
-/// CI dashboard ingesting both surfaces consistent rule IDs.
-const CLANG_RULE_PREFIX: &str = "big-code-analysis";
+use crate::output::offenders::{OffenderRecord, TOOL_ID, warn_non_utf8_path};
 
 /// Default column when an offender has no [`OffenderRecord::start_col`].
 /// Both formats require a column; `1` is the conventional placeholder
@@ -56,11 +42,7 @@ pub fn write_clang_warning<W: Write>(
     mut writer: W,
 ) -> io::Result<()> {
     for record in offenders {
-        let Some(path) = record.path.to_str() else {
-            eprintln!(
-                "Warning: skipping non-UTF-8 path in clang-warning output: {}",
-                record.path.display()
-            );
+        let Some(path) = warn_non_utf8_path("clang-warning", &record.path) else {
             continue;
         };
         let line = record.start_line.max(1);
@@ -70,7 +52,7 @@ pub fn write_clang_warning<W: Write>(
             "{path}:{line}:{col}: {severity}: {message} [{prefix}-{metric}]",
             severity = record.severity.as_str(),
             message = record.default_message(),
-            prefix = CLANG_RULE_PREFIX,
+            prefix = TOOL_ID,
             metric = record.metric,
         )?;
     }
@@ -87,11 +69,7 @@ pub fn write_clang_warning<W: Write>(
 /// `offenders` slice writes nothing.
 pub fn write_msvc_warning<W: Write>(offenders: &[OffenderRecord], mut writer: W) -> io::Result<()> {
     for record in offenders {
-        let Some(raw_path) = record.path.to_str() else {
-            eprintln!(
-                "Warning: skipping non-UTF-8 path in msvc-warning output: {}",
-                record.path.display()
-            );
+        let Some(raw_path) = warn_non_utf8_path("msvc-warning", &record.path) else {
             continue;
         };
         let path = msvc_path(raw_path);

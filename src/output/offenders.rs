@@ -6,9 +6,36 @@
 //! threshold engine (#96); this module only defines the data shape so
 //! the format implementations can land independently.
 
+use std::path::Path;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+
+use crate::output::numfmt::MessageMetric;
+
+/// Tool identifier carried in the rule-id / source-prefix field of every
+/// CI/IDE output format (Checkstyle `<error source="...">`, Clang/MSVC
+/// warning rule prefix, SARIF `tool.driver.name`). Single source of
+/// truth so a future tool rename is one edit, not three.
+pub const TOOL_ID: &str = "big-code-analysis";
+
+/// `path.to_str()`, or emit a stderr warning and return `None`. Used
+/// by every output format that turns offender paths into UTF-8
+/// identifiers (Checkstyle attribute, SARIF URI, warning-line column,
+/// HTML / CSV cell). Centralizing the warning text keeps the
+/// `format` label consistent across formats.
+pub(crate) fn warn_non_utf8_path<'a>(format: &str, path: &'a Path) -> Option<&'a str> {
+    match path.to_str() {
+        Some(s) => Some(s),
+        None => {
+            eprintln!(
+                "Warning: skipping non-UTF-8 path in {format} output: {}",
+                path.display()
+            );
+            None
+        }
+    }
+}
 
 /// Severity of a metric-threshold violation.
 ///
@@ -63,33 +90,18 @@ pub struct OffenderRecord {
 impl OffenderRecord {
     /// Default human-readable message used by formats that do not carry
     /// their own templating. `"<metric> <value> exceeds limit <limit>"`,
-    /// with values trimmed to a sensible precision.
+    /// with values formatted via [`MessageMetric`]: integer fast-path
+    /// for safe integers, six-decimal rounding for non-integer finites,
+    /// `"NaN"` / `"inf"` / `"-inf"` for non-finite values. The Display
+    /// adapter writes directly into the format buffer, so this builds
+    /// one `String` per call rather than three.
     pub fn default_message(&self) -> String {
         format!(
             "{} {} exceeds limit {}",
             self.metric,
-            format_metric_number(self.value),
-            format_metric_number(self.limit),
+            MessageMetric(self.value),
+            MessageMetric(self.limit),
         )
-    }
-}
-
-/// Render a metric number with at most six decimals, trimming trailing
-/// zeros so integral values render as `15` rather than `15.000000`.
-fn format_metric_number(n: f64) -> String {
-    if n.is_finite() && n == n.trunc() && n.abs() < 1e16 {
-        format!("{}", n as i64)
-    } else {
-        let mut s = format!("{n:.6}");
-        if s.contains('.') {
-            while s.ends_with('0') {
-                s.pop();
-            }
-            if s.ends_with('.') {
-                s.pop();
-            }
-        }
-        s
     }
 }
 
@@ -141,11 +153,24 @@ mod tests {
     }
 
     #[test]
-    fn format_metric_number_handles_non_finite() {
-        // NaN / infinity are .trunc() == self for inf but != self for NaN;
-        // the predicate `n == n.trunc()` is false for NaN, so we fall into
-        // the formatted path. Inf hits trunc but is_finite is false.
-        assert_eq!(format_metric_number(f64::NAN), "NaN");
-        assert_eq!(format_metric_number(f64::INFINITY), "inf");
+    fn default_message_renders_non_finite_values() {
+        let mut r = OffenderRecord {
+            path: PathBuf::from("a.rs"),
+            function: None,
+            start_line: 1,
+            end_line: 1,
+            start_col: None,
+            metric: "halstead.volume".into(),
+            value: f64::NAN,
+            limit: 10.0,
+            severity: Severity::Warning,
+        };
+        assert_eq!(r.default_message(), "halstead.volume NaN exceeds limit 10");
+
+        r.value = f64::INFINITY;
+        assert_eq!(r.default_message(), "halstead.volume inf exceeds limit 10");
+
+        r.value = f64::NEG_INFINITY;
+        assert_eq!(r.default_message(), "halstead.volume -inf exceeds limit 10");
     }
 }

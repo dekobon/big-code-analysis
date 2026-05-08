@@ -89,3 +89,37 @@ fn count_without_nodes_rejected() {
         .failure()
         .stderr(predicate::str::contains("<NODES>"));
 }
+
+/// Aggregated CI/IDE formats (Checkstyle / SARIF / Clang / MSVC warning) are
+/// shared via `MetricsFormat` so clap parses them on `ops`, but the dispatch
+/// rejects them at runtime because `ops` emits operands/operators, not
+/// offender records. Asserting both the failure exit code AND a substring of
+/// the rejection message guards against the runtime guard being silently
+/// removed (which would otherwise let `ops -O checkstyle` succeed with no
+/// output and exit 0).
+#[test]
+fn ops_rejects_aggregated_formats_at_runtime() {
+    for fmt in ["checkstyle", "sarif", "clang-warning", "msvc-warning"] {
+        cli()
+            .args(["ops", "-O", fmt])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("aggregated formats"))
+            .stderr(predicate::str::contains("not supported by `ops`"));
+    }
+}
+
+/// CSV / HTML have a metric-shaped row schema and are not meaningful for
+/// the operands/operators output of `ops`. Same runtime-rejection pattern as
+/// the aggregated formats above.
+#[test]
+fn ops_rejects_funcspace_formats_at_runtime() {
+    for fmt in ["csv", "html"] {
+        cli()
+            .args(["ops", "-O", fmt])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("not supported by `ops`"))
+            .stderr(predicate::str::contains("metric-shaped"));
+    }
+}
