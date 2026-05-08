@@ -2,17 +2,17 @@ use std::collections::HashSet;
 
 use crate::c_langs_macros::is_predefined_macros;
 
-#[inline(always)]
+#[inline]
 fn is_identifier_part(c: u8) -> bool {
     c.is_ascii_uppercase() || c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_'
 }
 
-#[inline(always)]
+#[inline]
 fn is_identifier_starter(c: u8) -> bool {
     c.is_ascii_uppercase() || c.is_ascii_lowercase() || c == b'_'
 }
 
-#[inline(always)]
+#[inline]
 fn is_macro<S: ::std::hash::BuildHasher>(mac: &str, macros: &HashSet<String, S>) -> bool {
     macros.contains(mac) || is_predefined_macros(mac)
 }
