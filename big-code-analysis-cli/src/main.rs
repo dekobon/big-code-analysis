@@ -13,7 +13,7 @@ use std::thread::available_parallelism;
 use clap::{Args, Parser, Subcommand};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 
-use formats::{CBOR_STDOUT_ERROR, MetricsFormat, ReportFormat};
+use formats::{CBOR_STDOUT_ERROR, MetricsFormat, ReportFormat, dump_checkstyle};
 use markdown_report::{FunctionSummary, extract_summaries, generate_report};
 use metric_catalog::{ListMetricsMode, write_metrics};
 
@@ -656,6 +656,23 @@ fn main() {
             if matches!(args.output_format, Some(MetricsFormat::Cbor)) && args.output.is_none() {
                 die(CBOR_STDOUT_ERROR);
             }
+            // Aggregated formats (e.g. checkstyle) emit a single
+            // document covering every offender, so `--output` (when
+            // present) names a *file*, not a directory. The threshold
+            // producer (#96) is not wired yet — for now we emit an
+            // empty offender list, which yields a well-formed, stable
+            // document that CI consumers can already integrate against.
+            if matches!(args.output_format, Some(fmt) if fmt.is_aggregated()) {
+                if let Some(ref out) = args.output
+                    && out.exists()
+                    && out.is_dir()
+                {
+                    die("--output must be a file path for aggregated formats (e.g. checkstyle)");
+                }
+                dump_checkstyle(&[], args.output.as_deref())
+                    .unwrap_or_else(|e| die(format_args!("failed to write checkstyle: {e}")));
+                return;
+            }
             if args.output_format.is_some()
                 && let Some(ref out) = args.output
                 && out.exists()
@@ -676,6 +693,11 @@ fn main() {
         Command::Ops(args) => {
             if matches!(args.output_format, Some(MetricsFormat::Cbor)) && args.output.is_none() {
                 die(CBOR_STDOUT_ERROR);
+            }
+            if matches!(args.output_format, Some(fmt) if fmt.is_aggregated()) {
+                die(
+                    "aggregated formats (e.g. checkstyle) are not supported by `ops`; use `bca metrics --output-format checkstyle`",
+                );
             }
             if args.output_format.is_some()
                 && let Some(ref out) = args.output
@@ -997,6 +1019,19 @@ mod tests {
     #[test]
     fn metrics_with_format_parses() {
         assert!(parse(&["metrics", "-O", "json"]).is_ok());
+    }
+
+    #[test]
+    fn metrics_accepts_checkstyle_format() {
+        assert!(parse(&["metrics", "-O", "checkstyle"]).is_ok());
+    }
+
+    #[test]
+    fn ops_rejects_checkstyle_format_at_runtime() {
+        // clap parses it (Checkstyle is on the shared MetricsFormat
+        // enum), but `ops` rejects it at dispatch with a die() — we
+        // can only assert parsing here without spawning a process.
+        assert!(parse(&["ops", "-O", "checkstyle"]).is_ok());
     }
 
     #[test]

@@ -6,3 +6,9 @@ pub use dump_metrics::*;
 
 pub(crate) mod dump_ops;
 pub use dump_ops::*;
+
+pub mod offenders;
+pub use offenders::{OffenderRecord, Severity};
+
+pub mod checkstyle;
+pub use checkstyle::{CHECKSTYLE_EXTENSION, CHECKSTYLE_SOURCE_PREFIX, write_checkstyle};
