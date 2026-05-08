@@ -24,6 +24,7 @@ big-code-analysis-cli --paths /path/to/your/file/or/directory metrics
 `bca metrics` supports four per-file output formats:
 
 - CBOR
+- CSV
 - JSON
 - TOML
 - YAML
@@ -45,14 +46,47 @@ big-code-analysis-cli --paths /path/to/your/file/or/directory metrics \
     -O json -o /path/to/output/directory
 ```
 
-- `-O, --output-format`: per-file output format (`cbor`, `json`,
-  `toml`, `yaml`) or aggregated CI format (`checkstyle`).
+- `-O, --output-format`: per-file output format (`cbor`, `csv`,
+  `json`, `toml`, `yaml`) or aggregated CI format (`checkstyle`).
 - `-o, --output`: directory to save output files for per-file formats.
   Filenames mirror the input file plus the format extension. If
   omitted, results are printed to stdout. CBOR is binary and therefore
   requires `-o`. For aggregated formats (`checkstyle`), `--output`
   names a single output **file** (extension `.checkstyle.xml`) rather
   than a directory.
+
+### CSV (spreadsheets and Pandas)
+
+```bash
+big-code-analysis-cli --paths /path/to/your/code metrics \
+    -O csv -o csv-output
+```
+
+The CSV writer emits one row per `FuncSpace` (function, class,
+struct, unit, etc.) with the entire metric matrix as columns. Header
+order is fixed — see `CSV_HEADER` in
+[`src/output/csv.rs`](https://github.com/dekobon/big-code-analysis/blob/main/src/output/csv.rs)
+for the canonical list. Identity columns come first
+(`path`, `space_name`, `space_kind`, `start_line`, `end_line`)
+followed by every leaf metric using the same dotted JSON-style names
+(`loc.lloc`, `halstead.volume`, `cyclomatic.modified.average`, etc.)
+so a single column name addresses the metric in both CSV and JSON.
+
+Empty cells (no value, not `0`) signal "not applicable for this
+space" — for example, the OOP-only metrics (`wmc.*`, `npm.*`,
+`npa.*`) appear empty for procedural code. RFC 4180 quoting is
+delegated to the [`csv`] crate, so paths and names containing commas,
+quotes, or newlines round-trip cleanly.
+
+Stream the result to a single file with `-`:
+
+```bash
+big-code-analysis-cli --paths /path/to/your/code metrics -O csv \
+    > metrics.csv
+```
+
+CSV is a per-file format; with `--output <dir>` each input file
+produces a `<input>.csv` mirror under the output directory.
 
 ### Checkstyle (CI integration)
 

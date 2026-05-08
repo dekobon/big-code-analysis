@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use clap::ValueEnum;
 use serde::Serialize;
 
-use big_code_analysis::{OffenderRecord, write_checkstyle};
+use big_code_analysis::{CSV_EXTENSION, FuncSpace, OffenderRecord, write_checkstyle, write_csv};
 
 pub(crate) const CBOR_STDOUT_ERROR: &str =
     "CBOR is binary and cannot be printed to stdout; use --output";
@@ -23,6 +23,7 @@ fn ser_err(e: impl std::error::Error + Send + Sync + 'static) -> std::io::Error 
 pub(crate) enum MetricsFormat {
     Cbor,
     Checkstyle,
+    Csv,
     Json,
     Toml,
     Yaml,
@@ -44,6 +45,15 @@ impl MetricsFormat {
         matches!(self, Self::Checkstyle)
     }
 
+    /// True for formats whose row shape is fixed and therefore not
+    /// representable through the generic `T: Serialize` dispatch (CSV
+    /// today). The Metrics action handles these on a separate code
+    /// path that takes a concrete `&FuncSpace`; the Ops action
+    /// rejects them at runtime since CSV columns are metric-shaped.
+    pub(crate) fn requires_funcspace(self) -> bool {
+        matches!(self, Self::Csv)
+    }
+
     pub(crate) fn dump<T: Serialize>(
         self,
         space: T,
@@ -60,6 +70,10 @@ impl MetricsFormat {
                 // Aggregated formats are emitted once after the walk,
                 // not per file — skip silently here.
                 Self::Checkstyle => Ok(()),
+                // CSV is dispatched via `dump_csv` from the Metrics
+                // action; reaching this arm means the dispatcher
+                // missed a case.
+                Self::Csv => unreachable_csv(),
             }
         } else {
             match self {
@@ -71,8 +85,35 @@ impl MetricsFormat {
                     CBOR_STDOUT_ERROR,
                 )),
                 Self::Checkstyle => Ok(()),
+                Self::Csv => unreachable_csv(),
             }
         }
+    }
+}
+
+fn unreachable_csv() -> std::io::Result<()> {
+    Err(std::io::Error::other(
+        "internal error: CSV format must be dispatched via dump_csv, not dump",
+    ))
+}
+
+/// Emit a CSV document for the metric tree rooted at `space`. If
+/// `output_path` is `Some`, the document is written to a file in the
+/// directory whose name mirrors the input path (with `.csv`
+/// appended); otherwise it goes to stdout.
+pub(crate) fn dump_csv(
+    space: &FuncSpace,
+    path: PathBuf,
+    output_path: Option<&PathBuf>,
+) -> std::io::Result<()> {
+    if let Some(output_path) = output_path {
+        let format_path = handle_path(path.clone(), output_path, CSV_EXTENSION);
+        if let Some(parent) = format_path.parent() {
+            create_dir_all(parent)?;
+        }
+        write_csv(space, &path, File::create(format_path)?)
+    } else {
+        write_csv(space, &path, std::io::stdout().lock())
     }
 }
 
