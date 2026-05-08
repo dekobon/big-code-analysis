@@ -17,8 +17,15 @@ use crate::traits::*;
 pub struct Ops {
     /// The name of a function space.
     ///
-    /// If `None`, an error is occurred in parsing
-    /// the name of a function space.
+    /// For the top-level (file-level) `Ops`, this is the file path
+    /// supplied to [`operands_and_operators`] converted via lossy UTF-8
+    /// conversion, so it is always `Some`. Non-UTF-8 path components on
+    /// Linux (or invalid UTF-16 on Windows) become U+FFFD replacement
+    /// characters; this name is intended for display/identification only
+    /// and must not be used as a map key or for error correlation.
+    ///
+    /// For nested spaces, `None` means an error occurred in parsing the
+    /// name of the function space from the AST.
     pub name: Option<String>,
     /// The first line of a function space.
     pub start_line: usize,
@@ -211,7 +218,11 @@ pub fn operands_and_operators<'a, T: ParserTrait>(parser: &'a T, path: &'a Path)
     finalize::<T>(&mut state_stack, usize::MAX);
 
     state_stack.pop().map(|mut state| {
-        state.ops.name = path.to_str().map(str::to_owned);
+        // See `FuncSpace::name` rationale in `spaces.rs`: lossy conversion
+        // keeps the top-level `Ops` identifiable for non-UTF-8 paths
+        // rather than collapsing into the parse-error sentinel `None`.
+        // For display only — not for map keys or error correlation.
+        state.ops.name = Some(path.to_string_lossy().into_owned());
         state.ops
     })
 }
@@ -711,6 +722,39 @@ mod tests {
                 "Prims", "a", "b", "c", "d", "e", "f", "g", "h", "i", "1", "2", "3", "4", "'x'",
                 "1.0f", "2.0", "true", "false",
             ],
+        );
+    }
+
+    /// Regression for issue #128 — non-UTF-8 paths must not collapse the
+    /// top-level `Ops::name` into `None`, which is reserved for AST-name
+    /// parse failures.
+    #[cfg(unix)]
+    #[test]
+    fn non_utf8_path_yields_lossy_top_level_name() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let raw_bytes: &[u8] = b"foo_\xFF\xFE_bar.py";
+        let path = PathBuf::from(OsStr::from_bytes(raw_bytes));
+        assert!(
+            path.to_str().is_none(),
+            "test premise broken: path must be non-UTF-8 for this test to be meaningful"
+        );
+
+        let ops = get_ops(&LANG::Python, b"a = 1\n".to_vec(), &path, None)
+            .expect("get_ops must yield a top-level Ops");
+
+        let name = ops
+            .name
+            .as_deref()
+            .expect("top-level Ops name must be Some, not the parse-error sentinel None");
+        assert!(
+            name.contains('\u{FFFD}'),
+            "expected U+FFFD replacement char in lossy name, got {name:?}"
+        );
+        assert!(
+            name.starts_with("foo_") && name.ends_with("_bar.py"),
+            "lossy name must preserve the surrounding ASCII bytes, got {name:?}"
         );
     }
 }
