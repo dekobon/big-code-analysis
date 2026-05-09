@@ -31,11 +31,6 @@ use crate::markdown_report::{
 /// double-quoted attribute values. Returns a borrowed `Cow` when the
 /// input is already safe so the common case (most metric column names,
 /// well-formed paths) allocates nothing.
-///
-/// Keep in sync with `src/output/html.rs::escape_html` — both helpers
-/// implement the same rule. The lib copy is intentionally private; we
-/// duplicate rather than promote the symbol so the lib's public API
-/// stays focused on metrics, not HTML utilities.
 fn escape_html(s: &str) -> Cow<'_, str> {
     let needs_escape = s
         .bytes()
@@ -199,47 +194,71 @@ impl Align {
     }
 }
 
+// Multi-pattern tooltip strings shared by aliased headers
+// ("MI"/"Avg MI", "CC"/"Avg CC", "Cognitive"/"Avg Cognitive").
+const MI_TOOLTIP: &str = "Maintainability Index (Visual Studio scale, 0\u{2013}100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable.";
+const CC_TOOLTIP: &str = "Cyclomatic Complexity: number of linearly independent control-flow paths through the function.";
+const COGNITIVE_TOOLTIP: &str = "Cognitive complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.";
+
+/// Plain-English tooltip catalogue for every metric column header
+/// emitted by [`generate_html_report`]. Centralised so every section of
+/// the report explains its columns identically. The
+/// `metric_headers_carry_tooltips` test iterates this slice directly,
+/// so a new entry is automatically required to appear in real output.
+const HEADER_TOOLTIPS: &[(&str, &str)] = &[
+    (
+        "SLOC",
+        "Source Lines Of Code: non-blank, non-comment source lines.",
+    ),
+    ("MI", MI_TOOLTIP),
+    ("Avg MI", MI_TOOLTIP),
+    (
+        "Tokens",
+        "Total lexical tokens (AST leaves excluding comments) in the unit.",
+    ),
+    ("CC", CC_TOOLTIP),
+    ("Avg CC", CC_TOOLTIP),
+    ("Cognitive", COGNITIVE_TOOLTIP),
+    ("Avg Cognitive", COGNITIVE_TOOLTIP),
+    (
+        "Effort",
+        "Halstead effort: estimated mental effort to (re)create the code.",
+    ),
+    (
+        "Volume",
+        "Halstead volume: program length weighted by vocabulary size.",
+    ),
+    (
+        "Est. Bugs",
+        "Halstead bugs: estimated defect count derived from program volume.",
+    ),
+    (
+        "Exits",
+        "Number of exit points (returns, throws, breaks out of the function).",
+    ),
+    (
+        "ABC",
+        "ABC magnitude: sqrt(A\u{B2} + B\u{B2} + C\u{B2}) over Assignments, Branches, and Conditions.",
+    ),
+    (
+        "WMC",
+        "Weighted Methods per Class: sum of cyclomatic complexity across the class's methods.",
+    ),
+    ("Methods", "Number of methods declared on the class."),
+    ("NPA", "Number of Public Attributes declared on the class."),
+    ("NPM", "Number of Public Methods declared on the class."),
+    ("Args", "Number of declared parameters of the function."),
+    ("Functions", "Number of functions and methods analysed."),
+    ("Files", "Number of source files analysed."),
+];
+
 /// Plain-English tooltip for a metric column header, or `None` when the
 /// header names a non-metric dimension (file, function, class, line,
-/// language). Centralises the abbreviation glossary so every section of
-/// the aggregate HTML report explains its columns identically.
-///
-/// Only headers actually emitted by [`generate_html_report`] are
-/// catalogued — see the `metric_headers_carry_tooltips` test, which
-/// scans real output and requires every entry here to appear in at
-/// least one rendered `<th>`.
+/// language).
 fn header_tooltip(header: &str) -> Option<&'static str> {
-    let tip = match header {
-        "SLOC" => "Source Lines Of Code: non-blank, non-comment source lines.",
-        "MI" | "Avg MI" => {
-            "Maintainability Index (Visual Studio scale, 0\u{2013}100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable."
-        }
-        "Tokens" => "Total lexical tokens (AST leaves excluding comments) in the unit.",
-        "CC" | "Avg CC" => {
-            "Cyclomatic Complexity: number of linearly independent control-flow paths through the function."
-        }
-        "Cognitive" | "Avg Cognitive" => {
-            "Cognitive complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight."
-        }
-        "Effort" => "Halstead effort: estimated mental effort to (re)create the code.",
-        "Volume" => "Halstead volume: program length weighted by vocabulary size.",
-        "Est. Bugs" => "Halstead bugs: estimated defect count derived from program volume.",
-        "Exits" => "Number of exit points (returns, throws, breaks out of the function).",
-        "ABC" => {
-            "ABC magnitude: sqrt(A\u{B2} + B\u{B2} + C\u{B2}) over Assignments, Branches, and Conditions."
-        }
-        "WMC" => {
-            "Weighted Methods per Class: sum of cyclomatic complexity across the class's methods."
-        }
-        "Methods" => "Number of methods declared on the class.",
-        "NPA" => "Number of Public Attributes declared on the class.",
-        "NPM" => "Number of Public Methods declared on the class.",
-        "Args" => "Number of declared parameters of the function.",
-        "Functions" => "Number of functions and methods analysed.",
-        "Files" => "Number of source files analysed.",
-        _ => return None,
-    };
-    Some(tip)
+    HEADER_TOOLTIPS
+        .iter()
+        .find_map(|&(name, tip)| (name == header).then_some(tip))
 }
 
 #[derive(Clone, Copy)]
@@ -479,6 +498,9 @@ fn write_language_section(
     top_n: usize,
 ) {
     let display_name = title_case(lang_name);
+    // `slug` is sourced from `LANGUAGE_PALETTE` (or the literal "other"
+    // fallback) — always lowercase ASCII, so it is interpolated raw
+    // into the class attribute without `escape_html`.
     let slug = language_palette_slug(lang_name);
     let _ = writeln!(
         out,
@@ -1216,30 +1238,13 @@ mod tests {
         summaries[1].nargs = 5;
         let out = generate_html_report(&summaries, 20);
 
-        for header in [
-            "SLOC",
-            "MI",
-            "Tokens",
-            "CC",
-            "Exits",
-            "ABC",
-            "WMC",
-            "Methods",
-            "NPA",
-            "NPM",
-            "Args",
-            "Cognitive",
-            "Effort",
-            "Volume",
-            "Est. Bugs",
-            "Files",
-            "Functions",
-            "Avg MI",
-            "Avg CC",
-            "Avg Cognitive",
-        ] {
-            let tip = header_tooltip(header)
-                .unwrap_or_else(|| panic!("missing tooltip mapping for header {header:?}"));
+        // Drive the loop from the catalogue itself so a new tooltip
+        // arm is required to appear in real output without anyone
+        // remembering to update the test. `needle` embeds the table
+        // value directly, so any divergence between `header_tooltip`
+        // and `HEADER_TOOLTIPS` would surface as a missing substring
+        // here rather than via a separate (tautological) assert_eq.
+        for &(header, tip) in HEADER_TOOLTIPS {
             let needle = format!(" title=\"{}\">{header}</th>", escape_html(tip));
             assert!(
                 out.contains(&needle),
@@ -1316,18 +1321,10 @@ mod tests {
         // must end up tinted as typescript — not as a fabricated
         // `lang-tsx` (no such CSS rule any more) and not as the
         // neutral `lang-other` fallback.
-        let mut entries = vec![make_summary(
-            "App.tsx",
-            "src/App.tsx",
-            SpaceKind::Unit,
-            LANG::Tsx,
-        )];
-        entries.push(make_summary(
-            "render",
-            "src/App.tsx",
-            SpaceKind::Function,
-            LANG::Tsx,
-        ));
+        let entries = vec![
+            make_summary("App.tsx", "src/App.tsx", SpaceKind::Unit, LANG::Tsx),
+            make_summary("render", "src/App.tsx", SpaceKind::Function, LANG::Tsx),
+        ];
         let out = generate_html_report(&entries, 5);
         assert!(
             out.contains("<section class=\"lang-section lang-typescript\">"),
@@ -1370,23 +1367,33 @@ mod tests {
     #[test]
     fn overview_table_and_actionable_summary_not_tinted() {
         let out = generate_html_report(&two_lang_fixture(), 5);
-        // The per-language overview table sits between the global
-        // <h2>Per-language overview</h2> and the first per-language
-        // <section>. It must not be wrapped in a tinted section.
+        // The per-language overview heading + table must not sit
+        // inside a `<section class="lang-section …">`. We verify
+        // structurally: the prefix from the start of the document
+        // through the close of the overview table must contain zero
+        // `<section class="lang-section` open tags. This catches both
+        // a wrapping section opened before the heading AND one
+        // opened between the heading and the table close — earlier
+        // versions of this test only caught the former.
         let overview = out
             .find("<h2>Per-language overview</h2>")
             .expect("overview heading present");
-        let first_section = out
-            .find("<section class=\"lang-section")
-            .expect("at least one per-language section");
+        // Anchor on the table that immediately follows the heading
+        // first, then find ITS closing tag — guards against a future
+        // change introducing another `<table>` between heading and
+        // overview, which would otherwise shrink the search window.
+        let overview_table = overview
+            + out[overview..]
+                .find("<table")
+                .expect("overview table present");
+        let overview_end = overview_table
+            + out[overview_table..]
+                .find("</table>")
+                .expect("overview table closes")
+            + "</table>".len();
         assert!(
-            overview < first_section,
-            "overview heading must precede the first tinted section"
-        );
-        let between = &out[overview..first_section];
-        assert!(
-            !between.contains("lang-section"),
-            "overview region must not pick up a per-language tint"
+            !out[..overview_end].contains("<section class=\"lang-section"),
+            "overview region must not be wrapped in a per-language tinted section"
         );
 
         // Actionable summaries live inside per-language sections by
