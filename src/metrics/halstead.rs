@@ -538,6 +538,67 @@ mod tests {
     }
 
     #[test]
+    fn rust_aliased_primitive_type_classification() {
+        // Regression for issue #95 (lesson #2): the Rust grammar emits 17
+        // distinct `kind_id`s for `primitive_type` (one base plus 16
+        // numeric-suffixed alias variants). `RustCode::is_primitive` in
+        // `src/checker.rs` must list every variant; if a future regression
+        // omits one, primitive type names emitted in that aliased position
+        // silently drop into the kind_id-keyed operators bucket instead of
+        // the text-keyed primitive_operators map, miscounting Halstead n1.
+        //
+        // The snippet exercises every primitive scalar type across many
+        // syntactic positions (function parameter types, return types,
+        // let-binding annotations, `as` casts, const items, type aliases,
+        // struct fields, function pointer types, tuple types, array types,
+        // reference types, generic type arguments). Empirically, ordinary
+        // Rust source emits the base `Rust::PrimitiveType` variant from
+        // all of these positions; the 16 suffixed alias variants are
+        // produced by specific grammar productions not reachable from
+        // user-written code. Mutation-verified: dropping
+        // `Rust::PrimitiveType` from `is_primitive` fails this test
+        // (u_operators 30→15). Dropping any single suffixed variant
+        // currently leaves the test passing; if a future grammar bump
+        // makes any suffixed variant reachable from idiomatic source,
+        // extend the snippet so the test fires for that variant too.
+        check_metrics::<RustParser>(
+            "const C: u8 = 0;
+            type T = i64;
+            struct S { x: u32, y: u64 }
+            fn g(p: fn(u8) -> u16) -> bool { let _ = p(0); true }
+            fn f(a: u8, b: u16, c: u32, d: u64) -> u128 {
+                let _x: i8 = 0;
+                let _y: i16 = 0;
+                let _z: i32 = 0;
+                let _w: i64 = 0;
+                let _v: i128 = 0;
+                let _p: f32 = 1.0;
+                let _q: f64 = 2.0;
+                let _r: bool = true;
+                let _s: char = 'x';
+                let _t: usize = 0;
+                let _u: isize = 0;
+                let _arr: [u32; 4] = [0; 4];
+                let _ref: &u8 = &0;
+                let _tup: (u32, u64) = (0, 0);
+                let _opt: Option<u32> = None;
+                a as u128 + b as u128 + c as u128 + d
+            }",
+            "foo.rs",
+            |metric| {
+                // Headline: u_operators is the load-bearing assertion —
+                // the 16 distinct primitive type names dedupe by text in
+                // the primitive_operators map. Total operators (N1) and
+                // operand counts pin the rest of the Halstead state.
+                assert_eq!(metric.halstead.u_operators(), 30.0);
+                assert_eq!(metric.halstead.operators(), 118.0);
+                assert_eq!(metric.halstead.u_operands(), 31.0);
+                assert_eq!(metric.halstead.operands(), 50.0);
+            },
+        );
+    }
+
+    #[test]
     fn javascript_operators_and_operands() {
         check_metrics::<JavascriptParser>(
             "function main() {
