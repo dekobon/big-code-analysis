@@ -130,6 +130,14 @@ Every interpolated string — function name, file path, language label —
 is HTML-escaped on the way out, so a crafted source path or symbol name
 cannot inject markup or break out of an attribute value.
 
+Each per-language `<section>` carries a stable `lang-<name>` class
+(e.g. `lang-rust`, `lang-python`) styled with a low-alpha background
+tint and matching left border so a multi-language report's section
+boundaries are obvious at a glance. Languages without an explicit
+palette entry fall back to a neutral `lang-other` tint, and a
+`prefers-color-scheme: dark` adapter raises the alpha so contrast
+holds in both themes.
+
 ## Metric values of zero
 
 A metric value of **0** in the report means the metric was not measured

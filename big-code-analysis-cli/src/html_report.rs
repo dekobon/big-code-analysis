@@ -65,6 +65,43 @@ h2{font-size:1.15rem;margin:1.5rem 0 0.5rem;\
 border-bottom:1px solid #ccc;padding-bottom:0.25rem}\
 h3{font-size:1rem;margin:1rem 0 0.4rem;color:#444}\
 section{margin-top:2rem}\
+section.lang-section{padding:0.5rem 1rem;border-radius:4px;\
+border-left:3px solid rgba(127,127,127,0.35)}\
+section.lang-section>h2{margin-top:0.25rem}\
+section.lang-rust{background:rgba(222,128,82,0.08);border-left-color:rgba(222,128,82,0.55)}\
+section.lang-python{background:rgba(58,118,196,0.08);border-left-color:rgba(58,118,196,0.55)}\
+section.lang-javascript{background:rgba(229,202,71,0.10);border-left-color:rgba(229,202,71,0.65)}\
+section.lang-typescript{background:rgba(46,116,194,0.08);border-left-color:rgba(46,116,194,0.55)}\
+section.lang-tsx{background:rgba(86,156,214,0.08);border-left-color:rgba(86,156,214,0.55)}\
+section.lang-java{background:rgba(196,69,60,0.08);border-left-color:rgba(196,69,60,0.55)}\
+section.lang-kotlin{background:rgba(193,71,167,0.08);border-left-color:rgba(193,71,167,0.55)}\
+section.lang-go{background:rgba(0,173,181,0.08);border-left-color:rgba(0,173,181,0.55)}\
+section.lang-cpp{background:rgba(120,80,180,0.08);border-left-color:rgba(120,80,180,0.55)}\
+section.lang-csharp{background:rgba(83,150,80,0.08);border-left-color:rgba(83,150,80,0.55)}\
+section.lang-php{background:rgba(98,113,178,0.08);border-left-color:rgba(98,113,178,0.55)}\
+section.lang-bash{background:rgba(96,128,96,0.08);border-left-color:rgba(96,128,96,0.55)}\
+section.lang-perl{background:rgba(180,120,60,0.08);border-left-color:rgba(180,120,60,0.55)}\
+section.lang-lua{background:rgba(0,86,180,0.08);border-left-color:rgba(0,86,180,0.55)}\
+section.lang-tcl{background:rgba(160,90,140,0.08);border-left-color:rgba(160,90,140,0.55)}\
+section.lang-other{background:rgba(127,127,127,0.06);border-left-color:rgba(127,127,127,0.45)}\
+@media (prefers-color-scheme:dark){\
+section.lang-rust{background:rgba(222,128,82,0.16)}\
+section.lang-python{background:rgba(58,118,196,0.18)}\
+section.lang-javascript{background:rgba(229,202,71,0.16)}\
+section.lang-typescript{background:rgba(46,116,194,0.18)}\
+section.lang-tsx{background:rgba(86,156,214,0.18)}\
+section.lang-java{background:rgba(196,69,60,0.18)}\
+section.lang-kotlin{background:rgba(193,71,167,0.18)}\
+section.lang-go{background:rgba(0,173,181,0.18)}\
+section.lang-cpp{background:rgba(120,80,180,0.20)}\
+section.lang-csharp{background:rgba(83,150,80,0.18)}\
+section.lang-php{background:rgba(98,113,178,0.20)}\
+section.lang-bash{background:rgba(96,128,96,0.18)}\
+section.lang-perl{background:rgba(180,120,60,0.18)}\
+section.lang-lua{background:rgba(0,86,180,0.20)}\
+section.lang-tcl{background:rgba(160,90,140,0.20)}\
+section.lang-other{background:rgba(200,200,200,0.10)}\
+}\
 .summary{font-size:0.9rem;color:#444;margin-bottom:0.5rem}\
 .summary strong{color:#222}\
 .summary p{margin:0.2rem 0}\
@@ -83,6 +120,33 @@ table.hotspot th[aria-sort=descending]::after{content:\" \\2193\"}\
 table.hotspot tr:nth-child(even) td{background:#fafafa}\
 table.hotspot td.numeric{text-align:right;font-variant-numeric:tabular-nums}\
 ";
+
+/// Map a `LANG::get_name()` string to the per-language CSS class
+/// suffix used in [`INLINE_CSS`]. Keeping this in lockstep with the
+/// palette in `INLINE_CSS` is enforced by `palette_classes_have_css`.
+///
+/// Returns `"other"` for any language without an explicit palette
+/// entry — those still receive the neutral `lang-section` styling.
+fn language_palette_slug(lang_name: &str) -> &'static str {
+    match lang_name {
+        "rust" => "rust",
+        "python" => "python",
+        "javascript" => "javascript",
+        "typescript" => "typescript",
+        "tsx" => "tsx",
+        "java" => "java",
+        "kotlin" => "kotlin",
+        "go" => "go",
+        "c/c++" => "cpp",
+        "c#" => "csharp",
+        "php" => "php",
+        "bash" => "bash",
+        "perl" => "perl",
+        "lua" => "lua",
+        "tcl" => "tcl",
+        _ => "other",
+    }
+}
 
 const INLINE_JS: &str = "\
 (function(){\
@@ -411,7 +475,12 @@ fn write_language_section(
     top_n: usize,
 ) {
     let display_name = title_case(lang_name);
-    let _ = writeln!(out, "<section><h2>{}</h2>", escape_html(&display_name));
+    let slug = language_palette_slug(lang_name);
+    let _ = writeln!(
+        out,
+        "<section class=\"lang-section lang-{slug}\"><h2>{}</h2>",
+        escape_html(&display_name)
+    );
 
     // Single pass that splits `entries` into per-kind buckets — the
     // earlier two-filter version walked the slice twice.
@@ -1187,6 +1256,77 @@ mod tests {
                 "expected bare <th>{plain}</th> in output"
             );
         }
+    }
+
+    #[test]
+    fn language_palette_slug_known_and_fallback() {
+        assert_eq!(language_palette_slug("rust"), "rust");
+        assert_eq!(language_palette_slug("python"), "python");
+        assert_eq!(language_palette_slug("c/c++"), "cpp");
+        assert_eq!(language_palette_slug("c#"), "csharp");
+        // Languages without an explicit palette entry fall through to
+        // the neutral tint rather than fabricating a slug.
+        assert_eq!(language_palette_slug("ccomment"), "other");
+        assert_eq!(language_palette_slug("preproc"), "other");
+        assert_eq!(language_palette_slug(""), "other");
+    }
+
+    #[test]
+    fn per_language_sections_carry_palette_class() {
+        let out = generate_html_report(&two_lang_fixture(), 5);
+        assert!(
+            out.contains("<section class=\"lang-section lang-rust\"><h2>Rust</h2>"),
+            "Rust section must carry stable lang-rust palette class"
+        );
+        assert!(
+            out.contains("<section class=\"lang-section lang-python\"><h2>Python</h2>"),
+            "Python section must carry stable lang-python palette class"
+        );
+        // Both palette rules must be present in the inline stylesheet
+        // so the class actually paints something.
+        assert!(out.contains("section.lang-rust{background:"));
+        assert!(out.contains("section.lang-python{background:"));
+        // Dark-mode adapter is present so contrast holds in both themes.
+        assert!(out.contains("@media (prefers-color-scheme:dark)"));
+    }
+
+    #[test]
+    fn unknown_language_falls_back_to_lang_other() {
+        // The renderer never sees a language outside `LANG`, but the
+        // slug mapper must still degrade gracefully — exercised here by
+        // calling the helper directly so a future grammar addition
+        // (no palette entry yet) still renders cleanly.
+        let slug = language_palette_slug("zig");
+        assert_eq!(slug, "other");
+        assert!(INLINE_CSS.contains("section.lang-other{background:"));
+    }
+
+    #[test]
+    fn overview_table_and_actionable_summary_not_tinted() {
+        let out = generate_html_report(&two_lang_fixture(), 5);
+        // The per-language overview table sits between the global
+        // <h2>Per-language overview</h2> and the first per-language
+        // <section>. It must not be wrapped in a tinted section.
+        let overview = out
+            .find("<h2>Per-language overview</h2>")
+            .expect("overview heading present");
+        let first_section = out
+            .find("<section class=\"lang-section")
+            .expect("at least one per-language section");
+        assert!(
+            overview < first_section,
+            "overview heading must precede the first tinted section"
+        );
+        let between = &out[overview..first_section];
+        assert!(
+            !between.contains("lang-section"),
+            "overview region must not pick up a per-language tint"
+        );
+
+        // Actionable summaries live inside per-language sections by
+        // design (one per language); ensure no fixture language fell
+        // through to the neutral fallback class on a `<section>`.
+        assert!(!out.contains("lang-section lang-other"));
     }
 
     #[test]
