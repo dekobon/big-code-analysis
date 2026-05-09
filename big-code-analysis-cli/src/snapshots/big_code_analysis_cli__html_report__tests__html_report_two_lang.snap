@@ -1,0 +1,150 @@
+---
+source: big-code-analysis-cli/src/html_report.rs
+expression: out
+---
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Code Quality Metrics Summary — big-code-analysis</title>
+<style>body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;margin:1.5rem;color:#222;background:#fafafa}h1{font-size:1.4rem;margin:0 0 0.5rem}h2{font-size:1.15rem;margin:1.5rem 0 0.5rem;border-bottom:1px solid #ccc;padding-bottom:0.25rem}h3{font-size:1rem;margin:1rem 0 0.4rem;color:#444}section{margin-top:2rem}.summary{font-size:0.9rem;color:#444;margin-bottom:0.5rem}.summary strong{color:#222}.summary p{margin:0.2rem 0}.note{font-size:0.85rem;color:#555;margin:0.4rem 0}ul{margin:0.4rem 0 0.4rem 1.2rem;padding:0}li{margin:0.15rem 0;font-size:0.9rem}table.hotspot{border-collapse:collapse;width:100%;font-size:0.85rem;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,0.06);margin-bottom:0.5rem}table.hotspot th,table.hotspot td{padding:0.4rem 0.6rem;border-bottom:1px solid #e5e5e5;text-align:left;white-space:nowrap}table.hotspot th{background:#f0f0f0;cursor:pointer;user-select:none;font-weight:600}table.hotspot th:hover{background:#e5e5e5}table.hotspot th[aria-sort=ascending]::after{content:" \2191"}table.hotspot th[aria-sort=descending]::after{content:" \2193"}table.hotspot tr:nth-child(even) td{background:#fafafa}table.hotspot td.numeric{text-align:right;font-variant-numeric:tabular-nums}</style>
+</head>
+<body>
+<h1>Code Quality Metrics Summary</h1>
+<div class="summary">
+<p><strong>Files analyzed:</strong> 2 <strong>Languages:</strong> Python, Rust</p>
+<p><strong>Total SLOC:</strong> 40 <strong>PLOC:</strong> 50 <strong>Comments:</strong> 10</p>
+<p><strong>Functions/methods:</strong> 3 <strong>Classes/impls/traits:</strong> 0</p>
+<p><strong>Comment ratio:</strong> 25.0%</p>
+</div>
+<h2>Per-language overview</h2>
+<table class="hotspot">
+<thead><tr><th>Language</th><th data-numeric="1">Files</th><th data-numeric="1">SLOC</th><th data-numeric="1">Functions</th><th data-numeric="1">Avg MI</th><th data-numeric="1">Avg CC</th><th data-numeric="1">Avg Cognitive</th></tr></thead>
+<tbody>
+<tr><td>Python</td><td class="numeric">1</td><td class="numeric">20</td><td class="numeric">1</td><td class="numeric">50.0</td><td class="numeric">3.0</td><td class="numeric">2.0</td></tr>
+<tr><td>Rust</td><td class="numeric">1</td><td class="numeric">20</td><td class="numeric">2</td><td class="numeric">50.0</td><td class="numeric">3.0</td><td class="numeric">2.0</td></tr>
+</tbody>
+</table>
+<section><h2>Python</h2>
+<h3>Summary</h3>
+<p class="note">Files: 1 | SLOC: 20 | PLOC: 25 | Comment ratio: 25.0%</p>
+<p class="note">Average MI: 50.0 (GOOD)</p>
+<h3>Maintainability Index (lowest files, top-5)</h3>
+<table class="hotspot">
+<thead><tr><th>File</th><th data-numeric="1">MI</th><th data-numeric="1">SLOC</th><th data-numeric="1">Tokens</th></tr></thead>
+<tbody>
+<tr><td>src/main.py</td><td class="numeric">50.0</td><td class="numeric">20</td><td class="numeric">30</td></tr>
+</tbody>
+</table>
+<h3>Cyclomatic Complexity Hotspots</h3>
+<table class="hotspot">
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1">CC</th><th data-numeric="1">Cognitive</th><th data-numeric="1">SLOC</th><th data-numeric="1">Tokens</th></tr></thead>
+<tbody>
+<tr><td>greet</td><td>src/main.py</td><td class="numeric">1</td><td class="numeric">3</td><td class="numeric">2</td><td class="numeric">20</td><td class="numeric">30</td></tr>
+</tbody>
+</table>
+<p class="note">Average CC: 3.0 | Max: 3 | CC &gt; 10: 0 functions | CC &gt; 20: 0 functions</p>
+<h3>Cognitive Complexity Hotspots</h3>
+<table class="hotspot">
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1">Cognitive</th><th data-numeric="1">CC</th><th data-numeric="1">SLOC</th><th data-numeric="1">Tokens</th></tr></thead>
+<tbody>
+<tr><td>greet</td><td>src/main.py</td><td class="numeric">1</td><td class="numeric">2</td><td class="numeric">3</td><td class="numeric">20</td><td class="numeric">30</td></tr>
+</tbody>
+</table>
+<h3>Halstead Effort Hotspots</h3>
+<table class="hotspot">
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Effort</th><th data-numeric="1">Volume</th><th data-numeric="1">Est. Bugs</th><th data-numeric="1">SLOC</th><th data-numeric="1">Tokens</th></tr></thead>
+<tbody>
+<tr><td>greet</td><td>src/main.py</td><td class="numeric">500</td><td class="numeric">100</td><td class="numeric">0.10</td><td class="numeric">20</td><td class="numeric">30</td></tr>
+</tbody>
+</table>
+<h3>Largest Functions by SLOC</h3>
+<table class="hotspot">
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1">SLOC</th><th data-numeric="1">Tokens</th><th data-numeric="1">CC</th><th data-numeric="1">Cognitive</th></tr></thead>
+<tbody>
+<tr><td>greet</td><td>src/main.py</td><td class="numeric">1</td><td class="numeric">20</td><td class="numeric">30</td><td class="numeric">3</td><td class="numeric">2</td></tr>
+</tbody>
+</table>
+<h3>Actionable Summary</h3>
+<p class="note">No major quality concerns detected.</p>
+<h3>Functions with the most exit points (NEXITS)</h3>
+<table class="hotspot">
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1">Exits</th><th data-numeric="1">CC</th><th data-numeric="1">SLOC</th><th data-numeric="1">Tokens</th></tr></thead>
+<tbody>
+<tr><td>greet</td><td>src/main.py</td><td class="numeric">1</td><td class="numeric">1</td><td class="numeric">3</td><td class="numeric">20</td><td class="numeric">30</td></tr>
+</tbody>
+</table>
+<h3>ABC Magnitude Hotspots</h3>
+<table class="hotspot">
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1">ABC</th><th data-numeric="1">SLOC</th><th data-numeric="1">Tokens</th></tr></thead>
+<tbody>
+<tr><td>greet</td><td>src/main.py</td><td class="numeric">1</td><td class="numeric">5.0</td><td class="numeric">20</td><td class="numeric">30</td></tr>
+</tbody>
+</table>
+</section>
+<section><h2>Rust</h2>
+<h3>Summary</h3>
+<p class="note">Files: 1 | SLOC: 20 | PLOC: 25 | Comment ratio: 25.0%</p>
+<p class="note">Average MI: 50.0 (GOOD)</p>
+<h3>Maintainability Index (lowest files, top-5)</h3>
+<table class="hotspot">
+<thead><tr><th>File</th><th data-numeric="1">MI</th><th data-numeric="1">SLOC</th><th data-numeric="1">Tokens</th></tr></thead>
+<tbody>
+<tr><td>src/lib.rs</td><td class="numeric">50.0</td><td class="numeric">20</td><td class="numeric">30</td></tr>
+</tbody>
+</table>
+<h3>Cyclomatic Complexity Hotspots</h3>
+<table class="hotspot">
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1">CC</th><th data-numeric="1">Cognitive</th><th data-numeric="1">SLOC</th><th data-numeric="1">Tokens</th></tr></thead>
+<tbody>
+<tr><td>compute</td><td>src/lib.rs</td><td class="numeric">1</td><td class="numeric">3</td><td class="numeric">2</td><td class="numeric">20</td><td class="numeric">30</td></tr>
+<tr><td>do_stuff</td><td>src/lib.rs</td><td class="numeric">1</td><td class="numeric">3</td><td class="numeric">2</td><td class="numeric">20</td><td class="numeric">30</td></tr>
+</tbody>
+</table>
+<p class="note">Average CC: 3.0 | Max: 3 | CC &gt; 10: 0 functions | CC &gt; 20: 0 functions</p>
+<h3>Cognitive Complexity Hotspots</h3>
+<table class="hotspot">
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1">Cognitive</th><th data-numeric="1">CC</th><th data-numeric="1">SLOC</th><th data-numeric="1">Tokens</th></tr></thead>
+<tbody>
+<tr><td>compute</td><td>src/lib.rs</td><td class="numeric">1</td><td class="numeric">2</td><td class="numeric">3</td><td class="numeric">20</td><td class="numeric">30</td></tr>
+<tr><td>do_stuff</td><td>src/lib.rs</td><td class="numeric">1</td><td class="numeric">2</td><td class="numeric">3</td><td class="numeric">20</td><td class="numeric">30</td></tr>
+</tbody>
+</table>
+<h3>Halstead Effort Hotspots</h3>
+<table class="hotspot">
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Effort</th><th data-numeric="1">Volume</th><th data-numeric="1">Est. Bugs</th><th data-numeric="1">SLOC</th><th data-numeric="1">Tokens</th></tr></thead>
+<tbody>
+<tr><td>compute</td><td>src/lib.rs</td><td class="numeric">500</td><td class="numeric">100</td><td class="numeric">0.10</td><td class="numeric">20</td><td class="numeric">30</td></tr>
+<tr><td>do_stuff</td><td>src/lib.rs</td><td class="numeric">500</td><td class="numeric">100</td><td class="numeric">0.10</td><td class="numeric">20</td><td class="numeric">30</td></tr>
+</tbody>
+</table>
+<h3>Largest Functions by SLOC</h3>
+<table class="hotspot">
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1">SLOC</th><th data-numeric="1">Tokens</th><th data-numeric="1">CC</th><th data-numeric="1">Cognitive</th></tr></thead>
+<tbody>
+<tr><td>compute</td><td>src/lib.rs</td><td class="numeric">1</td><td class="numeric">20</td><td class="numeric">30</td><td class="numeric">3</td><td class="numeric">2</td></tr>
+<tr><td>do_stuff</td><td>src/lib.rs</td><td class="numeric">1</td><td class="numeric">20</td><td class="numeric">30</td><td class="numeric">3</td><td class="numeric">2</td></tr>
+</tbody>
+</table>
+<h3>Actionable Summary</h3>
+<p class="note">No major quality concerns detected.</p>
+<h3>Functions with the most exit points (NEXITS)</h3>
+<table class="hotspot">
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1">Exits</th><th data-numeric="1">CC</th><th data-numeric="1">SLOC</th><th data-numeric="1">Tokens</th></tr></thead>
+<tbody>
+<tr><td>compute</td><td>src/lib.rs</td><td class="numeric">1</td><td class="numeric">1</td><td class="numeric">3</td><td class="numeric">20</td><td class="numeric">30</td></tr>
+<tr><td>do_stuff</td><td>src/lib.rs</td><td class="numeric">1</td><td class="numeric">1</td><td class="numeric">3</td><td class="numeric">20</td><td class="numeric">30</td></tr>
+</tbody>
+</table>
+<h3>ABC Magnitude Hotspots</h3>
+<table class="hotspot">
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1">ABC</th><th data-numeric="1">SLOC</th><th data-numeric="1">Tokens</th></tr></thead>
+<tbody>
+<tr><td>compute</td><td>src/lib.rs</td><td class="numeric">1</td><td class="numeric">5.0</td><td class="numeric">20</td><td class="numeric">30</td></tr>
+<tr><td>do_stuff</td><td>src/lib.rs</td><td class="numeric">1</td><td class="numeric">5.0</td><td class="numeric">20</td><td class="numeric">30</td></tr>
+</tbody>
+</table>
+</section>
+<script>(function(){function num(s){return s===''?Number.POSITIVE_INFINITY:parseFloat(s.replace(/,/g,''));}document.querySelectorAll('table.hotspot').forEach(function(table){var headers=table.querySelectorAll('thead th');headers.forEach(function(th,idx){th.addEventListener('click',function(){sort(table,idx,th);});});});function sort(tbl,idx,th){var tbody=tbl.tBodies[0];if(!tbody)return;var rows=Array.prototype.slice.call(tbody.rows);var numeric=th.dataset.numeric==='1';var dir=th.getAttribute('aria-sort')==='ascending'?'descending':'ascending';tbl.querySelectorAll('thead th').forEach(function(h){h.removeAttribute('aria-sort');});th.setAttribute('aria-sort',dir);var sign=dir==='ascending'?1:-1;rows.sort(function(a,b){var av=a.cells[idx].textContent;var bv=b.cells[idx].textContent;if(numeric){var an=num(av);var bn=num(bv);if(an<bn)return -1*sign;if(an>bn)return 1*sign;return 0;}return av.localeCompare(bv)*sign;});rows.forEach(function(r){tbody.appendChild(r);});}})();</script>
+</body>
+</html>
