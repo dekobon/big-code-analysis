@@ -1283,6 +1283,8 @@ foo 1
 bar 2 3",
             "foo.tcl",
             |metric| {
+                assert_eq!(metric.nom.functions_sum(), 2.0);
+                assert_eq!(metric.nom.closures_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -1297,6 +1299,8 @@ bar 2 3",
 }",
             "foo.tcl",
             |metric| {
+                assert_eq!(metric.nom.functions_sum(), 2.0);
+                assert_eq!(metric.nom.closures_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -1311,6 +1315,8 @@ bar 2 3",
          }",
             "foo.ts",
             |metric| {
+                assert_eq!(metric.nom.functions_sum(), 2.0);
+                assert_eq!(metric.nom.closures_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -1324,6 +1330,8 @@ bar 2 3",
          const h = (x: number): number => x * 2;",
             "foo.ts",
             |metric| {
+                assert_eq!(metric.nom.functions_sum(), 3.0);
+                assert_eq!(metric.nom.closures_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -1338,6 +1346,8 @@ bar 2 3",
          }",
             "foo.tsx",
             |metric| {
+                assert_eq!(metric.nom.functions_sum(), 2.0);
+                assert_eq!(metric.nom.closures_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -1351,6 +1361,8 @@ bar 2 3",
          const h = (x: number): number => x * 2;",
             "foo.tsx",
             |metric| {
+                assert_eq!(metric.nom.functions_sum(), 3.0);
+                assert_eq!(metric.nom.closures_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -1368,6 +1380,8 @@ g() {
 }",
             "foo.sh",
             |metric| {
+                assert_eq!(metric.nom.functions_sum(), 2.0);
+                assert_eq!(metric.nom.closures_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -1385,6 +1399,8 @@ outer() {
 }",
             "foo.sh",
             |metric| {
+                assert_eq!(metric.nom.functions_sum(), 2.0);
+                assert_eq!(metric.nom.closures_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -1401,6 +1417,8 @@ outer() {
          }",
             "foo.js",
             |metric| {
+                assert_eq!(metric.nom.functions_sum(), 2.0);
+                assert_eq!(metric.nom.closures_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -1415,6 +1433,8 @@ outer() {
          }",
             "foo.js",
             |metric| {
+                assert_eq!(metric.nom.functions_sum(), 2.0);
+                assert_eq!(metric.nom.closures_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -1429,6 +1449,8 @@ outer() {
          })();",
             "foo.js",
             |metric| {
+                assert_eq!(metric.nom.functions_sum(), 0.0);
+                assert_eq!(metric.nom.closures_sum(), 1.0);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -1443,6 +1465,8 @@ outer() {
          }",
             "foo.kt",
             |metric| {
+                assert_eq!(metric.nom.functions_sum(), 2.0);
+                assert_eq!(metric.nom.closures_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
@@ -1457,6 +1481,8 @@ outer() {
          }",
             "foo.kt",
             |metric| {
+                assert_eq!(metric.nom.functions_sum(), 1.0);
+                assert_eq!(metric.nom.closures_sum(), 1.0);
                 insta::assert_json_snapshot!(metric.nom);
             },
         );
