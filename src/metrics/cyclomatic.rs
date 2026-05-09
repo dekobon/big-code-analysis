@@ -2478,7 +2478,6 @@ f() {
 
     #[test]
     fn tcl_logical_operators() {
-        // &&=1 and ||=1 inside expr; sum=3 (chunk=1, proc base=1, &&=1, ||=1)
         check_metrics::<TclParser>(
             "proc f {x y z} {
     if {$x > 0 && $y > 0 || $z > 0} {
