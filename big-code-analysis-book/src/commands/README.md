@@ -2,6 +2,31 @@
 
 **big-code-analysis-cli** offers a range of **commands** to analyze and extract information from source code. Each command **may** include parameters specific to the task it performs. Below, we describe the core types of commands available in **big-code-analysis-cli**.
 
+## A note on the `bca` shorthand
+
+Throughout this book, examples use **`bca`** as shorthand for the binary.
+**`bca` is not the installed binary name** — the actual binary is
+`big-code-analysis-cli`. The shorthand is purely a documentation
+convention for readability.
+
+If you want a literal `bca` command, set up a shell alias yourself, for
+example:
+
+```bash
+alias bca=big-code-analysis-cli
+# or, after installing:
+ln -s "$(command -v big-code-analysis-cli)" ~/.local/bin/bca
+```
+
+Anywhere you see `bca <subcommand>` in this book, the literal command
+is:
+
+```bash
+big-code-analysis-cli <subcommand>
+# or, from a checkout of the repository:
+cargo run -p big-code-analysis-cli --release -- <subcommand>
+```
+
 ## Metrics
 
 Metrics provide quantitative measures about source code, which can help in:

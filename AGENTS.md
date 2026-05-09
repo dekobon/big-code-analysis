@@ -25,6 +25,15 @@ versions in the root `Cargo.toml`.
 
 The default branch is **`main`**.
 
+The CLI binary is named **`big-code-analysis-cli`**. Documentation
+under `big-code-analysis-book/` and many issue / commit messages refer
+to it as **`bca`** for readability — that shorthand is **not** an
+installed alias; the literal command is always
+`big-code-analysis-cli` (or `cargo run -p big-code-analysis-cli --`
+from a checkout). When telling a user how to run a command, either
+spell out `big-code-analysis-cli` or note that they need to alias
+`bca` themselves.
+
 ## Project layout
 
 - `src/lib.rs` — public re-exports; this is the published API surface.
