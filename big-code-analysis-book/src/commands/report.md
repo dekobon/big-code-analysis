@@ -120,6 +120,12 @@ toggle descending. Each table sorts independently. Empty cells (where a
 metric was not measured) sort as if they were positive infinity, which
 keeps "no data" rows out of the visible top of a hotspot.
 
+Hover (or keyboard-focus, where the browser supports it) any metric
+column header — `SLOC`, `MI`, `CC`, `ABC`, `WMC`, `NPA`, `NPM`,
+`Exits`, etc. — for a one-sentence plain-English explanation of the
+metric. The tooltip is delivered through the native HTML `title`
+attribute, so it works offline with no JavaScript.
+
 Every interpolated string — function name, file path, language label —
 is HTML-escaped on the way out, so a crafted source path or symbol name
 cannot inject markup or break out of an attribute value.
