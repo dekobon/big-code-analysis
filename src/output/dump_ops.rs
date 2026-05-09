@@ -134,6 +134,7 @@ mod tests {
         // operators or operands is a realistic input.
         let ops = Ops {
             name: Some("unit".to_string()),
+            name_was_lossy: false,
             start_line: 1,
             end_line: 1,
             kind: SpaceKind::Unit,

@@ -21,12 +21,20 @@ pub struct Ops {
     /// supplied to [`operands_and_operators`] converted via lossy UTF-8
     /// conversion, so it is always `Some`. Non-UTF-8 path components on
     /// Linux (or invalid UTF-16 on Windows) become U+FFFD replacement
-    /// characters; this name is intended for display/identification only
-    /// and must not be used as a map key or for error correlation.
+    /// characters; in that case [`Ops::name_was_lossy`] is `true` and
+    /// downstream consumers must treat the name as display-only — never
+    /// as a map key or for error correlation.
     ///
     /// For nested spaces, `None` means an error occurred in parsing the
     /// name of the function space from the AST.
     pub name: Option<String>,
+    /// `true` when [`Ops::name`] was produced by lossy conversion (the
+    /// original path contained non-UTF-8 bytes and was rendered using
+    /// U+FFFD replacement characters). Always `false` for nested spaces
+    /// and for top-level spaces with valid-UTF-8 paths. Skipped from
+    /// JSON output when `false` so existing schemas keep their shape.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub name_was_lossy: bool,
     /// The first line of a function space.
     pub start_line: usize,
     /// The last line of a function space.
@@ -55,6 +63,7 @@ impl Ops {
         };
         Self {
             name: T::get_func_space_name(node, code).map(str::to_owned),
+            name_was_lossy: false,
             spaces: Vec::new(),
             kind,
             start_line: start_position,
@@ -221,8 +230,11 @@ pub fn operands_and_operators<'a, T: ParserTrait>(parser: &'a T, path: &'a Path)
         // See `FuncSpace::name` rationale in `spaces.rs`: lossy conversion
         // keeps the top-level `Ops` identifiable for non-UTF-8 paths
         // rather than collapsing into the parse-error sentinel `None`.
-        // For display only — not for map keys or error correlation.
+        // The `name_was_lossy` flag lets downstream consumers detect
+        // and avoid using the U+FFFD-bearing name as an identifier.
+        let was_lossy = path.to_str().is_none();
         state.ops.name = Some(path.to_string_lossy().into_owned());
+        state.ops.name_was_lossy = was_lossy;
         state.ops
     })
 }
@@ -755,6 +767,23 @@ mod tests {
         assert!(
             name.starts_with("foo_") && name.ends_with("_bar.py"),
             "lossy name must preserve the surrounding ASCII bytes, got {name:?}"
+        );
+        assert!(
+            ops.name_was_lossy,
+            "name_was_lossy must be true when the source path was non-UTF-8"
+        );
+    }
+
+    /// Top-level `Ops` with valid UTF-8 paths must NOT have
+    /// `name_was_lossy` set.
+    #[test]
+    fn utf8_path_does_not_set_name_was_lossy() {
+        let path = PathBuf::from("foo.py");
+        let ops = get_ops(&LANG::Python, b"a = 1\n".to_vec(), &path, None)
+            .expect("get_ops must yield a top-level Ops");
+        assert!(
+            !ops.name_was_lossy,
+            "name_was_lossy must be false for valid-UTF-8 paths"
         );
     }
 }
