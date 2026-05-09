@@ -1,0 +1,19 @@
+# Bare insta::assert_json_snapshot! call counts per metric file.
+# Maintained by check-snapshot-anchors.py; see AGENTS.md.
+# Lower-or-equal current counts pass; any increase fails CI.
+# Regenerate with: ./check-snapshot-anchors.py --update
+
+src/metrics/abc.rs 27
+src/metrics/cognitive.rs 0
+src/metrics/cyclomatic.rs 1
+src/metrics/exit.rs 0
+src/metrics/halstead.rs 4
+src/metrics/loc.rs 0
+src/metrics/mi.rs 0
+src/metrics/mod.rs 0
+src/metrics/nargs.rs 0
+src/metrics/nom.rs 0
+src/metrics/npa.rs 13
+src/metrics/npm.rs 23
+src/metrics/tokens.rs 0
+src/metrics/wmc.rs 13
