@@ -72,7 +72,6 @@ section.lang-rust{background:rgba(222,128,82,0.08);border-left-color:rgba(222,12
 section.lang-python{background:rgba(58,118,196,0.08);border-left-color:rgba(58,118,196,0.55)}\
 section.lang-javascript{background:rgba(229,202,71,0.10);border-left-color:rgba(229,202,71,0.65)}\
 section.lang-typescript{background:rgba(46,116,194,0.08);border-left-color:rgba(46,116,194,0.55)}\
-section.lang-tsx{background:rgba(86,156,214,0.08);border-left-color:rgba(86,156,214,0.55)}\
 section.lang-java{background:rgba(196,69,60,0.08);border-left-color:rgba(196,69,60,0.55)}\
 section.lang-kotlin{background:rgba(193,71,167,0.08);border-left-color:rgba(193,71,167,0.55)}\
 section.lang-go{background:rgba(0,173,181,0.08);border-left-color:rgba(0,173,181,0.55)}\
@@ -89,7 +88,6 @@ section.lang-rust{background:rgba(222,128,82,0.16)}\
 section.lang-python{background:rgba(58,118,196,0.18)}\
 section.lang-javascript{background:rgba(229,202,71,0.16)}\
 section.lang-typescript{background:rgba(46,116,194,0.18)}\
-section.lang-tsx{background:rgba(86,156,214,0.18)}\
 section.lang-java{background:rgba(196,69,60,0.18)}\
 section.lang-kotlin{background:rgba(193,71,167,0.18)}\
 section.lang-go{background:rgba(0,173,181,0.18)}\
@@ -121,31 +119,37 @@ table.hotspot tr:nth-child(even) td{background:#fafafa}\
 table.hotspot td.numeric{text-align:right;font-variant-numeric:tabular-nums}\
 ";
 
-/// Map a `LANG::get_name()` string to the per-language CSS class
-/// suffix used in [`INLINE_CSS`]. Keeping this in lockstep with the
-/// palette in `INLINE_CSS` is enforced by `palette_classes_have_css`.
+/// `LANG::get_name()` -> CSS class suffix table. The renderer uses
+/// every entry here; `language_palette_classes_have_css` walks
+/// [`INLINE_CSS`] to confirm both the light and dark rules exist for
+/// each suffix, so adding a row without the matching CSS fails the
+/// suite. `"other"` is the neutral fallback for any name not listed.
 ///
-/// Returns `"other"` for any language without an explicit palette
-/// entry — those still receive the neutral `lang-section` styling.
+/// Names match production output of [`big_code_analysis::LANG::get_name`]
+/// (see `src/langs.rs`); aliases like `LANG::Tsx`/`Mozjs` already
+/// collapse to `"typescript"`/`"javascript"` upstream.
+const LANGUAGE_PALETTE: &[(&str, &str)] = &[
+    ("rust", "rust"),
+    ("python", "python"),
+    ("javascript", "javascript"),
+    ("typescript", "typescript"),
+    ("java", "java"),
+    ("kotlin", "kotlin"),
+    ("go", "go"),
+    ("c/c++", "cpp"),
+    ("c#", "csharp"),
+    ("php", "php"),
+    ("bash", "bash"),
+    ("perl", "perl"),
+    ("lua", "lua"),
+    ("tcl", "tcl"),
+];
+
 fn language_palette_slug(lang_name: &str) -> &'static str {
-    match lang_name {
-        "rust" => "rust",
-        "python" => "python",
-        "javascript" => "javascript",
-        "typescript" => "typescript",
-        "tsx" => "tsx",
-        "java" => "java",
-        "kotlin" => "kotlin",
-        "go" => "go",
-        "c/c++" => "cpp",
-        "c#" => "csharp",
-        "php" => "php",
-        "bash" => "bash",
-        "perl" => "perl",
-        "lua" => "lua",
-        "tcl" => "tcl",
-        _ => "other",
-    }
+    LANGUAGE_PALETTE
+        .iter()
+        .find_map(|&(name, slug)| (name == lang_name).then_some(slug))
+        .unwrap_or("other")
 }
 
 const INLINE_JS: &str = "\
@@ -1264,11 +1268,73 @@ mod tests {
         assert_eq!(language_palette_slug("python"), "python");
         assert_eq!(language_palette_slug("c/c++"), "cpp");
         assert_eq!(language_palette_slug("c#"), "csharp");
+        // `LANG::Tsx` and `LANG::Mozjs` collapse to "typescript" and
+        // "javascript" upstream — the slug table reflects that, no
+        // standalone "tsx"/"mozjs" entry.
+        assert_eq!(language_palette_slug("typescript"), "typescript");
+        assert_eq!(language_palette_slug("javascript"), "javascript");
         // Languages without an explicit palette entry fall through to
         // the neutral tint rather than fabricating a slug.
         assert_eq!(language_palette_slug("ccomment"), "other");
         assert_eq!(language_palette_slug("preproc"), "other");
+        assert_eq!(language_palette_slug("tsx"), "other");
         assert_eq!(language_palette_slug(""), "other");
+    }
+
+    #[test]
+    fn language_palette_classes_have_css() {
+        // The slug table and the inline stylesheet must move in
+        // lockstep: every entry in `LANGUAGE_PALETTE` (plus the
+        // `"other"` fallback) needs both a light-mode rule and a
+        // dark-mode override, otherwise a `<section class="lang-X">`
+        // would render as plain `lang-section`. This is the test the
+        // doc-comment on `language_palette_slug` advertises.
+        let dark_block = INLINE_CSS
+            .split_once("@media (prefers-color-scheme:dark){")
+            .expect("dark-mode adapter present")
+            .1;
+        for slug in LANGUAGE_PALETTE
+            .iter()
+            .map(|&(_, slug)| slug)
+            .chain(std::iter::once("other"))
+        {
+            let light = format!("section.lang-{slug}{{background:");
+            assert!(
+                INLINE_CSS.contains(&light),
+                "missing light-mode CSS rule for slug {slug:?}: expected substring {light:?}"
+            );
+            assert!(
+                dark_block.contains(&light),
+                "missing dark-mode override for slug {slug:?}: expected substring {light:?} inside @media block"
+            );
+        }
+    }
+
+    #[test]
+    fn tsx_section_uses_typescript_palette() {
+        // `LANG::Tsx::get_name() == "typescript"`, so a TSX-only walk
+        // must end up tinted as typescript — not as a fabricated
+        // `lang-tsx` (no such CSS rule any more) and not as the
+        // neutral `lang-other` fallback.
+        let mut entries = vec![make_summary(
+            "App.tsx",
+            "src/App.tsx",
+            SpaceKind::Unit,
+            LANG::Tsx,
+        )];
+        entries.push(make_summary(
+            "render",
+            "src/App.tsx",
+            SpaceKind::Function,
+            LANG::Tsx,
+        ));
+        let out = generate_html_report(&entries, 5);
+        assert!(
+            out.contains("<section class=\"lang-section lang-typescript\">"),
+            "Tsx must reuse the typescript palette class"
+        );
+        assert!(!out.contains("lang-tsx"));
+        assert!(!out.contains("lang-section lang-other"));
     }
 
     #[test]
