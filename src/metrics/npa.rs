@@ -926,6 +926,9 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 8.0);
+                assert_eq!(metric.npa.class_na_sum(), 16.0);
+                assert_eq!(metric.npa.interface_na_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -945,6 +948,9 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 12.0);
+                assert_eq!(metric.npa.class_na_sum(), 18.0);
+                assert_eq!(metric.npa.interface_na_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -962,6 +968,9 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 4.0);
+                assert_eq!(metric.npa.class_na_sum(), 5.0);
+                assert_eq!(metric.npa.interface_na_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -977,6 +986,9 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.interface_na_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -993,6 +1005,9 @@ mod tests {
              }",
             "foo.cs",
             |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 4.0);
+                assert_eq!(metric.npa.class_na_sum(), 5.0);
+                assert_eq!(metric.npa.interface_na_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -1008,6 +1023,9 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.interface_na_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -1027,6 +1045,11 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
+                // Modifiers test: 4 of 7 fields are explicitly `public`. The
+                // visibility-filter split is the spec.
+                assert_eq!(metric.npa.class_npa_sum(), 4.0);
+                assert_eq!(metric.npa.class_na_sum(), 7.0);
+                assert_eq!(metric.npa.interface_na_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -1046,6 +1069,9 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+                assert_eq!(metric.npa.class_na_sum(), 5.0);
+                assert_eq!(metric.npa.interface_na_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -1064,6 +1090,9 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 4.0);
+                assert_eq!(metric.npa.interface_na_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -1081,6 +1110,9 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.interface_na_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -1097,6 +1129,9 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                assert_eq!(metric.npa.interface_na_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -1112,6 +1147,8 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 0.0);
+                assert_eq!(metric.npa.interface_na_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -1236,6 +1273,12 @@ mod tests {
         // Java's strict-explicit rule and do NOT count properties without
         // an explicit `public` modifier.
         check_metrics::<PhpParser>("<?php class A { var $x = 0; }", "foo.php", |metric| {
+            // The property is excluded from the public-count (npa) because
+            // `var` is not an explicit `public` modifier, but still
+            // contributes to the total-count (na). This split is the spec.
+            assert_eq!(metric.npa.class_npa_sum(), 0.0);
+            assert_eq!(metric.npa.class_na_sum(), 1.0);
+            assert_eq!(metric.npa.interface_na_sum(), 0.0);
             insta::assert_json_snapshot!(metric.npa);
         });
     }
