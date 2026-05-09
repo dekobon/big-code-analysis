@@ -839,6 +839,10 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
+                assert_eq!(metric.halstead.u_operators(), 13.0);
+                assert_eq!(metric.halstead.operators(), 32.0);
+                assert_eq!(metric.halstead.u_operands(), 13.0);
+                assert_eq!(metric.halstead.operands(), 23.0);
                 // Pin every Halstead field; values are whatever the
                 // classifier produces and become the regression spec.
                 insta::assert_json_snapshot!(metric.halstead);
@@ -863,6 +867,10 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
+                assert_eq!(metric.halstead.u_operators(), 6.0);
+                assert_eq!(metric.halstead.operators(), 33.0);
+                assert_eq!(metric.halstead.u_operands(), 21.0);
+                assert_eq!(metric.halstead.operands(), 23.0);
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );
@@ -1101,6 +1109,10 @@ f() {
             }",
             "foo.php",
             |metric| {
+                assert_eq!(metric.halstead.u_operators(), 11.0);
+                assert_eq!(metric.halstead.operators(), 15.0);
+                assert_eq!(metric.halstead.u_operands(), 9.0);
+                assert_eq!(metric.halstead.operands(), 22.0);
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );
@@ -1113,6 +1125,10 @@ f() {
             function inc(int $x): int { return $x + 1; }",
             "foo.php",
             |metric| {
+                assert_eq!(metric.halstead.u_operators(), 9.0);
+                assert_eq!(metric.halstead.operators(), 9.0);
+                assert_eq!(metric.halstead.u_operands(), 5.0);
+                assert_eq!(metric.halstead.operands(), 10.0);
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );

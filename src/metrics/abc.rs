@@ -1908,6 +1908,9 @@ mod tests {
     #[test]
     fn php_zero_abc() {
         check_metrics::<PhpParser>("<?php\n", "foo.php", |metric| {
+            assert_eq!(metric.abc.assignments_sum(), 0.0);
+            assert_eq!(metric.abc.branches_sum(), 0.0);
+            assert_eq!(metric.abc.conditions_sum(), 0.0);
             insta::assert_json_snapshot!(metric.abc);
         });
     }

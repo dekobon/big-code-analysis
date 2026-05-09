@@ -725,6 +725,8 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 8.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -746,6 +748,8 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 5.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -763,6 +767,8 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -783,6 +789,8 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -803,6 +811,8 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -820,6 +830,8 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -839,6 +851,8 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 4.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -854,6 +868,8 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -868,6 +884,8 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -880,6 +898,8 @@ mod tests {
             public interface I2 { bool GetB(); float GetC(); }",
             "foo.cs",
             |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 3.0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -896,6 +916,8 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -912,6 +934,8 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 1.0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
@@ -932,6 +956,8 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
