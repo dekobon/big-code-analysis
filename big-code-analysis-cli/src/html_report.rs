@@ -131,6 +131,49 @@ impl Align {
     }
 }
 
+/// Plain-English tooltip for a metric column header, or `None` when the
+/// header names a non-metric dimension (file, function, class, line,
+/// language). Centralises the abbreviation glossary so every section of
+/// the aggregate HTML report explains its columns identically.
+///
+/// Only headers actually emitted by [`generate_html_report`] are
+/// catalogued — see the `metric_headers_carry_tooltips` test, which
+/// scans real output and requires every entry here to appear in at
+/// least one rendered `<th>`.
+fn header_tooltip(header: &str) -> Option<&'static str> {
+    let tip = match header {
+        "SLOC" => "Source Lines Of Code: non-blank, non-comment source lines.",
+        "MI" | "Avg MI" => {
+            "Maintainability Index (Visual Studio scale, 0\u{2013}100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable."
+        }
+        "Tokens" => "Total lexical tokens (AST leaves excluding comments) in the unit.",
+        "CC" | "Avg CC" => {
+            "Cyclomatic Complexity: number of linearly independent control-flow paths through the function."
+        }
+        "Cognitive" | "Avg Cognitive" => {
+            "Cognitive complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight."
+        }
+        "Effort" => "Halstead effort: estimated mental effort to (re)create the code.",
+        "Volume" => "Halstead volume: program length weighted by vocabulary size.",
+        "Est. Bugs" => "Halstead bugs: estimated defect count derived from program volume.",
+        "Exits" => "Number of exit points (returns, throws, breaks out of the function).",
+        "ABC" => {
+            "ABC magnitude: sqrt(A\u{B2} + B\u{B2} + C\u{B2}) over Assignments, Branches, and Conditions."
+        }
+        "WMC" => {
+            "Weighted Methods per Class: sum of cyclomatic complexity across the class's methods."
+        }
+        "Methods" => "Number of methods declared on the class.",
+        "NPA" => "Number of Public Attributes declared on the class.",
+        "NPM" => "Number of Public Methods declared on the class.",
+        "Args" => "Number of declared parameters of the function.",
+        "Functions" => "Number of functions and methods analysed.",
+        "Files" => "Number of source files analysed.",
+        _ => return None,
+    };
+    Some(tip)
+}
+
 #[derive(Clone, Copy)]
 enum SortDir {
     Asc,
@@ -152,7 +195,11 @@ fn write_table(out: &mut String, headers: &[&str], aligns: &[Align], rows: &[Vec
         } else {
             ""
         };
-        let _ = write!(out, "<th{numeric_attr}>{}</th>", escape_html(h));
+        let _ = write!(out, "<th{numeric_attr}");
+        if let Some(tip) = header_tooltip(h) {
+            let _ = write!(out, " title=\"{}\"", escape_html(tip));
+        }
+        let _ = write!(out, ">{}</th>", escape_html(h));
     }
     let _ = out.write_str("</tr></thead>\n<tbody>\n");
     for row in rows {
@@ -1073,6 +1120,73 @@ mod tests {
         // total_cmp's NaN placement (currently treats NaN as larger
         // than any finite value); the contract is "doesn't panic".
         assert_eq!(entries.len(), 3);
+    }
+
+    #[test]
+    fn metric_headers_carry_tooltips() {
+        // Every metric abbreviation listed in issue #138 must render
+        // with a `title="…"` attribute so a casual reader can discover
+        // what each column means without leaving the page. Non-metric
+        // columns (File, Function, Class, Line, Language) intentionally
+        // have no tooltip — they describe the row, not a metric.
+        let mut summaries = rust_fixture();
+        // Force a class-like row so the WMC table is emitted, which
+        // owns the only Methods/NPA/NPM headers.
+        summaries.push(make_summary(
+            "Widget",
+            "src/lib.rs",
+            SpaceKind::Class,
+            LANG::Rust,
+        ));
+        // The "Args" table is gated on nargs > 3; bump one function so
+        // the section actually renders.
+        summaries[1].nargs = 5;
+        let out = generate_html_report(&summaries, 20);
+
+        for header in [
+            "SLOC",
+            "MI",
+            "Tokens",
+            "CC",
+            "Exits",
+            "ABC",
+            "WMC",
+            "Methods",
+            "NPA",
+            "NPM",
+            "Args",
+            "Cognitive",
+            "Effort",
+            "Volume",
+            "Est. Bugs",
+            "Files",
+            "Functions",
+            "Avg MI",
+            "Avg CC",
+            "Avg Cognitive",
+        ] {
+            let tip = header_tooltip(header)
+                .unwrap_or_else(|| panic!("missing tooltip mapping for header {header:?}"));
+            let needle = format!(" title=\"{}\">{header}</th>", escape_html(tip));
+            assert!(
+                out.contains(&needle),
+                "header {header:?} should render with title attribute; expected substring {needle:?}"
+            );
+        }
+
+        // Non-metric labels must remain bare so click-to-sort UX is not
+        // crowded with redundant tooltips for self-describing columns.
+        for plain in ["File", "Function", "Class", "Line", "Language"] {
+            assert!(
+                header_tooltip(plain).is_none(),
+                "header {plain:?} should not carry a tooltip"
+            );
+            let needle = format!(">{plain}</th>");
+            assert!(
+                out.contains(&needle),
+                "expected bare <th>{plain}</th> in output"
+            );
+        }
     }
 
     #[test]
