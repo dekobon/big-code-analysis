@@ -1,10 +1,11 @@
-//! Shared row-shape helpers for CSV and HTML output formats.
+//! Row-shape helpers for the CSV output format.
 //!
-//! Both formats walk the same FuncSpace tree and produce the same
-//! flat per-space metric matrix; only the per-cell rendering differs.
-//! Keeping the metric tuple and identity-column count in one place
-//! prevents the two formats from drifting silently when a metric is
-//! added or renamed.
+//! The CSV writer walks the FuncSpace tree and emits a flat per-space
+//! metric matrix. The metric tuple and identity-column count live in
+//! their own module so the column-count invariant
+//! (`IDENTITY_COLUMNS + METRIC_COUNT == CSV_HEADER.len()`) is asserted
+//! once at compile time in `csv.rs` rather than scattered across the
+//! row-walk site.
 
 use crate::FuncSpace;
 
@@ -18,9 +19,9 @@ pub(crate) const IDENTITY_COLUMNS: usize = 5;
 pub(crate) const METRIC_COUNT: usize = 111;
 
 /// Flatten a single FuncSpace's metrics into the flat column order
-/// used by CSV / HTML output. The order is the public contract
-/// exposed via `output::csv::CSV_HEADER`; callers iterate the returned
-/// array in lockstep with `CSV_HEADER[IDENTITY_COLUMNS..]`.
+/// used by CSV output. The order is the public contract exposed via
+/// `output::csv::CSV_HEADER`; callers iterate the returned array in
+/// lockstep with `CSV_HEADER[IDENTITY_COLUMNS..]`.
 pub(crate) fn metric_values(space: &FuncSpace) -> [f64; METRIC_COUNT] {
     let m = &space.metrics;
     let cyc = &m.cyclomatic;
