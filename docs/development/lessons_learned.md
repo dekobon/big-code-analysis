@@ -278,6 +278,19 @@ the diff pattern is "metric-value-only with no structural
 changes." Accepting blindly converts any newly-introduced metric
 bug into a frozen snapshot.
 
+**Human-readable derivation comments drift while the snapshot stays
+correct** (#143, `73b0c30`). The Tcl `tcl_logical_operators` cyclomatic
+test (a `proc f` with one `if {$x > 0 && $y > 0 || $z > 0}`) carried a
+`// &&=1 and ||=1 inside expr; sum=3` comment, but the accepted snapshot
+value was 5 — the comment counted `&&` and `||` but forgot the outer
+`if`. The snapshot was right; only the human-readable spec drifted, and
+the mismatch was invisible until the bare snapshot was converted to
+Layer 2 (`assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0)`
+immediately above the snapshot call). The discipline of forcing a
+positive `assert_eq!` into the diff catches this entire class of drift:
+the comment can silently desync from reality, but a literal value in
+source cannot.
+
 **Lesson:** When writing or accepting a snapshot, ask: "if the code
 were wrong in a plausible way, would this snapshot still pass?" If
 yes, derive at least one assertion from an external source — the
@@ -617,5 +630,57 @@ test that submits requests at a rate slightly above
 server rejects rather than queues. The `tokio::time::timeout` +
 `spawn_blocking` combination *looks* defensive in code review precisely
 because each piece is correct in isolation; the gap is at the seam.
+
+---
+
+## 14. Forked language enums collapse via shared identifiers
+
+(Slug / lookup helpers grow dead arms when an enum's identity method
+collapses two variants to the same key.)
+
+When two `LANG` variants represent dialects of the same language (TSX
+forked from TypeScript, JavaScript and Mozjs sharing the JS family), an
+identity-extracting method like `LANG::get_name()` typically collapses
+the dialect to a canonical name — `LANG::Tsx::get_name()` returns
+`"typescript"`, not `"tsx"`. Any helper that branches per-variant on
+that canonical name has unreachable arms for every variant whose name
+collapses, and any unit test that drives the helper with a literal
+string (`palette_slug("tsx")`) exercises the dead arm without ever
+crossing the production call path through the enum. The pattern is
+distinct from lesson 3 (sibling modules mirror each other) and lesson 7
+(wrapper-level tests masked by upstream filters): here the *enum's own
+identity-collapse* makes the branch unreachable from production while
+the test happily simulates a code path that does not exist.
+
+**`lang-tsx` palette arm dead in HTML aggregate report** (#139,
+`0a9eca1`). `language_palette_slug` matched on `LANG::get_name()` with
+explicit arms for `"javascript"`, `"typescript"`, `"tsx"`,
+`"mozjs"`, etc., and the embedded stylesheet shipped CSS rules for
+`.lang-tsx` (light + dark mode). The unit test
+`language_palette_slug_known_and_fallback` asserted on the helper
+directly with literal inputs (`"tsx"`, `"java"`, …), so it agreed
+that `"tsx"` mapped to the `lang-tsx` slug. Production code, however,
+called `language_palette_slug(lang.get_name())`, and
+`LANG::Tsx::get_name() == "typescript"` collapses TSX to the
+TypeScript palette before reaching the slug helper. The `lang-tsx`
+arm and its CSS rules were unreachable. The fix dropped the dead arm,
+replaced the per-variant `match` with a const
+`LANGUAGE_PALETTE: &[(&str, &str)]` table that an enforcement test
+introspects to assert every slug has both a light and dark CSS rule,
+and added a `tsx_section_uses_typescript_palette` test that drives
+the helper through `LANG::Tsx -> get_name() -> palette` end-to-end.
+
+**Lesson:** Whenever a helper branches on the output of a domain
+enum's identity method (`get_name()`, `to_str()`, `as_canonical()`),
+test it through the enum, not through literal strings — the literal
+test exercises a code path that production cannot reach. Before
+adding a per-variant arm, grep the enum implementation for cases
+where the identity method collapses two variants to the same value
+(`rg 'fn get_name' src/languages/`); if the variant you are about to
+match collapses to another variant's name, the arm is dead. When the
+helper is paired with a downstream artifact (a CSS rule, a JSON key,
+a config-file lookup), add a test that walks every slug the helper
+can emit and asserts the artifact exists for it — without that test,
+the dead arm and its dangling artifact survive review indefinitely.
 
 ---
