@@ -1186,6 +1186,8 @@ end",
 }",
             "foo.tcl",
             |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 1.0);
+                assert_eq!(metric.nexits.exit_max(), 1.0);
                 insta::assert_json_snapshot!(metric.nexits);
             },
         );
@@ -1202,6 +1204,8 @@ end",
 }",
             "foo.tcl",
             |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 2.0);
+                assert_eq!(metric.nexits.exit_max(), 2.0);
                 insta::assert_json_snapshot!(metric.nexits);
             },
         );
@@ -1220,6 +1224,8 @@ end",
          }",
             "foo.ts",
             |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 3.0);
+                assert_eq!(metric.nexits.exit_max(), 3.0);
                 insta::assert_json_snapshot!(metric.nexits);
             },
         );
@@ -1236,6 +1242,9 @@ end",
          }",
             "foo.ts",
             |metric| {
+                // outer has 1 return, inner has 1 return → sum=2, max=1
+                assert_eq!(metric.nexits.exit_sum(), 2.0);
+                assert_eq!(metric.nexits.exit_max(), 1.0);
                 insta::assert_json_snapshot!(metric.nexits);
             },
         );
@@ -1249,6 +1258,8 @@ end",
          }",
             "foo.tsx",
             |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 0.0);
+                assert_eq!(metric.nexits.exit_max(), 0.0);
                 insta::assert_json_snapshot!(metric.nexits);
             },
         );
@@ -1267,6 +1278,8 @@ end",
          }",
             "foo.tsx",
             |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 3.0);
+                assert_eq!(metric.nexits.exit_max(), 3.0);
                 insta::assert_json_snapshot!(metric.nexits);
             },
         );
@@ -1285,6 +1298,8 @@ end",
          }",
             "foo.kt",
             |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 3.0);
+                assert_eq!(metric.nexits.exit_max(), 3.0);
                 insta::assert_json_snapshot!(metric.nexits);
             },
         );
@@ -1298,6 +1313,8 @@ end",
          }",
             "foo.kt",
             |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 0.0);
+                assert_eq!(metric.nexits.exit_max(), 0.0);
                 insta::assert_json_snapshot!(metric.nexits);
             },
         );
@@ -1314,6 +1331,9 @@ end",
          }",
             "foo.js",
             |metric| {
+                // outer has 1 return, inner has 1 return → sum=2, max=1
+                assert_eq!(metric.nexits.exit_sum(), 2.0);
+                assert_eq!(metric.nexits.exit_max(), 1.0);
                 insta::assert_json_snapshot!(metric.nexits);
             },
         );
