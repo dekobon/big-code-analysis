@@ -2003,6 +2003,9 @@ mod tests {
     #[test]
     fn lua_no_functions_and_closures() {
         check_metrics::<LuaParser>("local x = 1", "foo.lua", |metric| {
+            // No functions or closures: both halves are zero.
+            assert_eq!(metric.nargs.fn_args_sum(), 0.0);
+            assert_eq!(metric.nargs.closure_args_sum(), 0.0);
             insta::assert_json_snapshot!(metric.nargs);
         });
     }
@@ -2010,6 +2013,9 @@ mod tests {
     #[test]
     fn lua_single_function() {
         check_metrics::<LuaParser>("function f(a, b) return a + b end", "foo.lua", |metric| {
+            // f(a, b) → fn_args_sum 2, no closures.
+            assert_eq!(metric.nargs.fn_args_sum(), 2.0);
+            assert_eq!(metric.nargs.closure_args_sum(), 0.0);
             insta::assert_json_snapshot!(metric.nargs);
         });
     }
@@ -2020,6 +2026,9 @@ mod tests {
             "local f = function(a, b) return a + b end",
             "foo.lua",
             |metric| {
+                // Anonymous `function(a, b)` bound via `local` → closure_args_sum 2.
+                assert_eq!(metric.nargs.fn_args_sum(), 0.0);
+                assert_eq!(metric.nargs.closure_args_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.nargs);
             },
         );
@@ -2032,6 +2041,9 @@ mod tests {
 function g(x, y, z) return x + y + z end",
             "foo.lua",
             |metric| {
+                // f(a)=1 + g(x,y,z)=3 → fn_args_sum 4.
+                assert_eq!(metric.nargs.fn_args_sum(), 4.0);
+                assert_eq!(metric.nargs.closure_args_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.nargs);
             },
         );
@@ -2041,6 +2053,9 @@ function g(x, y, z) return x + y + z end",
     fn lua_vararg_function() {
         // `...` is a vararg_expression node and counts as one argument.
         check_metrics::<LuaParser>("function f(a, ...) return a end", "foo.lua", |metric| {
+            // a + ... → fn_args_sum 2.
+            assert_eq!(metric.nargs.fn_args_sum(), 2.0);
+            assert_eq!(metric.nargs.closure_args_sum(), 0.0);
             insta::assert_json_snapshot!(metric.nargs);
         });
     }
@@ -2053,6 +2068,9 @@ function g(x, y, z) return x + y + z end",
             "function obj:method(a, b) return a + b end",
             "foo.lua",
             |metric| {
+                // Only explicit a, b → fn_args_sum 2 (implicit self excluded).
+                assert_eq!(metric.nargs.fn_args_sum(), 2.0);
+                assert_eq!(metric.nargs.closure_args_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.nargs);
             },
         );
@@ -2061,6 +2079,9 @@ function g(x, y, z) return x + y + z end",
     #[test]
     fn tcl_no_functions() {
         check_metrics::<TclParser>("set x 1", "foo.tcl", |metric| {
+            // Bare `set` command, no procs → both halves zero.
+            assert_eq!(metric.nargs.fn_args_sum(), 0.0);
+            assert_eq!(metric.nargs.closure_args_sum(), 0.0);
             insta::assert_json_snapshot!(metric.nargs);
         });
     }
@@ -2068,6 +2089,9 @@ function g(x, y, z) return x + y + z end",
     #[test]
     fn tcl_single_function() {
         check_metrics::<TclParser>("proc f {a b} { puts $a }", "foo.tcl", |metric| {
+            // proc f {a b} → fn_args_sum 2.
+            assert_eq!(metric.nargs.fn_args_sum(), 2.0);
+            assert_eq!(metric.nargs.closure_args_sum(), 0.0);
             insta::assert_json_snapshot!(metric.nargs);
         });
     }
@@ -2075,6 +2099,9 @@ function g(x, y, z) return x + y + z end",
     #[test]
     fn tcl_single_function_no_args() {
         check_metrics::<TclParser>("proc f {} { puts hello }", "foo.tcl", |metric| {
+            // proc f {} → empty arg list, fn_args_sum 0.
+            assert_eq!(metric.nargs.fn_args_sum(), 0.0);
+            assert_eq!(metric.nargs.closure_args_sum(), 0.0);
             insta::assert_json_snapshot!(metric.nargs);
         });
     }
@@ -2086,6 +2113,9 @@ function g(x, y, z) return x + y + z end",
 proc g {x y z} { puts $x }",
             "foo.tcl",
             |metric| {
+                // f(a,b)=2 + g(x,y,z)=3 → fn_args_sum 5.
+                assert_eq!(metric.nargs.fn_args_sum(), 5.0);
+                assert_eq!(metric.nargs.closure_args_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.nargs);
             },
         );
@@ -2100,6 +2130,9 @@ proc g {x y z} { puts $x }",
 }",
             "foo.tcl",
             |metric| {
+                // outer(a)=1 + inner(x,y)=2 → fn_args_sum 3.
+                assert_eq!(metric.nargs.fn_args_sum(), 3.0);
+                assert_eq!(metric.nargs.closure_args_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.nargs);
             },
         );
@@ -2109,6 +2142,9 @@ proc g {x y z} { puts $x }",
     fn tcl_args_vararg() {
         // `args` is the Tcl variadic catch-all; it counts as one argument.
         check_metrics::<TclParser>("proc f {a b args} { puts $a }", "foo.tcl", |metric| {
+            // a + b + args → fn_args_sum 3 (variadic is one slot).
+            assert_eq!(metric.nargs.fn_args_sum(), 3.0);
+            assert_eq!(metric.nargs.closure_args_sum(), 0.0);
             insta::assert_json_snapshot!(metric.nargs);
         });
     }
@@ -2122,6 +2158,9 @@ proc g {x y z} { puts $x }",
 }",
             "foo.tcl",
             |metric| {
+                // {name World} counts as one slot + greeting → fn_args_sum 2.
+                assert_eq!(metric.nargs.fn_args_sum(), 2.0);
+                assert_eq!(metric.nargs.closure_args_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.nargs);
             },
         );
@@ -2130,6 +2169,9 @@ proc g {x y z} { puts $x }",
     #[test]
     fn kotlin_zero_args() {
         check_metrics::<KotlinParser>("fun f(): Int { return 42 }", "foo.kt", |metric| {
+            // fun f() → empty parameter list, fn_args_sum 0.
+            assert_eq!(metric.nargs.fn_args_sum(), 0.0);
+            assert_eq!(metric.nargs.closure_args_sum(), 0.0);
             insta::assert_json_snapshot!(metric.nargs);
         });
     }
@@ -2140,6 +2182,9 @@ proc g {x y z} { puts $x }",
             "fun double(x: Int): Int { return x * 2 }",
             "foo.kt",
             |metric| {
+                // double(x) → fn_args_sum 1.
+                assert_eq!(metric.nargs.fn_args_sum(), 1.0);
+                assert_eq!(metric.nargs.closure_args_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.nargs);
             },
         );
@@ -2151,6 +2196,9 @@ proc g {x y z} { puts $x }",
             "fun add(a: Int, b: Int, c: Int): Int { return a + b + c }",
             "foo.kt",
             |metric| {
+                // add(a, b, c) → fn_args_sum 3.
+                assert_eq!(metric.nargs.fn_args_sum(), 3.0);
+                assert_eq!(metric.nargs.closure_args_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.nargs);
             },
         );
@@ -2164,6 +2212,9 @@ proc g {x y z} { puts $x }",
              }",
             "foo.kt",
             |metric| {
+                // Defaults still count as parameter slots → fn_args_sum 2.
+                assert_eq!(metric.nargs.fn_args_sum(), 2.0);
+                assert_eq!(metric.nargs.closure_args_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.nargs);
             },
         );
@@ -2185,6 +2236,11 @@ proc g {x y z} { puts $x }",
              }",
             "foo.kt",
             |metric| {
+                // Outer fun f() has 0 params; two lambdas counted as closures:
+                // {x, y -> ...} contributes 2, {-> 42} contributes 0 →
+                // closure_args_sum 2 across two closure entries.
+                assert_eq!(metric.nargs.fn_args_sum(), 0.0);
+                assert_eq!(metric.nargs.closure_args_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.nargs);
             },
         );
@@ -2199,6 +2255,9 @@ proc g {x y z} { puts $x }",
             "val add = fun(x: Int, y: Int): Int = x + y",
             "foo.kt",
             |metric| {
+                // Anonymous fun(x, y) is classified as a closure → closure_args_sum 2.
+                assert_eq!(metric.nargs.fn_args_sum(), 0.0);
+                assert_eq!(metric.nargs.closure_args_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.nargs);
             },
         );
