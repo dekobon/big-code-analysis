@@ -1,3 +1,4 @@
+mod format_util;
 mod formats;
 mod markdown_report;
 mod metric_catalog;
@@ -5,9 +6,11 @@ mod thresholds;
 
 use std::collections::{BTreeMap, HashMap, hash_map};
 use std::ffi::OsString;
+use std::fmt::Display;
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::process;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::available_parallelism;
 
@@ -31,9 +34,16 @@ use big_code_analysis::{
     preprocess, read_file, read_file_with_eol, write_file,
 };
 
-fn die(msg: impl std::fmt::Display) -> ! {
+fn die(msg: impl Display) -> ! {
     eprintln!("Error: {msg}");
     process::exit(1);
+}
+
+/// Die with `failed to <verb> <path>: <err>`. Centralizes the most common
+/// I/O error shape: open/read/parse/write of a user-supplied path that
+/// failed with an error implementing `Display`.
+fn die_io(verb: &str, path: &Path, err: impl Display) -> ! {
+    die(format_args!("failed to {verb} {}: {err}", path.display()))
 }
 
 /// Write `bytes` to stdout, tolerating `BrokenPipe` (the typical case when
@@ -218,6 +228,7 @@ struct CheckArgs {
     config: Option<PathBuf>,
     /// Print offenders to stderr but exit 0 even when thresholds are
     /// exceeded. Useful while adopting baselines without flipping CI red.
+    /// Default: exit 2 when any threshold is exceeded.
     #[clap(long = "no-fail")]
     no_fail: bool,
 }
@@ -279,6 +290,12 @@ struct Config {
     /// Sender for streaming [`Violation`] records when running `check`.
     /// Wrapped in `Mutex` for the same reason as `markdown_tx`.
     check_tx: Option<Mutex<std::sync::mpsc::Sender<Violation>>>,
+    /// Counts how many files survived expansion and glob filtering and
+    /// were actually dispatched to `act_on_file`. `Action::Check` reads
+    /// this after the walk to distinguish "all clean" (counter > 0,
+    /// no violations) from "no files matched" (counter == 0), so a
+    /// typo in `--paths` does not silently pass CI.
+    files_dispatched: Option<Arc<AtomicUsize>>,
     warning: bool,
     /// When true, files whose head matches a generated-code marker are
     /// skipped before parsing. Defaults on; flipped off by
@@ -312,6 +329,7 @@ impl Config {
             strip_prefix: String::new(),
             threshold_set: None,
             check_tx: None,
+            files_dispatched: None,
             warning: globals.warning,
             skip_generated: !globals.no_skip_generated,
             report_skipped: globals.report_skipped,
@@ -337,6 +355,15 @@ fn mk_globset(elems: Vec<String>) -> Result<GlobSet, String> {
 }
 
 fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
+    if let Some(counter) = &cfg.files_dispatched {
+        // Count every dispatched file, including those skipped below for
+        // empty content / unrecognized language. The user pointed at
+        // these files and the runner walked them — they count as "the
+        // input was non-empty" for the zero-files-matched check in
+        // `run_check`.
+        counter.fetch_add(1, Ordering::Relaxed);
+    }
+
     let Some(source) = read_file_with_eol(&path)? else {
         if cfg.warning {
             eprintln!("warning: skipping empty file: {}", path.display());
@@ -526,6 +553,11 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
                         }
                         return Ok(());
                     };
+                    // Receiver lives until `run_check` drains `rx`, which
+                    // happens only after `run_walk` joins all worker
+                    // threads — so `send` cannot fail here. Use `let _`
+                    // rather than `expect` to avoid panicking the worker
+                    // pool on the (unreachable) drop path.
                     for v in violations {
                         let _ = sender.send(v);
                     }
@@ -602,18 +634,9 @@ fn resolve_num_jobs(requested: Option<usize>) -> usize {
 /// Load existing preproc JSON for the consumer side. The producer side
 /// (`bca preproc`) builds its own `Mutex<PreprocResults>` directly.
 fn load_preproc_data(path: &Path) -> Arc<PreprocResults> {
-    let data = read_file(path).unwrap_or_else(|e| {
-        die(format_args!(
-            "failed to read preproc data {}: {e}",
-            path.display()
-        ))
-    });
-    let parsed = serde_json::from_slice::<PreprocResults>(&data).unwrap_or_else(|e| {
-        die(format_args!(
-            "failed to parse preproc JSON from {}: {e}",
-            path.display()
-        ))
-    });
+    let data = read_file(path).unwrap_or_else(|e| die_io("read preproc data", path, e));
+    let parsed = serde_json::from_slice::<PreprocResults>(&data)
+        .unwrap_or_else(|e| die_io("parse preproc JSON from", path, e));
     Arc::new(parsed)
 }
 
@@ -716,24 +739,11 @@ fn run_walk(globals: GlobalOpts, cfg: Config) -> HashMap<String, Vec<PathBuf>> {
 /// On any I/O or parse error the process dies with exit code 1, keeping
 /// exit 2 reserved for the "thresholds exceeded" case.
 fn load_threshold_config(path: &Path) -> BTreeMap<String, f64> {
-    let bytes = read_file(path).unwrap_or_else(|e| {
-        die(format_args!(
-            "failed to read threshold config {}: {e}",
-            path.display()
-        ))
-    });
-    let text = std::str::from_utf8(&bytes).unwrap_or_else(|e| {
-        die(format_args!(
-            "threshold config {} is not valid UTF-8: {e}",
-            path.display()
-        ))
-    });
-    let cfg: ThresholdConfig = toml::from_str(text).unwrap_or_else(|e| {
-        die(format_args!(
-            "failed to parse threshold config {}: {e}",
-            path.display()
-        ))
-    });
+    let bytes = read_file(path).unwrap_or_else(|e| die_io("read threshold config", path, e));
+    let text = std::str::from_utf8(&bytes)
+        .unwrap_or_else(|e| die_io("decode UTF-8 from threshold config", path, e));
+    let cfg: ThresholdConfig =
+        toml::from_str(text).unwrap_or_else(|e| die_io("parse threshold config", path, e));
     cfg.thresholds
 }
 
@@ -756,12 +766,22 @@ fn run_check(globals: GlobalOpts, args: CheckArgs, preproc: Option<Arc<PreprocRe
     let set = Arc::new(set);
 
     let (tx, rx) = std::sync::mpsc::channel();
+    let files_dispatched = Arc::new(AtomicUsize::new(0));
     let cfg = Config {
         threshold_set: Some(Arc::clone(&set)),
         check_tx: Some(Mutex::new(tx)),
+        files_dispatched: Some(Arc::clone(&files_dispatched)),
         ..Config::new(Action::Check, &globals, preproc)
     };
     run_walk(globals, cfg);
+
+    if files_dispatched.load(Ordering::Relaxed) == 0 {
+        // No files survived `--paths` expansion + `--include`/`--exclude`
+        // filtering. Treat this as a tool error (exit 1), not a clean
+        // pass (exit 0): a typo in `--paths` would otherwise silently
+        // green-light CI.
+        die("bca check: no input files matched; check --paths, --include, --exclude");
+    }
 
     // Workers have all joined by the time `run_walk` returns, so the
     // sender side is dropped and `rx.into_iter()` terminates cleanly.
@@ -776,6 +796,9 @@ fn run_check(globals: GlobalOpts, args: CheckArgs, preproc: Option<Arc<PreprocRe
             .then(a.metric.cmp(b.metric))
     });
 
+    // BrokenPipe on stderr (e.g. when piped to `head`) is the only
+    // realistic write failure here; swallow it rather than die so the
+    // exit-code contract is honored.
     let mut stderr = std::io::stderr().lock();
     for v in &violations {
         let _ = writeln!(stderr, "{v}");
@@ -931,12 +954,8 @@ fn main() {
                 ReportFormat::Markdown => generate_report(&summaries, args.top as usize),
             };
             if let Some(ref output_path) = args.output {
-                std::fs::write(output_path, &report).unwrap_or_else(|e| {
-                    die(format_args!(
-                        "failed to write to {}: {e}",
-                        output_path.display()
-                    ))
-                });
+                std::fs::write(output_path, &report)
+                    .unwrap_or_else(|e| die_io("write report to", output_path, e));
             } else {
                 write_stdout_or_die(report.as_bytes());
             }
@@ -987,12 +1006,8 @@ fn main() {
             let serialized = serde_json::to_string(&data)
                 .unwrap_or_else(|e| die(format_args!("failed to serialize preproc data: {e}")));
             if let Some(output_path) = output {
-                write_file(&output_path, serialized.as_bytes()).unwrap_or_else(|e| {
-                    die(format_args!(
-                        "failed to write output to {}: {e}",
-                        output_path.display()
-                    ))
-                });
+                write_file(&output_path, serialized.as_bytes())
+                    .unwrap_or_else(|e| die_io("write preproc output to", &output_path, e));
             } else {
                 println!("{serialized}");
             }
@@ -1134,6 +1149,7 @@ mod tests {
             strip_prefix: String::new(),
             threshold_set: None,
             check_tx: None,
+            files_dispatched: None,
             warning: false,
             skip_generated: true,
             report_skipped: false,

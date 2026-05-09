@@ -12,8 +12,10 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use big_code_analysis::{CodeMetrics, FuncSpace};
+use big_code_analysis::{CodeMetrics, FuncSpace, SpaceKind};
 use serde::Deserialize;
+
+use crate::format_util::MetricScalar;
 
 /// Static registry entry: stable threshold name -> scalar extractor.
 #[derive(Debug)]
@@ -207,19 +209,21 @@ impl fmt::Display for Violation {
             self.end_line,
             self.function,
             self.metric,
-            format_scalar(self.value),
-            format_scalar(self.limit),
+            MetricScalar(self.value),
+            MetricScalar(self.limit),
         )
     }
 }
 
-/// Format an `f64` so integer-valued metrics print as integers (`12`, not
-/// `12.0`) and fractional values keep enough precision to round-trip.
-fn format_scalar(v: f64) -> String {
-    if v.is_finite() && v.fract() == 0.0 && v.abs() < 1e15 {
-        format!("{:.0}", v)
+/// Resolve the function-slot token for a violation line. Top-level
+/// (`Unit`) spaces collapse to `<file>` so the file path doesn't
+/// appear twice; nested spaces carry their AST-derived name, with
+/// `<unnamed>` for the rare parse-failure case.
+fn function_token(space: &FuncSpace) -> &str {
+    if matches!(space.kind, SpaceKind::Unit) {
+        "<file>"
     } else {
-        format!("{v}")
+        space.name.as_deref().unwrap_or("<unnamed>")
     }
 }
 
@@ -263,27 +267,47 @@ impl ThresholdSet {
     /// configured threshold, and append a [`Violation`] per offending
     /// `(function, metric)` pair to `out`.
     ///
+    /// The walk is iterative (not recursive) so an adversarially deeply
+    /// nested AST cannot overflow the worker thread's stack — the
+    /// thread pool's default 2 MiB stack is small enough that pathological
+    /// input matters. See lesson 13 in `docs/development/lessons_learned.md`
+    /// for the analogous web-service DoS vector.
+    ///
     /// `path` is the UTF-8 path to use in violation records; the caller
     /// is responsible for handling non-UTF-8 paths (skip + warn) so this
     /// module never has to emit a lossy U+FFFD into the structured
     /// stderr contract.
+    ///
+    /// For the top-level (`SpaceKind::Unit`) space we substitute the
+    /// literal `<file>` for the function slot: `FuncSpace::name` is the
+    /// file path there (post #128), so without the substitution the
+    /// offender line would read `path:1-100: path: cyclomatic = ...`
+    /// — the path doubled. `<file>` makes the file-level emission
+    /// distinguishable and keeps aggregate metrics like `loc.sloc`
+    /// usable.
     pub(crate) fn evaluate(&self, path: &str, space: &FuncSpace, out: &mut Vec<Violation>) {
-        for (extractor, limit) in &self.entries {
-            let value = (extractor.extract)(&space.metrics);
-            if value > *limit {
-                out.push(Violation {
-                    path: path.to_string(),
-                    start_line: space.start_line,
-                    end_line: space.end_line,
-                    function: space.name.clone().unwrap_or_default(),
-                    metric: extractor.name,
-                    value,
-                    limit: *limit,
-                });
+        let mut stack: Vec<&FuncSpace> = vec![space];
+        while let Some(current) = stack.pop() {
+            let function = function_token(current);
+            for (extractor, limit) in &self.entries {
+                let value = (extractor.extract)(&current.metrics);
+                if value > *limit {
+                    out.push(Violation {
+                        path: path.to_string(),
+                        start_line: current.start_line,
+                        end_line: current.end_line,
+                        function: function.to_owned(),
+                        metric: extractor.name,
+                        value,
+                        limit: *limit,
+                    });
+                }
             }
-        }
-        for child in &space.spaces {
-            self.evaluate(path, child, out);
+            // Push children in reverse so `pop()` visits them in source
+            // order, matching the recursive form's traversal.
+            for child in current.spaces.iter().rev() {
+                stack.push(child);
+            }
         }
     }
 }
@@ -316,22 +340,26 @@ mod tests {
 
     #[test]
     fn parse_cli_threshold_rejects_missing_equals() {
-        assert!(parse_cli_threshold("cyclomatic15").is_err());
+        let err = parse_cli_threshold("cyclomatic15").expect_err("missing `=` must error");
+        assert!(err.contains("metric=limit"), "{err}");
     }
 
     #[test]
     fn parse_cli_threshold_rejects_empty_name() {
-        assert!(parse_cli_threshold("=15").is_err());
+        let err = parse_cli_threshold("=15").expect_err("empty name must error");
+        assert!(err.contains("empty metric name"), "{err}");
     }
 
     #[test]
     fn parse_cli_threshold_rejects_negative_limit() {
-        assert!(parse_cli_threshold("cyclomatic=-1").is_err());
+        let err = parse_cli_threshold("cyclomatic=-1").expect_err("negative limit must error");
+        assert!(err.contains("non-negative"), "{err}");
     }
 
     #[test]
     fn parse_cli_threshold_rejects_nan_limit() {
-        assert!(parse_cli_threshold("cyclomatic=nan").is_err());
+        let err = parse_cli_threshold("cyclomatic=nan").expect_err("NaN limit must error");
+        assert!(err.contains("non-negative"), "{err}");
     }
 
     #[test]

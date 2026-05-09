@@ -126,6 +126,26 @@ fn check_requires_at_least_one_threshold() {
 }
 
 #[test]
+fn check_with_no_matching_files_exits_one() {
+    // A directory that exists but contains no source files should produce
+    // a tool error (exit 1), not a vacuous clean pass (exit 0). Otherwise
+    // a typo in `--paths` silently green-lights CI.
+    let dir = TempDir::new().unwrap();
+
+    cli()
+        .args([
+            "--paths",
+            dir.path().to_str().unwrap(),
+            "check",
+            "--threshold",
+            "cyclomatic=10",
+        ])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("no input files matched"));
+}
+
+#[test]
 fn check_reads_thresholds_from_toml_config() {
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
@@ -200,9 +220,56 @@ fn check_emits_one_line_per_metric_per_function() {
         .lines()
         .filter(|l| l.contains("classify") && l.contains("cognitive"))
         .count();
+    // Contract is exactly one line per (function, metric). `>= 1` would
+    // silently accept a regression that double-emits — the recursion
+    // descends into each child space once, and a stray double-recurse
+    // would slip past the looser bound.
     assert!(
-        cyclomatic_lines >= 1 && cognitive_lines >= 1,
-        "expected one line per (function, metric) for classify; stderr was:\n{stderr}",
+        cyclomatic_lines == 1 && cognitive_lines == 1,
+        "expected exactly one line per (function, metric) for classify; \
+         got cyclomatic={cyclomatic_lines}, cognitive={cognitive_lines}; stderr was:\n{stderr}",
+    );
+}
+
+#[test]
+fn check_uses_file_sentinel_for_top_level_space() {
+    // The top-level space's name is the file path (post #128), so a
+    // naive emission would produce `path:1-N: path: loc.sloc = ...`
+    // — the path doubled. The contract substitutes the literal
+    // `<file>` in the function slot so file-level violations on
+    // aggregating metrics like `loc.sloc` are visually distinct
+    // and the path doesn't repeat.
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+
+    let assert = cli()
+        // loc.sloc aggregates source lines at the file level, so a
+        // threshold of 1 is guaranteed to fire there for any
+        // non-trivial fixture.
+        .args(["--paths", &path, "check", "--threshold", "loc.sloc=1"])
+        .assert()
+        .code(2);
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
+    let file_lines: Vec<&str> = stderr
+        .lines()
+        .filter(|l| l.contains("<file>") && l.contains("loc.sloc"))
+        .collect();
+    assert_eq!(
+        file_lines.len(),
+        1,
+        "expected exactly one file-level violation line; stderr was:\n{stderr}",
+    );
+    // The file path appears once as the location prefix; the function
+    // slot is the sentinel, not the path.
+    let line = file_lines[0];
+    assert!(
+        line.starts_with(&path),
+        "file-level line must start with the path; got {line:?}",
+    );
+    let path_count = line.matches(path.as_str()).count();
+    assert_eq!(
+        path_count, 1,
+        "file path should appear once (location only), not as the function name; line was {line:?}",
     );
 }
 
