@@ -21,7 +21,7 @@ big-code-analysis-cli --paths /path/to/your/file/or/directory metrics
 
 ## Exporting metrics
 
-`bca metrics` supports four per-file output formats:
+`bca metrics` supports five per-file output formats:
 
 - CBOR
 - CSV
@@ -53,7 +53,7 @@ big-code-analysis-cli --paths /path/to/your/file/or/directory metrics \
 ```
 
 - `-O, --output-format`: per-file output format (`cbor`, `csv`,
-  `html`, `json`, `toml`, `yaml`) or aggregated CI format
+  `json`, `toml`, `yaml`) or aggregated CI format
   (`checkstyle`, `sarif`, `clang-warning`, `msvc-warning`).
 - `-o, --output`: directory to save output files for per-file formats.
   Filenames mirror the input file plus the format extension. If
@@ -96,34 +96,11 @@ big-code-analysis-cli --paths /path/to/your/code metrics -O csv \
 CSV is a per-file format; with `--output <dir>` each input file
 produces a `<input>.csv` mirror under the output directory.
 
-### HTML (offline browse view)
-
-```bash
-big-code-analysis-cli --paths /path/to/your/code metrics \
-    -O html -o html-output
-```
-
-The HTML writer emits one self-contained `.html` page per input
-file: inline CSS and a small inline vanilla-JS click-to-sort
-handler, no external CDN, no fonts to fetch. The page is fully
-offline-renderable — drop it into a zip artifact, attach it to a
-PR comment, or open it from `file://`.
-
-The table columns mirror [`CSV_HEADER`] one-for-one, so HTML, CSV,
-and JSON all address the same metric by the same dotted name
-(`loc.lloc`, `halstead.volume`, `cyclomatic.modified.average`).
-Click any column header to toggle ascending / descending sort;
-numeric columns sort numerically, text columns lexicographically.
-
-Every `<td>` carries a `data-metric="<name>"` and
-`data-value="<formatted-value>"` attribute so downstream tooling
-can wire up threshold-based highlighting once the threshold engine
-([issue #96](https://github.com/dekobon/big-code-analysis/issues/96))
-lands without re-parsing the table.
-
-HTML is a per-file format; with `--output <dir>` each input file
-produces a `<input>.html` mirror under the output directory. Stream
-a single file's report to stdout by omitting `-o`.
+> An aggregated HTML *report* covering the whole walk is available
+> via [`bca report html`](report.md#html-format). The previous
+> per-file `bca metrics -O html` writer was removed because it
+> degraded to an unopenable single-file table on real-world repos —
+> CSV is the right shape for flat per-`FuncSpace` rows.
 
 ### Checkstyle (CI integration)
 

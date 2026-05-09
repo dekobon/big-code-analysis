@@ -109,17 +109,15 @@ fn ops_rejects_aggregated_formats_at_runtime() {
     }
 }
 
-/// CSV / HTML have a metric-shaped row schema and are not meaningful for
-/// the operands/operators output of `ops`. Same runtime-rejection pattern as
+/// CSV has a metric-shaped row schema and is not meaningful for the
+/// operands/operators output of `ops`. Same runtime-rejection pattern as
 /// the aggregated formats above.
 #[test]
 fn ops_rejects_funcspace_formats_at_runtime() {
-    for fmt in ["csv", "html"] {
-        cli()
-            .args(["ops", "-O", fmt])
-            .assert()
-            .failure()
-            .stderr(predicate::str::contains("not supported by `ops`"))
-            .stderr(predicate::str::contains("metric-shaped"));
-    }
+    cli()
+        .args(["ops", "-O", "csv"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("not supported by `ops`"))
+        .stderr(predicate::str::contains("metric-shaped"));
 }

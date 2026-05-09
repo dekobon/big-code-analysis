@@ -6,8 +6,8 @@ use clap::ValueEnum;
 use serde::Serialize;
 
 use big_code_analysis::{
-    CSV_EXTENSION, FuncSpace, HTML_EXTENSION, OffenderRecord, write_checkstyle,
-    write_clang_warning, write_csv, write_html, write_msvc_warning, write_sarif,
+    CSV_EXTENSION, FuncSpace, OffenderRecord, write_checkstyle, write_clang_warning, write_csv,
+    write_msvc_warning, write_sarif,
 };
 
 pub(crate) const CBOR_STDOUT_ERROR: &str =
@@ -29,7 +29,6 @@ pub(crate) enum MetricsFormat {
     #[value(name = "clang-warning")]
     ClangWarning,
     Csv,
-    Html,
     Json,
     #[value(name = "msvc-warning")]
     MsvcWarning,
@@ -75,7 +74,6 @@ pub(crate) enum GenericFormat {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FuncSpaceFormat {
     Csv,
-    Html,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -127,7 +125,6 @@ impl FuncSpaceFormat {
     ) -> std::io::Result<()> {
         match self {
             Self::Csv => dump_csv(space, path, output_path),
-            Self::Html => dump_html(space, path, output_path),
         }
     }
 }
@@ -173,7 +170,6 @@ impl MetricsFormat {
             Self::Toml => MetricsDispatch::Generic(GenericFormat::Toml),
             Self::Yaml => MetricsDispatch::Generic(GenericFormat::Yaml),
             Self::Csv => MetricsDispatch::FuncSpace(FuncSpaceFormat::Csv),
-            Self::Html => MetricsDispatch::FuncSpace(FuncSpaceFormat::Html),
             Self::Checkstyle => MetricsDispatch::Aggregated(AggregatedFormat::Checkstyle),
             Self::Sarif => MetricsDispatch::Aggregated(AggregatedFormat::Sarif),
             Self::ClangWarning => MetricsDispatch::Aggregated(AggregatedFormat::ClangWarning),
@@ -208,7 +204,7 @@ where
 /// Run `write` against either a per-file path under `output_dir`
 /// (with `extension` appended and any missing parent directories
 /// created) or stdout. Shared scaffolding for the per-file `dump_*`
-/// helpers (CSV, HTML).
+/// helpers (CSV).
 fn write_per_file_or_stdout<F>(
     input_path: &Path,
     output_dir: Option<&PathBuf>,
@@ -243,20 +239,6 @@ pub(crate) fn dump_csv(
 ) -> std::io::Result<()> {
     write_per_file_or_stdout(&path, output_path, CSV_EXTENSION, |w| {
         write_csv(space, &path, w)
-    })
-}
-
-/// Emit a self-contained HTML document for the metric tree rooted at
-/// `space`. If `output_path` is `Some`, the document is written to a
-/// file in the directory whose name mirrors the input path (with
-/// `.html` appended); otherwise it goes to stdout.
-pub(crate) fn dump_html(
-    space: &FuncSpace,
-    path: PathBuf,
-    output_path: Option<&PathBuf>,
-) -> std::io::Result<()> {
-    write_per_file_or_stdout(&path, output_path, HTML_EXTENSION, |w| {
-        write_html(space, &path, w)
     })
 }
 

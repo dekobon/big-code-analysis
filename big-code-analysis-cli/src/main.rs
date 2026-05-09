@@ -906,7 +906,7 @@ fn main() {
                 args.output_format.map(MetricsFormat::dispatch)
             {
                 die(
-                    "CSV/HTML are not supported by `ops` because their column schemas are metric-shaped; use `bca metrics --output-format <fmt>`",
+                    "CSV is not supported by `ops` because its column schema is metric-shaped; use `bca metrics --output-format <fmt>`",
                 );
             }
             if args.output_format.is_some()
@@ -1251,7 +1251,7 @@ mod tests {
         assert!(parse(&["metrics", "-O", "msvc-warning"]).is_ok());
     }
 
-    // Note: runtime rejection of `ops -O checkstyle|sarif|...|csv|html`
+    // Note: runtime rejection of `ops -O checkstyle|sarif|...|csv`
     // is covered by `ops_rejects_aggregated_formats_at_runtime` /
     // `ops_rejects_funcspace_formats_at_runtime` in
     // tests/action_enforcement.rs, which spawn the binary so the
