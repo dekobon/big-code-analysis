@@ -22,7 +22,10 @@ use std::fmt::Write;
 use big_code_analysis::SpaceKind;
 
 use crate::format_util::MetricScalar;
-use crate::markdown_report::FunctionSummary;
+use crate::markdown_report::{
+    FunctionSummary, is_class_like, mi_rating, sort_by_metric_asc, sort_by_metric_desc, thousands,
+    title_case,
+};
 
 /// HTML-escape a string for safe interpolation into element text or
 /// double-quoted attribute values. Returns a borrowed `Cow` when the
@@ -132,81 +135,6 @@ impl Align {
 enum SortDir {
     Asc,
     Desc,
-}
-
-fn sort_by_metric_desc(items: &mut [&FunctionSummary], metric: impl Fn(&FunctionSummary) -> f64) {
-    items.sort_by(|a, b| {
-        metric(b)
-            .total_cmp(&metric(a))
-            .then_with(|| a.file.cmp(&b.file))
-            .then_with(|| a.start_line.cmp(&b.start_line))
-            .then_with(|| a.name.cmp(&b.name))
-    });
-}
-
-fn sort_by_metric_asc(items: &mut [&FunctionSummary], metric: impl Fn(&FunctionSummary) -> f64) {
-    items.sort_by(|a, b| {
-        metric(a)
-            .total_cmp(&metric(b))
-            .then_with(|| a.file.cmp(&b.file))
-            .then_with(|| a.start_line.cmp(&b.start_line))
-            .then_with(|| a.name.cmp(&b.name))
-    });
-}
-
-fn is_class_like(kind: SpaceKind) -> bool {
-    matches!(
-        kind,
-        SpaceKind::Class
-            | SpaceKind::Struct
-            | SpaceKind::Trait
-            | SpaceKind::Impl
-            | SpaceKind::Namespace
-            | SpaceKind::Interface
-    )
-}
-
-fn mi_rating(mi: f64) -> &'static str {
-    if mi >= 20.0 {
-        "GOOD"
-    } else if mi >= 10.0 {
-        "MODERATE"
-    } else {
-        "LOW"
-    }
-}
-
-fn thousands(n: usize) -> String {
-    let s = n.to_string();
-    let len = s.len();
-    if len <= 3 {
-        return s;
-    }
-    let mut result = String::with_capacity(len + (len - 1) / 3);
-    for (i, ch) in s.chars().enumerate() {
-        if i > 0 && (len - i).is_multiple_of(3) {
-            result.push(',');
-        }
-        result.push(ch);
-    }
-    result
-}
-
-fn title_case(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut capitalize_next = true;
-    for c in s.chars() {
-        if capitalize_next {
-            result.extend(c.to_uppercase());
-            capitalize_next = false;
-        } else {
-            result.push(c);
-        }
-        if matches!(c, '/' | ' ' | '-') {
-            capitalize_next = true;
-        }
-    }
-    result
 }
 
 /// Write a `<table class="hotspot">` with one `<thead>` and one

@@ -116,7 +116,7 @@ fn escape_name(s: &str) -> String {
     format!("`{}`", escape_cell(&sanitized))
 }
 
-fn thousands(n: usize) -> String {
+pub(super) fn thousands(n: usize) -> String {
     let s = n.to_string();
     let len = s.len();
     if len <= 3 {
@@ -132,7 +132,7 @@ fn thousands(n: usize) -> String {
     result
 }
 
-fn title_case(s: &str) -> String {
+pub(super) fn title_case(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     let mut capitalize_next = true;
     for c in s.chars() {
@@ -149,7 +149,10 @@ fn title_case(s: &str) -> String {
     result
 }
 
-fn sort_by_metric_desc(items: &mut [&FunctionSummary], metric: impl Fn(&FunctionSummary) -> f64) {
+pub(super) fn sort_by_metric_desc(
+    items: &mut [&FunctionSummary],
+    metric: impl Fn(&FunctionSummary) -> f64,
+) {
     items.sort_by(|a, b| {
         metric(b)
             .total_cmp(&metric(a))
@@ -159,7 +162,10 @@ fn sort_by_metric_desc(items: &mut [&FunctionSummary], metric: impl Fn(&Function
     });
 }
 
-fn sort_by_metric_asc(items: &mut [&FunctionSummary], metric: impl Fn(&FunctionSummary) -> f64) {
+pub(super) fn sort_by_metric_asc(
+    items: &mut [&FunctionSummary],
+    metric: impl Fn(&FunctionSummary) -> f64,
+) {
     items.sort_by(|a, b| {
         metric(a)
             .total_cmp(&metric(b))
@@ -169,7 +175,7 @@ fn sort_by_metric_asc(items: &mut [&FunctionSummary], metric: impl Fn(&FunctionS
     });
 }
 
-fn is_class_like(kind: SpaceKind) -> bool {
+pub(super) fn is_class_like(kind: SpaceKind) -> bool {
     matches!(
         kind,
         SpaceKind::Class
@@ -181,7 +187,7 @@ fn is_class_like(kind: SpaceKind) -> bool {
     )
 }
 
-fn mi_rating(mi: f64) -> &'static str {
+pub(super) fn mi_rating(mi: f64) -> &'static str {
     if mi >= 20.0 {
         "GOOD"
     } else if mi >= 10.0 {
