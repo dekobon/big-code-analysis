@@ -6,7 +6,6 @@
 //!
 //! - `tests/sarif_test.rs`
 //! - `tests/checkstyle_test.rs`
-//! - `tests/html_test.rs`
 //!
 //! Per-`mod tests` blocks inside `src/output/*.rs` carry their own
 //! near-identical builders. Those are intentionally not shared

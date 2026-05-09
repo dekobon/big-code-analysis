@@ -3,18 +3,19 @@
 //! Each helper validates one of the output formats produced by
 //! `big_code_analysis::output::*` against either its published schema
 //! (SARIF) or a structural mirror of its upstream XSD / well-formedness
-//! contract (Checkstyle, HTML).
+//! contract (Checkstyle).
 //!
 //! Reused across:
 //!
 //! - `tests/sarif_test.rs`
 //! - `tests/checkstyle_test.rs`
-//! - `tests/html_test.rs`
 //!
-//! The CLI crate has its own duplicate at
+//! The CLI crate has its own copy at
 //! `big-code-analysis-cli/tests/common/validators.rs` because Cargo
 //! `[dev-dependencies]` and shared modules do not propagate across
-//! workspace members.
+//! workspace members. That copy additionally carries an HTML
+//! well-formedness helper used by the `bca report html` integration
+//! tests.
 
 // Inner `#![allow(dead_code)]` is unneeded — the `pub mod validators` in
 // `tests/common/mod.rs` already carries it. Each integration test only
@@ -218,141 +219,4 @@ fn attr_value(start: &quick_xml::events::BytesStart<'_>, name: &str) -> Option<S
         }
     }
     None
-}
-
-// --------------------------------------------------------------------
-// HTML — well-formedness via quick-xml, scoped to <body>.
-// --------------------------------------------------------------------
-
-/// Validate the well-formedness of an HTML document by extracting the
-/// `<body>...</body>` block, removing inline `<style>` and `<script>`
-/// blocks (whose content contains characters that are legal HTML5 but
-/// not legal XML character data), wrapping the result in a synthetic
-/// `<root>` element, and parsing with `quick-xml`.
-///
-/// The static head (doctype, meta, title) and the inline style/script
-/// bodies are intentionally skipped because:
-///
-/// 1. Inline `<script>` content contains JS comparison operators
-///    (`<`, `>`) that are not legal XML character data.
-/// 2. Inline `<style>` content can contain CSS escape sequences and
-///    selectors that confuse XML parsers.
-/// 3. `<meta charset="utf-8">` is HTML5 syntax (void element without
-///    `/>`) so an XML parser waits for `</meta>` and hits EOF.
-///
-/// The body's dynamic content (table, headers, rows, cells with
-/// `data-metric` / `data-value` attributes) is what regression-checks
-/// need to cover. The static head and inline assets are fixed and
-/// already snapshot-pinned by the unit tests in `src/output/html.rs`.
-///
-/// Panics with a descriptive message including byte offset on parse
-/// failure.
-pub fn assert_html_well_formed(html_text: &str) {
-    use quick_xml::events::Event;
-    use quick_xml::reader::Reader;
-
-    let body = extract_body(html_text);
-    let stripped = strip_block(body, "style");
-    let stripped = strip_block(&stripped, "script");
-    let wrapped = format!("<root>{stripped}</root>");
-
-    let mut reader = Reader::from_str(&wrapped);
-    reader.config_mut().trim_text(false);
-
-    let mut buf = Vec::new();
-    loop {
-        let pos = reader.buffer_position();
-        match reader.read_event_into(&mut buf) {
-            Ok(Event::Eof) => break,
-            Ok(_) => {}
-            Err(e) => {
-                let snippet_start = (pos as usize).saturating_sub(40);
-                let snippet_end = ((pos as usize) + 40).min(wrapped.len());
-                let snippet = &wrapped[snippet_start..snippet_end];
-                panic!("html: not well-formed at byte {pos}: {e}\n  near: {snippet:?}");
-            }
-        }
-        buf.clear();
-    }
-}
-
-/// Find `<body...>...</body>` and return its inner content. Matches
-/// only a true `<body>` element start tag (`<body` followed by `>`,
-/// whitespace, or `/`) so a `<body` substring inside JS, a comment,
-/// or a title can't masquerade as the document's body. Panics if the
-/// document does not have a matched `<body>` open/close pair.
-fn extract_body(html: &str) -> &str {
-    let Some(body_open_pos) = find_element_start(html, "body") else {
-        panic!("html: no <body> element in document");
-    };
-    let Some(rel_close) = html[body_open_pos..].find('>') else {
-        panic!("html: <body has no closing > at byte {body_open_pos}");
-    };
-    let body_open_end = body_open_pos + rel_close + 1;
-    let Some(body_close_pos) = html.rfind("</body>") else {
-        panic!("html: no </body> in document (open was at byte {body_open_pos})");
-    };
-    if body_close_pos < body_open_end {
-        panic!("html: </body> at byte {body_close_pos} precedes <body> at byte {body_open_pos}");
-    }
-    &html[body_open_end..body_close_pos]
-}
-
-/// Find the byte offset of an element start tag for `tag` (e.g.
-/// `body`, `style`, `script`). The match requires `<tag` followed by
-/// `>`, whitespace, or `/` so substrings like `<bodyfoo` or `<body` in
-/// quoted attribute values cannot match.
-fn find_element_start(text: &str, tag: &str) -> Option<usize> {
-    let needle = format!("<{tag}");
-    let mut cursor = 0;
-    while let Some(rel) = text[cursor..].find(&needle) {
-        let abs = cursor + rel;
-        let after = abs + needle.len();
-        // The HTML5 tag-name terminators: `>`, `/`, or ASCII whitespace.
-        match text.as_bytes().get(after) {
-            Some(b) if matches!(b, b'>' | b'/') || b.is_ascii_whitespace() => return Some(abs),
-            None => return None,
-            _ => cursor = after,
-        }
-    }
-    None
-}
-
-/// Replace the *content* of every `<tag ...>...</tag>` element with
-/// nothing, leaving the tags themselves intact so the surrounding
-/// markup still parses. Tolerates attributes on the start tag (e.g.
-/// `<style nonce="...">`); the start tag is matched via
-/// [`find_element_start`] so a `<tag` substring elsewhere can't false-
-/// match.
-///
-/// Used to drop `<script>` / `<style>` bodies from the HTML well-
-/// formedness check, since their content (JS comparison operators,
-/// CSS escape sequences) is HTML5-legal but XML-illegal.
-fn strip_block(text: &str, tag: &str) -> String {
-    let end_tag = format!("</{tag}>");
-    let mut out = String::with_capacity(text.len());
-    let mut cursor = 0;
-    while cursor < text.len() {
-        let Some(start_abs) = find_element_start(&text[cursor..], tag).map(|p| cursor + p) else {
-            out.push_str(&text[cursor..]);
-            break;
-        };
-        // Emit everything up to the start tag, then the start tag itself.
-        let Some(start_close_rel) = text[start_abs..].find('>') else {
-            // Malformed open tag; emit verbatim and bail.
-            out.push_str(&text[cursor..]);
-            break;
-        };
-        let start_close_abs = start_abs + start_close_rel + 1;
-        out.push_str(&text[cursor..start_close_abs]);
-        // Find the matching close tag and skip the inner content.
-        let Some(end_rel) = text[start_close_abs..].find(&end_tag) else {
-            // Unbalanced; emit rest verbatim and let quick-xml report it.
-            out.push_str(&text[start_close_abs..]);
-            break;
-        };
-        out.push_str(&end_tag);
-        cursor = start_close_abs + end_rel + end_tag.len();
-    }
-    out
 }

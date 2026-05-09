@@ -20,9 +20,6 @@ pub(crate) mod funcspace_row;
 pub mod csv;
 pub use csv::{CSV_EXTENSION, CSV_HEADER, write_csv};
 
-pub mod html;
-pub use html::{HTML_EXTENSION, write_html};
-
 pub mod sarif;
 pub use sarif::write_sarif;
 

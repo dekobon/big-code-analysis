@@ -22,9 +22,7 @@ use std::io::Write;
 use tempfile::TempDir;
 
 mod common;
-use common::validators::{
-    assert_checkstyle_well_formed_and_structural, assert_html_well_formed, validate_sarif,
-};
+use common::validators::{assert_checkstyle_well_formed_and_structural, validate_sarif};
 
 fn cli() -> Command {
     Command::cargo_bin("big-code-analysis-cli").unwrap()
@@ -72,18 +70,8 @@ fn cli_checkstyle_output_is_well_formed() {
 }
 
 #[test]
-fn cli_html_output_is_well_formed() {
-    // HTML is a per-file format. With no --output, the binary streams
-    // the rendered HTML for the fixture to stdout.
-    let dir = TempDir::new().unwrap();
-    let fixture = write_rust_fixture(&dir);
-    let out = run_metrics("html", &fixture);
-    assert_html_well_formed(&out);
-}
-
-#[test]
 fn cli_csv_output_round_trips_through_csv_crate() {
-    // CSV is per-file like HTML. Re-parse the captured stdout via
+    // CSV is a per-file format. Re-parse the captured stdout via
     // the same `csv` crate the project already uses; reject any row
     // whose field count differs from CSV_HEADER, and require at least
     // one data row so we know real metric content is being emitted.
