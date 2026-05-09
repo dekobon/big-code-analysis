@@ -3,6 +3,8 @@ use std::fmt::Write;
 
 use big_code_analysis::{FuncSpace, LANG, SpaceKind};
 
+use crate::format_util::MetricScalar;
+
 /// Compact per-function/class metric record for the markdown report pipeline.
 #[derive(Debug)]
 pub(crate) struct FunctionSummary {
@@ -532,8 +534,8 @@ fn write_language_section(
                         escape_name(&s.name),
                         escape_cell(&s.file),
                         s.start_line.to_string(),
-                        format!("{:.0}", s.cyclomatic),
-                        format!("{:.0}", s.cognitive),
+                        MetricScalar(s.cyclomatic).to_string(),
+                        MetricScalar(s.cognitive).to_string(),
                         thousands(s.sloc),
                         thousands(s.tokens),
                     ]
@@ -588,8 +590,8 @@ fn write_language_section(
                         escape_name(&s.name),
                         escape_cell(&s.file),
                         s.start_line.to_string(),
-                        format!("{:.0}", s.cognitive),
-                        format!("{:.0}", s.cyclomatic),
+                        MetricScalar(s.cognitive).to_string(),
+                        MetricScalar(s.cyclomatic).to_string(),
                         thousands(s.sloc),
                         thousands(s.tokens),
                     ]
@@ -638,8 +640,8 @@ fn write_language_section(
                     vec![
                         escape_name(&s.name),
                         escape_cell(&s.file),
-                        format!("{:.0}", s.halstead_effort),
-                        format!("{:.0}", s.halstead_volume),
+                        MetricScalar(s.halstead_effort).to_string(),
+                        MetricScalar(s.halstead_volume).to_string(),
                         format!("{:.2}", s.halstead_bugs),
                         thousands(s.sloc),
                         thousands(s.tokens),
@@ -689,8 +691,8 @@ fn write_language_section(
                         s.start_line.to_string(),
                         thousands(s.sloc),
                         thousands(s.tokens),
-                        format!("{:.0}", s.cyclomatic),
-                        format!("{:.0}", s.cognitive),
+                        MetricScalar(s.cyclomatic).to_string(),
+                        MetricScalar(s.cognitive).to_string(),
                     ]
                 })
                 .collect();
@@ -820,10 +822,10 @@ fn write_language_section(
                         escape_name(&s.name),
                         escape_cell(&s.file),
                         s.start_line.to_string(),
-                        format!("{:.0}", s.wmc),
+                        MetricScalar(s.wmc).to_string(),
                         s.nom.to_string(),
-                        format!("{:.0}", s.npa),
-                        format!("{:.0}", s.npm),
+                        MetricScalar(s.npa).to_string(),
+                        MetricScalar(s.npm).to_string(),
                         thousands(s.sloc),
                         thousands(s.tokens),
                     ]
@@ -867,7 +869,7 @@ fn write_language_section(
                         escape_cell(&s.file),
                         s.start_line.to_string(),
                         s.nexits.to_string(),
-                        format!("{:.0}", s.cyclomatic),
+                        MetricScalar(s.cyclomatic).to_string(),
                         thousands(s.sloc),
                         thousands(s.tokens),
                     ]
