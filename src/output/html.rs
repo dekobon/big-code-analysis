@@ -226,6 +226,7 @@ mod tests {
     fn empty_space(name: &str, kind: SpaceKind, start: usize, end: usize) -> FuncSpace {
         FuncSpace {
             name: Some(name.into()),
+            name_was_lossy: false,
             start_line: start,
             end_line: end,
             kind,

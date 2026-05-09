@@ -140,13 +140,21 @@ pub struct FuncSpace {
     /// For the top-level (file-level) `FuncSpace`, this is the file path
     /// supplied to [`metrics`] converted via lossy UTF-8 conversion, so it
     /// is always `Some`. Non-UTF-8 path components on Linux (or invalid
-    /// UTF-16 on Windows) become U+FFFD replacement characters; this name
-    /// is intended for display/identification only and must not be used as
-    /// a map key or for error correlation.
+    /// UTF-16 on Windows) become U+FFFD replacement characters; in that
+    /// case [`FuncSpace::name_was_lossy`] is `true` and downstream
+    /// consumers must treat the name as display-only — never as a map
+    /// key or for error correlation.
     ///
     /// For nested spaces, `None` means an error occurred in parsing the
     /// name of the function space from the AST.
     pub name: Option<String>,
+    /// `true` when [`FuncSpace::name`] was produced by lossy conversion
+    /// (the original path contained non-UTF-8 bytes and was rendered
+    /// using U+FFFD replacement characters). Always `false` for nested
+    /// spaces and for top-level spaces with valid-UTF-8 paths. Skipped
+    /// from JSON output when `false` so existing schemas keep their shape.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub name_was_lossy: bool,
     /// The first line of a function space
     pub start_line: usize,
     /// The last line of a function space
@@ -184,6 +192,7 @@ impl FuncSpace {
 
         Self {
             name,
+            name_was_lossy: false,
             spaces: Vec::new(),
             metrics: CodeMetrics::default(),
             kind,
@@ -401,10 +410,13 @@ pub fn metrics<'a, T: ParserTrait>(parser: &'a T, path: &'a Path) -> Option<Func
         // Linux ext4/tmpfs, and possible on Windows for invalid UTF-16),
         // which would silently collapse into the same `None` that signals
         // a parse error for nested spaces. Use lossy conversion so the
-        // top-level space is always identifiable; this name is for
-        // display only and must not be used as a map key or for error
-        // correlation (see the doc comment on `FuncSpace::name`).
+        // top-level space is always identifiable, and surface the lossy
+        // bit in `name_was_lossy` so consumers can opt out of using the
+        // U+FFFD-bearing name as an identifier (see the doc comment on
+        // `FuncSpace::name`).
+        let was_lossy = path.to_str().is_none();
         state.space.name = Some(path.to_string_lossy().into_owned());
+        state.space.name_was_lossy = was_lossy;
         state.space
     })
 }
@@ -541,6 +553,25 @@ mod tests {
         assert!(
             name.starts_with("foo_") && name.ends_with("_bar.rs"),
             "lossy name must preserve the surrounding ASCII bytes, got {name:?}"
+        );
+        assert!(
+            space.name_was_lossy,
+            "name_was_lossy must be true when the source path was non-UTF-8"
+        );
+    }
+
+    /// Top-level spaces with valid UTF-8 paths must NOT have
+    /// `name_was_lossy` set — otherwise the flag is useless.
+    #[test]
+    fn utf8_path_does_not_set_name_was_lossy() {
+        use std::path::PathBuf;
+        let path = PathBuf::from("foo.cpp");
+        let source = "int a = 42;";
+        let parser = CppParser::new(source.as_bytes().to_vec(), &path, None);
+        let space = metrics(&parser, &path).expect("metrics must yield a top-level space");
+        assert!(
+            !space.name_was_lossy,
+            "name_was_lossy must be false for valid-UTF-8 paths"
         );
     }
 }
