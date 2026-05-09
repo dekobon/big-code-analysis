@@ -4,8 +4,9 @@
 across every file walked. It is designed for pasting into pull
 requests, wikis, or issue trackers.
 
-The only format available today is `markdown`. `html` is reserved for a
-future implementation.
+Two formats are available: `markdown` (plain-text, ideal for PR
+comments) and `html` (a self-contained dashboard with sortable tables,
+ideal for sharing as a build artifact).
 
 > **Migrating?** This command replaces the pre-restructure `--metrics
 > -O markdown` invocation. See the [migration guide](../migration.md).
@@ -98,6 +99,30 @@ alongside `SLOC` so two complementary size proxies are visible per row.
      descending by exit count.
    - *ABC Magnitude Hotspots* — functions sorted descending by ABC
      metric magnitude.
+
+## HTML format
+
+`bca report html` emits a single self-contained HTML page covering the
+same sections as the Markdown report. It is designed to be served as a
+static artifact: inline CSS, inline vanilla JavaScript for click-to-sort
+on every hotspot table, and zero external dependencies (no CDN, no
+fonts, no template engine). The page renders identically offline.
+
+Write it to a file and open in any browser:
+
+```bash
+big-code-analysis-cli --paths /path/to/project \
+    report html --top 10 --output report.html
+```
+
+Click any column header to sort that table ascending, click again to
+toggle descending. Each table sorts independently. Empty cells (where a
+metric was not measured) sort as if they were positive infinity, which
+keeps "no data" rows out of the visible top of a hotspot.
+
+Every interpolated string — function name, file path, language label —
+is HTML-escaped on the way out, so a crafted source path or symbol name
+cannot inject markup or break out of an attribute value.
 
 ## Metric values of zero
 

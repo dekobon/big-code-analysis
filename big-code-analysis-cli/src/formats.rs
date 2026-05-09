@@ -38,12 +38,14 @@ pub(crate) enum MetricsFormat {
     Yaml,
 }
 
-/// Aggregated report formats accepted by `bca report`. Markdown today;
-/// HTML is reserved for a future implementation.
+/// Aggregated report formats accepted by `bca report`. Both render the
+/// same hotspot tables across the whole walk: Markdown is plain-text,
+/// HTML is a single self-contained page with sortable tables.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 #[clap(rename_all = "lower")]
 pub(crate) enum ReportFormat {
     Markdown,
+    Html,
 }
 
 /// How a `MetricsFormat` should be dispatched. Carries enough type

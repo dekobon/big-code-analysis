@@ -1,5 +1,6 @@
 mod format_util;
 mod formats;
+mod html_report;
 mod markdown_report;
 mod metric_catalog;
 mod thresholds;
@@ -18,6 +19,7 @@ use clap::{Args, Parser, Subcommand};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 
 use formats::{CBOR_STDOUT_ERROR, MetricsDispatch, MetricsFormat, ReportFormat};
+use html_report::generate_html_report;
 use markdown_report::{FunctionSummary, extract_summaries, generate_report};
 use metric_catalog::{ListMetricsMode, write_metrics};
 use thresholds::{ThresholdConfig, ThresholdSet, Violation, parse_cli_threshold};
@@ -952,6 +954,7 @@ fn main() {
             let summaries: Vec<FunctionSummary> = rx.into_iter().collect();
             let report = match args.format {
                 ReportFormat::Markdown => generate_report(&summaries, args.top as usize),
+                ReportFormat::Html => generate_html_report(&summaries, args.top as usize),
             };
             if let Some(ref output_path) = args.output {
                 std::fs::write(output_path, &report)
@@ -1105,7 +1108,7 @@ fn legacy_hint(argv: impl IntoIterator<Item = OsString>) -> Option<String> {
     if format_value == Some("markdown") {
         saw_legacy_action = true;
         lines.push(String::from(
-            "  -O markdown  ->  bca report markdown [--top N] [--strip-prefix P]",
+            "  -O markdown  ->  bca report markdown|html [--top N] [--strip-prefix P]",
         ));
     } else if let Some(fmt) = format_value
         && saw_legacy_action
@@ -1277,6 +1280,17 @@ mod tests {
     }
 
     #[test]
+    fn report_html_parses() {
+        // Inspect the parsed variant so a future alias / value-rename
+        // that maps `html` to `Markdown` cannot pass this test.
+        let cli = parse(&["report", "html"]).expect("`report html` parses");
+        match cli.command {
+            Command::Report(args) => assert_eq!(args.format, ReportFormat::Html),
+            other => panic!("expected Command::Report, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn report_requires_format() {
         assert!(parse(&["report"]).is_err());
     }
@@ -1287,8 +1301,27 @@ mod tests {
     }
 
     #[test]
+    fn report_html_with_top_and_strip_prefix() {
+        let cli = parse(&["report", "html", "--top", "10", "--strip-prefix", "/x/"])
+            .expect("flags parse");
+        match cli.command {
+            Command::Report(args) => {
+                assert_eq!(args.format, ReportFormat::Html);
+                assert_eq!(args.top, 10);
+                assert_eq!(args.strip_prefix, "/x/");
+            }
+            other => panic!("expected Command::Report, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn report_top_zero_rejected() {
         assert!(parse(&["report", "markdown", "--top", "0"]).is_err());
+    }
+
+    #[test]
+    fn report_html_top_zero_rejected() {
+        assert!(parse(&["report", "html", "--top", "0"]).is_err());
     }
 
     #[test]
