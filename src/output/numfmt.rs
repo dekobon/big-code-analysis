@@ -2,7 +2,7 @@
 //!
 //! Two `Display` newtypes wrap an `f64` metric value:
 //!
-//! - [`CellMetric`] — for CSV / HTML / any structured-tabular cell.
+//! - [`CellMetric`] — for CSV cells (any structured-tabular cell).
 //!   Non-finite values render as the empty string so downstream tools
 //!   read them as "not applicable" rather than as `0` or `NaN`. Finite
 //!   values use the integer fast-path (no trailing `.0`) for safe-
@@ -32,7 +32,7 @@ use std::fmt;
 pub(crate) const F64_SAFE_INT_BOUND: f64 = 9_007_199_254_740_992.0;
 
 /// `Display` adapter for a metric cell in a structured tabular format
-/// (CSV, HTML). See module docs for semantics.
+/// (CSV). See module docs for semantics.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct CellMetric(pub f64);
 

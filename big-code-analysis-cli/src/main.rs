@@ -18,7 +18,7 @@ use std::thread::available_parallelism;
 use clap::{Args, Parser, Subcommand};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 
-use formats::{CBOR_STDOUT_ERROR, MetricsDispatch, MetricsFormat, ReportFormat};
+use formats::{CBOR_STDOUT_ERROR, MetricsDispatch, MetricsFormat, ReportFormat, dump_csv};
 use html_report::generate_html_report;
 use markdown_report::{FunctionSummary, extract_summaries, generate_report};
 use metric_catalog::{ListMetricsMode, write_metrics};
@@ -411,8 +411,8 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
                         MetricsDispatch::Generic(g) => {
                             g.dump(space, path, cfg.output.as_ref(), *pretty)?;
                         }
-                        MetricsDispatch::FuncSpace(f) => {
-                            f.dump(&space, path, cfg.output.as_ref())?;
+                        MetricsDispatch::Csv => {
+                            dump_csv(&space, path, cfg.output.as_ref())?;
                         }
                         // Aggregated formats are emitted once after
                         // the walk in the run() entry point, not per
@@ -430,16 +430,16 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
         Action::Ops { format, pretty } => {
             if let Some(fmt) = format {
                 if let Some(ops) = get_ops(&language, source, &path, pr) {
-                    // Aggregated and FuncSpace formats are rejected
-                    // upstream in `run()` for the Ops command, so the
-                    // dispatch here is always Generic. The match is
-                    // still exhaustive to keep the compiler honest if
-                    // those upstream guards ever drift.
+                    // Aggregated and CSV formats are rejected upstream
+                    // in `run()` for the Ops command, so the dispatch
+                    // here is always Generic. The match is still
+                    // exhaustive to keep the compiler honest if those
+                    // upstream guards ever drift.
                     match fmt.dispatch() {
                         MetricsDispatch::Generic(g) => {
                             g.dump(ops, path, cfg.output.as_ref(), *pretty)?;
                         }
-                        MetricsDispatch::FuncSpace(_) | MetricsDispatch::Aggregated(_) => {}
+                        MetricsDispatch::Csv | MetricsDispatch::Aggregated(_) => {}
                     }
                 }
                 Ok(())
@@ -902,9 +902,7 @@ fn main() {
                     "aggregated formats (checkstyle, sarif, clang-warning, msvc-warning) are not supported by `ops`; use `bca metrics --output-format <fmt>`",
                 );
             }
-            if let Some(MetricsDispatch::FuncSpace(_)) =
-                args.output_format.map(MetricsFormat::dispatch)
-            {
+            if let Some(MetricsDispatch::Csv) = args.output_format.map(MetricsFormat::dispatch) {
                 die(
                     "CSV is not supported by `ops` because its column schema is metric-shaped; use `bca metrics --output-format <fmt>`",
                 );
@@ -1253,7 +1251,7 @@ mod tests {
 
     // Note: runtime rejection of `ops -O checkstyle|sarif|...|csv`
     // is covered by `ops_rejects_aggregated_formats_at_runtime` /
-    // `ops_rejects_funcspace_formats_at_runtime` in
+    // `ops_rejects_csv_format_at_runtime` in
     // tests/action_enforcement.rs, which spawn the binary so the
     // dispatcher's die() can be observed.
 

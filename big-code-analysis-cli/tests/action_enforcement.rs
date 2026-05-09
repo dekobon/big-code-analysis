@@ -113,7 +113,7 @@ fn ops_rejects_aggregated_formats_at_runtime() {
 /// operands/operators output of `ops`. Same runtime-rejection pattern as
 /// the aggregated formats above.
 #[test]
-fn ops_rejects_funcspace_formats_at_runtime() {
+fn ops_rejects_csv_format_at_runtime() {
     cli()
         .args(["ops", "-O", "csv"])
         .assert()

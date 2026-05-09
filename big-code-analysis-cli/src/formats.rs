@@ -55,9 +55,10 @@ pub(crate) enum ReportFormat {
 pub(crate) enum MetricsDispatch {
     /// Per-file output through the generic `T: Serialize` writer.
     Generic(GenericFormat),
-    /// Per-file output that needs a concrete `&FuncSpace` because its
-    /// row shape is metric-specific.
-    FuncSpace(FuncSpaceFormat),
+    /// Per-file CSV output. CSV's row shape is metric-specific so it
+    /// needs a concrete `&FuncSpace` rather than the generic
+    /// `T: Serialize` writer.
+    Csv,
     /// Single document aggregated across the whole walk; emitted
     /// after the walk completes.
     Aggregated(AggregatedFormat),
@@ -69,11 +70,6 @@ pub(crate) enum GenericFormat {
     Json,
     Toml,
     Yaml,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum FuncSpaceFormat {
-    Csv,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,19 +108,6 @@ impl GenericFormat {
                 Self::Toml => Toml::write_on_stdout_pretty(space, pretty),
                 Self::Yaml => Yaml::write_on_stdout(space),
             }
-        }
-    }
-}
-
-impl FuncSpaceFormat {
-    pub(crate) fn dump(
-        self,
-        space: &FuncSpace,
-        path: PathBuf,
-        output_path: Option<&PathBuf>,
-    ) -> std::io::Result<()> {
-        match self {
-            Self::Csv => dump_csv(space, path, output_path),
         }
     }
 }
@@ -169,7 +152,7 @@ impl MetricsFormat {
             Self::Json => MetricsDispatch::Generic(GenericFormat::Json),
             Self::Toml => MetricsDispatch::Generic(GenericFormat::Toml),
             Self::Yaml => MetricsDispatch::Generic(GenericFormat::Yaml),
-            Self::Csv => MetricsDispatch::FuncSpace(FuncSpaceFormat::Csv),
+            Self::Csv => MetricsDispatch::Csv,
             Self::Checkstyle => MetricsDispatch::Aggregated(AggregatedFormat::Checkstyle),
             Self::Sarif => MetricsDispatch::Aggregated(AggregatedFormat::Sarif),
             Self::ClangWarning => MetricsDispatch::Aggregated(AggregatedFormat::ClangWarning),
