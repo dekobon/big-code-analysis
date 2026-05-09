@@ -4940,6 +4940,11 @@ my $x = 1;",
 local y = 2",
             "foo.lua",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 3.0);
+                assert_eq!(metric.loc.ploc(), 2.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 1.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -4952,6 +4957,11 @@ local y = 2",
 local y = 2",
             "foo.lua",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 2.0);
+                assert_eq!(metric.loc.ploc(), 2.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -4968,6 +4978,11 @@ local x = 1
 ]]",
             "foo.lua",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 1.0);
+                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.cloc(), 5.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -4985,6 +5000,11 @@ local x = 1
 end",
             "foo.lua",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 7.0);
+                assert_eq!(metric.loc.ploc(), 7.0);
+                assert_eq!(metric.loc.lloc(), 5.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5000,6 +5020,11 @@ end",
 ]]",
             "foo.lua",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 2.0);
+                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 2.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5015,6 +5040,11 @@ end",
 end",
             "foo.lua",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 3.0);
+                assert_eq!(metric.loc.ploc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5035,6 +5065,11 @@ end",
 end",
             "foo.lua",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 9.0);
+                assert_eq!(metric.loc.ploc(), 9.0);
+                assert_eq!(metric.loc.lloc(), 5.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5053,6 +5088,11 @@ end",
 end",
             "foo.lua",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 7.0);
+                assert_eq!(metric.loc.ploc(), 7.0);
+                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5067,6 +5107,11 @@ end",
 end",
             "foo.lua",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 3.0);
+                assert_eq!(metric.loc.ploc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5081,6 +5126,11 @@ end",
 end",
             "foo.lua",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 3.0);
+                assert_eq!(metric.loc.ploc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5094,6 +5144,11 @@ end",
 end",
             "foo.lua",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 3.0);
+                assert_eq!(metric.loc.ploc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5107,6 +5162,11 @@ end",
 end",
             "foo.lua",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 3.0);
+                assert_eq!(metric.loc.ploc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5121,6 +5181,11 @@ repeat
 until i >= 10",
             "foo.lua",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5133,6 +5198,11 @@ until i >= 10",
 local y, z = 2, 3",
             "foo.lua",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 2.0);
+                assert_eq!(metric.loc.ploc(), 2.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5147,6 +5217,11 @@ local y, z = 2, 3",
 local x = 1",
             "foo.lua",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 2.0);
+                assert_eq!(metric.loc.ploc(), 2.0);
+                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5161,6 +5236,11 @@ local x = 1",
 y, z = 2, 3",
             "foo.lua",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 2.0);
+                assert_eq!(metric.loc.ploc(), 2.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5264,7 +5344,14 @@ y, z = 2, 3",
                System.Console.WriteLine(\"hello\");
              }",
             "foo.cs",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.cloc(), 2.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -5276,7 +5363,14 @@ y, z = 2, 3",
 
             int y = 2;",
             "foo.cs",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 2.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 2.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -5287,7 +5381,14 @@ y, z = 2, 3",
                System.Console.WriteLine(i);
              }",
             "foo.cs",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 3.0);
+                assert_eq!(metric.loc.ploc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -5298,13 +5399,25 @@ y, z = 2, 3",
               class Program { }
             }",
             "foo.cs",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 3.0);
+                assert_eq!(metric.loc.ploc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 0.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
     #[test]
     fn csharp_single_ploc() {
         check_metrics::<CsharpParser>("int x = 1;", "foo.cs", |metric| {
+            assert_eq!(metric.loc.sloc(), 1.0);
+            assert_eq!(metric.loc.ploc(), 1.0);
+            assert_eq!(metric.loc.lloc(), 1.0);
+            assert_eq!(metric.loc.cloc(), 0.0);
+            assert_eq!(metric.loc.blank(), 0.0);
             insta::assert_json_snapshot!(metric.loc);
         });
     }
@@ -5316,7 +5429,14 @@ y, z = 2, 3",
                System.Console.WriteLine(i);
              }",
             "foo.cs",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 3.0);
+                assert_eq!(metric.loc.ploc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -5328,13 +5448,25 @@ y, z = 2, 3",
                System.Console.WriteLine(i);
              }",
             "foo.cs",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
     #[test]
     fn csharp_single_statement_lloc() {
         check_metrics::<CsharpParser>("int max = 10;", "foo.cs", |metric| {
+            assert_eq!(metric.loc.sloc(), 1.0);
+            assert_eq!(metric.loc.ploc(), 1.0);
+            assert_eq!(metric.loc.lloc(), 1.0);
+            assert_eq!(metric.loc.cloc(), 0.0);
+            assert_eq!(metric.loc.blank(), 0.0);
             insta::assert_json_snapshot!(metric.loc);
         });
     }
@@ -5346,7 +5478,14 @@ y, z = 2, 3",
                 System.Console.WriteLine(i);
             }",
             "foo.cs",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 3.0);
+                assert_eq!(metric.loc.ploc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -5357,7 +5496,14 @@ y, z = 2, 3",
                 System.Console.WriteLine(item);
             }",
             "foo.cs",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 3.0);
+                assert_eq!(metric.loc.ploc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -5369,7 +5515,14 @@ y, z = 2, 3",
                 i++;
             }",
             "foo.cs",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -5381,7 +5534,14 @@ y, z = 2, 3",
                 i++;
             } while (i < 10);",
             "foo.cs",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -5395,7 +5555,14 @@ y, z = 2, 3",
             }
             string s = x switch { 1 => \"one\", _ => \"other\" };",
             "foo.cs",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 6.0);
+                assert_eq!(metric.loc.lloc(), 8.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -5407,7 +5574,14 @@ y, z = 2, 3",
                 System.Console.WriteLine(i);
             }",
             "foo.cs",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -5422,7 +5596,14 @@ y, z = 2, 3",
                 System.Console.WriteLine(\"done\");
             }",
             "foo.cs",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 7.0);
+                assert_eq!(metric.loc.ploc(), 7.0);
+                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -5436,7 +5617,14 @@ y, z = 2, 3",
                 }
             }",
             "foo.cs",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 6.0);
+                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -5448,7 +5636,14 @@ y, z = 2, 3",
             int c = a + b;
             System.Console.WriteLine(c);",
             "foo.cs",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -5457,7 +5652,14 @@ y, z = 2, 3",
         check_metrics::<CsharpParser>(
             "if (x > 0) System.Console.WriteLine(x);",
             "foo.cs",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 1.0);
+                assert_eq!(metric.loc.ploc(), 1.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -5476,7 +5678,14 @@ y, z = 2, 3",
                 }
             }",
             "foo.cs",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 11.0);
+                assert_eq!(metric.loc.ploc(), 11.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -5499,7 +5708,14 @@ y, z = 2, 3",
                 }
             }",
             "foo.cs",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 11.0);
+                assert_eq!(metric.loc.ploc(), 11.0);
+                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -5604,6 +5820,11 @@ f() {
 f",
             "foo.sh",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 8.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.cloc(), 3.0);
+                assert_eq!(metric.loc.blank(), 1.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5684,6 +5905,11 @@ f",
     #[test]
     fn tcl_blank() {
         check_metrics::<TclParser>("set x 1\n\nset y 2", "foo.tcl", |metric| {
+            assert_eq!(metric.loc.sloc(), 3.0);
+            assert_eq!(metric.loc.ploc(), 2.0);
+            assert_eq!(metric.loc.lloc(), 2.0);
+            assert_eq!(metric.loc.cloc(), 0.0);
+            assert_eq!(metric.loc.blank(), 1.0);
             insta::assert_json_snapshot!(metric.loc);
         });
     }
@@ -5698,6 +5924,11 @@ f",
     #[test]
     fn tcl_cloc() {
         check_metrics::<TclParser>("# This is a comment\nset x 1", "foo.tcl", |metric| {
+            assert_eq!(metric.loc.sloc(), 2.0);
+            assert_eq!(metric.loc.ploc(), 2.0);
+            assert_eq!(metric.loc.lloc(), 1.0);
+            assert_eq!(metric.loc.cloc(), 1.0);
+            assert_eq!(metric.loc.blank(), 0.0);
             insta::assert_json_snapshot!(metric.loc);
         });
     }
@@ -5714,6 +5945,11 @@ f",
 }",
             "foo.tcl",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 7.0);
+                assert_eq!(metric.loc.ploc(), 7.0);
+                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5723,6 +5959,11 @@ f",
     fn tcl_no_command_substitution_lloc() {
         // `string toupper` inside [...] is a sub-expression; only `puts` is top-level.
         check_metrics::<TclParser>("puts [string toupper x]", "foo.tcl", |metric| {
+            assert_eq!(metric.loc.sloc(), 1.0);
+            assert_eq!(metric.loc.ploc(), 1.0);
+            assert_eq!(metric.loc.lloc(), 1.0);
+            assert_eq!(metric.loc.cloc(), 0.0);
+            assert_eq!(metric.loc.blank(), 0.0);
             insta::assert_json_snapshot!(metric.loc);
         });
     }
@@ -5730,6 +5971,11 @@ f",
     #[test]
     fn tcl_procedure_lloc() {
         check_metrics::<TclParser>("proc foo {} {\n    puts hello\n}", "foo.tcl", |metric| {
+            assert_eq!(metric.loc.sloc(), 3.0);
+            assert_eq!(metric.loc.ploc(), 3.0);
+            assert_eq!(metric.loc.lloc(), 2.0);
+            assert_eq!(metric.loc.cloc(), 0.0);
+            assert_eq!(metric.loc.blank(), 0.0);
             insta::assert_json_snapshot!(metric.loc);
         });
     }
@@ -5737,6 +5983,11 @@ f",
     #[test]
     fn tcl_if_lloc() {
         check_metrics::<TclParser>("if {1} {\n    puts hello\n}", "foo.tcl", |metric| {
+            assert_eq!(metric.loc.sloc(), 3.0);
+            assert_eq!(metric.loc.ploc(), 3.0);
+            assert_eq!(metric.loc.lloc(), 2.0);
+            assert_eq!(metric.loc.cloc(), 0.0);
+            assert_eq!(metric.loc.blank(), 0.0);
             insta::assert_json_snapshot!(metric.loc);
         });
     }
@@ -5754,6 +6005,11 @@ f",
 }",
             "foo.tcl",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 7.0);
+                assert_eq!(metric.loc.ploc(), 7.0);
+                assert_eq!(metric.loc.lloc(), 5.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5765,6 +6021,11 @@ f",
             "while {$x > 0} {\n    set x [expr {$x - 1}]\n}",
             "foo.tcl",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 3.0);
+                assert_eq!(metric.loc.ploc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5776,6 +6037,11 @@ f",
             "foreach item {a b c} {\n    puts $item\n}",
             "foo.tcl",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 3.0);
+                assert_eq!(metric.loc.ploc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5784,6 +6050,11 @@ f",
     #[test]
     fn tcl_set_lloc() {
         check_metrics::<TclParser>("set x 42", "foo.tcl", |metric| {
+            assert_eq!(metric.loc.sloc(), 1.0);
+            assert_eq!(metric.loc.ploc(), 1.0);
+            assert_eq!(metric.loc.lloc(), 1.0);
+            assert_eq!(metric.loc.cloc(), 0.0);
+            assert_eq!(metric.loc.blank(), 0.0);
             insta::assert_json_snapshot!(metric.loc);
         });
     }
@@ -5791,6 +6062,11 @@ f",
     #[test]
     fn tcl_global_lloc() {
         check_metrics::<TclParser>("global x", "foo.tcl", |metric| {
+            assert_eq!(metric.loc.sloc(), 1.0);
+            assert_eq!(metric.loc.ploc(), 1.0);
+            assert_eq!(metric.loc.lloc(), 1.0);
+            assert_eq!(metric.loc.cloc(), 0.0);
+            assert_eq!(metric.loc.blank(), 0.0);
             insta::assert_json_snapshot!(metric.loc);
         });
     }
@@ -5809,6 +6085,11 @@ try {
 }",
             "foo.tcl",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 8.0);
+                assert_eq!(metric.loc.ploc(), 8.0);
+                assert_eq!(metric.loc.lloc(), 5.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5820,6 +6101,11 @@ try {
             "namespace eval myns {\n    set x 1\n}",
             "foo.tcl",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 3.0);
+                assert_eq!(metric.loc.ploc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5828,6 +6114,11 @@ try {
     #[test]
     fn tcl_regexp_lloc() {
         check_metrics::<TclParser>("regexp {^[0-9]+$} $x", "foo.tcl", |metric| {
+            assert_eq!(metric.loc.sloc(), 1.0);
+            assert_eq!(metric.loc.ploc(), 1.0);
+            assert_eq!(metric.loc.lloc(), 1.0);
+            assert_eq!(metric.loc.cloc(), 0.0);
+            assert_eq!(metric.loc.blank(), 0.0);
             insta::assert_json_snapshot!(metric.loc);
         });
     }
@@ -5835,6 +6126,11 @@ try {
     #[test]
     fn tcl_expr_cmd_lloc() {
         check_metrics::<TclParser>("expr {1 + 2}", "foo.tcl", |metric| {
+            assert_eq!(metric.loc.sloc(), 1.0);
+            assert_eq!(metric.loc.ploc(), 1.0);
+            assert_eq!(metric.loc.lloc(), 1.0);
+            assert_eq!(metric.loc.cloc(), 0.0);
+            assert_eq!(metric.loc.blank(), 0.0);
             insta::assert_json_snapshot!(metric.loc);
         });
     }
@@ -5843,6 +6139,11 @@ try {
     fn tcl_no_expr_cmd_substitution_lloc() {
         // `expr` inside [...] is a sub-expression, not a statement; only `set` counts.
         check_metrics::<TclParser>("set x [expr {1 + 2}]", "foo.tcl", |metric| {
+            assert_eq!(metric.loc.sloc(), 1.0);
+            assert_eq!(metric.loc.ploc(), 1.0);
+            assert_eq!(metric.loc.lloc(), 1.0);
+            assert_eq!(metric.loc.cloc(), 0.0);
+            assert_eq!(metric.loc.blank(), 0.0);
             insta::assert_json_snapshot!(metric.loc);
         });
     }
@@ -5857,6 +6158,11 @@ try {
 }",
             "foo.tcl",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5865,6 +6171,11 @@ try {
     #[test]
     fn tcl_command_lloc() {
         check_metrics::<TclParser>("puts hello", "foo.tcl", |metric| {
+            assert_eq!(metric.loc.sloc(), 1.0);
+            assert_eq!(metric.loc.ploc(), 1.0);
+            assert_eq!(metric.loc.lloc(), 1.0);
+            assert_eq!(metric.loc.cloc(), 0.0);
+            assert_eq!(metric.loc.blank(), 0.0);
             insta::assert_json_snapshot!(metric.loc);
         });
     }
@@ -5876,6 +6187,11 @@ try {
             "if {1} {\n    puts yes\n} else {\n    puts no\n}",
             "foo.tcl",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 5.0);
+                assert_eq!(metric.loc.ploc(), 5.0);
+                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5909,6 +6225,11 @@ try {
 }",
             "foo.tcl",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 5.0);
+                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 1.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5926,6 +6247,11 @@ try {
         }",
             "foo.js",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 7.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.cloc(), 1.0);
+                assert_eq!(metric.loc.blank(), 2.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5942,6 +6268,11 @@ try {
         }",
             "foo.js",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 4.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5957,6 +6288,11 @@ try {
         }",
             "foo.js",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 5.0);
+                assert_eq!(metric.loc.ploc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 2.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5972,6 +6308,11 @@ try {
         }",
             "foo.js",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 5.0);
+                assert_eq!(metric.loc.ploc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 2.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -5986,6 +6327,11 @@ try {
         }",
             "foo.js",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.cloc(), 2.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6000,6 +6346,11 @@ try {
         };",
             "foo.js",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6016,6 +6367,11 @@ try {
         }",
             "foo.js",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 6.0);
+                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6032,6 +6388,11 @@ try {
         }",
             "foo.js",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 6.0);
+                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6049,6 +6410,11 @@ try {
         }",
             "foo.js",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 7.0);
+                assert_eq!(metric.loc.ploc(), 7.0);
+                assert_eq!(metric.loc.lloc(), 6.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6066,6 +6432,11 @@ try {
         }",
             "foo.js",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 7.0);
+                assert_eq!(metric.loc.ploc(), 7.0);
+                assert_eq!(metric.loc.lloc(), 5.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6083,6 +6454,11 @@ try {
         }",
             "foo.sh",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 7.0);
+                assert_eq!(metric.loc.ploc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 1.0);
+                assert_eq!(metric.loc.blank(), 3.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6098,6 +6474,11 @@ try {
         }",
             "foo.sh",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 5.0);
+                assert_eq!(metric.loc.ploc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 2.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6112,6 +6493,11 @@ try {
         }",
             "foo.sh",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.cloc(), 2.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6129,6 +6515,11 @@ try {
         }",
             "foo.sh",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 7.0);
+                assert_eq!(metric.loc.ploc(), 7.0);
+                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6144,6 +6535,11 @@ try {
         }",
             "foo.sh",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 5.0);
+                assert_eq!(metric.loc.ploc(), 5.0);
+                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6161,6 +6557,11 @@ try {
         }",
             "foo.sh",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 7.0);
+                assert_eq!(metric.loc.ploc(), 7.0);
+                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6178,6 +6579,11 @@ try {
         }",
             "foo.sh",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 7.0);
+                assert_eq!(metric.loc.ploc(), 7.0);
+                assert_eq!(metric.loc.lloc(), 5.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6194,6 +6600,11 @@ try {
         }",
             "foo.sh",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 6.0);
+                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6211,6 +6622,11 @@ try {
         }",
             "foo.sh",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 7.0);
+                assert_eq!(metric.loc.ploc(), 7.0);
+                assert_eq!(metric.loc.lloc(), 5.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6227,6 +6643,11 @@ EOF
         }",
             "foo.sh",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 5.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 1.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6243,6 +6664,11 @@ EOF
         }",
             "foo.kt",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 2.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6259,6 +6685,11 @@ EOF
         }",
             "foo.kt",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.cloc(), 4.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6274,6 +6705,11 @@ EOF
         }",
             "foo.kt",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 5.0);
+                assert_eq!(metric.loc.ploc(), 5.0);
+                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.cloc(), 2.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6292,6 +6728,11 @@ EOF
         }",
             "foo.kt",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 8.0);
+                assert_eq!(metric.loc.ploc(), 8.0);
+                assert_eq!(metric.loc.lloc(), 5.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6309,6 +6750,11 @@ EOF
         }",
             "foo.kt",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 7.0);
+                assert_eq!(metric.loc.ploc(), 7.0);
+                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6326,6 +6772,11 @@ EOF
         }",
             "foo.kt",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 7.0);
+                assert_eq!(metric.loc.ploc(), 7.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6340,6 +6791,11 @@ EOF
         }",
             "foo.kt",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6355,6 +6811,11 @@ EOF
         }",
             "foo.kt",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 5.0);
+                assert_eq!(metric.loc.ploc(), 5.0);
+                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6371,6 +6832,11 @@ EOF
         }",
             "foo.kt",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 6.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6388,6 +6854,11 @@ EOF
         }",
             "foo.kt",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 7.0);
+                assert_eq!(metric.loc.ploc(), 7.0);
+                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6403,6 +6874,11 @@ EOF
         }",
             "foo.ts",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 5.0);
+                assert_eq!(metric.loc.ploc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 2.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6419,6 +6895,11 @@ EOF
         }",
             "foo.ts",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 4.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6433,6 +6914,11 @@ EOF
         }",
             "foo.ts",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.cloc(), 2.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6450,6 +6936,11 @@ EOF
         }",
             "foo.ts",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 7.0);
+                assert_eq!(metric.loc.ploc(), 7.0);
+                assert_eq!(metric.loc.lloc(), 6.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6467,6 +6958,11 @@ EOF
         }",
             "foo.ts",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 7.0);
+                assert_eq!(metric.loc.ploc(), 7.0);
+                assert_eq!(metric.loc.lloc(), 5.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6484,6 +6980,11 @@ EOF
         }",
             "foo.ts",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 7.0);
+                assert_eq!(metric.loc.ploc(), 7.0);
+                assert_eq!(metric.loc.lloc(), 5.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6501,6 +7002,11 @@ EOF
         }",
             "foo.ts",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 7.0);
+                assert_eq!(metric.loc.ploc(), 7.0);
+                assert_eq!(metric.loc.lloc(), 5.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6516,6 +7022,11 @@ EOF
         }",
             "foo.ts",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 5.0);
+                assert_eq!(metric.loc.ploc(), 5.0);
+                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6530,6 +7041,11 @@ EOF
         };",
             "foo.ts",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6547,6 +7063,11 @@ EOF
         }",
             "foo.ts",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 7.0);
+                assert_eq!(metric.loc.ploc(), 7.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6566,6 +7087,11 @@ EOF
         }",
             "foo.ts",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 9.0);
+                assert_eq!(metric.loc.ploc(), 9.0);
+                assert_eq!(metric.loc.lloc(), 6.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6583,6 +7109,11 @@ EOF
         }",
             "foo.ts",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 7.0);
+                assert_eq!(metric.loc.ploc(), 7.0);
+                assert_eq!(metric.loc.lloc(), 6.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6599,6 +7130,11 @@ EOF
         }",
             "foo.ts",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 6.0);
+                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6615,6 +7151,11 @@ EOF
         }",
             "foo.ts",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 6.0);
+                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6630,6 +7171,11 @@ EOF
         }",
             "foo.tsx",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 5.0);
+                assert_eq!(metric.loc.ploc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 2.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6646,6 +7192,11 @@ EOF
         }",
             "foo.tsx",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 4.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6660,6 +7211,11 @@ EOF
         }",
             "foo.tsx",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.cloc(), 2.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6677,6 +7233,11 @@ EOF
         }",
             "foo.tsx",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 7.0);
+                assert_eq!(metric.loc.ploc(), 7.0);
+                assert_eq!(metric.loc.lloc(), 6.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6694,6 +7255,11 @@ EOF
         }",
             "foo.tsx",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 7.0);
+                assert_eq!(metric.loc.ploc(), 7.0);
+                assert_eq!(metric.loc.lloc(), 5.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6711,6 +7277,11 @@ EOF
         }",
             "foo.tsx",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 7.0);
+                assert_eq!(metric.loc.ploc(), 7.0);
+                assert_eq!(metric.loc.lloc(), 5.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6728,6 +7299,11 @@ EOF
         }",
             "foo.tsx",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 7.0);
+                assert_eq!(metric.loc.ploc(), 7.0);
+                assert_eq!(metric.loc.lloc(), 5.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6743,6 +7319,11 @@ EOF
         }",
             "foo.tsx",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 5.0);
+                assert_eq!(metric.loc.ploc(), 5.0);
+                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6757,6 +7338,11 @@ EOF
         };",
             "foo.tsx",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6776,6 +7362,11 @@ EOF
         }",
             "foo.tsx",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 9.0);
+                assert_eq!(metric.loc.ploc(), 9.0);
+                assert_eq!(metric.loc.lloc(), 6.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6793,6 +7384,11 @@ EOF
         }",
             "foo.tsx",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 7.0);
+                assert_eq!(metric.loc.ploc(), 7.0);
+                assert_eq!(metric.loc.lloc(), 6.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6809,6 +7405,11 @@ EOF
         }",
             "foo.tsx",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 6.0);
+                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6826,6 +7427,11 @@ EOF
         }",
             "foo.tsx",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 7.0);
+                assert_eq!(metric.loc.ploc(), 7.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6842,6 +7448,11 @@ EOF
         }",
             "foo.tsx",
             |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 6.0);
+                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6858,7 +7469,14 @@ $b = 2;
 
 ",
             "foo.php",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 5.0);
+                assert_eq!(metric.loc.ploc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 2.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -6869,7 +7487,14 @@ $b = 2;
 $a = 1;
 $b = 2;",
             "foo.php",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 3.0);
+                assert_eq!(metric.loc.ploc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -6881,7 +7506,14 @@ $b = 2;",
 // second
 $a = 1; // trailing",
             "foo.php",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 2.0);
+                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.cloc(), 3.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -6893,7 +7525,14 @@ $a = 1; // trailing",
 # second
 $a = 1;",
             "foo.php",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 2.0);
+                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.cloc(), 2.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -6907,7 +7546,14 @@ $a = 1;",
  */
 $a = 1;",
             "foo.php",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 2.0);
+                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.cloc(), 4.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -6921,7 +7567,14 @@ if ($a > 0) {
     echo $a;
 }",
             "foo.php",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 5.0);
+                assert_eq!(metric.loc.ploc(), 5.0);
+                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -6933,7 +7586,14 @@ if ($a > 0) {
             "<?php
 $a = (1 + 2);",
             "foo.php",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 2.0);
+                assert_eq!(metric.loc.ploc(), 2.0);
+                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -6946,7 +7606,14 @@ function f(): void {
     $a = 1;
 }",
             "foo.php",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -6960,7 +7627,14 @@ if (true):
     $a = 1;
 endif;",
             "foo.php",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -6977,7 +7651,14 @@ if ($x) {
     $a = 3;
 }",
             "foo.php",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 8.0);
+                assert_eq!(metric.loc.ploc(), 8.0);
+                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -6998,7 +7679,14 @@ switch ($x) {
         $a = 0;
 }",
             "foo.php",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 11.0);
+                assert_eq!(metric.loc.ploc(), 11.0);
+                assert_eq!(metric.loc.lloc(), 6.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -7014,7 +7702,14 @@ $a = match ($x) {
     default => 'other',
 };",
             "foo.php",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 6.0);
+                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -7026,7 +7721,14 @@ $a = match ($x) {
             "<?php
 $x = $y ?? throw new \\Exception('nope');",
             "foo.php",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 2.0);
+                assert_eq!(metric.loc.ploc(), 2.0);
+                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -7041,7 +7743,14 @@ $f = function (): int {
     return 42;
 };",
             "foo.php",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -7055,7 +7764,14 @@ for ($i = 0; $i < 10; $i++) {
     echo $i;
 }",
             "foo.php",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -7067,7 +7783,14 @@ foreach ($items as $k => $v) {
     echo $v;
 }",
             "foo.php",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -7083,7 +7806,14 @@ try {
     $b = 2;
 }",
             "foo.php",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 8.0);
+                assert_eq!(metric.loc.ploc(), 8.0);
+                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -7099,7 +7829,14 @@ class A {
     }
 }",
             "foo.php",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 8.0);
+                assert_eq!(metric.loc.ploc(), 8.0);
+                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -7112,7 +7849,14 @@ use App\\Foo;
 use App\\Bar;
 $a = 1;",
             "foo.php",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 5.0);
+                assert_eq!(metric.loc.ploc(), 5.0);
+                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -7135,7 +7879,14 @@ class Bar {
     }
 }",
             "foo.php",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 15.0);
+                assert_eq!(metric.loc.ploc(), 12.0);
+                assert_eq!(metric.loc.lloc(), 5.0);
+                assert_eq!(metric.loc.cloc(), 1.0);
+                assert_eq!(metric.loc.blank(), 2.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -7147,7 +7898,14 @@ class Bar {
             "<?php
 $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "foo.php",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 2.0);
+                assert_eq!(metric.loc.ploc(), 2.0);
+                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -7164,7 +7922,14 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
 <p>world</p>
 <?php endif; ?>",
             "foo.php",
-            |metric| insta::assert_json_snapshot!(metric.loc),
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 1.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
         );
     }
 
@@ -7174,6 +7939,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         // tree-sitter-php 0.24.2. A regression that re-classified `<?=`
         // would shift PLOC; this test pins the current behavior.
         check_metrics::<PhpParser>("<p><?= $name ?></p>", "foo.php", |metric| {
+            assert_eq!(metric.loc.sloc(), 1.0);
+            assert_eq!(metric.loc.ploc(), 1.0);
+            assert_eq!(metric.loc.lloc(), 1.0);
+            assert_eq!(metric.loc.cloc(), 0.0);
+            assert_eq!(metric.loc.blank(), 0.0);
             insta::assert_json_snapshot!(metric.loc)
         });
     }
