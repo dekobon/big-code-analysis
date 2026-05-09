@@ -156,6 +156,30 @@ metric-value-only (no structural changes). Run `cargo insta test
 one at a time can shift `assertion_line` fields, causing a cascade
 where previously-matching snapshots become stale.
 
+**Anchor every `insta::assert_json_snapshot!` call.** A bare
+`insta::assert_json_snapshot!(metric.X)` records whatever production
+emitted at acceptance time — including bugs (see issue #95 and lesson 2
+in `docs/development/lessons_learned.md`; the `InvocationExpression`
+aliasing miscount fixed by #94 was masked for the entire C# language-
+support PR by exactly this pattern). Every new snapshot assertion must
+carry one of:
+
+- An inline expected block: `insta::assert_json_snapshot!(metric.X, @r###"…"###)`.
+- A positive `assert_eq!` on the headline value(s) immediately above
+  the snapshot call, using integer-valued accessors (`branches()`,
+  `class_nargs_sum()`, `u_operators()`, …) — float magnitude / volume /
+  difficulty / effort / `*_average` are bit-brittle and not safe for
+  exact equality.
+- A `// expected: <derivation>` comment explaining what the values
+  should be and why, sufficient for a reviewer to verify without
+  re-deriving from scratch.
+
+Bulk `cargo insta accept --workspace` is allowed only when every
+accepted snapshot is already anchored — a grammar bump that shifts
+metric values for anchored tests is fine; first-time acceptance of
+bare snapshots is not. Existing bare snapshots predate this rule and
+are tracked under #95; new tests must follow it.
+
 **Integration snapshots live in the `big-code-analysis-output`
 submodule** (`tests/repositories/big-code-analysis-output/`). Any
 behaviour-changing fix that touches metric computation, AST traversal,
