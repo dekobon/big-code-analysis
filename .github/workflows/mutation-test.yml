@@ -1,0 +1,115 @@
+name: Mutation testing
+
+# Quarterly run of cargo-mutants against the highest-leverage modules
+# (metrics, checker, getter). Mutation testing is too slow to gate
+# per-PR CI, so this workflow only runs on the cron schedule and on
+# manual dispatch. See docs/development/mutation_testing.md for the
+# rationale and local-invocation notes.
+
+on:
+  schedule:
+    # 07:00 UTC on the 1st of January, April, July, October.
+    - cron: '0 7 1 1,4,7,10 *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: mutation-test
+  cancel-in-progress: false
+
+jobs:
+  mutants:
+    name: cargo-mutants
+    runs-on: ubuntu-latest
+    timeout-minutes: 720
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-mutants
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-mutants
+
+      - name: Run cargo-mutants
+        id: mutants
+        run: |
+          mkdir -p target/mutants
+          cargo mutants \
+            --package big-code-analysis \
+            --no-shuffle \
+            --in-place \
+            -j 2 \
+            --minimum-test-timeout 120 \
+            -f src/metrics/ \
+            -f src/checker.rs \
+            -f src/getter.rs \
+            --output target/mutants \
+            | tee target/mutants/mutants.log
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-mutants-report
+          path: target/mutants/
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: File issue on escaped mutants
+        if: failure() && steps.mutants.conclusion == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          missed_count=0
+          if [ -f target/mutants/missed.txt ]; then
+            missed_count=$(wc -l < target/mutants/missed.txt | tr -d ' ')
+          fi
+          timeout_count=0
+          if [ -f target/mutants/timeout.txt ]; then
+            timeout_count=$(wc -l < target/mutants/timeout.txt | tr -d ' ')
+          fi
+          if [ "$missed_count" = "0" ] && [ "$timeout_count" = "0" ]; then
+            echo "cargo-mutants failed without producing missed/timeout output;"
+            echo "treating as infrastructure failure, not opening an issue."
+            exit 0
+          fi
+          {
+            echo "The scheduled \`mutation-test.yml\` run reported escaped mutants."
+            echo
+            echo "- Missed mutants: ${missed_count}"
+            echo "- Timed-out mutants: ${timeout_count}"
+            echo "- Run: ${RUN_URL}"
+            echo
+            echo "Download the \`cargo-mutants-report\` artifact for the full"
+            echo "list (\`missed.txt\`, \`timeout.txt\`, \`mutants.log\`)."
+            echo
+            echo "See \`docs/development/mutation_testing.md\` for triage guidance."
+            if [ -f target/mutants/missed.txt ] && [ "$missed_count" != "0" ]; then
+              echo
+              echo "## First 50 missed mutants"
+              echo
+              echo '```'
+              head -n 50 target/mutants/missed.txt
+              echo '```'
+            fi
+          } > /tmp/mutation-issue-body.md
+          gh issue create \
+            --title "Mutation testing: ${missed_count} missed, ${timeout_count} timed out (run ${{ github.run_id }})" \
+            --label "mutation-testing" \
+            --label "enhancement" \
+            --body-file /tmp/mutation-issue-body.md

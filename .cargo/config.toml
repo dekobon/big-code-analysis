@@ -1,0 +1,6 @@
+[alias]
+# Canonical cargo-mutants invocation for local runs. Mirrors the flags
+# used by the scheduled `.github/workflows/mutation-test.yml` workflow
+# so local triage matches CI output. See
+# `docs/development/mutation_testing.md`.
+mutants = "mutants --package big-code-analysis --no-shuffle --in-place"
