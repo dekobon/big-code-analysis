@@ -43,5 +43,12 @@ repos:
         entry: cargo test
         pass_filenames: false
 
+      - id: snapshot-anchors
+        name: snapshot-anchors
+        language: system
+        files: '^(src/metrics/.*\.rs|\.snapshot-anchor-baseline\.txt|check-snapshot-anchors\.py)$'
+        entry: python3 check-snapshot-anchors.py
+        pass_filenames: false
+
 default_language_version:
     python: python3

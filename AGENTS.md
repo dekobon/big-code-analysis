@@ -188,6 +188,18 @@ metric values for anchored tests is fine; first-time acceptance of
 bare snapshots is not. Existing bare snapshots predate this rule and
 are tracked under #95; new tests must follow it.
 
+This policy is enforced automatically. `make snapshot-anchors` (run
+as part of `make pre-commit` and `make ci`, the
+`.pre-commit-config.yaml` hooks, and the
+`.github/workflows/snapshot-anchors.yml` job) invokes
+`./check-snapshot-anchors.py`, which scans every
+`insta::assert_json_snapshot!(metric.…)` call under `src/metrics/`
+and counts the unanchored ones per file. The current per-file
+counts are checked in at `.snapshot-anchor-baseline.txt`; CI fails
+on any *increase*. Decreases are silent and may be locked in with
+`./check-snapshot-anchors.py --update`, which regenerates the
+baseline from the working tree.
+
 **Integration snapshots live in the `big-code-analysis-output`
 submodule** (`tests/repositories/big-code-analysis-output/`). Any
 behaviour-changing fix that touches metric computation, AST traversal,

@@ -38,7 +38,7 @@ FIND_EXCLUDE   := $(foreach dir,$(EXCLUDE_DIRS),! -path "./$(dir)/*")
 # --warn-undefined-variables warnings, e.g. $(call find-by-ext,md,,).
 find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name "*.$(1)" -type f $(FIND_EXCLUDE) $(3))
 
-.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check lint clippy udeps insta-review insta-accept clean install install-cli install-web doc doc-open book book-serve all pre-commit ci _pc-fmt _pc-clippy _pc-test _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _ci-fmt-check _ci-clippy _ci-test _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-cargo-pipeline
+.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check snapshot-anchors lint clippy udeps insta-review insta-accept clean install install-cli install-web doc doc-open book book-serve all pre-commit ci _pc-fmt _pc-clippy _pc-test _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-snapshot-anchors _ci-fmt-check _ci-clippy _ci-test _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-snapshot-anchors _ci-cargo-pipeline
 
 # Default target
 help:
@@ -74,6 +74,7 @@ help:
 	@echo "  toml-fmt-check                       Check TOML formatting without modifying"
 	@echo "  toml-lint                            Lint TOML files with taplo"
 	@echo "  makefile-check                       Lint Makefile with checkmake"
+	@echo "  snapshot-anchors                     Block new bare insta snapshots"
 	@echo "  lint                                 Run all linters"
 	@echo ""
 	@echo "Maintenance:"
@@ -182,6 +183,10 @@ makefile-check:
 	@echo "Linting Makefile with checkmake..."
 	@checkmake --config $(BASE_DIR).checkmake.ini $(BASE_DIR)Makefile || { echo "checkmake found issues"; exit 1; }
 
+snapshot-anchors:
+	@echo "Checking insta snapshot anchors..."
+	@python3 $(BASE_DIR)check-snapshot-anchors.py
+
 # ---------------------------------------------------------------------------
 # Lint aggregate
 # ---------------------------------------------------------------------------
@@ -204,6 +209,8 @@ lint:
 	@$(MAKE) --no-print-directory toml-lint
 	@echo "Running Makefile lints..."
 	@$(MAKE) --no-print-directory makefile-check
+	@echo "Running snapshot-anchor lint..."
+	@$(MAKE) --no-print-directory snapshot-anchors
 
 # ---------------------------------------------------------------------------
 # Maintenance
@@ -242,14 +249,16 @@ all: check test build-release
 pre-commit:
 	$(MAKE) -j --output-sync=target \
 	  _pc-test \
-	  _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check
+	  _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check \
+	  _pc-snapshot-anchors
 	@echo "Pre-commit checks passed"
 
 ci:
 	$(MAKE) _ci-fmt-check
 	$(MAKE) -j --output-sync=target \
 	  _ci-cargo-pipeline \
-	  _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check
+	  _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check \
+	  _ci-snapshot-anchors
 	@echo "CI checks passed"
 
 # ---------------------------------------------------------------------------
@@ -270,7 +279,8 @@ ci:
 #    ├── _pc-shellcheck
 #    ├── _pc-markdown-lint
 #    ├── _pc-toml-lint
-#    └── _pc-makefile-check
+#    ├── _pc-makefile-check
+#    └── _pc-snapshot-anchors
 #
 # Do not invoke _pc-* targets directly; use `make pre-commit`.
 # ---------------------------------------------------------------------------
@@ -300,6 +310,9 @@ _pc-toml-lint: _pc-fmt
 _pc-makefile-check: _pc-fmt
 	$(MAKE) makefile-check
 
+_pc-snapshot-anchors: _pc-fmt
+	$(MAKE) snapshot-anchors
+
 # ---------------------------------------------------------------------------
 # CI validation targets (no auto-formatting)
 #
@@ -311,7 +324,8 @@ _pc-makefile-check: _pc-fmt
 #   1. _ci-fmt-check (sequential, must pass before anything else)
 #   2. parallel:
 #      _ci-cargo-pipeline: clippy → test → build → udeps
-#      _ci-shellcheck, _ci-markdown-lint, _ci-toml-lint, _ci-makefile-check
+#      _ci-shellcheck, _ci-markdown-lint, _ci-toml-lint, _ci-makefile-check,
+#      _ci-snapshot-anchors
 # ---------------------------------------------------------------------------
 _ci-fmt-check:
 	$(MAKE) fmt-check
@@ -341,6 +355,9 @@ _ci-toml-lint:
 
 _ci-makefile-check:
 	$(MAKE) makefile-check
+
+_ci-snapshot-anchors:
+	$(MAKE) snapshot-anchors
 
 # Sequential cargo pipeline for local `make ci`. udeps shares the cargo
 # target/ lock with the rest of the pipeline, so it is serialized here
