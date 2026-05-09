@@ -144,6 +144,14 @@ If `pre-commit` is installed, also run `pre-commit run --all-files`. The
 project's `.pre-commit-config.yaml` runs clippy, `cargo +nightly udeps`,
 and the test suite.
 
+**Mutation testing** runs out-of-band on a quarterly cron via
+`.github/workflows/mutation-test.yml` against `src/metrics/`,
+`src/checker.rs`, and `src/getter.rs`. It is intentionally not part of
+the per-PR gate (a full run is tens of minutes per file). Escapes
+auto-file a GitHub issue labelled `mutation-testing`. See
+[`docs/development/mutation_testing.md`](docs/development/mutation_testing.md)
+for local invocation and triage guidance.
+
 For snapshot test changes, run `cargo insta test --review` and accept or
 reject each snapshot rather than blindly updating files.
 
