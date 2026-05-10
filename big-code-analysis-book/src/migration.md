@@ -42,7 +42,7 @@ verb has its own scoped flag set.
 
 ```bash
 # OLD
-bca \
+big-code-analysis-cli \
     --metrics \
     --paths "$PWD" \
     --output-format markdown \
@@ -63,7 +63,7 @@ bca \
 
 ```bash
 # OLD
-bca --metrics --paths ./src --output-format json --output ./out/
+big-code-analysis-cli --metrics --paths ./src --output-format json --output ./out/
 
 # NEW
 bca --paths ./src metrics -O json --output ./out/
@@ -72,24 +72,24 @@ bca --paths ./src metrics -O json --output ./out/
 ### Per-file ops extraction
 
 ```bash
-# OLD: bca --ops --paths ./src -O json -o ./out/
+# OLD: big-code-analysis-cli --ops --paths ./src -O json -o ./out/
 # NEW: bca --paths ./src ops -O json -o ./out/
 ```
 
 ### AST dump
 
 ```bash
-# OLD: bca --dump --paths ./file.rs
+# OLD: big-code-analysis-cli --dump --paths ./file.rs
 # NEW: bca --paths ./file.rs dump
 ```
 
 ### Find / count nodes
 
 ```bash
-# OLD: bca --find call_expression --paths ./src
+# OLD: big-code-analysis-cli --find call_expression --paths ./src
 # NEW: bca --paths ./src find call_expression
 
-# OLD: bca --count if_statement,for_statement --paths ./src
+# OLD: big-code-analysis-cli --count if_statement,for_statement --paths ./src
 # NEW: bca --paths ./src count if_statement for_statement
 ```
 
@@ -99,14 +99,14 @@ bca --paths ./src metrics -O json --output ./out/
 ### Function spans
 
 ```bash
-# OLD: bca --function --paths ./src
+# OLD: big-code-analysis-cli --function --paths ./src
 # NEW: bca --paths ./src functions
 ```
 
 ### Strip comments
 
 ```bash
-# OLD: bca --comments --in-place --paths ./src
+# OLD: big-code-analysis-cli --comments --in-place --paths ./src
 # NEW: bca --paths ./src strip-comments --in-place
 ```
 
@@ -114,7 +114,7 @@ bca --paths ./src metrics -O json --output ./out/
 
 ```bash
 # OLD
-bca --metrics --preproc a.h --preproc b.h \
+big-code-analysis-cli --metrics --preproc a.h --preproc b.h \
     --paths ./src -o /tmp/p.json
 
 # NEW
@@ -125,7 +125,7 @@ bca --paths ./src preproc -o /tmp/p.json
 
 ```bash
 # OLD
-bca --metrics --preproc /tmp/p.json \
+big-code-analysis-cli --metrics --preproc /tmp/p.json \
     --paths ./src -O json -o ./out/
 
 # NEW
@@ -136,7 +136,7 @@ bca --paths ./src --preproc-data /tmp/p.json \
 ### List metrics
 
 ```bash
-# OLD: bca --list-metrics descriptions
+# OLD: big-code-analysis-cli --list-metrics descriptions
 # NEW: bca list-metrics descriptions
 ```
 
