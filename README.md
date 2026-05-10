@@ -16,7 +16,7 @@ It is based on a parser generator tool and an incremental parsing library
 called
 <a href="https://tree-sitter.github.io/tree-sitter/" target="_blank">Tree Sitter</a>.
 
-A command line tool called **big-code-analysis-cli** is provided to interact with the API of the library in an easy way.
+A command line tool called **bca** is provided to interact with the API of the library in an easy way.
 
 This tool can be used to:
 
@@ -25,7 +25,7 @@ This tool can be used to:
 - Export metrics in different formats
 - Generate a Markdown quality-metrics report (`-O markdown`)
 
-In addition, we provide a **big-code-analysis-web** tool to use the library through a REST API.
+In addition, we provide a **bca-web** tool to use the library through a REST API.
 
 # Usage
 

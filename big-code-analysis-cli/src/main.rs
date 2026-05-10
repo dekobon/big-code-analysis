@@ -60,7 +60,7 @@ fn write_stdout_or_die(bytes: &[u8]) {
 
 #[derive(Parser, Debug)]
 #[clap(
-    name = "big-code-analysis-cli",
+    name = "bca",
     version,
     author,
     about = "Analyze source code.",

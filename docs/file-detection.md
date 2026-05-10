@@ -142,7 +142,7 @@ generated lookups update automatically.
 - **Library** — `guess_language` is the standard entry point; the CLI
   and REST server both go through it. `get_language_for_file` is
   available for callers that have only a path.
-- **CLI (`big-code-analysis-cli`)** — auto-detects via `guess_language`
+- **CLI (`bca`)** — auto-detects via `guess_language`
   unless the user passes `--language-type <name>` (short form `-l`).
   The flag value is resolved through `get_from_ext` plus two manual
   aliases (`ccomment`, `preproc`) and an `Action::PreprocProduce`
@@ -150,7 +150,7 @@ generated lookups update automatically.
   resolver, which then falls back to `guess_language` — the file is
   skipped only if auto-detection also fails. See
   [`big-code-analysis-cli/src/main.rs`](../big-code-analysis-cli/src/main.rs).
-- **REST (`big-code-analysis-web`)** — every endpoint that takes a path
+- **REST (`bca-web`)** — every endpoint that takes a path
   + buffer calls `guess_language` to resolve the language before
   dispatching to a parser.
 - **Tests** — `tests/common/mod.rs` falls back to `guess_language` when

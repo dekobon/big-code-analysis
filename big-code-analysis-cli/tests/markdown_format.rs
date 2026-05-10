@@ -3,7 +3,7 @@ use predicates::prelude::*;
 use tempfile::TempDir;
 
 fn cli() -> Command {
-    Command::cargo_bin("big-code-analysis-cli").unwrap()
+    Command::cargo_bin("bca").unwrap()
 }
 
 /// A small fixture file known to the repo, resolved relative to the workspace

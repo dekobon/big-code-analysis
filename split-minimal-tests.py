@@ -23,9 +23,9 @@ import shutil
 import subprocess
 import typing as T
 
-# Subset of metric names emitted by `big-code-analysis-cli --metrics` that
+# Subset of metric names emitted by `bca --metrics` that
 # this script splits HTML minimal tests by. The full set is discovered at
-# runtime from `big-code-analysis-cli --list-metrics` so the two stay in
+# runtime from `bca --list-metrics` so the two stay in
 # sync. This list filters out object-oriented / class-only metrics (wmc,
 # npm, npa, mi, abc) and the lone-letter `mi` summary, which the HTML
 # minimal-test fixtures do not currently exercise.
@@ -47,7 +47,7 @@ RELEVANT_METRICS = frozenset(
 
 
 def _parse_list_metrics(stdout: str) -> T.List[str]:
-    """Parse `big-code-analysis-cli --list-metrics` stdout into the subset
+    """Parse `bca --list-metrics` stdout into the subset
     of metric names this script knows how to split by.
 
     Blank lines and surrounding whitespace are tolerated; names absent
@@ -68,7 +68,7 @@ def _parse_list_metrics(stdout: str) -> T.List[str]:
 
 
 def discover_metrics(cli: str) -> T.List[str]:
-    """Run `big-code-analysis-cli --list-metrics` and return the metric
+    """Run `bca --list-metrics` and return the metric
     names this script knows how to split by. Names absent from the CLI
     output are dropped (the binary is the source of truth); names absent
     from `RELEVANT_METRICS` are filtered out."""
@@ -117,8 +117,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--cli",
-        default="big-code-analysis-cli",
-        help="Path to the big-code-analysis-cli binary (default: %(default)s).",
+        default="bca",
+        help="Path to the bca binary (default: %(default)s).",
     )
 
     # Parse arguments

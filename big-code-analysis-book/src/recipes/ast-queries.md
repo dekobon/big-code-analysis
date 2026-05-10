@@ -9,7 +9,7 @@ Tree-sitter exposes a synthetic `ERROR` node anywhere it could not
 parse. Use `find` to surface them:
 
 ```bash
-big-code-analysis-cli \
+bca \
     --include "*.rs" \
     --paths "$PWD" \
     find ERROR
@@ -30,7 +30,7 @@ For example, to count `if`, `for`, and `while` constructs across a
 Rust project:
 
 ```bash
-big-code-analysis-cli \
+bca \
     --include "*.rs" \
     --paths src/ \
     count if_expression for_expression while_expression
@@ -43,7 +43,7 @@ grammar. To discover them, dump the AST of a small sample file
 ## Find all `unsafe` blocks in a Rust crate
 
 ```bash
-big-code-analysis-cli \
+bca \
     --include "*.rs" \
     --paths src/ \
     find unsafe_block
@@ -57,14 +57,14 @@ Useful for understanding why a metric came out the way it did, or for
 discovering the tree-sitter node names you need for `find` / `count`:
 
 ```bash
-big-code-analysis-cli --paths src/lib.rs dump
+bca --paths src/lib.rs dump
 ```
 
 To narrow the dump to a specific function or block, add line bounds
 with the global `--ls` and `--le` flags:
 
 ```bash
-big-code-analysis-cli \
+bca \
     --paths src/lib.rs \
     --ls 42 --le 88 \
     dump
@@ -74,7 +74,7 @@ big-code-analysis-cli \
 used to scope a search to a single function:
 
 ```bash
-big-code-analysis-cli \
+bca \
     --paths src/lib.rs \
     --ls 42 --le 88 \
     find return_expression
@@ -85,7 +85,7 @@ big-code-analysis-cli \
 For a quick human-readable inventory:
 
 ```bash
-big-code-analysis-cli \
+bca \
     --include "*.rs" \
     --paths src/ \
     functions
@@ -101,7 +101,7 @@ output instead and walk `.spaces[]` recursively, taking entries whose
 `kind` is `function`:
 
 ```bash
-big-code-analysis-cli \
+bca \
     --include "*.rs" \
     --paths src/ \
     metrics -O json \

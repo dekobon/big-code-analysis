@@ -42,7 +42,7 @@ verb has its own scoped flag set.
 
 ```bash
 # OLD
-big-code-analysis-cli \
+bca \
     --metrics \
     --paths "$PWD" \
     --output-format markdown \
@@ -51,7 +51,7 @@ big-code-analysis-cli \
     --strip-prefix "$PWD/"
 
 # NEW
-big-code-analysis-cli \
+bca \
     --paths "$PWD" \
     --num-jobs $(nproc) \
     report markdown \
@@ -63,34 +63,34 @@ big-code-analysis-cli \
 
 ```bash
 # OLD
-big-code-analysis-cli --metrics --paths ./src --output-format json --output ./out/
+bca --metrics --paths ./src --output-format json --output ./out/
 
 # NEW
-big-code-analysis-cli --paths ./src metrics -O json --output ./out/
+bca --paths ./src metrics -O json --output ./out/
 ```
 
 ### Per-file ops extraction
 
 ```bash
-# OLD: big-code-analysis-cli --ops --paths ./src -O json -o ./out/
-# NEW: big-code-analysis-cli --paths ./src ops -O json -o ./out/
+# OLD: bca --ops --paths ./src -O json -o ./out/
+# NEW: bca --paths ./src ops -O json -o ./out/
 ```
 
 ### AST dump
 
 ```bash
-# OLD: big-code-analysis-cli --dump --paths ./file.rs
-# NEW: big-code-analysis-cli --paths ./file.rs dump
+# OLD: bca --dump --paths ./file.rs
+# NEW: bca --paths ./file.rs dump
 ```
 
 ### Find / count nodes
 
 ```bash
-# OLD: big-code-analysis-cli --find call_expression --paths ./src
-# NEW: big-code-analysis-cli --paths ./src find call_expression
+# OLD: bca --find call_expression --paths ./src
+# NEW: bca --paths ./src find call_expression
 
-# OLD: big-code-analysis-cli --count if_statement,for_statement --paths ./src
-# NEW: big-code-analysis-cli --paths ./src count if_statement for_statement
+# OLD: bca --count if_statement,for_statement --paths ./src
+# NEW: bca --paths ./src count if_statement for_statement
 ```
 
 > Note: `count` now takes one node type per positional argument (space
@@ -99,45 +99,45 @@ big-code-analysis-cli --paths ./src metrics -O json --output ./out/
 ### Function spans
 
 ```bash
-# OLD: big-code-analysis-cli --function --paths ./src
-# NEW: big-code-analysis-cli --paths ./src functions
+# OLD: bca --function --paths ./src
+# NEW: bca --paths ./src functions
 ```
 
 ### Strip comments
 
 ```bash
-# OLD: big-code-analysis-cli --comments --in-place --paths ./src
-# NEW: big-code-analysis-cli --paths ./src strip-comments --in-place
+# OLD: bca --comments --in-place --paths ./src
+# NEW: bca --paths ./src strip-comments --in-place
 ```
 
 ### Preproc data — producer
 
 ```bash
 # OLD
-big-code-analysis-cli --metrics --preproc a.h --preproc b.h \
+bca --metrics --preproc a.h --preproc b.h \
     --paths ./src -o /tmp/p.json
 
 # NEW
-big-code-analysis-cli --paths ./src preproc -o /tmp/p.json
+bca --paths ./src preproc -o /tmp/p.json
 ```
 
 ### Preproc data — consumer
 
 ```bash
 # OLD
-big-code-analysis-cli --metrics --preproc /tmp/p.json \
+bca --metrics --preproc /tmp/p.json \
     --paths ./src -O json -o ./out/
 
 # NEW
-big-code-analysis-cli --paths ./src --preproc-data /tmp/p.json \
+bca --paths ./src --preproc-data /tmp/p.json \
     metrics -O json -o ./out/
 ```
 
 ### List metrics
 
 ```bash
-# OLD: big-code-analysis-cli --list-metrics descriptions
-# NEW: big-code-analysis-cli list-metrics descriptions
+# OLD: bca --list-metrics descriptions
+# NEW: bca list-metrics descriptions
 ```
 
 ## Migration hint at runtime
@@ -147,7 +147,7 @@ recognized old flags and their new equivalents before clap's own error.
 For example:
 
 ```text
-$ big-code-analysis-cli --metrics -O markdown
+$ bca --metrics -O markdown
 note: the CLI was restructured into subcommands. See migration.md for the full mapping.
   --metrics  ->  bca metrics
   -O markdown  ->  bca report markdown [--top N] [--strip-prefix P]

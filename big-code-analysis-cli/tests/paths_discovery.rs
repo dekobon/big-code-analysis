@@ -8,7 +8,7 @@ use predicates::prelude::*;
 use tempfile::TempDir;
 
 fn cli(env_dir: &Path) -> Command {
-    let mut cmd = Command::cargo_bin("big-code-analysis-cli").unwrap();
+    let mut cmd = Command::cargo_bin("bca").unwrap();
     // Isolate from any user-level global gitignore so tests are
     // deterministic across machines.
     cmd.env("HOME", env_dir)

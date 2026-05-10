@@ -7,7 +7,7 @@ Recipes for producing aggregated, human-readable Markdown reports.
 Run from the project root and write the report to a file:
 
 ```bash
-big-code-analysis-cli \
+bca \
     --paths "$PWD" \
     --num-jobs "$(nproc)" \
     report markdown \
@@ -26,11 +26,11 @@ big-code-analysis-cli \
 
 ## Limit the report to specific languages
 
-`big-code-analysis-cli` infers language from extension, so the
+`bca` infers language from extension, so the
 include/exclude globs do the filtering:
 
 ```bash
-big-code-analysis-cli \
+bca \
     --include "*.rs" "*.py" \
     --paths "$PWD" \
     report markdown --output report.md
@@ -39,7 +39,7 @@ big-code-analysis-cli \
 To exclude vendored or generated trees, layer in `--exclude`:
 
 ```bash
-big-code-analysis-cli \
+bca \
     --include "*.rs" \
     --exclude "**/target/**" "**/vendor/**" \
     --paths "$PWD" \
@@ -58,7 +58,7 @@ For a quick triage view that highlights the top three problems per
 section:
 
 ```bash
-big-code-analysis-cli -p src/ report markdown --top 3
+bca -p src/ report markdown --top 3
 ```
 
 The report still includes every section, but each table is short
@@ -71,10 +71,10 @@ on each side and diff the Markdown:
 
 ```bash
 git worktree add /tmp/before main
-big-code-analysis-cli -p /tmp/before report markdown \
+bca -p /tmp/before report markdown \
     --strip-prefix /tmp/before/ --output /tmp/before.md
 
-big-code-analysis-cli -p "$PWD" report markdown \
+bca -p "$PWD" report markdown \
     --strip-prefix "$PWD/" --output /tmp/after.md
 
 diff -u /tmp/before.md /tmp/after.md | less
@@ -92,13 +92,13 @@ way the compiler sees it. The workflow is two steps:
 
 ```bash
 # 1. Build a preprocessor-data JSON from the headers and sources.
-big-code-analysis-cli \
+bca \
     --paths src/ include/ \
     preproc \
     --output /tmp/preproc.json
 
 # 2. Run the report (or any other command) with that data attached.
-big-code-analysis-cli \
+bca \
     --paths src/ \
     --preproc-data /tmp/preproc.json \
     report markdown --output report.md
@@ -115,7 +115,7 @@ diff, not the whole tree:
 
 ```bash
 git diff --name-only --diff-filter=AM origin/main...HEAD \
-    | big-code-analysis-cli --paths-from - metrics -O json -o ./out
+    | bca --paths-from - metrics -O json -o ./out
 ```
 
 - `--diff-filter=AM` keeps Added and Modified files and drops
@@ -131,7 +131,7 @@ pipeline:
 
 ```bash
 git diff --name-only --diff-filter=AM origin/main...HEAD \
-    | big-code-analysis-cli --paths-from - report markdown \
+    | bca --paths-from - report markdown \
         --top 10 --output pr-report.md
 ```
 

@@ -1,6 +1,6 @@
 # Rest API
 
-**big-code-analysis-web** is a web server that allows users to analyze source code through a REST API. This service is useful for anyone looking to perform code analysis over HTTP.
+**bca-web** is a web server that allows users to analyze source code through a REST API. This service is useful for anyone looking to perform code analysis over HTTP.
 
 The server can be run on any host and port, and supports the following main functionalities:
 
@@ -14,7 +14,7 @@ The server can be run on any host and port, and supports the following main func
 To run the server, you can use the following command:
 
 ```sh
-big-code-analysis-web --host 127.0.0.1 --port 9090
+bca-web --host 127.0.0.1 --port 9090
 ```
 
 - `--host` specifies the IP address where the server should run (default is 127.0.0.1).

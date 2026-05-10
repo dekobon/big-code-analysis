@@ -16,13 +16,13 @@ ideal for sharing as a build artifact).
 Print to stdout:
 
 ```bash
-big-code-analysis-cli --paths /path/to/project report markdown
+bca --paths /path/to/project report markdown
 ```
 
 Write to a file:
 
 ```bash
-big-code-analysis-cli --paths /path/to/project report markdown --output report.md
+bca --paths /path/to/project report markdown --output report.md
 ```
 
 > **Note:** `--output` must be a *file* path, not a directory.
@@ -40,20 +40,20 @@ big-code-analysis-cli --paths /path/to/project report markdown --output report.m
 Show only the five worst hotspots per section:
 
 ```bash
-big-code-analysis-cli -p src/ report markdown --top 5
+bca -p src/ report markdown --top 5
 ```
 
 Strip the workspace root from displayed paths:
 
 ```bash
-big-code-analysis-cli -p /home/user/project report markdown \
+bca -p /home/user/project report markdown \
     --strip-prefix /home/user/project/
 ```
 
 The user's daily-driver invocation:
 
 ```bash
-big-code-analysis-cli \
+bca \
     --paths "$PWD" \
     --num-jobs $(nproc) \
     report markdown \
@@ -111,7 +111,7 @@ fonts, no template engine). The page renders identically offline.
 Write it to a file and open in any browser:
 
 ```bash
-big-code-analysis-cli --paths /path/to/project \
+bca --paths /path/to/project \
     report html --top 10 --output report.html
 ```
 

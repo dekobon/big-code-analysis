@@ -1,9 +1,8 @@
 # Recipes
 
-Task-oriented examples for getting work done with `big-code-analysis-cli`
-and `big-code-analysis-web`. Each recipe assumes you have built the
-binaries (`cargo build --release`) and that `big-code-analysis-cli` is
-on your `PATH`.
+Task-oriented examples for getting work done with `bca` and `bca-web`.
+Each recipe assumes you have built the binaries (`cargo build
+--release`) and that `bca` is on your `PATH`.
 
 The recipes are grouped by goal:
 
