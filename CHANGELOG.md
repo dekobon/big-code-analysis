@@ -29,14 +29,16 @@ changes are marked with **(breaking)** in the entries below.
 - **Bash** — full Checker / Getter / Alterator and metric implementations.
 - **C#** — full implementation with Java-parity test coverage, including
   shebang-free detection and aliased-`kind_id` variant handling.
-- **Kotlin** — Checker, Getter, and all seven metric traits.
 - **Lua** — full implementation.
 - **Perl** — full implementation with metrics.
 - **PHP** — full implementation with per-metric test matrix at Java parity
   and integration-suite wiring into the `big-code-analysis-output` submodule.
 - **Tcl** — full implementation.
-- **Go** — Cognitive complexity metric (the language was previously
-  parsed but did not implement Cognitive).
+- **Kotlin / Go** — promoted from default `implement_metric_trait!` stubs
+  to real per-language metric implementations. Kotlin gained Checker,
+  Getter, and all seven metric traits; Go gained a real Cognitive
+  complexity implementation. Both languages parsed pre-fork but emitted
+  default/no-op metric values.
 
 #### New metrics and metric variants
 
@@ -118,11 +120,8 @@ changes are marked with **(breaking)** in the entries below.
 - Integration-snapshot submodule renamed from `tests/repositories/rca-output`
   to `tests/repositories/big-code-analysis-output`
   (remote: `dekobon/big-code-analysis-output`).
-- Edition bumped to **Rust 2024**; let-else, let-chains, and other
-  2024-edition features are now used in the codebase.
 - `tree-sitter` bumped to `0.26.8` (with `Node::child(u32)` signature
   adaptation in our wrapper).
-- `askama` bumped from `^0.15` to `^0.16` in the `enums/` helper crate.
 - CLI `Format` enum replaced with clap `ValueEnum` derivation —
   `-O` / `--format` accepts the same values, but error messages and
   shell completions are now generated from the type.
@@ -138,8 +137,11 @@ changes are marked with **(breaking)** in the entries below.
   for display.
 - Internal cleanup: numerous `refactor:`, `chore:`, and `style:`
   commits across the workspace tightened visibility, removed dead
-  code, consolidated test helpers, and modernised Rust syntax —
-  see `git log 007ee15..HEAD --grep '^refactor\|^chore\|^style'`
+  code, consolidated test helpers, modernised Rust syntax, and
+  bumped internal-only dependencies (e.g. `askama` 0.15 → 0.16 in
+  the `enums/` codegen helper crate, which is excluded from the
+  default workspace). See
+  `git log 007ee15..HEAD --grep '^refactor\|^chore\|^style\|^build(deps)'`
   for the full list.
 
 ### Fixed
@@ -214,10 +216,10 @@ changes are marked with **(breaking)** in the entries below.
 
 - HTML per-function metrics output format
   (`refactor(output): remove HTML metrics output format`,
-  commit `eb57500`) — the **aggregated** hotspot HTML report
-  (`feat(cli): add HTML aggregated hotspot report format`,
-  commit `5eb41fd`) replaces this use case with a richer,
-  better-structured output.
+  commit `eb57500`). HTML output remains available via the new
+  self-contained per-file HTML report (commit `7af09d1`) and the
+  aggregated hotspot HTML report (commit `5eb41fd`); migrate
+  depending on whether you want per-file or cross-file output.
 
 ### Security
 
@@ -230,5 +232,10 @@ changes are marked with **(breaking)** in the entries below.
   the blocking thread pool (`fix(web): track orphaned blocking
   tasks and reject when threshold exceeded`, commit `94c8141`).
 
-[Unreleased]: https://github.com/dekobon/big-code-analysis/compare/v0.0.25...HEAD
-[0.0.25]: https://github.com/dekobon/big-code-analysis/compare/007ee15...v0.0.25
+<!-- Release-cutter: when the v0.0.25 tag is created, retarget both
+links below at `v0.0.25` (Unreleased: `v0.0.25...HEAD`; 0.0.25:
+`007ee15...v0.0.25`). They currently point at `HEAD` so the
+comparison links resolve before the tag exists. -->
+
+[Unreleased]: https://github.com/dekobon/big-code-analysis/compare/HEAD...HEAD
+[0.0.25]: https://github.com/dekobon/big-code-analysis/compare/007ee15...HEAD
