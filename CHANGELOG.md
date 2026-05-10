@@ -18,7 +18,7 @@ changes are marked with **(breaking)** in the entries below.
 > **Fork-anchor note.** Forked from Mozilla's
 > [`rust-code-analysis`](https://github.com/mozilla/rust-code-analysis)
 > at commit `007ee15` on 2026-04-26 and renamed to `big-code-analysis`.
-> This entry consolidates all dekobon-era changes through the first
+> This entry consolidates all changes through the first
 > public release; there were no intermediate tagged releases between
 > the fork point and `0.0.25`.
 
