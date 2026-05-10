@@ -3,7 +3,7 @@ use predicates::prelude::*;
 use tempfile::TempDir;
 
 fn cli() -> Command {
-    Command::cargo_bin("big-code-analysis-cli").unwrap()
+    Command::cargo_bin("bca").unwrap()
 }
 
 /// Build a fixture directory with one generated and one hand-written file.

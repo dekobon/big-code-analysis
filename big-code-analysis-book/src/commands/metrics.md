@@ -13,7 +13,7 @@ or to a directory of structured files.
 To compute and display metrics for a given file or directory, run:
 
 ```bash
-big-code-analysis-cli --paths /path/to/your/file/or/directory metrics
+bca --paths /path/to/your/file/or/directory metrics
 ```
 
 - `--paths` (or `-p`): file or directory to analyze. If a directory is
@@ -48,7 +48,7 @@ from every analyzed file into a single document:
 To export metrics as JSON files:
 
 ```bash
-big-code-analysis-cli --paths /path/to/your/file/or/directory metrics \
+bca --paths /path/to/your/file/or/directory metrics \
     -O json -o /path/to/output/directory
 ```
 
@@ -66,7 +66,7 @@ big-code-analysis-cli --paths /path/to/your/file/or/directory metrics \
 ### CSV (spreadsheets and Pandas)
 
 ```bash
-big-code-analysis-cli --paths /path/to/your/code metrics \
+bca --paths /path/to/your/code metrics \
     -O csv -o csv-output
 ```
 
@@ -89,7 +89,7 @@ quotes, or newlines round-trip cleanly.
 Stream the result to a single file with `-`:
 
 ```bash
-big-code-analysis-cli --paths /path/to/your/code metrics -O csv \
+bca --paths /path/to/your/code metrics -O csv \
     > metrics.csv
 ```
 
@@ -105,7 +105,7 @@ produces a `<input>.csv` mirror under the output directory.
 ### Checkstyle (CI integration)
 
 ```bash
-big-code-analysis-cli --paths /path/to/your/code metrics \
+bca --paths /path/to/your/code metrics \
     -O checkstyle -o report.checkstyle.xml
 ```
 
@@ -121,7 +121,7 @@ wire up the consumer without waiting on the producer.
 ### SARIF (GitHub Code Scanning)
 
 ```bash
-big-code-analysis-cli --paths /path/to/your/code metrics \
+bca --paths /path/to/your/code metrics \
     -O sarif -o report.sarif.json
 ```
 
@@ -150,7 +150,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run big-code-analysis
         run: |
-          big-code-analysis-cli --paths . metrics \
+          bca --paths . metrics \
               -O sarif -o report.sarif.json
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v3
@@ -161,7 +161,7 @@ jobs:
 ### Clang/GCC warning lines (editor quickfix and CI annotators)
 
 ```bash
-big-code-analysis-cli --paths /path/to/your/code metrics \
+bca --paths /path/to/your/code metrics \
     -O clang-warning -o report.txt
 ```
 
@@ -196,7 +196,7 @@ jobs:
         run: echo "::add-matcher::$RUNNER_TOOL_CACHE/problem-matchers/gcc.json"
       - name: Run big-code-analysis
         run: |
-          big-code-analysis-cli --paths . metrics \
+          bca --paths . metrics \
               -O clang-warning -o /dev/stdout
 ```
 
@@ -207,7 +207,7 @@ workflow commands.
 ### MSVC warning lines (Visual Studio and Windows CI)
 
 ```bash
-big-code-analysis-cli --paths /path/to/your/code metrics \
+bca --paths /path/to/your/code metrics \
     -O msvc-warning -o report.txt
 ```
 
@@ -228,7 +228,7 @@ Windows CI runners (Azure Pipelines, GitHub Actions on
 ### Pretty print
 
 ```bash
-big-code-analysis-cli --paths /path/to/your/file/or/directory metrics \
+bca --paths /path/to/your/file/or/directory metrics \
     --pretty -O json
 ```
 
@@ -244,12 +244,12 @@ Tooling that drives the CLI can discover the metric catalog at runtime
 instead of hard-coding it:
 
 ```bash
-big-code-analysis-cli list-metrics
+bca list-metrics
 ```
 
 prints metric names one per line. Pass `descriptions` for a one-line
 summary of each metric:
 
 ```bash
-big-code-analysis-cli list-metrics descriptions
+bca list-metrics descriptions
 ```

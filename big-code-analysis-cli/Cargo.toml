@@ -9,7 +9,8 @@ description = "Tool to compute and export code metrics"
 license = "MPL-2.0"
 
 [[bin]]
-name = "big-code-analysis-cli"
+name = "bca"
+path = "src/main.rs"
 
 [dependencies]
 clap = { version = "^4.0", features = ["derive"] }

@@ -3,7 +3,7 @@ use predicates::prelude::*;
 use tempfile::NamedTempFile;
 
 fn cli() -> Command {
-    Command::cargo_bin("big-code-analysis-cli").unwrap()
+    Command::cargo_bin("bca").unwrap()
 }
 
 #[test]

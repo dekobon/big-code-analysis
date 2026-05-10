@@ -1,7 +1,7 @@
 # big-code-analysis-cli
 
-`big-code-analysis-cli` analyzes source code and emits per-file structured
-metrics, aggregated reports, AST dumps, node lookups, and more.
+`bca` analyzes source code and emits per-file structured metrics,
+aggregated reports, AST dumps, node lookups, and more.
 
 > **Migrating from the flag-style CLI?** The CLI is now subcommand-driven.
 > See the [migration guide](../big-code-analysis-book/src/migration.md)
@@ -17,7 +17,7 @@ cargo build
 ## Usage
 
 ```sh
-big-code-analysis-cli [GLOBAL OPTIONS] <COMMAND> [COMMAND OPTIONS]
+bca [GLOBAL OPTIONS] <COMMAND> [COMMAND OPTIONS]
 ```
 
 The global options describe *what to walk* (paths, includes/excludes,
@@ -39,7 +39,7 @@ file, with command-specific options as needed.
 | `preproc` | Build preprocessor-data JSON for C/C++ analysis. |
 | `list-metrics [names\|descriptions]` | List computable metrics. |
 
-Run `big-code-analysis-cli <COMMAND> --help` for command-specific options.
+Run `bca <COMMAND> --help` for command-specific options.
 
 ## Global options
 
@@ -66,34 +66,34 @@ Global options work both before and after the subcommand.
 Per-file JSON metrics:
 
 ```sh
-big-code-analysis-cli --paths ./src metrics -O json -o ./out/
+bca --paths ./src metrics -O json -o ./out/
 ```
 
 Aggregated markdown quality report:
 
 ```sh
-big-code-analysis-cli --paths "$PWD" --num-jobs $(nproc) \
+bca --paths "$PWD" --num-jobs $(nproc) \
     report markdown --top 20 --strip-prefix "$PWD/"
 ```
 
 AST dump for one file:
 
 ```sh
-big-code-analysis-cli --paths ./file.rs dump
+bca --paths ./file.rs dump
 ```
 
 List all metrics with one-line descriptions:
 
 ```sh
-big-code-analysis-cli list-metrics descriptions
+bca list-metrics descriptions
 ```
 
 ## Skipping generated code
 
 Generated bindings (protobuf stubs, OpenAPI clients, lex/yacc output,
 build-system plumbing) inflate metrics for code no human will refactor.
-By default, `big-code-analysis-cli` scans the first ~50 lines / 5 KiB of
-each file for a generated-code marker and skips matches before parsing.
+By default, `bca` scans the first ~50 lines / 5 KiB of each file for a
+generated-code marker and skips matches before parsing.
 
 Recognized markers (case-insensitive):
 

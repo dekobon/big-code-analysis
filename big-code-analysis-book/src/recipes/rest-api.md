@@ -1,6 +1,6 @@
 # Driving the REST API
 
-`big-code-analysis-web` exposes the same analysis primitives over
+`bca-web` exposes the same analysis primitives over
 HTTP. Use it when the consumer is a long-running service (an editor
 plugin, CI worker, or web app) that should not pay the cost of
 spawning the CLI per file.
@@ -11,7 +11,7 @@ The recipes below show practical end-to-end calls with `curl`.
 ## Start the server
 
 ```bash
-big-code-analysis-web --host 127.0.0.1 --port 8080 -j "$(nproc)"
+bca-web --host 127.0.0.1 --port 8080 -j "$(nproc)"
 ```
 
 Verify it's up:
@@ -128,7 +128,7 @@ often simplest to start it as a background process inside the job and
 tear it down at the end:
 
 ```bash
-big-code-analysis-web --port 8080 &
+bca-web --port 8080 &
 SERVER_PID=$!
 trap 'kill "$SERVER_PID"' EXIT
 

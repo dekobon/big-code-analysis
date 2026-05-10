@@ -1,6 +1,6 @@
 # big-code-analysis-web
 
-`big-code-analysis-web` is a web server that provides source code analysis capabilities via a RESTful API. It enables developers to interact with the code analysis functionality from the big-code-analysis suite through HTTP requests.
+`bca-web` is a web server that provides source code analysis capabilities via a RESTful API. It enables developers to interact with the code analysis functionality from the big-code-analysis suite through HTTP requests.
 
 ## Features
 
@@ -24,7 +24,7 @@ cargo build
 Run the server by specifying the host and port:
 
 ```sh
-big-code-analysis-web [OPTIONS]
+bca-web [OPTIONS]
 ```
 
 ### Available Options
@@ -40,5 +40,5 @@ big-code-analysis-web [OPTIONS]
 To start the server on a specific host and port:
 
 ```sh
-big-code-analysis-web --host <HOST> --port <PORT> -j <NUM_JOBS>
+bca-web --host <HOST> --port <PORT> -j <NUM_JOBS>
 ```

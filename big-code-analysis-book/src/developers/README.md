@@ -184,25 +184,25 @@ make book-serve  # mdbook serve with live reload
 
 ## Run your code
 
-You can run **big-code-analysis-cli** using:
+You can run **bca** using:
 
 ```console
-cargo run -p big-code-analysis-cli -- [big-code-analysis-cli-parameters]
+cargo run -p big-code-analysis-cli -- [bca-parameters]
 ```
 
-To know the list of **big-code-analysis-cli** parameters, run:
+To know the list of **bca** parameters, run:
 
 ```console
 cargo run -p big-code-analysis-cli -- --help
 ```
 
-You can run **big-code-analysis-web** using:
+You can run **bca-web** using:
 
 ```console
-cargo run -p big-code-analysis-web -- [big-code-analysis-web-parameters]
+cargo run -p big-code-analysis-web -- [bca-web-parameters]
 ```
 
-To know the list of **big-code-analysis-web** parameters, run:
+To know the list of **bca-web** parameters, run:
 
 ```console
 cargo run -p big-code-analysis-web -- --help

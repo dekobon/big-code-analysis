@@ -8,7 +8,7 @@ analysis, or feed them into a database or dashboard.
 ## Export per-file metrics as JSON
 
 ```bash
-big-code-analysis-cli \
+bca \
     --paths src/ \
     metrics \
     -O json \
@@ -22,7 +22,7 @@ not `src/lib.json`. Use `--pretty` if you intend to read the files by
 hand:
 
 ```bash
-big-code-analysis-cli -p src/ metrics --pretty -O json -o /tmp/metrics
+bca -p src/ metrics --pretty -O json -o /tmp/metrics
 ```
 
 CBOR (`-O cbor`) is the most compact format; it is binary and
@@ -34,7 +34,7 @@ stdout when `-o` is omitted, which is useful for pipelines.
 Combine streamed JSON output with `jq` to extract one value per file:
 
 ```bash
-big-code-analysis-cli -p src/ metrics -O json \
+bca -p src/ metrics -O json \
   | jq -c '{file: .name, mi: .metrics.mi.mi_visual_studio}'
 ```
 
@@ -48,8 +48,8 @@ Tooling that drives the CLI shouldn't hard-code metric names. Ask the
 binary:
 
 ```bash
-big-code-analysis-cli list-metrics                # one name per line
-big-code-analysis-cli list-metrics descriptions   # name + summary
+bca list-metrics                # one name per line
+bca list-metrics descriptions   # name + summary
 ```
 
 This is the right input for code generators, schema definitions, or
@@ -62,7 +62,7 @@ input to Halstead-style metric calculations beyond what the built-in
 report shows:
 
 ```bash
-big-code-analysis-cli \
+bca \
     --include "*.rs" \
     --paths src/ \
     ops \
@@ -86,10 +86,10 @@ on disk:
 
 ```bash
 # Stream a single file with comments removed.
-big-code-analysis-cli --paths src/lib.rs strip-comments
+bca --paths src/lib.rs strip-comments
 
 # Rewrite every Python file in src/ in place.
-big-code-analysis-cli --include "*.py" --paths src/ \
+bca --include "*.py" --paths src/ \
     strip-comments --in-place
 ```
 

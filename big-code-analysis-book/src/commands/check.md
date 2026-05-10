@@ -23,7 +23,7 @@ names match `bca list-metrics`; sub-metrics use a dotted form. `0` is a
 valid limit and means "no value permitted".
 
 ```bash
-big-code-analysis-cli --paths src/ check \
+bca --paths src/ check \
     --threshold cyclomatic=15 \
     --threshold cognitive=20 \
     --threshold loc.lloc=200
@@ -42,7 +42,7 @@ cognitive = 20
 ```
 
 ```bash
-big-code-analysis-cli --paths src/ check --config bca-thresholds.toml
+bca --paths src/ check --config bca-thresholds.toml
 ```
 
 CLI flags override values from `--config` for the same metric name, so
@@ -92,7 +92,7 @@ prints offenders to stderr but exits `0`. Useful while adopting
 baselines without flipping CI red.
 
 ```bash
-big-code-analysis-cli --paths src/ check \
+bca --paths src/ check \
     --config bca-thresholds.toml --no-fail
 ```
 
@@ -101,7 +101,7 @@ big-code-analysis-cli --paths src/ check \
 ```yaml
 - name: Check code complexity thresholds
   run: |
-    big-code-analysis-cli --paths src/ check --config bca-thresholds.toml
+    bca --paths src/ check --config bca-thresholds.toml
   # The default behavior — non-zero exit fails the step — is exactly
   # what we want here. No extra wiring needed.
 ```
@@ -112,6 +112,6 @@ annotation while you reduce the count, swap in `--no-fail`:
 ```yaml
 - name: Surface complexity hot spots (non-blocking)
   run: |
-    big-code-analysis-cli --paths src/ check \
+    bca --paths src/ check \
         --config bca-thresholds.toml --no-fail
 ```

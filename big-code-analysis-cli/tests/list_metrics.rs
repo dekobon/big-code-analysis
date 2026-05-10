@@ -2,7 +2,7 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 
 fn cli() -> Command {
-    Command::cargo_bin("big-code-analysis-cli").unwrap()
+    Command::cargo_bin("bca").unwrap()
 }
 
 /// Without any value, `list-metrics` prints metric names one per line.

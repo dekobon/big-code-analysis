@@ -5,12 +5,7 @@ use clap::Parser;
 use big_code_analysis_web::server::{DEFAULT_PARSE_TIMEOUT_SECS, run_with_timeout};
 
 #[derive(Parser, Debug)]
-#[clap(
-    name = "big-code-analysis-web",
-    version,
-    author,
-    about = "Run a web server."
-)]
+#[clap(name = "bca-web", version, author, about = "Run a web server.")]
 struct Opts {
     /// Number of jobs.
     #[clap(long, short = 'j')]

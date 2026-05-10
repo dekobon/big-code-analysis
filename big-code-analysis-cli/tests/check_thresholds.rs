@@ -12,7 +12,7 @@ use predicates::prelude::*;
 use tempfile::TempDir;
 
 fn cli() -> Command {
-    Command::cargo_bin("big-code-analysis-cli").unwrap()
+    Command::cargo_bin("bca").unwrap()
 }
 
 /// Rust function with cyclomatic complexity > 1: each branch contributes

@@ -1,31 +1,6 @@
 # Commands
 
-**big-code-analysis-cli** offers a range of **commands** to analyze and extract information from source code. Each command **may** include parameters specific to the task it performs. Below, we describe the core types of commands available in **big-code-analysis-cli**.
-
-## A note on the `bca` shorthand
-
-Throughout this book, examples use **`bca`** as shorthand for the binary.
-**`bca` is not the installed binary name** — the actual binary is
-`big-code-analysis-cli`. The shorthand is purely a documentation
-convention for readability.
-
-If you want a literal `bca` command, set up a shell alias yourself, for
-example:
-
-```bash
-alias bca=big-code-analysis-cli
-# or, after installing:
-ln -s "$(command -v big-code-analysis-cli)" ~/.local/bin/bca
-```
-
-Anywhere you see `bca <subcommand>` in this book, the literal command
-is:
-
-```bash
-big-code-analysis-cli <subcommand>
-# or, from a checkout of the repository:
-cargo run -p big-code-analysis-cli --release -- <subcommand>
-```
+**bca** offers a range of **commands** to analyze and extract information from source code. Each command **may** include parameters specific to the task it performs. Below, we describe the core types of commands available in **bca**.
 
 ## Metrics
 
@@ -41,7 +16,7 @@ source code of a program. These kind of metrics are called *static metrics*.
 
 ## Nodes
 
-To represent the structure of program code, **big-code-analysis-cli** builds
+To represent the structure of program code, **bca** builds
 an
 <a href="https://en.wikipedia.org/wiki/Abstract_syntax_tree" target="_blank">Abstract Syntax Tree (AST)</a>.
 A **node** is an element of this tree and denotes any syntactic construct
@@ -57,13 +32,13 @@ Nodes can be used to:
 
 ## REST API
 
-**big-code-analysis-web** runs a server offering a REST API. This allows users to send source code via HTTP and receive corresponding metrics in `JSON` format.
+**bca-web** runs a server offering a REST API. This allows users to send source code via HTTP and receive corresponding metrics in `JSON` format.
 
 ## Skipping generated code
 
 Generated bindings (protobuf stubs, OpenAPI clients, lex/yacc output,
 build-system plumbing) inflate metrics for code no human will refactor.
-By default, `big-code-analysis-cli` scans the first ~50 lines / 5 KiB of
+By default, `bca` scans the first ~50 lines / 5 KiB of
 each file for a generated-code marker and skips matches **before** parsing,
 so the skipped file pays no tree-sitter parse cost.
 
@@ -93,7 +68,7 @@ threshold engine.
 
 ## Respecting `.gitignore`
 
-When a directory is passed to `--paths`, `big-code-analysis-cli` walks
+When a directory is passed to `--paths`, `bca` walks
 it with `.gitignore` awareness by default. Files matched by any of the
 following are skipped before parsing:
 
