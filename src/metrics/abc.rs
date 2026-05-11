@@ -552,10 +552,8 @@ macro_rules! ts_abc_compute {
                     }
                 }
                 // Plain `=` outside `const` declarations is an assignment.
-                EQ => {
-                    if !matches!(stats.declaration.last(), Some(DeclKind::Const)) {
-                        stats.assignments += 1.;
-                    }
+                EQ if !matches!(stats.declaration.last(), Some(DeclKind::Const)) => {
+                    stats.assignments += 1.;
                 }
                 // Function invocation and object construction count as
                 // branches. Member calls and chained calls all surface
@@ -649,14 +647,12 @@ impl Abc for KotlinCode {
             // when inside a `var` declaration (initialiser of mutable
             // binding) or a standalone `Assignment`. The DeclKind stack is
             // cleared at the property statement boundary above.
-            EQ => {
-                if stats
-                    .declaration
-                    .last()
-                    .is_none_or(|decl| matches!(decl, DeclKind::Var))
-                {
-                    stats.assignments += 1.;
-                }
+            EQ if stats
+                .declaration
+                .last()
+                .is_none_or(|decl| matches!(decl, DeclKind::Var)) =>
+            {
+                stats.assignments += 1.;
             }
             // Branches: every call expression plus object construction.
             // Kotlin's `new` is implicit — `Foo()` parses as
@@ -818,15 +814,13 @@ impl Abc for JavaCode {
                     stats.declaration.clear();
                 }
             }
-            EQ => {
-                // Excludes constant declarations
-                if stats
-                    .declaration
-                    .last()
-                    .is_none_or(|decl| matches!(decl, DeclKind::Var))
-                {
-                    stats.assignments += 1.;
-                }
+            // Excludes constant declarations
+            EQ if stats
+                .declaration
+                .last()
+                .is_none_or(|decl| matches!(decl, DeclKind::Var)) =>
+            {
+                stats.assignments += 1.;
             }
             MethodInvocation | New => {
                 stats.branches += 1.;
@@ -1003,14 +997,12 @@ impl Abc for CsharpCode {
                     stats.declaration.clear();
                 }
             }
-            EQ => {
-                // Count `=` as an assignment unless it's the initializer of
-                // a `const` declaration (those are constant bindings, not
-                // mutable assignments). `None` means we're outside any
-                // declaration — still count.
-                if !matches!(stats.declaration.last(), Some(DeclKind::Const)) {
-                    stats.assignments += 1.;
-                }
+            // Count `=` as an assignment unless it's the initializer of a
+            // `const` declaration (those are constant bindings, not mutable
+            // assignments). `None` means we're outside any declaration —
+            // still count.
+            EQ if !matches!(stats.declaration.last(), Some(DeclKind::Const)) => {
+                stats.assignments += 1.;
             }
             crate::Csharp::InvocationExpression
             | crate::Csharp::InvocationExpression2

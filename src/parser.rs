@@ -39,7 +39,7 @@ use crate::traits::*;
 /// Construct with [`Parser::new`] and feed the result into the metric,
 /// alterator, or AST-dump entry points. The type parameter `T` is one
 /// of the language code tags (`RustCode`, `PythonCode`, etc.) declared
-/// by [`mk_code!`].
+/// by the internal `mk_code!` macro.
 #[derive(Debug)]
 pub struct Parser<
     T: LanguageInfo

@@ -516,15 +516,14 @@ impl Npa for KotlinCode {
             // primary-constructor parameter property — counts once toward
             // the enclosing class. Parameters without `val`/`var` are plain
             // constructor arguments, not attributes.
-            ClassParameter => {
+            ClassParameter
                 if node
                     .children()
-                    .any(|c| matches!(c.kind_id().into(), Val | Var))
-                {
-                    stats.class_na += 1;
-                    if kotlin_is_public(node) {
-                        stats.class_npa += 1;
-                    }
+                    .any(|c| matches!(c.kind_id().into(), Val | Var)) =>
+            {
+                stats.class_na += 1;
+                if kotlin_is_public(node) {
+                    stats.class_npa += 1;
                 }
             }
             // Every `ClassBody` we visit attributes its direct

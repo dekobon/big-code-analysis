@@ -69,7 +69,7 @@ pub fn write_checkstyle<W: Write>(offenders: &[OffenderRecord], mut writer: W) -
 
 fn write_error<W: Write>(writer: &mut W, record: &OffenderRecord) -> io::Result<()> {
     let message = record.default_message();
-    write!(writer, "    <error line=\"{}\"", record.start_line.max(1),)?;
+    write!(writer, "    <error line=\"{}\"", record.start_line.max(1))?;
     if let Some(col) = record.start_col {
         write!(writer, " column=\"{col}\"")?;
     }
