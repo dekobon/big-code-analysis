@@ -22,9 +22,6 @@ async fn main() {
 
     if let Err(e) = run_with_timeout(&opts.host, opts.port, num_jobs, opts.parse_timeout_secs).await
     {
-        eprintln!(
-            "Cannot run the server at {}:{}: {}",
-            opts.host, opts.port, e
-        );
+        eprintln!("Cannot run the server at {}:{}: {e}", opts.host, opts.port);
     }
 }
