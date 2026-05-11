@@ -353,7 +353,7 @@ mod tests {
                 // tokens_max must equal one of the scope sums and be at least the
                 // tokens count of the lambda body (`return 1 ;` plus surrounding
                 // brackets — minimum 7).
-                assert!(m.tokens.tokens_sum() > 0.0, "expected non-zero tokens_sum",);
+                assert!(m.tokens.tokens_sum() > 0.0, "expected non-zero tokens_sum");
                 assert!(
                     m.tokens.tokens_max() >= 7.0,
                     "expected tokens_max >= 7 (outer scope dominates), got {}",
