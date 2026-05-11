@@ -1,0 +1,256 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Default to read-only; jobs that need more escalate explicitly.
+permissions:
+  contents: read
+
+# Cancel in-progress runs for the same ref (e.g. PR pushes) but not on
+# main or tag builds — those should always complete.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+# All `uses:` below are pinned to commit SHAs to eliminate supply-chain
+# risk from action-release spoofing. SHAs sourced from the host-identity
+# reference workflow for parity; bump via Dependabot.
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+  RUSTUP_MAX_RETRIES: 10
+  RUSTFLAGS: "-D warnings"
+  RUSTDOCFLAGS: "-D warnings"
+
+jobs:
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          submodules: false
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable tip
+        with:
+          toolchain: stable
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          submodules: false
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable tip
+        with:
+          toolchain: stable
+          components: clippy
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  docs:
+    name: rustdoc
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          submodules: false
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable tip
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - run: cargo doc --no-deps --all-features --workspace
+
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      # Integration snapshots live in the big-code-analysis-output
+      # submodule under tests/repositories/; tests require it.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable tip
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - run: cargo test --all-features --workspace --locked
+
+  msrv:
+    name: msrv (1.94)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          submodules: false
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # 1.94
+        with:
+          toolchain: "1.94"
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      # Build only — MSRV is a compile-time promise; dev-deps may
+      # require a newer toolchain.
+      - run: cargo build --all-features --workspace --locked
+
+  feature-matrix:
+    name: features (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default (lib)
+            flags: -p big-code-analysis
+          - name: no-default-features (lib)
+            flags: --no-default-features -p big-code-analysis
+          - name: default (cli)
+            flags: -p big-code-analysis-cli
+          - name: no-default-features (cli)
+            flags: --no-default-features -p big-code-analysis-cli
+          - name: default (web)
+            flags: -p big-code-analysis-web
+          - name: no-default-features (web)
+            flags: --no-default-features -p big-code-analysis-web
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          submodules: false
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable tip
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      # `cargo check --all-targets` exercises bins, tests, and examples,
+      # so a cfg-gated test file that only compiles under default features
+      # does not slip through the no-default-features matrix leg.
+      - run: cargo check --all-targets ${{ matrix.flags }} --locked
+
+  deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          submodules: false
+      - uses: EmbarkStudios/cargo-deny-action@91bf2b620e09e18d6eb78b92e7861937469acedb # v2.0.17
+        with:
+          command: check advisories bans licenses sources
+
+  license-audit:
+    name: license-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          submodules: false
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable tip
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: taiki-e/install-action@0005e0116e92d8489d8d96fbff83f061c79ba95a # v2.62.31
+        with:
+          tool: cargo-about@0.8.4
+      # Fails if any dep in either binary crate's transitive closure
+      # resolves to a license not in `about.toml` `accepted`. Dependabot
+      # PRs that introduce an unapproved license now fail here instead of
+      # silently slipping into the release.
+      # Render to a file (rather than /dev/null) and sanity-check the
+      # output. A regression in about.hbs that yielded an empty render
+      # would otherwise pass silently — exit 0 from cargo-about does not
+      # imply non-empty output.
+      - name: Render attribution bundle for big-code-analysis-cli
+        run: |
+          cargo about generate --locked \
+            --manifest-path big-code-analysis-cli/Cargo.toml \
+            about.hbs > cli-thirdparty.md
+          grep -q '^## Crates' cli-thirdparty.md
+          test "$(wc -l < cli-thirdparty.md)" -gt 50
+      - name: Render attribution bundle for big-code-analysis-web
+        run: |
+          cargo about generate --locked \
+            --manifest-path big-code-analysis-web/Cargo.toml \
+            about.hbs > web-thirdparty.md
+          grep -q '^## Crates' web-thirdparty.md
+          test "$(wc -l < web-thirdparty.md)" -gt 50
+
+  lint:
+    name: lint (make lint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          submodules: false
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable tip
+        with:
+          toolchain: stable
+          components: clippy
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.x"
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: "20"
+      - name: Install markdownlint-cli2
+        run: npm install -g markdownlint-cli2@0.18.1
+      - uses: taiki-e/install-action@0005e0116e92d8489d8d96fbff83f061c79ba95a # v2.62.31
+        with:
+          tool: taplo-cli@0.10.0,shellcheck@0.10.0,shfmt@3.12.0,checkmake@0.2.2
+      - name: make lint
+        run: make lint
+      # Defensive: `make lint` invokes the snapshot-anchors recipe, but
+      # `make lint`'s file-finding helpers depend on a glob fix tracked
+      # under #160; until that lands, run the snapshot-anchor gate
+      # explicitly so a regression in `make lint` cannot silently disable
+      # this check.
+      - name: snapshot anchors (explicit)
+        run: python3 check-snapshot-anchors.py
+
+  # Single required status check for branch protection — depends on
+  # every gating job. Passing this one check guarantees the full matrix
+  # passed.
+  ci:
+    name: ci
+    if: always()
+    needs:
+      - fmt
+      - clippy
+      - docs
+      - test
+      - msrv
+      - feature-matrix
+      - deny
+      - license-audit
+      - lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fail if any dependency failed or was cancelled
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
