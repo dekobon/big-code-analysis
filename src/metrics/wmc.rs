@@ -198,13 +198,31 @@ impl Wmc for PhpCode {
     }
 }
 
+// TypeScript / TSX both expose `class_declaration`,
+// `abstract_class_declaration` (mapped to `SpaceKind::Class` in
+// `getter.rs`) and `interface_declaration` (`SpaceKind::Interface`).
+// Method bodies live in `method_definition` and `arrow_function`
+// function spaces; their cyclomatic sums roll into the enclosing
+// class / interface via `class_interface_compute`. Abstract method
+// signatures (`abstract_method_signature`) have no body and so
+// contribute zero to WMC, matching Java's `abstract` method rule.
+impl Wmc for TypescriptCode {
+    fn compute(space_kind: SpaceKind, cyclomatic: &cyclomatic::Stats, stats: &mut Stats) {
+        class_interface_compute(space_kind, cyclomatic, stats);
+    }
+}
+
+impl Wmc for TsxCode {
+    fn compute(space_kind: SpaceKind, cyclomatic: &cyclomatic::Stats, stats: &mut Stats) {
+        class_interface_compute(space_kind, cyclomatic, stats);
+    }
+}
+
 implement_metric_trait!(
     Wmc,
     PythonCode,
     MozjsCode,
     JavascriptCode,
-    TypescriptCode,
-    TsxCode,
     RustCode,
     CppCode,
     PreprocCode,
@@ -1571,6 +1589,428 @@ mod tests {
             |metric| {
                 assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
                 assert_eq!(metric.wmc.interface_wmc_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    // --- TypeScript / TSX WMC tests --------------------------------------
+    //
+    // Each class method contributes its cyclomatic complexity to the
+    // enclosing class's WMC. Arrow function class members behave as
+    // methods. Interface method signatures have no bodies and add zero
+    // (matching Java's abstract-method rule).
+
+    #[test]
+    fn typescript_class_wmc_single_method() {
+        check_metrics::<TypescriptParser>(
+            "class C {
+                m(): number { return 1; }       // cyclomatic 1
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_class_wmc_two_methods() {
+        check_metrics::<TypescriptParser>(
+            "class C {
+                a(): number { return 1; }       // +1
+                b(x: number): number {          // +2 (if branch)
+                    if (x > 0) return x;
+                    return 0;
+                }
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_class_wmc_with_branches() {
+        check_metrics::<TypescriptParser>(
+            "class C {
+                m(x: number): number {
+                    if (x > 0) {                // +1
+                        return 1;
+                    } else if (x < 0) {         // +1
+                        return -1;
+                    }
+                    return 0;
+                }                                // base 1
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_class_wmc_arrow_field() {
+        // Arrow-function class fields contribute their cyclomatic to
+        // the enclosing class — they are function spaces.
+        check_metrics::<TypescriptParser>(
+            "class C {
+                arrow = (x: number) => {
+                    if (x > 0) return x;        // +1
+                    return 0;
+                };                              // base 1
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_class_wmc_with_loops() {
+        check_metrics::<TypescriptParser>(
+            "class C {
+                m(xs: number[]): number {
+                    let total = 0;
+                    for (const x of xs) {       // +1
+                        total += x;
+                    }
+                    return total;
+                }                                // base 1
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_abstract_class_wmc() {
+        // Abstract method signatures have no body — contribute 0.
+        check_metrics::<TypescriptParser>(
+            "abstract class C {
+                abstract a(): void;             // signature only, 0
+                m(): number { return 1; }       // +1
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_interface_wmc_zero() {
+        // Interface method signatures have no bodies → 0 WMC.
+        check_metrics::<TypescriptParser>(
+            "interface I {
+                a(): void;
+                b(): number;
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_constructor_wmc() {
+        // Constructor counts as a method; its cyclomatic adds to the
+        // class WMC.
+        check_metrics::<TypescriptParser>(
+            "class C {
+                x: number;
+                constructor(n: number) {
+                    if (n > 0) {                // +1
+                        this.x = n;
+                    } else {
+                        this.x = 0;
+                    }
+                }                                // base 1
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_getter_setter_wmc() {
+        // Getter and setter each contribute 1 (base).
+        check_metrics::<TypescriptParser>(
+            "class C {
+                _x: number = 0;
+                get x(): number { return this._x; }
+                set x(v: number) { this._x = v; }
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_multiple_classes_wmc_independent() {
+        check_metrics::<TypescriptParser>(
+            "class A { m(): number { return 1; } }
+             class B {
+                m(x: number): number {
+                    if (x > 0) return x;        // +1
+                    return 0;
+                }                                // base 1
+             }",
+            "foo.ts",
+            |metric| {
+                // A: 1 + B: 2 = 3 total.
+                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_class_wmc_with_ternary_and_logical() {
+        check_metrics::<TypescriptParser>(
+            "class C {
+                m(x: number, y: number): number {
+                    return x > 0 && y > 0      // +1 (ternary) +1 (&&)
+                        ? x + y
+                        : 0;
+                }                                // base 1
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_generic_class_wmc() {
+        check_metrics::<TypescriptParser>(
+            "class Box<T> {
+                value: T;
+                set(v: T): void { this.value = v; }
+                get(): T { return this.value; }
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    // TSX parity
+
+    #[test]
+    fn tsx_class_wmc_single_method() {
+        check_metrics::<TsxParser>(
+            "class C { m(): number { return 1; } }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_class_wmc_two_methods() {
+        check_metrics::<TsxParser>(
+            "class C {
+                a(): number { return 1; }
+                b(x: number): number {
+                    if (x > 0) return x;
+                    return 0;
+                }
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_class_wmc_with_branches() {
+        check_metrics::<TsxParser>(
+            "class C {
+                m(x: number): number {
+                    if (x > 0) return 1;
+                    else if (x < 0) return -1;
+                    return 0;
+                }
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_class_wmc_arrow_field() {
+        check_metrics::<TsxParser>(
+            "class C {
+                arrow = (x: number) => {
+                    if (x > 0) return x;
+                    return 0;
+                };
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_class_wmc_with_loops() {
+        check_metrics::<TsxParser>(
+            "class C {
+                m(xs: number[]): number {
+                    let total = 0;
+                    for (const x of xs) { total += x; }
+                    return total;
+                }
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_abstract_class_wmc() {
+        check_metrics::<TsxParser>(
+            "abstract class C {
+                abstract a(): void;
+                m(): number { return 1; }
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_interface_wmc_zero() {
+        check_metrics::<TsxParser>(
+            "interface I { a(): void; b(): number; }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_constructor_wmc() {
+        check_metrics::<TsxParser>(
+            "class C {
+                x: number;
+                constructor(n: number) {
+                    if (n > 0) this.x = n;
+                    else this.x = 0;
+                }
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_getter_setter_wmc() {
+        check_metrics::<TsxParser>(
+            "class C {
+                _x: number = 0;
+                get x(): number { return this._x; }
+                set x(v: number) { this._x = v; }
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_multiple_classes_wmc_independent() {
+        check_metrics::<TsxParser>(
+            "class A { m(): number { return 1; } }
+             class B {
+                m(x: number): number {
+                    if (x > 0) return x;
+                    return 0;
+                }
+             }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_class_wmc_with_ternary_and_logical() {
+        check_metrics::<TsxParser>(
+            "class C {
+                m(x: number, y: number): number {
+                    return x > 0 && y > 0 ? x + y : 0;
+                }
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_generic_class_wmc() {
+        check_metrics::<TsxParser>(
+            "class Box<T> {
+                value: T;
+                set(v: T): void { this.value = v; }
+                get(): T { return this.value; }
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );

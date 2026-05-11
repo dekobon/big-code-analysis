@@ -248,7 +248,7 @@ impl Getter for TypescriptCode {
             | FunctionDeclaration
             | GeneratorFunctionDeclaration
             | ArrowFunction => SpaceKind::Function,
-            Class | ClassDeclaration => SpaceKind::Class,
+            Class | ClassDeclaration | AbstractClassDeclaration => SpaceKind::Class,
             InterfaceDeclaration => SpaceKind::Interface,
             Program => SpaceKind::Unit,
             _ => SpaceKind::Unknown,
@@ -320,7 +320,7 @@ impl Getter for TsxCode {
             | FunctionDeclaration
             | GeneratorFunctionDeclaration
             | ArrowFunction => SpaceKind::Function,
-            Class | ClassDeclaration => SpaceKind::Class,
+            Class | ClassDeclaration | AbstractClassDeclaration => SpaceKind::Class,
             InterfaceDeclaration => SpaceKind::Interface,
             Program => SpaceKind::Unit,
             _ => SpaceKind::Unknown,

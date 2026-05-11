@@ -606,6 +606,7 @@ impl Checker for TypescriptCode {
                 | Typescript::MethodDefinition
                 | Typescript::GeneratorFunctionDeclaration
                 | Typescript::ClassDeclaration
+                | Typescript::AbstractClassDeclaration
                 | Typescript::InterfaceDeclaration
                 | Typescript::ArrowFunction
         )
@@ -665,6 +666,7 @@ impl Checker for TsxCode {
                 | Tsx::MethodDefinition
                 | Tsx::GeneratorFunctionDeclaration
                 | Tsx::ClassDeclaration
+                | Tsx::AbstractClassDeclaration
                 | Tsx::InterfaceDeclaration
                 | Tsx::ArrowFunction
         )
