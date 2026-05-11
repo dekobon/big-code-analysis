@@ -445,6 +445,128 @@ impl Npa for PhpCode {
     }
 }
 
+// Kotlin's grammar models classes and interfaces under a single
+// `class_declaration` node; the `class` / `interface` keyword child
+// disambiguates. A `ClassBody` belongs to an interface iff its parent
+// `class_declaration` has an `interface` keyword child. Caches the result
+// at the helper level rather than re-walking the parent on every visit.
+pub(crate) fn kotlin_class_body_is_interface(class_body: &Node) -> bool {
+    class_body
+        .parent()
+        .is_some_and(|p| match p.kind_id().into() {
+            Kotlin::ClassDeclaration => p.first_child(|id| id == Kotlin::Interface).is_some(),
+            _ => false,
+        })
+}
+
+// Counts how many `VariableDeclaration`s a Kotlin `PropertyDeclaration`
+// introduces. Kotlin allows destructuring (`val (a, b) = pair`) via
+// `MultiVariableDeclaration`; each leaf binding counts as one attribute.
+fn kotlin_count_property_attrs(decl: &Node) -> usize {
+    use Kotlin::*;
+    let count = decl
+        .children()
+        .filter_map(|c| match c.kind_id().into() {
+            VariableDeclaration => Some(1),
+            MultiVariableDeclaration => Some(
+                c.children()
+                    .filter(|n| matches!(n.kind_id().into(), VariableDeclaration))
+                    .count(),
+            ),
+            _ => None,
+        })
+        .sum::<usize>();
+    // Empty multi-variable destructurings cannot occur in well-formed
+    // Kotlin, but a defensive `.max(1)` keeps `property_declaration` at
+    // ≥1 attribute (matches the C# accessor-counting fallback).
+    count.max(1)
+}
+
+// Kotlin's default visibility is `public`. A declaration is non-public
+// only when it carries an explicit `private` / `protected` / `internal`
+// modifier under its `Modifiers` child. Returns `true` for missing
+// `Modifiers`, missing `VisibilityModifier`, or an explicit `public`
+// modifier.
+pub(crate) fn kotlin_is_public(decl: &Node) -> bool {
+    let Some(modifiers) = decl.first_child(|id| id == Kotlin::Modifiers) else {
+        return true;
+    };
+    let Some(visibility) = modifiers.first_child(|id| id == Kotlin::VisibilityModifier) else {
+        return true;
+    };
+    // Visibility modifier holds exactly one keyword child.
+    visibility
+        .first_child(|id| {
+            matches!(
+                id.into(),
+                Kotlin::Public | Kotlin::Private | Kotlin::Protected | Kotlin::Internal
+            )
+        })
+        .is_none_or(|kw| kw.kind_id() == Kotlin::Public)
+}
+
+impl Npa for KotlinCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        use Kotlin::*;
+
+        // Enables the `Npa` metric for both class and interface spaces
+        // (and `object` singletons, which `Getter` reports as `Class`).
+        if Self::is_func_space(node) && stats.is_disabled() {
+            stats.is_class_space = true;
+        }
+
+        match node.kind_id().into() {
+            // A `ClassParameter` carrying `val` / `var` is a Kotlin
+            // primary-constructor parameter property — counts once toward
+            // the enclosing class. Parameters without `val`/`var` are plain
+            // constructor arguments, not attributes.
+            ClassParameter => {
+                if node
+                    .children()
+                    .any(|c| matches!(c.kind_id().into(), Val | Var))
+                {
+                    stats.class_na += 1;
+                    if kotlin_is_public(node) {
+                        stats.class_npa += 1;
+                    }
+                }
+            }
+            // Every `ClassBody` we visit attributes its direct
+            // `property_declaration` children to whichever func_space is
+            // currently on the state stack. Companion objects are not
+            // func_spaces, so companion `val`/`var` declarations land on
+            // the enclosing class — matching Kotlin's "static members"
+            // semantics. Nested class / interface bodies start a new
+            // func_space (handled by `spaces.rs`), so they do NOT leak
+            // attributes into their outer space.
+            ClassBody => {
+                let is_interface = kotlin_class_body_is_interface(node);
+                // tree-sitter-kotlin elides the `class_member_declaration`
+                // and `declaration` rule layers when those rules are pure
+                // forwarding choices, so property declarations appear as
+                // direct children of `class_body`.
+                for prop in node
+                    .children()
+                    .filter(|c| matches!(c.kind_id().into(), PropertyDeclaration))
+                {
+                    let attrs = kotlin_count_property_attrs(&prop);
+                    if is_interface {
+                        stats.interface_na += attrs;
+                        // Interface members are always public.
+                        stats.interface_npa += attrs;
+                    } else {
+                        stats.class_na += attrs;
+                        if kotlin_is_public(&prop) {
+                            stats.class_npa += attrs;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 implement_metric_trait!(
     Npa,
     PythonCode,
@@ -456,7 +578,6 @@ implement_metric_trait!(
     CppCode,
     PreprocCode,
     CcommentCode,
-    KotlinCode,
     GoCode,
     PerlCode,
     BashCode,
@@ -1361,6 +1482,297 @@ mod tests {
             }",
             "foo.php",
             |metric| insta::assert_json_snapshot!(metric.npa),
+        );
+    }
+
+    // --- Kotlin NPA tests -------------------------------------------------
+    //
+    // Reference: Kotlin properties (`val` / `var`) declared inside a class
+    // body are attributes. Default visibility is `public`. Primary
+    // constructor parameters carrying `val` / `var` are parameter
+    // properties and count. Companion-object members fold into the
+    // enclosing class. Top-level properties belong to the `Unit` space
+    // and are excluded.
+
+    #[test]
+    fn kotlin_empty_class_no_attributes() {
+        check_metrics::<KotlinParser>("class C {}", "foo.kt", |metric| {
+            assert_eq!(metric.npa.class_npa_sum(), 0.0);
+            assert_eq!(metric.npa.class_na_sum(), 0.0);
+            assert_eq!(metric.npa.interface_na_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.npa);
+        });
+    }
+
+    #[test]
+    fn kotlin_public_val_var_default() {
+        // Kotlin's default visibility is public — no modifier means public.
+        check_metrics::<KotlinParser>(
+            "class C {
+                val a: Int = 1
+                var b: Int = 2
+                val c: String = \"hi\"
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_private_val_var() {
+        // Private properties contribute to total `na` but not to `npa`.
+        check_metrics::<KotlinParser>(
+            "class C {
+                val a: Int = 1               // public
+                private val b: Int = 2       // not public
+                var c: Int = 3               // public
+                private var d: Int = 4       // not public
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_protected_internal_excluded_from_public() {
+        check_metrics::<KotlinParser>(
+            "open class C {
+                protected val a: Int = 1
+                internal val b: Int = 2
+                public val c: Int = 3        // explicit public
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_primary_constructor_parameter_property() {
+        // `val`/`var` on primary constructor parameters declares both a
+        // parameter AND a property. Bare `name: Type` parameters are NOT
+        // attributes.
+        check_metrics::<KotlinParser>(
+            "class C(val a: Int, var b: Int, c: Int) {
+                val d: Int = c
+            }",
+            "foo.kt",
+            |metric| {
+                // a, b, d -> public; c -> not an attribute (no val/var)
+                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_primary_constructor_private_param_property() {
+        check_metrics::<KotlinParser>(
+            "class C(private val a: Int, val b: Int)",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_secondary_constructor_does_not_add_attrs() {
+        // Secondary constructors are methods, not attribute declarations.
+        check_metrics::<KotlinParser>(
+            "class C {
+                private var a: Int = 0
+                constructor(n: Int) { a = n }
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 0.0);
+                assert_eq!(metric.npa.class_na_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_companion_object_attributes() {
+        // Companion-object properties fold into the enclosing class as
+        // "static" attributes.
+        check_metrics::<KotlinParser>(
+            "class Holder {
+                val instance: Int = 1
+                companion object {
+                    val SCALE: Int = 10
+                    private val SECRET: Int = 7
+                }
+            }",
+            "foo.kt",
+            |metric| {
+                // instance (public) + SCALE (public) = 2 public
+                // SECRET counts toward total na but not npa
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_data_class_attributes() {
+        // `data class` parameters are the canonical positional attributes.
+        check_metrics::<KotlinParser>(
+            "data class Point(val x: Int, val y: Int)",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_object_singleton_attributes() {
+        check_metrics::<KotlinParser>(
+            "object Config {
+                val DEFAULT: Int = 42
+                private val SEED: Int = 0
+                var debug: Boolean = false
+            }",
+            "foo.kt",
+            |metric| {
+                // DEFAULT, debug -> public; SEED -> not.
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_interface_attributes() {
+        // Interface members are implicitly public; all properties count
+        // toward `interface_npa` and `interface_na`.
+        check_metrics::<KotlinParser>(
+            "interface I {
+                val a: Int
+                val b: String
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.npa.interface_npa_sum(), 2.0);
+                assert_eq!(metric.npa.interface_na_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_nested_class_attributes() {
+        // Each class space has its own attribute count; nested class
+        // attributes do not leak into the outer class.
+        check_metrics::<KotlinParser>(
+            "class Outer {
+                val o1: Int = 1
+                class Nested {
+                    val n1: Int = 1
+                    val n2: Int = 2
+                }
+            }",
+            "foo.kt",
+            |metric| {
+                // 2 classes total — Outer's 1 + Nested's 2 = 3 attributes
+                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_inner_class_attributes() {
+        check_metrics::<KotlinParser>(
+            "class Outer {
+                val o1: Int = 1
+                inner class Inner {
+                    val i1: Int = 1
+                }
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_top_level_properties_excluded() {
+        // Top-level `val` belongs to `Unit`, not a class — must not
+        // contribute to `class_na`.
+        check_metrics::<KotlinParser>(
+            "val topVal: Int = 0
+            var topVar: Int = 1
+            class C { val x: Int = 0 }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_multiple_classes_attributes() {
+        check_metrics::<KotlinParser>(
+            "class A {
+                val a1: Int = 0
+                var a2: Int = 0
+            }
+            class B {
+                val b1: Int = 0
+                private val b2: Int = 0
+            }",
+            "foo.kt",
+            |metric| {
+                // A: 2 public; B: 1 public + 1 private = 2 total, 1 public
+                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+                assert_eq!(metric.npa.class_na_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_class_with_methods_no_attrs() {
+        // Methods are not attributes.
+        check_metrics::<KotlinParser>(
+            "class C {
+                fun m1() {}
+                fun m2(): Int = 0
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 0.0);
+                assert_eq!(metric.npa.class_na_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
         );
     }
 }

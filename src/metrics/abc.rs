@@ -503,12 +503,121 @@ implement_metric_trait!(
     CppCode,
     PreprocCode,
     CcommentCode,
-    KotlinCode,
     GoCode,
     PerlCode,
     LuaCode,
     TclCode
 );
+
+// Fitzpatrick's ABC rules adapted for Kotlin syntax. Kotlin shares the
+// JVM and Java's spec roots: assignments count once per `=` / augmented
+// assignment / ++ / --, branches count once per function invocation or
+// object construction, conditions count comparison operators plus the
+// `else` / `when`-entry / `catch` arms. Compared with the Java impl we
+// stay token-level (matching the leaf kind_ids) rather than walking
+// `Modifiers` children; the Kotlin grammar exposes the relevant
+// operators directly as token nodes inside `binary_expression`,
+// `assignment`, `prefix_expression`, and `postfix_expression`.
+impl Abc for KotlinCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        use Kotlin::*;
+
+        match node.kind_id().into() {
+            // Property / local-variable declaration: pushes a sentinel so
+            // the `=` operator that initialises the binding is NOT counted
+            // as a standalone assignment (matches Fitzpatrick's
+            // "initialisation is part of the declaration" rule, mirroring
+            // Java).
+            PropertyDeclaration => {
+                stats.declaration.push(DeclKind::Var);
+            }
+            // `val` introduces an immutable binding; promote the pending
+            // declaration to `Const` so the upcoming `=` is suppressed
+            // (constants are not assignments in ABC).
+            Val => {
+                if let Some(DeclKind::Var) = stats.declaration.last() {
+                    stats.declaration.push(DeclKind::Const);
+                }
+            }
+            // Statement terminator (semicolon or newline-as-terminator):
+            // the grammar emits an explicit `SEMI` only for explicit
+            // semicolons. Property declarations terminate without one when
+            // the next token starts a new statement; we therefore also
+            // pop the sentinel on the next non-property/non-modifier
+            // token. For simplicity track only the explicit terminator
+            // here; the implicit case is handled by the next
+            // `PropertyDeclaration` push overwriting the stack.
+            SEMI => {
+                if let Some(DeclKind::Const | DeclKind::Var) = stats.declaration.last() {
+                    stats.declaration.clear();
+                }
+            }
+            // Augmented assignments and pre/post increment-decrement
+            // always count, regardless of declaration context.
+            PLUSEQ | DASHEQ | STAREQ | SLASHEQ | PERCENTEQ | PLUSPLUS | DASHDASH => {
+                stats.assignments += 1.;
+            }
+            // Plain `=` token. Skip when inside a `val` declaration; count
+            // when inside a `var` declaration (initialiser of mutable
+            // binding) or a standalone `Assignment`. The DeclKind stack is
+            // cleared at the property statement boundary above.
+            EQ => {
+                if stats
+                    .declaration
+                    .last()
+                    .is_none_or(|decl| matches!(decl, DeclKind::Var))
+                {
+                    stats.assignments += 1.;
+                }
+            }
+            // Branches: every call expression plus object construction.
+            // Kotlin's `new` is implicit — `Foo()` parses as
+            // `CallExpression` with a type-named receiver. The
+            // Halstead-side classification treats it uniformly. Indexed
+            // access (`arr[i]`) is NOT a branch (it's an operator on a
+            // sequence), matching the Java rule of "method invocation
+            // only".
+            CallExpression => {
+                stats.branches += 1.;
+            }
+            // Conditions: comparison operators, identity equality,
+            // ternary-elvis (`?:`), `as?` safe-cast, and the arms of
+            // control-flow constructs (`else`, `catch`, `when` entries).
+            // Kotlin's `if`-expression does not need an extra count for
+            // the `if` keyword itself — Fitzpatrick counts the
+            // *conditions*, and the unary condition is already implicit
+            // in the boolean operand. We add the `if` arm via the `Else`
+            // keyword for else-branches and via `WhenEntry` for `when`.
+            LTEQ | GTEQ | EQEQ | EQEQEQ | BANGEQ | BANGEQEQ | WhenEntry | CatchBlock
+            | QMARKCOLON | AsQMARK => {
+                stats.conditions += 1.;
+            }
+            // `else` is a keyword token used in both `if_expression`'s
+            // else-clause and `when`'s `else ->` entry. Only count it
+            // when it belongs to an `if_expression`; the `WhenEntry`
+            // wrapper above already covers the `when` case.
+            Else => {
+                if node
+                    .parent()
+                    .is_some_and(|p| matches!(p.kind_id().into(), IfExpression))
+                {
+                    stats.conditions += 1.;
+                }
+            }
+            // `<` and `>` may appear as type-argument brackets
+            // (`List<Int>`); exclude those by checking the parent kind.
+            LT | GT => {
+                if node
+                    .parent()
+                    .is_some_and(|p| !matches!(p.kind_id().into(), TypeArguments | TypeParameters))
+                {
+                    stats.conditions += 1.;
+                }
+            }
+            _ => {}
+        }
+    }
+}
 
 impl Abc for PhpCode {
     fn compute(node: &Node, stats: &mut Stats) {
@@ -2207,6 +2316,329 @@ function f(int $a, int $b): int {
 }",
             "foo.php",
             |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
+
+    // --- Kotlin ABC tests -------------------------------------------------
+
+    #[test]
+    fn kotlin_empty_class() {
+        check_metrics::<KotlinParser>("class C {}", "foo.kt", |metric| {
+            assert_eq!(metric.abc.assignments_sum(), 0.0);
+            assert_eq!(metric.abc.branches_sum(), 0.0);
+            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.abc);
+        });
+    }
+
+    #[test]
+    fn kotlin_val_declarations_are_not_assignments() {
+        // `val` introduces an immutable binding — the `=` initialising it
+        // is not an assignment in the ABC sense.
+        check_metrics::<KotlinParser>(
+            "class C {
+                val a: Int = 1
+                val b: Int = 2
+                val c: Int = 3
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_var_declarations_count_assignment() {
+        // `var` initialisers count as assignments (mutable binding).
+        check_metrics::<KotlinParser>(
+            "class C {
+                var a: Int = 1
+                var b: Int = 2
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_augmented_assignments_count() {
+        // Augmented operators (+=, -=, etc.) and ++/-- always count.
+        check_metrics::<KotlinParser>(
+            "fun m() {
+                var x = 0
+                x += 1
+                x -= 2
+                x *= 3
+                x++
+                --x
+            }",
+            "foo.kt",
+            |metric| {
+                // var declaration (var x = 0): +1
+                // x += 1, x -= 2, x *= 3, x++, --x: +5
+                assert_eq!(metric.abc.assignments_sum(), 6.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_branches_call_expression() {
+        check_metrics::<KotlinParser>(
+            "fun m() {
+                println(\"a\")
+                println(\"b\")
+                println(\"c\")
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_object_construction_branch() {
+        // Kotlin's object construction is just `Foo()` — a `CallExpression`.
+        check_metrics::<KotlinParser>(
+            "class P(val x: Int)
+            fun m(): P = P(1)",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_comparisons_count_conditions() {
+        check_metrics::<KotlinParser>(
+            "fun m(a: Int, b: Int): Boolean {
+                val r1 = a < b
+                val r2 = a > b
+                val r3 = a <= b
+                val r4 = a >= b
+                val r5 = a == b
+                val r6 = a != b
+                return r1 || r2 || r3 || r4 || r5 || r6
+            }",
+            "foo.kt",
+            |metric| {
+                // Six binary operators: <, >, <=, >=, ==, != → 6 conditions.
+                assert_eq!(metric.abc.conditions_sum(), 6.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_identity_equality_conditions() {
+        // `===` / `!==` are referential equality in Kotlin; they count too.
+        check_metrics::<KotlinParser>(
+            "fun m(a: Any, b: Any): Boolean {
+                return a === b || a !== b
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_else_branch_counts() {
+        check_metrics::<KotlinParser>(
+            "fun m(x: Int): Int {
+                return if (x > 0) 1 else -1
+            }",
+            "foo.kt",
+            |metric| {
+                // condition: > (1) + else (1) = 2
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_when_entries_count() {
+        check_metrics::<KotlinParser>(
+            "fun m(x: Int): Int {
+                return when (x) {
+                    1 -> 10
+                    2 -> 20
+                    else -> 0
+                }
+            }",
+            "foo.kt",
+            |metric| {
+                // Each WhenEntry counts once (including `else`).
+                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_catch_block_counts() {
+        check_metrics::<KotlinParser>(
+            "fun m() {
+                try {
+                    println(\"ok\")
+                } catch (e: Exception) {
+                    println(\"err\")
+                }
+            }",
+            "foo.kt",
+            |metric| {
+                // CatchBlock contributes 1 condition.
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_elvis_and_safe_cast() {
+        // `?:` (elvis) and `as?` (safe cast) are condition-like.
+        check_metrics::<KotlinParser>(
+            "fun m(s: String?): Int {
+                val n = (s as? Int) ?: 0
+                return n
+            }",
+            "foo.kt",
+            |metric| {
+                // as? (+1) + ?: (+1) = 2 conditions.
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_generic_brackets_not_conditions() {
+        // `<` / `>` used as type-parameter brackets must not be counted.
+        check_metrics::<KotlinParser>(
+            "class Box<T>(val v: T)
+            fun <T> wrap(x: T): Box<T> = Box(x)",
+            "foo.kt",
+            |metric| {
+                // No comparisons — only generic brackets.
+                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_class_with_methods_and_branches() {
+        check_metrics::<KotlinParser>(
+            "class C {
+                var counter: Int = 0
+                fun bump() {
+                    counter += 1
+                    println(counter)
+                }
+            }",
+            "foo.kt",
+            |metric| {
+                // assignments: var counter = 0 (+1), counter += 1 (+1) = 2
+                // branches: println(counter) = 1
+                assert_eq!(metric.abc.assignments_sum(), 2.0);
+                assert_eq!(metric.abc.branches_sum(), 1.0);
+                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_object_singleton_abc() {
+        check_metrics::<KotlinParser>(
+            "object Util {
+                fun work(x: Int): Int {
+                    var y = x
+                    y += 1
+                    if (y > 0) {
+                        return y
+                    }
+                    return -1
+                }
+            }",
+            "foo.kt",
+            |metric| {
+                // assignments: var y = x (+1), y += 1 (+1) = 2
+                // branches: 0 (return is not a call)
+                // conditions: y > 0 (+1) = 1
+                assert_eq!(metric.abc.assignments_sum(), 2.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_interface_abc() {
+        // Pure-abstract interface with no bodies — all-zero.
+        check_metrics::<KotlinParser>(
+            "interface I {
+                fun work(): Int
+                fun describe(): String
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_nested_class_abc() {
+        check_metrics::<KotlinParser>(
+            "class Outer {
+                var o: Int = 0
+                class Nested {
+                    var n: Int = 0
+                    fun bump() { n += 1 }
+                }
+            }",
+            "foo.kt",
+            |metric| {
+                // Outer: var o = 0 (+1)
+                // Nested: var n = 0 (+1), n += 1 (+1) = 2
+                // total assignments = 3
+                assert_eq!(metric.abc.assignments_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_data_class_abc() {
+        // `data class` with primary-constructor `val`s — no assignments
+        // (vals don't count) and no body conditions.
+        check_metrics::<KotlinParser>(
+            "data class Point(val x: Int, val y: Int)",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
         );
     }
 }

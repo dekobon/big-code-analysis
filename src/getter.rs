@@ -673,7 +673,23 @@ impl Getter for KotlinCode {
         use Kotlin::*;
 
         match node.kind_id().into() {
-            ClassDeclaration | ObjectDeclaration => SpaceKind::Class,
+            // The Kotlin grammar models classes and interfaces under a single
+            // `class_declaration` node with the discriminating keyword
+            // (`class` vs `interface`) appearing as a direct child token.
+            // Distinguishing them at the space-kind level lets the OOP
+            // metrics (`wmc`, `npa`, `npm`) attribute counts to the right
+            // bucket without re-inspecting the AST.
+            ClassDeclaration => {
+                if node.first_child(|id| id == Interface).is_some() {
+                    SpaceKind::Interface
+                } else {
+                    SpaceKind::Class
+                }
+            }
+            // `object MyObject { ... }` is a singleton; treat it as a class
+            // for OOP metric purposes (it has properties, methods, init
+            // blocks, exactly like a class).
+            ObjectDeclaration => SpaceKind::Class,
             FunctionDeclaration | SecondaryConstructor | LambdaLiteral | AnonymousFunction => {
                 SpaceKind::Function
             }
