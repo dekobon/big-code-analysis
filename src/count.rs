@@ -1,3 +1,14 @@
+// Metric counts (token, function, branch, argument, etc.) are stored as
+// `usize` and crossed with `f64` averages, ratios, and Halstead scores
+// across the cyclomatic / MI / Halstead computations. The `usize as f64`
+// and `f64 as usize` casts are intentional and snapshot-anchored — every
+// site is bounded by the count it came from. Allowing the lints at the
+// module level keeps the metric arithmetic legible.
+#![allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
 // Per-language metric and AST modules deliberately consume the macro-
 // generated tree-sitter token enums via `use crate::*` and `use Foo::*`
 // inside match expressions — explicit imports would list dozens of

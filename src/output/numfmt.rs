@@ -1,3 +1,15 @@
+// Metric counts (token, function, branch, argument, etc.) are stored as
+// `usize` and crossed with `f64` averages, ratios, and Halstead scores
+// across the cyclomatic / MI / Halstead computations. The `usize as f64`
+// and `f64 as usize` casts are intentional and snapshot-anchored — every
+// site is bounded by the count it came from. Allowing the lints at the
+// module level keeps the metric arithmetic legible.
+#![allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+
 //! Numeric formatting adapters shared by every output format.
 //!
 //! Two `Display` newtypes wrap an `f64` metric value:
