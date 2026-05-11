@@ -22,6 +22,30 @@ authors = [
   "Elijah Zupancic <elijah@zupancic.name>",
 ]
 
+# Pins below mirror enums/Cargo.toml. The `enums` crate is excluded from
+# this workspace (see [workspace].exclude above) and cannot inherit these
+# entries via `.workspace = true`, so any grammar bump here MUST be
+# applied to enums/Cargo.toml in lockstep (see recreate-grammars.sh).
+[workspace.dependencies]
+tree-sitter = "=0.26.8"
+tree-sitter-bash = "=0.25.1"
+tree-sitter-c-sharp = "=0.23.5"
+tree-sitter-go = "=0.25.0"
+tree-sitter-java = "=0.23.5"
+tree-sitter-javascript = "=0.25.0"
+tree-sitter-kotlin-ng = "1.1.0"
+tree-sitter-lua = "=0.5.0"
+tree-sitter-perl = "=1.1.2"
+tree-sitter-php = "=0.24.2"
+tree-sitter-python = "=0.25.0"
+tree-sitter-rust = "=0.24.2"
+tree-sitter-typescript = "=0.23.2"
+tree-sitter-ccomment = { path = "./tree-sitter-ccomment", version = "=0.20.3" }
+tree-sitter-mozcpp = { path = "./tree-sitter-mozcpp", version = "=0.20.4" }
+tree-sitter-mozjs = { path = "./tree-sitter-mozjs", version = "=0.20.3" }
+tree-sitter-preproc = { path = "./tree-sitter-preproc", version = "=0.20.3" }
+tree-sitter-tcl = { path = "./tree-sitter-tcl", version = "=1.1.0" }
+
 [package]
 name = "big-code-analysis"
 version.workspace = true
@@ -51,24 +75,24 @@ serde_json = "^1.0"
 termcolor = "^1.2"
 walkdir = "^2.3"
 
-tree-sitter = "=0.26.8"
-tree-sitter-bash = "=0.25.1"
-tree-sitter-c-sharp = "=0.23.5"
-tree-sitter-go = "=0.25.0"
-tree-sitter-java = "=0.23.5"
-tree-sitter-kotlin-ng = "1.1.0"
-tree-sitter-lua = "=0.5.0"
-tree-sitter-perl = "=1.1.2"
-tree-sitter-php = "=0.24.2"
-tree-sitter-typescript = "=0.23.2"
-tree-sitter-javascript = "=0.25.0"
-tree-sitter-python = "=0.25.0"
-tree-sitter-rust = "=0.24.2"
-tree-sitter-tcl = { path = "./tree-sitter-tcl", version = "=1.1.0" }
-tree-sitter-preproc = { path = "./tree-sitter-preproc", version = "=0.20.3" }
-tree-sitter-ccomment = { path = "./tree-sitter-ccomment", version = "=0.20.3" }
-tree-sitter-mozcpp = { path = "./tree-sitter-mozcpp", version = "=0.20.4" }
-tree-sitter-mozjs = { path = "./tree-sitter-mozjs", version = "=0.20.3" }
+tree-sitter.workspace = true
+tree-sitter-bash.workspace = true
+tree-sitter-c-sharp.workspace = true
+tree-sitter-go.workspace = true
+tree-sitter-java.workspace = true
+tree-sitter-javascript.workspace = true
+tree-sitter-kotlin-ng.workspace = true
+tree-sitter-lua.workspace = true
+tree-sitter-perl.workspace = true
+tree-sitter-php.workspace = true
+tree-sitter-python.workspace = true
+tree-sitter-rust.workspace = true
+tree-sitter-typescript.workspace = true
+tree-sitter-ccomment.workspace = true
+tree-sitter-mozcpp.workspace = true
+tree-sitter-mozjs.workspace = true
+tree-sitter-preproc.workspace = true
+tree-sitter-tcl.workspace = true
 
 [dev-dependencies]
 insta = { version = "1.29.0", features = ["yaml", "json", "redactions"] }

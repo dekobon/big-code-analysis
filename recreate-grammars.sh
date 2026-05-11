@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# tree-sitter version pins live in two manifests that must move in
+# lockstep: [workspace.dependencies] in ../Cargo.toml and the
+# [dependencies] block in enums/Cargo.toml (the enums crate is
+# excluded from the workspace and cannot inherit). Bump both, then
+# run this script.
+
 # Clean old grammars builds
 cargo clean --manifest-path ./enums/Cargo.toml
 
