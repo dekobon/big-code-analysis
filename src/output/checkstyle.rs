@@ -19,6 +19,8 @@
 //! entities in attribute values) and adding a new dependency is not
 //! worth it for that.
 
+#![allow(clippy::doc_markdown)]
+
 use std::collections::BTreeMap;
 use std::io::{self, Write};
 

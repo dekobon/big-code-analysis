@@ -9,6 +9,8 @@
 //! [`Violation`] per `(function, metric)` pair whose value exceeds its
 //! configured limit.
 
+#![allow(clippy::doc_markdown)]
+
 use std::collections::BTreeMap;
 use std::fmt;
 

@@ -6,6 +6,8 @@
 //! threshold engine (#96); this module only defines the data shape so
 //! the format implementations can land independently.
 
+#![allow(clippy::doc_markdown)]
+
 use std::path::Path;
 use std::path::PathBuf;
 

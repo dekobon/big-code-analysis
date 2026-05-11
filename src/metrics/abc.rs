@@ -4,7 +4,11 @@
 // variants per arm and obscure the per-language token sets that are the
 // point of these files. Allowed at the module level rather than per
 // function so the per-language impl blocks stay readable.
-#![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
+#![allow(
+    clippy::enum_glob_use,
+    clippy::too_many_lines,
+    clippy::wildcard_imports
+)]
 // Metric counts (token, function, branch, argument, etc.) are stored as
 // `usize` and crossed with `f64` averages, ratios, and Halstead scores
 // across the cyclomatic / MI / Halstead computations. The `usize as f64`
@@ -952,6 +956,46 @@ mod tests {
     use crate::tools::check_metrics;
 
     use super::*;
+
+    // Regression test for the `EQ` arm guard in `JavaCode::compute`:
+    // the rewrite from `.map().unwrap_or_else()` to
+    // `is_none_or(|decl| matches!(decl, DeclKind::Var))` must preserve
+    // the three-way truth table — None → ++, Some(Var) → ++,
+    // Some(Const) → no-op.
+    #[test]
+    fn java_eq_arm_increments_when_declaration_stack_is_empty() {
+        // No surrounding `int x = ...` / `Final` token → declaration
+        // stack is empty when the `EQ` token is visited, so the None
+        // branch must increment `assignments`.
+        check_metrics::<JavaParser>(
+            "class A { void m() { int x = 0; x = 1; x = 2; x = 3; } }",
+            "foo.java",
+            |metric| {
+                // `int x = 0;` adds 1 (Some(Var) branch),
+                // each subsequent `x = N;` adds 1 (None branch).
+                assert_eq!(metric.abc.assignments_sum(), 4.0);
+            },
+        );
+    }
+
+    #[test]
+    fn java_eq_arm_skips_when_declaration_stack_top_is_const() {
+        // `final` pushes `DeclKind::Const` on top of the active `Var`
+        // entry, so the Some(non-Var) branch must skip the increment.
+        check_metrics::<JavaParser>(
+            "class A {
+                final int X = 1;
+                final int Y = 2;
+                void m() { final int Z = 3; }
+            }",
+            "foo.java",
+            |metric| {
+                // All three `=` tokens land under a `Const` top, so
+                // assignments should be 0 across all spaces.
+                assert_eq!(metric.abc.assignments_sum(), 0.0);
+            },
+        );
+    }
 
     // Constant declarations are not counted as assignments
     #[test]

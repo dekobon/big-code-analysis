@@ -4,7 +4,7 @@
 // variants per arm and obscure the per-language token sets that are the
 // point of these files. Allowed at the module level rather than per
 // function so the per-language impl blocks stay readable.
-#![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
+#![allow(clippy::doc_markdown, clippy::enum_glob_use, clippy::wildcard_imports)]
 
 //! big-code-analysis is a library to analyze and extract information
 //! from source codes written in many different programming languages.

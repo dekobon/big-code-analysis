@@ -1,11 +1,6 @@
-// Per-language Checker / Getter / Alterator match expressions enumerate
-// every tree-sitter token even when several map to the same metric
-// classification. Collapsing those arms via `|` patterns would obscure
-// the per-language token set that is the point of these files — readers
-// should be able to see, at a glance, which tokens count as operators /
-// branches / no-ops for a given grammar. The `match_same_arms` lint is
-// allowed for that reason.
-#![allow(clippy::match_same_arms)]
+// See `src/languages/mod.rs` for the rationale behind the per-file
+// pedantic carve-outs below.
+#![allow(clippy::match_same_arms, clippy::too_many_lines)]
 
 // Code generated; DO NOT EDIT.
 

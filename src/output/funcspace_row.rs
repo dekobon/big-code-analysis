@@ -7,6 +7,8 @@
 //! once at compile time in `csv.rs` rather than scattered across the
 //! row-walk site.
 
+#![allow(clippy::doc_markdown, clippy::too_many_lines)]
+
 use crate::FuncSpace;
 
 /// Number of identity columns that come before the metric columns:
