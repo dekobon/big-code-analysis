@@ -523,19 +523,14 @@ impl Abc for KotlinCode {
         use Kotlin::*;
 
         match node.kind_id().into() {
-            // Property / local-variable declaration: pushes a sentinel so
-            // the `=` operator that initialises the binding is NOT counted
-            // as a standalone assignment (matches Fitzpatrick's
-            // "initialisation is part of the declaration" rule, mirroring
-            // Java).
-            PropertyDeclaration => {
-                stats.declaration.push(DeclKind::Var);
-            }
-            // Primary-constructor parameter properties: `class C(val a: Int
-            // = 5)`. The optional default value is an initialiser, not an
-            // assignment, so push the same sentinel as `PropertyDeclaration`.
-            // `Val` later in the child stream promotes to `Const`.
-            ClassParameter => {
+            // Property / local-variable declaration and primary-constructor
+            // parameter property (`class C(val a: Int = 5)`) both push a
+            // sentinel so the `=` operator initialising the binding is NOT
+            // counted as a standalone assignment (Fitzpatrick:
+            // "initialisation is part of the declaration", mirroring Java).
+            // The `Val` keyword arm below promotes the sentinel to `Const`
+            // for immutable bindings.
+            PropertyDeclaration | ClassParameter => {
                 stats.declaration.push(DeclKind::Var);
             }
             // `val` introduces an immutable binding; promote the pending
@@ -2650,14 +2645,10 @@ function f(int $a, int $b): int {
         // `ClassParameter` pushing a declaration sentinel, the `=` token
         // here would be counted unconditionally as a standalone
         // assignment.
-        check_metrics::<KotlinParser>(
-            "class C(val a: Int = 5)",
-            "foo.kt",
-            |metric| {
-                // `val a = 5` → suppressed (Const sentinel).
-                assert_eq!(metric.abc.assignments_sum(), 0.0);
-                insta::assert_json_snapshot!(metric.abc);
-            },
-        );
+        check_metrics::<KotlinParser>("class C(val a: Int = 5)", "foo.kt", |metric| {
+            // `val a = 5` → suppressed (Const sentinel).
+            assert_eq!(metric.abc.assignments_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.abc);
+        });
     }
 }
