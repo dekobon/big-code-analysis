@@ -2994,14 +2994,21 @@ function f(int $a, int $b): int {
     #[test]
     fn typescript_parameter_property_init_not_assignment() {
         // Parameter properties don't introduce a `=` token themselves;
-        // the constructor body has zero assignments.
+        // only the explicit `let z = 0` body assignment is counted.
+        // The class field initializer `f: number = 0` likewise has a `=`
+        // that DOES count (matches `typescript_assignments_basic`).
         check_metrics::<TypescriptParser>(
             "class C {
-                constructor(public x: number, private y: string) {}
+                f: number = 0;
+                constructor(public x: number, private y: string) {
+                    let z = 0;
+                }
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                // f's initializer + `let z = 0` = 2 assignments; the
+                // parameter properties contribute zero.
+                assert_eq!(metric.abc.assignments_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -3213,11 +3220,16 @@ function f(int $a, int $b): int {
 
     #[test]
     fn tsx_parameter_property_init_not_assignment() {
+        // Parameter properties contribute no `=`; the body's `let z = 0`
+        // and the field initializer do.
         check_metrics::<TsxParser>(
-            "class C { constructor(public x: number) {} }",
+            "class C {
+                f: number = 0;
+                constructor(public x: number) { let z = 0; }
+            }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                assert_eq!(metric.abc.assignments_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
