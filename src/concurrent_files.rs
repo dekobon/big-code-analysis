@@ -62,8 +62,7 @@ fn is_hidden(entry: &DirEntry) -> bool {
     entry
         .file_name()
         .to_str()
-        .map(|s| s.starts_with('.'))
-        .unwrap_or(false)
+        .is_some_and(|s| s.starts_with('.'))
 }
 
 fn explore<Config, ProcDirPaths, ProcPath>(
@@ -181,6 +180,7 @@ impl<Config: 'static + Send + Sync> ConcurrentRunner<Config> {
 
     /// Sets the function to process the paths and subpaths contained in a
     /// directory.
+    #[must_use]
     pub fn set_proc_dir_paths<ProcDirPaths>(mut self, proc_dir_paths: ProcDirPaths) -> Self
     where
         ProcDirPaths:
@@ -191,6 +191,7 @@ impl<Config: 'static + Send + Sync> ConcurrentRunner<Config> {
     }
 
     /// Sets the function to process a single path.
+    #[must_use]
     pub fn set_proc_path<ProcPath>(mut self, proc_path: ProcPath) -> Self
     where
         ProcPath: 'static + Fn(&Path, &Config) + Send + Sync,
@@ -251,13 +252,10 @@ impl<Config: 'static + Send + Sync> ConcurrentRunner<Config> {
             receivers.push(t);
         }
 
-        let all_files = match producer.join() {
-            Ok(res) => res,
-            Err(_) => {
-                return Err(ConcurrentErrors::Producer(
-                    "Child thread panicked".to_owned(),
-                ));
-            }
+        let Ok(all_files) = producer.join() else {
+            return Err(ConcurrentErrors::Producer(
+                "Child thread panicked".to_owned(),
+            ));
         };
 
         // Poison the receiver, now that the producer is finished.

@@ -254,7 +254,7 @@ fn csv_err(e: csv::Error) -> io::Error {
 )]
 mod tests {
     use super::*;
-    use crate::spaces::SpaceKind;
+    use crate::spaces::{CodeMetrics, SpaceKind};
     use std::path::PathBuf;
 
     fn empty_space(name: &str, kind: SpaceKind, start: usize, end: usize) -> FuncSpace {
@@ -265,7 +265,7 @@ mod tests {
             end_line: end,
             kind,
             spaces: Vec::new(),
-            metrics: Default::default(),
+            metrics: CodeMetrics::default(),
         }
     }
 

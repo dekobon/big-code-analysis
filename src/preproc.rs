@@ -59,12 +59,12 @@ pub fn get_macros<S: ::std::hash::BuildHasher>(
 ) -> HashSet<String> {
     let mut macros = HashSet::new();
     if let Some(pf) = files.get(file) {
-        for m in pf.macros.iter() {
+        for m in &pf.macros {
             macros.insert(m.clone());
         }
-        for f in pf.indirect_includes.iter() {
+        for f in &pf.indirect_includes {
             if let Some(pf) = files.get(&PathBuf::from(f)) {
-                for m in pf.macros.iter() {
+                for m in &pf.macros {
                     macros.insert(m.clone());
                 }
             }
@@ -78,6 +78,12 @@ pub fn get_macros<S: ::std::hash::BuildHasher>(
 ///
 /// The dependency graph is built using both preprocessor data and not
 /// extracted from the considered `C/C++` files.
+///
+/// # Panics
+///
+/// Panics if the graph carries a node weight without a corresponding
+/// `nodes` map entry — both maps are built in lockstep so this is a
+/// load-bearing invariant rather than a recoverable condition.
 pub fn fix_includes<S: ::std::hash::BuildHasher>(
     files: &mut HashMap<PathBuf, PreprocFile, S>,
     all_files: &HashMap<String, Vec<PathBuf>, S>,
@@ -117,7 +123,7 @@ pub fn fix_includes<S: ::std::hash::BuildHasher>(
     // all the files in the scc.
     let mut scc = kosaraju_scc(&g);
     let mut scc_map: HashMap<NodeIndex, HashSet<String>> = HashMap::new();
-    for component in scc.iter_mut() {
+    for component in &mut scc {
         if component.len() > 1 {
             // For Firefox, there are only few scc and all of them are pretty small
             // So no need to take a hammer here (for 'contains' stuff).
@@ -165,7 +171,7 @@ pub fn fix_includes<S: ::std::hash::BuildHasher>(
             }
 
             eprintln!("Warning: possible include cycle:");
-            for p in paths.iter() {
+            for p in &paths {
                 eprintln!("  - {p:?}");
             }
             eprintln!();

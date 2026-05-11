@@ -145,7 +145,7 @@ impl Ploc {
     #[inline]
     pub fn merge(&mut self, other: &Ploc) {
         // Merge ploc lines
-        for l in other.lines.iter() {
+        for l in &other.lines {
             self.lines.insert(*l);
         }
 

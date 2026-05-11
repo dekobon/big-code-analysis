@@ -25,15 +25,14 @@ pub const TOOL_ID: &str = "big-code-analysis";
 /// HTML / CSV cell). Centralizing the warning text keeps the
 /// `format` label consistent across formats.
 pub(crate) fn warn_non_utf8_path<'a>(format: &str, path: &'a Path) -> Option<&'a str> {
-    match path.to_str() {
-        Some(s) => Some(s),
-        None => {
-            eprintln!(
-                "Warning: skipping non-UTF-8 path in {format} output: {}",
-                path.display()
-            );
-            None
-        }
+    if let Some(s) = path.to_str() {
+        Some(s)
+    } else {
+        eprintln!(
+            "Warning: skipping non-UTF-8 path in {format} output: {}",
+            path.display()
+        );
+        None
     }
 }
 

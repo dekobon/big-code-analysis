@@ -46,6 +46,71 @@ tree-sitter-mozjs = { path = "./tree-sitter-mozjs", version = "=0.20.3" }
 tree-sitter-preproc = { path = "./tree-sitter-preproc", version = "=0.20.3" }
 tree-sitter-tcl = { path = "./tree-sitter-tcl", version = "=1.1.0" }
 
+# Workspace-wide lint posture. See #158 for the rationale behind each
+# allow entry — anything beyond `module_name_repetitions` /
+# `missing_errors_doc` (the host-identity baseline) carries an inline
+# comment explaining why the lint produces noise in this codebase.
+[workspace.lints.rust]
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+
+# Prescribed by the lint plan in #158.
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+
+# Per-language metric / Checker / Getter / Alterator functions iterate
+# the entire tree-sitter token set for the grammar — collapsing or
+# splitting them by line count fights the per-language structure that
+# is the point of these files.
+too_many_lines = "allow"
+
+# Tree-sitter token enum variants and Halstead operator names share
+# many naming roots (`Loc`/`PLoc`/`LLoc`/`CLoc`/`SLoc`,
+# `BinaryOperator`/`UnaryOperator`, `Cyclomatic`/`Cognitive`); the
+# similarity is intentional and load-bearing for the metric model.
+similar_names = "allow"
+
+# Doc comments cite metric names (`SLOC`, `MI`, `WMC`) and external
+# acronyms (`HTML`, `JSON`, `URL`) — fighting clippy by backticking
+# every occurrence would obscure the docs.
+doc_markdown = "allow"
+
+# Per-language match expressions are large by design (one arm per
+# tree-sitter token); the `&` vs owned argument choice rarely matters
+# at the per-language metric trait boundary.
+needless_pass_by_value = "allow"
+
+# `Stats` structs across the metric crates intentionally embed their
+# metric name in field names (`sloc_min`, `sloc_max`) for consistency
+# across the JSON / CSV / Checkstyle outputs — the redundancy is
+# externally visible and a feature, not a bug.
+struct_field_names = "allow"
+
+# Style preference: many `if !cond { ... } else { ... }` constructs
+# in the metric code read more naturally with the negation in the
+# guarded branch.
+if_not_else = "allow"
+
+# Action callback structs (`Metrics`, `Function`, `Dump`, etc.) carry
+# no instance state but are dispatched via the `Callback` trait; the
+# trait shape requires `&self`.
+unused_self = "allow"
+
+# Per-language Checker / Getter match arms intentionally enumerate
+# every token, including ones that fall through to the wildcard.
+match_wildcard_for_single_variants = "allow"
+
+# `Cfg` / `MetricsCfg` / `PreprocCfg` carry several independent boolean
+# switches by design — they are configuration structs, not state.
+struct_excessive_bools = "allow"
+
+# Several public helpers accept `&Option<T>` so callers that already
+# hold an `Option` can pass it by reference without an extra `.as_ref()`
+# at every call site.
+ref_option = "allow"
+
 [package]
 name = "big-code-analysis"
 version.workspace = true
@@ -93,6 +158,9 @@ tree-sitter-mozcpp.workspace = true
 tree-sitter-mozjs.workspace = true
 tree-sitter-preproc.workspace = true
 tree-sitter-tcl.workspace = true
+
+[lints]
+workspace = true
 
 [dev-dependencies]
 insta = { version = "1.29.0", features = ["yaml", "json", "redactions"] }
