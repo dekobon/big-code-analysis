@@ -609,12 +609,15 @@ macro_rules! ts_npa_compute {
                             // function expression — those are methods written as
                             // field initializers and are counted by `npm` instead.
                             PublicFieldDefinition
-                                if !member.children().any(|c| {
-                                    matches!(c.kind_id().into(), ArrowFunction | FunctionExpression)
-                                }) =>
+                                if member
+                                    .first_child(|id| {
+                                        id == $lang::ArrowFunction
+                                            || id == $lang::FunctionExpression
+                                    })
+                                    .is_none() =>
                             {
                                 stats.class_na += 1;
-                                if ts_member_is_public::<$lang>(&member) {
+                                if ts_member_is_public!($lang, member) {
                                     stats.class_npa += 1;
                                 }
                             }
@@ -624,23 +627,24 @@ macro_rules! ts_npa_compute {
                             // the attribute lands on the class space, not the
                             // method's own function space.
                             MethodDefinition => {
-                                if let Some(params) = member
-                                    .children()
-                                    .find(|c| matches!(c.kind_id().into(), FormalParameters))
-                                {
-                                    for param in params.children().filter(|c| {
-                                        matches!(
-                                            c.kind_id().into(),
-                                            RequiredParameter | RequiredParameter2
-                                        )
-                                    }) {
-                                        if param.children().any(|c| {
-                                            matches!(c.kind_id().into(), AccessibilityModifier)
-                                        }) {
-                                            stats.class_na += 1;
-                                            if ts_member_is_public::<$lang>(&param) {
-                                                stats.class_npa += 1;
-                                            }
+                                let Some(params) =
+                                    member.first_child(|id| id == $lang::FormalParameters)
+                                else {
+                                    continue;
+                                };
+                                for param in params.children().filter(|c| {
+                                    matches!(
+                                        c.kind_id().into(),
+                                        RequiredParameter | RequiredParameter2
+                                    )
+                                }) {
+                                    if param
+                                        .first_child(|id| id == $lang::AccessibilityModifier)
+                                        .is_some()
+                                    {
+                                        stats.class_na += 1;
+                                        if ts_member_is_public!($lang, param) {
+                                            stats.class_npa += 1;
                                         }
                                     }
                                 }
@@ -663,41 +667,22 @@ macro_rules! ts_npa_compute {
     };
 }
 
-// Trait used by the shared TS/TSX helpers to abstract over the per-
-// language token enums. Each enum exposes the same kind names; the
-// trait surfaces the four ids the visibility helpers need.
-pub(crate) trait TsOop {
-    const ACCESSIBILITY_MODIFIER: u16;
-    const PRIVATE: u16;
-    const PROTECTED: u16;
-}
-
-impl TsOop for Typescript {
-    const ACCESSIBILITY_MODIFIER: u16 = Typescript::AccessibilityModifier as u16;
-    const PRIVATE: u16 = Typescript::Private as u16;
-    const PROTECTED: u16 = Typescript::Protected as u16;
-}
-
-impl TsOop for Tsx {
-    const ACCESSIBILITY_MODIFIER: u16 = Tsx::AccessibilityModifier as u16;
-    const PRIVATE: u16 = Tsx::Private as u16;
-    const PROTECTED: u16 = Tsx::Protected as u16;
-}
-
 // Class members are public unless they declare an explicit
 // `accessibility_modifier` whose only child is `private` or `protected`.
-// Missing modifier means public, matching TypeScript's spec.
-pub(crate) fn ts_member_is_public<L: TsOop>(member: &Node) -> bool {
-    let Some(modifier) = member
-        .children()
-        .find(|c| c.kind_id() == L::ACCESSIBILITY_MODIFIER)
-    else {
-        return true;
-    };
-    !modifier
-        .children()
-        .any(|kw| kw.kind_id() == L::PRIVATE || kw.kind_id() == L::PROTECTED)
+// Missing modifier means public, matching TypeScript's spec. The helper
+// is a macro rather than a generic function so both TS and TSX expand
+// the same code against their own enum without a marker trait.
+macro_rules! ts_member_is_public {
+    ($lang:ident, $member:expr) => {{
+        match $member.first_child(|id| id == $lang::AccessibilityModifier) {
+            None => true,
+            Some(m) => m
+                .first_child(|id| id == $lang::Private || id == $lang::Protected)
+                .is_none(),
+        }
+    }};
 }
+pub(crate) use ts_member_is_public;
 
 impl Npa for TypescriptCode {
     ts_npa_compute!(Typescript);
