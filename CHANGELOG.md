@@ -74,6 +74,15 @@ changes are marked with **(breaking)** in the entries below.
   workflow is removed; `check-snapshot-anchors.py` now runs inside
   the new `lint` job
   ([#152](https://github.com/dekobon/big-code-analysis/issues/152)).
+- Explicit `cargo check` gate (under `RUSTFLAGS="-D warnings"`) for the
+  workspace-excluded `enums` codegen crate, wired into the `make
+  pre-commit` / `make ci` parallel DAG, the `make lint` aggregate, the
+  `.github/workflows/ci.yml` `lint` job, and the `.pre-commit-config.yaml`
+  hook set. The crate stays out of the workspace (so per-PR clippy
+  isn't run on codegen-only code) but its lint surface no longer
+  drifts silently — the gate would have caught the `unused_imports`
+  warning that motivated #162
+  ([#164](https://github.com/dekobon/big-code-analysis/issues/164)).
 
 ### Fixed
 
@@ -104,6 +113,15 @@ changes are marked with **(breaking)** in the entries below.
   re-export was dead. `#[macro_use] mod macros;` continues to make
   the macros visible within the crate
   ([#162](https://github.com/dekobon/big-code-analysis/issues/162)).
+- Fixed shellcheck findings (SC2164 missing `|| exit` on pushd/popd,
+  SC1083 literal `}` in path, SC2086 unquoted variable expansion,
+  SC2006 legacy backticks) in
+  `generate-grammars/{generate-grammar,generate-mozcpp,generate-mozjs}.sh`
+  and applied `shfmt` formatting to `check-grammars-crates.sh` and
+  `utils/check-tools.sh`. All findings were pre-existing and were
+  silently masked by the Makefile `EXCLUDE_DIRS` glob bug fixed in
+  [#160](https://github.com/dekobon/big-code-analysis/issues/160)
+  ([#165](https://github.com/dekobon/big-code-analysis/issues/165)).
 
 ## [0.0.25] - 2026-05-10
 
