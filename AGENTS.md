@@ -186,8 +186,8 @@ are tracked under #95; new tests must follow it.
 
 This policy is enforced automatically. `make snapshot-anchors` (run
 as part of `make pre-commit` and `make ci`, the
-`.pre-commit-config.yaml` hooks, and the
-`.github/workflows/snapshot-anchors.yml` job) invokes
+`.pre-commit-config.yaml` hooks, and the `lint` job in
+`.github/workflows/ci.yml`) invokes
 `./check-snapshot-anchors.py`, which scans every
 `insta::assert_json_snapshot!(metric.…)` call under `src/metrics/`
 and counts the unanchored ones per file. The current per-file
