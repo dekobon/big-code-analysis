@@ -95,11 +95,7 @@ fn sweep_orphans(out_dir: &Path, expected: &[String]) -> io::Result<()> {
     Ok(())
 }
 
-fn render_tree(
-    cmd: &clap::Command,
-    out_dir: &Path,
-    expected: &mut Vec<String>,
-) -> io::Result<()> {
+fn render_tree(cmd: &clap::Command, out_dir: &Path, expected: &mut Vec<String>) -> io::Result<()> {
     let version = cmd.get_version().unwrap_or("unknown").to_string();
     render_man_page(cmd, &version, out_dir, expected)?;
     render_subcommands(cmd, cmd.get_name(), &version, out_dir, expected)
