@@ -391,6 +391,134 @@ mod tests {
         });
     }
 
+    /// Multiple `return` statements across `if` / `else` branches.  Every
+    /// `Cpp::ReturnStatement` adds +1 — there is no early-out collapse.
+    #[test]
+    fn c_multiple_returns_in_branches() {
+        check_metrics::<CppParser>(
+            "int f(int x) {
+                 if (x < 0) {
+                     return -1;
+                 } else if (x == 0) {
+                     return 0;
+                 } else {
+                     return 1;
+                 }
+             }",
+            "foo.c",
+            |metric| {
+                // 1 function, 3 returns
+                assert_eq!(metric.nexits.exit_sum(), 3.0);
+                assert_eq!(metric.nexits.exit_max(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 3.0,
+                      "min": 0.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// `return` statements inside `try` and `catch` blocks both count;
+    /// the impl matches `Cpp::ReturnStatement` regardless of enclosing
+    /// scope.  C++-only: bare C has no `try`/`catch`.
+    #[test]
+    fn cpp_return_in_try_catch() {
+        check_metrics::<CppParser>(
+            "int f(int x) {
+                 try {
+                     if (x == 0) {
+                         return 1;
+                     }
+                     return 2;
+                 } catch (...) {
+                     return -1;
+                 }
+             }",
+            "foo.cpp",
+            |metric| {
+                // 1 function, 3 returns (2 in try, 1 in catch).
+                // C++ exit impl does NOT count `throw` — only ReturnStatement.
+                assert_eq!(metric.nexits.exit_sum(), 3.0);
+                assert_eq!(metric.nexits.exit_max(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 3.0,
+                      "min": 0.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// Early `return` inside a loop body is counted separately from the
+    /// trailing return — every reachable `return` is an exit.
+    #[test]
+    fn c_early_return_in_loop() {
+        check_metrics::<CppParser>(
+            "int find(int* a, int n, int target) {
+                 for (int i = 0; i < n; ++i) {
+                     if (a[i] == target) {
+                         return i;
+                     }
+                 }
+                 return -1;
+             }",
+            "foo.c",
+            |metric| {
+                // 1 function, 2 returns
+                assert_eq!(metric.nexits.exit_sum(), 2.0);
+                assert_eq!(metric.nexits.exit_max(), 2.0);
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 2.0,
+                      "min": 0.0,
+                      "max": 2.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// `void` function with no explicit `return` — exit count is 0.
+    /// The implicit fall-through return is intentionally not modelled.
+    #[test]
+    fn c_void_no_explicit_return() {
+        check_metrics::<CppParser>(
+            "void greet(const char* who) {
+                 printf(\"hi %s\\n\", who);
+             }",
+            "foo.c",
+            |metric| {
+                // 1 function with zero ReturnStatement nodes.
+                assert_eq!(metric.nexits.exit_sum(), 0.0);
+                assert_eq!(metric.nexits.exit_max(), 0.0);
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 0.0,
+                      "average": 0.0,
+                      "min": 0.0,
+                      "max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
     #[test]
     fn javascript_no_exit() {
         check_metrics::<JavascriptParser>("var a = 42;", "foo.js", |metric| {

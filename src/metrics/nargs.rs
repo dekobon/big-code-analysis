@@ -1086,6 +1086,196 @@ mod tests {
         );
     }
 
+    /// Default arguments still surface as separate `parameter_declaration`
+    /// nodes — defaults are not removed from the count.  A 3-param function
+    /// whose third parameter has a default value reports `nargs = 3`.
+    #[test]
+    fn cpp_default_arguments() {
+        check_metrics::<CppParser>(
+            "int f(int a, int b, int c = 0) {
+                 return a + b + c;
+             }",
+            "foo.cpp",
+            |metric| {
+                // 1 function, 3 parameters (defaults still count).
+                let s = &metric.nargs;
+                assert_eq!(s.fn_args_sum(), 3.0);
+                assert_eq!(s.fn_args_max(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r###"
+                    {
+                      "total_functions": 3.0,
+                      "total_closures": 0.0,
+                      "average_functions": 3.0,
+                      "average_closures": 0.0,
+                      "total": 3.0,
+                      "average": 3.0,
+                      "functions_min": 0.0,
+                      "functions_max": 3.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// C-style variadic `...` parameter contributes +1 (one named declarator
+    /// plus the `...` declarator).  The grammar emits the variadic ellipsis
+    /// as a sibling parameter node that `compute_args` counts via the
+    /// `is_non_arg` filter (which excludes only `(`, `)`, and `,`).
+    #[test]
+    fn c_variadic_function() {
+        check_metrics::<CppParser>(
+            "int printf(const char* fmt, ...) {
+                 return 0;
+             }",
+            "foo.c",
+            |metric| {
+                // 1 function, 2 nargs: `fmt` and `...`
+                let s = &metric.nargs;
+                assert_eq!(s.fn_args_sum(), 2.0);
+                assert_eq!(s.fn_args_max(), 2.0);
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r###"
+                    {
+                      "total_functions": 2.0,
+                      "total_closures": 0.0,
+                      "average_functions": 2.0,
+                      "average_closures": 0.0,
+                      "total": 2.0,
+                      "average": 2.0,
+                      "functions_min": 0.0,
+                      "functions_max": 2.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// C++ template parameter packs (`Args... args`) count as one runtime
+    /// parameter (the parameter pack itself), not as N — the template
+    /// arguments are compile-time and live on the template-parameter list,
+    /// not on `parameters`.  The tree-sitter-cpp grammar represents
+    /// `Args... args` as a single `variadic_parameter_declaration` under
+    /// `parameters`.
+    #[test]
+    fn cpp_template_parameter_pack() {
+        check_metrics::<CppParser>(
+            "template<typename... Args>
+             int sum(int seed, Args... args) {
+                 return seed;
+             }",
+            "foo.cpp",
+            |metric| {
+                // 1 function, 2 nargs: `seed` and `Args... args`
+                let s = &metric.nargs;
+                assert_eq!(s.fn_args_sum(), 2.0);
+                assert_eq!(s.fn_args_max(), 2.0);
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r###"
+                    {
+                      "total_functions": 2.0,
+                      "total_closures": 0.0,
+                      "average_functions": 2.0,
+                      "average_closures": 0.0,
+                      "total": 2.0,
+                      "average": 2.0,
+                      "functions_min": 0.0,
+                      "functions_max": 2.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// Lambda capture list (`[=, &x]`) is not part of the parameter list.
+    /// `compute_args` reads the `declarator` field, which only contains the
+    /// `( … )` parameter list.  Variables captured for the closure body do
+    /// not inflate `nargs`.
+    #[test]
+    fn cpp_lambda_capture_not_counted() {
+        check_metrics::<CppParser>(
+            "int f() {
+                 int x = 1;
+                 int y = 2;
+                 auto g = [=, &x](int a, int b) -> int { return a + b + x + y; };
+                 return g(1, 2);
+             }",
+            "foo.cpp",
+            |metric| {
+                // 1 function (0 args), 1 lambda (2 args: a, b — captures `=, &x` excluded).
+                let s = &metric.nargs;
+                assert_eq!(s.fn_args_sum(), 0.0);
+                assert_eq!(s.closure_args_sum(), 2.0);
+                assert_eq!(s.closure_args_max(), 2.0);
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r###"
+                    {
+                      "total_functions": 0.0,
+                      "total_closures": 2.0,
+                      "average_functions": 0.0,
+                      "average_closures": 2.0,
+                      "total": 2.0,
+                      "average": 1.0,
+                      "functions_min": 0.0,
+                      "functions_max": 0.0,
+                      "closures_min": 0.0,
+                      "closures_max": 2.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// Implicit `this` on a member function is not part of the AST
+    /// parameter list — it is an implicit argument at the language level
+    /// only.  A non-static member function `void M(int a)` reports
+    /// `nargs = 1`, not 2.
+    #[test]
+    fn cpp_member_function_this_not_counted() {
+        check_metrics::<CppParser>(
+            "struct S {
+                 int x;
+                 int set(int a) {     // implicit `this` is NOT counted
+                     this->x = a;
+                     return a;
+                 }
+             };",
+            "foo.cpp",
+            |metric| {
+                // 1 member function with 1 explicit parameter `a`.
+                let s = &metric.nargs;
+                assert_eq!(s.fn_args_sum(), 1.0);
+                assert_eq!(s.fn_args_max(), 1.0);
+                insta::assert_json_snapshot!(
+                    metric.nargs,
+                    @r###"
+                    {
+                      "total_functions": 1.0,
+                      "total_closures": 0.0,
+                      "average_functions": 1.0,
+                      "average_closures": 0.0,
+                      "total": 1.0,
+                      "average": 1.0,
+                      "functions_min": 0.0,
+                      "functions_max": 1.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
     #[test]
     fn go_zero_args() {
         check_metrics::<GoParser>(
