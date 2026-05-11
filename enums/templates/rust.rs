@@ -10,7 +10,7 @@ pub enum {{ c_name }} {
 }
 
 impl From<{{ c_name }}> for &'static str {
-    #[inline(always)]
+    #[inline]
     fn from(tok: {{ c_name }}) -> Self {
         match tok {
             {% for (name, _, ts_name) in names -%}
@@ -21,7 +21,7 @@ impl From<{{ c_name }}> for &'static str {
 }
 
 impl From<u16> for {{ c_name }} {
-    #[inline(always)]
+    #[inline]
     fn from(x: u16) -> Self {
         num::FromPrimitive::from_u16(x).unwrap_or(Self::Error)
     }
@@ -29,7 +29,7 @@ impl From<u16> for {{ c_name }} {
 
 // {{ c_name }} == u16
 impl PartialEq<u16> for {{ c_name }} {
-    #[inline(always)]
+    #[inline]
     fn eq(&self, x: &u16) -> bool {
         *self == Into::<Self>::into(*x)
     }
@@ -37,7 +37,7 @@ impl PartialEq<u16> for {{ c_name }} {
 
 // u16 == {{ c_name }}
 impl PartialEq<{{ c_name }}> for u16 {
-    #[inline(always)]
+    #[inline]
     fn eq(&self, x: &{{ c_name }}) -> bool {
         *x == *self
     }

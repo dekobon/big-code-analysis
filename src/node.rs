@@ -87,7 +87,7 @@ impl<'a> Node<'a> {
         self.0.parent().map(Node)
     }
 
-    #[inline(always)]
+    #[inline]
     pub(crate) fn has_sibling(&self, id: u16) -> bool {
         self.0.parent().is_some_and(|parent| {
             parent
@@ -104,7 +104,7 @@ impl<'a> Node<'a> {
         self.0.next_sibling().map(Node)
     }
 
-    #[inline(always)]
+    #[inline]
     pub(crate) fn is_child(&self, id: u16) -> bool {
         self.0
             .children(&mut self.0.walk())

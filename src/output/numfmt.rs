@@ -182,11 +182,11 @@ mod tests {
 
     #[test]
     fn message_writes_into_formatter_without_intermediate_alloc_on_integer_path() {
+        use std::fmt::Write as _;
         // Integer-valued finite goes through the no-alloc write! path.
         // Non-integer-finite still allocates internally; we verify the
         // observable Display output, not the alloc count.
         let mut buf = String::new();
-        use std::fmt::Write as _;
         write!(
             buf,
             "limit {} value {}",

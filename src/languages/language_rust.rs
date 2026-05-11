@@ -363,7 +363,7 @@ pub enum Rust {
 }
 
 impl From<Rust> for &'static str {
-    #[inline(always)]
+    #[inline]
     fn from(tok: Rust) -> Self {
         match tok {
             Rust::End => "end",
@@ -727,7 +727,7 @@ impl From<Rust> for &'static str {
 }
 
 impl From<u16> for Rust {
-    #[inline(always)]
+    #[inline]
     fn from(x: u16) -> Self {
         num::FromPrimitive::from_u16(x).unwrap_or(Self::Error)
     }
@@ -735,7 +735,7 @@ impl From<u16> for Rust {
 
 // Rust == u16
 impl PartialEq<u16> for Rust {
-    #[inline(always)]
+    #[inline]
     fn eq(&self, x: &u16) -> bool {
         *self == Into::<Self>::into(*x)
     }
@@ -743,7 +743,7 @@ impl PartialEq<u16> for Rust {
 
 // u16 == Rust
 impl PartialEq<Rust> for u16 {
-    #[inline(always)]
+    #[inline]
     fn eq(&self, x: &Rust) -> bool {
         *x == *self
     }

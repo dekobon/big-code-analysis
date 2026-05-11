@@ -7,7 +7,7 @@ use crate::*;
 
 macro_rules! get_operator {
     ($language:ident) => {
-        #[inline(always)]
+        #[inline]
         fn get_operator_id_as_str(id: u16) -> &'static str {
             let typ = id.into();
             match typ {

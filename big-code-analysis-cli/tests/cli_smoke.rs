@@ -216,7 +216,6 @@ fn preproc_writes_json_to_output_file() {
 
 /// Recursively yield files under `dir` whose extension equals `ext`.
 fn walkdir_entries(dir: &std::path::Path, ext: &str) -> impl Iterator<Item = std::path::PathBuf> {
-    let mut found = Vec::new();
     fn visit(dir: &std::path::Path, ext: &str, found: &mut Vec<std::path::PathBuf>) {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
@@ -229,6 +228,7 @@ fn walkdir_entries(dir: &std::path::Path, ext: &str) -> impl Iterator<Item = std
             }
         }
     }
+    let mut found = Vec::new();
     visit(dir, ext, &mut found);
     found.into_iter()
 }

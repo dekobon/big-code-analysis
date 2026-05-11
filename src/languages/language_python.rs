@@ -282,7 +282,7 @@ pub enum Python {
 }
 
 impl From<Python> for &'static str {
-    #[inline(always)]
+    #[inline]
     fn from(tok: Python) -> Self {
         match tok {
             Python::End => "end",
@@ -565,7 +565,7 @@ impl From<Python> for &'static str {
 }
 
 impl From<u16> for Python {
-    #[inline(always)]
+    #[inline]
     fn from(x: u16) -> Self {
         num::FromPrimitive::from_u16(x).unwrap_or(Self::Error)
     }
@@ -573,7 +573,7 @@ impl From<u16> for Python {
 
 // Python == u16
 impl PartialEq<u16> for Python {
-    #[inline(always)]
+    #[inline]
     fn eq(&self, x: &u16) -> bool {
         *self == Into::<Self>::into(*x)
     }
@@ -581,7 +581,7 @@ impl PartialEq<u16> for Python {
 
 // u16 == Python
 impl PartialEq<Python> for u16 {
-    #[inline(always)]
+    #[inline]
     fn eq(&self, x: &Python) -> bool {
         *x == *self
     }

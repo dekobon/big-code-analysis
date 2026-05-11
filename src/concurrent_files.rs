@@ -40,7 +40,7 @@ where
         let path = job.path.clone();
 
         if let Err(err) = func(job.path, &job.cfg) {
-            eprintln!("{err:?} for file {path:?}");
+            eprintln!("{err:?} for file {}", path.display());
         }
     }
 }

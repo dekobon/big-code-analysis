@@ -43,7 +43,7 @@ fn assert_well_formed(csv_text: &str) {
 
 #[test]
 fn csv_rust_function_and_impl() {
-    let source = r#"
+    let source = r"
 struct Counter { n: u32 }
 
 impl Counter {
@@ -56,7 +56,7 @@ impl Counter {
         }
     }
 }
-"#;
+";
     let path = PathBuf::from("counter.rs");
     let parser = RustParser::new(source.as_bytes().to_vec(), &path, None);
     let out = render_csv(&parser, &path);
@@ -87,7 +87,7 @@ class Greeter:
 
 #[test]
 fn csv_cpp_namespace_and_class() {
-    let source = r#"
+    let source = r"
 namespace ns {
 class Widget {
 public:
@@ -97,7 +97,7 @@ private:
     int v_;
 };
 }
-"#;
+";
     let path = PathBuf::from("widget.cc");
     let parser = CppParser::new(source.as_bytes().to_vec(), &path, None);
     let out = render_csv(&parser, &path);

@@ -227,7 +227,7 @@ pub enum Go {
 }
 
 impl From<Go> for &'static str {
-    #[inline(always)]
+    #[inline]
     fn from(tok: Go) -> Self {
         match tok {
             Go::End => "end",
@@ -455,7 +455,7 @@ impl From<Go> for &'static str {
 }
 
 impl From<u16> for Go {
-    #[inline(always)]
+    #[inline]
     fn from(x: u16) -> Self {
         num::FromPrimitive::from_u16(x).unwrap_or(Self::Error)
     }
@@ -463,7 +463,7 @@ impl From<u16> for Go {
 
 // Go == u16
 impl PartialEq<u16> for Go {
-    #[inline(always)]
+    #[inline]
     fn eq(&self, x: &u16) -> bool {
         *self == Into::<Self>::into(*x)
     }
@@ -471,7 +471,7 @@ impl PartialEq<u16> for Go {
 
 // u16 == Go
 impl PartialEq<Go> for u16 {
-    #[inline(always)]
+    #[inline]
     fn eq(&self, x: &Go) -> bool {
         *x == *self
     }

@@ -51,12 +51,12 @@ pub fn get_macros<S: ::std::hash::BuildHasher>(
     let mut macros = HashSet::new();
     if let Some(pf) = files.get(file) {
         for m in pf.macros.iter() {
-            macros.insert(m.to_string());
+            macros.insert(m.clone());
         }
         for f in pf.indirect_includes.iter() {
             if let Some(pf) = files.get(&PathBuf::from(f)) {
                 for m in pf.macros.iter() {
-                    macros.insert(m.to_string());
+                    macros.insert(m.clone());
                 }
             }
         }
@@ -96,7 +96,7 @@ pub fn fix_includes<S: ::std::hash::BuildHasher>(
                     g.add_edge(node, i, 0);
                 } else {
                     // TODO: add an option to display warning
-                    eprintln!("Warning: possible self inclusion {file:?}");
+                    eprintln!("Warning: possible self inclusion {}", file.display());
                 }
             }
         }
@@ -144,7 +144,10 @@ pub fn fix_includes<S: ::std::hash::BuildHasher>(
                 if let Some(s) = path.to_str() {
                     paths.insert(s.to_string());
                 } else {
-                    eprintln!("warning: skipping non-UTF-8 path in include cycle: {path:?}");
+                    eprintln!(
+                        "warning: skipping non-UTF-8 path in include cycle: {}",
+                        path.display()
+                    );
                 }
                 *nodes
                     .get_mut(&path)
@@ -174,7 +177,7 @@ pub fn fix_includes<S: ::std::hash::BuildHasher>(
                     let paths = scc_map.get(&node);
                     if let Some(paths) = paths {
                         for p in paths {
-                            x_inc.insert(p.to_string());
+                            x_inc.insert(p.clone());
                         }
                     } else {
                         unreachable!(
@@ -183,7 +186,10 @@ pub fn fix_includes<S: ::std::hash::BuildHasher>(
                     }
                 } else {
                     let Some(s) = w.to_str() else {
-                        eprintln!("warning: skipping non-UTF-8 indirect include path: {w:?}");
+                        eprintln!(
+                            "warning: skipping non-UTF-8 indirect include path: {}",
+                            w.display()
+                        );
                         continue;
                     };
                     x_inc.insert(s.to_string());
@@ -191,8 +197,8 @@ pub fn fix_includes<S: ::std::hash::BuildHasher>(
             }
         } else {
             eprintln!(
-                "Warning: included file which has not been preprocessed: {:?}",
-                path
+                "Warning: included file which has not been preprocessed: {}",
+                path.display()
             );
         }
     }

@@ -128,7 +128,7 @@ pub enum Tcl {
 }
 
 impl From<Tcl> for &'static str {
-    #[inline(always)]
+    #[inline]
     fn from(tok: Tcl) -> Self {
         match tok {
             Tcl::End => "end",
@@ -257,7 +257,7 @@ impl From<Tcl> for &'static str {
 }
 
 impl From<u16> for Tcl {
-    #[inline(always)]
+    #[inline]
     fn from(x: u16) -> Self {
         num::FromPrimitive::from_u16(x).unwrap_or(Self::Error)
     }
@@ -265,7 +265,7 @@ impl From<u16> for Tcl {
 
 // Tcl == u16
 impl PartialEq<u16> for Tcl {
-    #[inline(always)]
+    #[inline]
     fn eq(&self, x: &u16) -> bool {
         *self == Into::<Self>::into(*x)
     }
@@ -273,7 +273,7 @@ impl PartialEq<u16> for Tcl {
 
 // u16 == Tcl
 impl PartialEq<Tcl> for u16 {
-    #[inline(always)]
+    #[inline]
     fn eq(&self, x: &Tcl) -> bool {
         *x == *self
     }

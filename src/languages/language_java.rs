@@ -329,7 +329,7 @@ pub enum Java {
 }
 
 impl From<Java> for &'static str {
-    #[inline(always)]
+    #[inline]
     fn from(tok: Java) -> Self {
         match tok {
             Java::End => "end",
@@ -659,7 +659,7 @@ impl From<Java> for &'static str {
 }
 
 impl From<u16> for Java {
-    #[inline(always)]
+    #[inline]
     fn from(x: u16) -> Self {
         num::FromPrimitive::from_u16(x).unwrap_or(Self::Error)
     }
@@ -667,7 +667,7 @@ impl From<u16> for Java {
 
 // Java == u16
 impl PartialEq<u16> for Java {
-    #[inline(always)]
+    #[inline]
     fn eq(&self, x: &u16) -> bool {
         *self == Into::<Self>::into(*x)
     }
@@ -675,7 +675,7 @@ impl PartialEq<u16> for Java {
 
 // u16 == Java
 impl PartialEq<Java> for u16 {
-    #[inline(always)]
+    #[inline]
     fn eq(&self, x: &Java) -> bool {
         *x == *self
     }

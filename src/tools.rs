@@ -229,7 +229,7 @@ pub fn is_generated(buf: &[u8]) -> bool {
         .is_match(window)
 }
 
-#[inline(always)]
+#[inline]
 fn get_regex<'a>(
     once_lock: &OnceLock<Regex>,
     line: &'a [u8],
@@ -546,19 +546,19 @@ pub(crate) fn guess_file<S: ::std::hash::BuildHasher>(
             }
         }
 
-        let path_min: Vec<_> = path_min.drain(..).map(|p| p.to_path_buf()).collect();
+        let path_min: Vec<_> = path_min.drain(..).cloned().collect();
         return path_min;
     }
 
     vec![]
 }
 
-#[inline(always)]
+#[inline]
 pub(crate) fn color(stdout: &mut StandardStreamLock, color: Color) -> std::io::Result<()> {
     stdout.set_color(ColorSpec::new().set_fg(Some(color)))
 }
 
-#[inline(always)]
+#[inline]
 pub(crate) fn intense_color(stdout: &mut StandardStreamLock, color: Color) -> std::io::Result<()> {
     stdout.set_color(ColorSpec::new().set_fg(Some(color)).set_intense(true))
 }
@@ -577,7 +577,7 @@ pub(crate) fn check_func_space<T: crate::ParserTrait, F: Fn(crate::FuncSpace)>(
     let parser = T::new(trimmed_bytes, &path, None);
     let func_space = crate::metrics(&parser, &path).unwrap();
 
-    check(func_space)
+    check(func_space);
 }
 
 #[cfg(test)]
@@ -586,7 +586,7 @@ pub(crate) fn check_metrics<T: crate::ParserTrait>(
     filename: &str,
     check: fn(crate::CodeMetrics) -> (),
 ) {
-    check_func_space::<T, _>(source, filename, |func_space| check(func_space.metrics))
+    check_func_space::<T, _>(source, filename, |func_space| check(func_space.metrics));
 }
 
 #[cfg(test)]

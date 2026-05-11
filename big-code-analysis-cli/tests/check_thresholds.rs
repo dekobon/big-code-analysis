@@ -276,14 +276,14 @@ fn check_uses_file_sentinel_for_top_level_space() {
 #[test]
 fn check_walks_nested_function_spaces() {
     let dir = TempDir::new().unwrap();
-    let body = r#"
+    let body = r"
 pub fn outer() -> i32 {
     fn inner(n: i32) -> i32 {
         if n < 0 { -n } else if n == 0 { 0 } else { n }
     }
     inner(5)
 }
-"#;
+";
     let path = write_fixture(&dir, "nested.rs", body);
 
     let assert = cli()
