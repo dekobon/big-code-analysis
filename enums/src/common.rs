@@ -26,11 +26,7 @@ pub fn sanitize_identifier(name: &str) -> String {
 
     let mut result = String::with_capacity(name.len());
     for c in name.chars() {
-        if ('a'..='z').contains(&c)
-            || ('A'..='Z').contains(&c)
-            || ('0'..='9').contains(&c)
-            || c == '_'
-        {
+        if c.is_ascii_lowercase() || c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_' {
             result.push(c);
         } else {
             let replacement = match c {

@@ -79,7 +79,7 @@ help:
 	@echo "  toml-lint                            Lint TOML files with taplo"
 	@echo "  makefile-check                       Lint Makefile with checkmake"
 	@echo "  snapshot-anchors                     Block new bare insta snapshots"
-	@echo "  enums-check                          cargo check on workspace-excluded enums crate"
+	@echo "  enums-check                          cargo clippy on workspace-excluded enums crate"
 	@echo "  lint                                 Run all linters"
 	@echo ""
 	@echo "Maintenance:"
@@ -213,16 +213,15 @@ snapshot-anchors:
 # necessary locally to keep `make enums-check` behave identically
 # everywhere.
 #
-# This is intentionally `cargo check`, not `cargo clippy`: clippy
-# requires fixing 3 pre-existing `manual_is_ascii_check` sites in
-# `enums/src/common.rs` first (tracked as #166). `cargo check` already
-# catches the rustc-level warning class that motivated #164 (e.g.,
-# `unused_imports`, `dead_code`), so the gate closes that drift today.
+# Uses `cargo clippy` (not `cargo check`) so the gate enforces the same
+# lint floor as the workspace `clippy` job: rustc-level warnings plus the
+# clippy default group. The three `manual_is_ascii_check` sites that
+# previously blocked this (tracked as #166) have been fixed.
 enums-check:
-	@echo "Checking workspace-excluded enums crate..."
-	@RUSTFLAGS="-D warnings" cargo check \
+	@echo "Linting workspace-excluded enums crate..."
+	@RUSTFLAGS="-D warnings" cargo clippy \
 	  --manifest-path $(BASE_DIR)enums/Cargo.toml \
-	  --all-targets --locked
+	  --all-targets --locked -- -D warnings
 
 # ---------------------------------------------------------------------------
 # Lint aggregate
