@@ -626,14 +626,15 @@ impl Abc for KotlinCode {
                     stats.declaration.push(DeclKind::Const);
                 }
             }
-            // Statement terminator (semicolon or newline-as-terminator):
-            // the grammar emits an explicit `SEMI` only for explicit
-            // semicolons. Property declarations terminate without one when
-            // the next token starts a new statement; we therefore also
-            // pop the sentinel on the next non-property/non-modifier
-            // token. For simplicity track only the explicit terminator
-            // here; the implicit case is handled by the next
-            // `PropertyDeclaration` push overwriting the stack.
+            // Statement terminator: the grammar emits an explicit `SEMI`
+            // only for explicit semicolons. Property declarations also
+            // terminate without one when the next token starts a new
+            // statement. We clear the sentinel on the explicit `SEMI`
+            // here; the implicit-terminator case is benign because the
+            // EQ arm reads only `last()`, which is the most recently
+            // pushed sentinel — any older entries left on the stack
+            // from preceding implicit terminators do not affect the
+            // assignment count.
             SEMI => {
                 if let Some(DeclKind::Const | DeclKind::Var) = stats.declaration.last() {
                     stats.declaration.clear();
