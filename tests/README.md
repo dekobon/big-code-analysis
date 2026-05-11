@@ -153,7 +153,7 @@ Per-metric unit-test counts across `src/metrics/*.rs`. Numbers combine
 
 | Metric | bash | c/cpp | csharp | go | java | js | kotlin | lua | mozjs | perl | php | python | rust | tcl | tsx | ts |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| abc           |  4 | –  | 19 | – | 18 | – | 18 | –  | –  | –  | 14 | –  | –  | –  | – | – |
+| abc           |  4 | –  | 19 | – | 18 | – | 18 | –  | –  | –  | 14 | –  | –  | –  |13 |13 |
 | cognitive     |  9 | 10 | 12 | 10| 12 | 7 | 12 | 11 | 10 | 12 |  9 | 17 | 11 | 15 | 8 | 7 |
 | cyclomatic    |  7 |  7 |  6 | 11|  4 | 3 |  5 |  3 |  5 |  7 |  4 |  2 |  9 |  5 | 7 | 6 |
 | exit          |  5 |  1 |  4 |  5|  3 | 3 |  3 |  2 |  3 |  3 |  3 |  4 |  2 |  3 | 3 | 4 |
@@ -162,12 +162,12 @@ Per-metric unit-test counts across `src/metrics/*.rs`. Numbers combine
 | mi            | –  | –  | –  | – | –  | – | –  | –  | –  | –  | –  | –  | –  | –  | – | – |
 | nargs         | –  |  5 |  5 |  6|  5 | 9 |  7 |  6 |  6 |  5 |  5 |  5 |  5 |  7 | 5 | 5 |
 | nom           |  3 |  2 |  2 |  4|  2 |12 |  3 |  1 |  6 |  1 |  2 |  1 |  1 |  2 | 4 | 4 |
-| npa (OOP)     | –  | –  | 14 | – | 12 | – | 16 | –  | –  | –  | 15 | –  | –  | –  | – | – |
-| npm (OOP)     | –  | –  | 13 | – | 12 | – | 18 | –  | –  | –  | 12 | –  | –  | –  | – | – |
+| npa (OOP)     | –  | –  | 14 | – | 12 | – | 16 | –  | –  | –  | 15 | –  | –  | –  |12 |13 |
+| npm (OOP)     | –  | –  | 13 | – | 12 | – | 18 | –  | –  | –  | 12 | –  | –  | –  |12 |12 |
 | tokens        | –  |  1 | –  | – |  1 | – | –  | –  | –  | –  | –  |  5 |  1 | –  | – | – |
-| wmc (OOP)     | –  | –  | 13 | – | 13 | – | 18 | –  | –  | –  | 13 | –  | –  | –  | – | – |
-| **Total**     | 40 | 40 |110 | 48|104 |39 |113 | 40 | 41 | 47 |102 | 50 | 47 | 57 |43 |42 |
-| **Metrics ≥1 (/13)** | 7 | 8 | 11 |  7| 12 | 7 | 11 |  7 |  7 |  7 | 11 |  8 |  8 |  7 | 7 | 7 |
+| wmc (OOP)     | –  | –  | 13 | – | 13 | – | 18 | –  | –  | –  | 13 | –  | –  | –  |12 |12 |
+| **Total**     | 40 | 40 |110 | 48|104 |39 |113 | 40 | 41 | 47 |102 | 50 | 47 | 57 |92 |92 |
+| **Metrics ≥1 (/13)** | 7 | 8 | 11 |  7| 12 | 7 | 11 |  7 |  7 |  7 | 11 |  8 |  8 |  7 |11 |11 |
 
 Plus module-level tests not counted above:
 
@@ -187,9 +187,6 @@ tests in `src/metrics/mi.rs` exercise the composition logic only.
 - [#167](https://github.com/dekobon/big-code-analysis/issues/167) —
   C/C++ cognitive coverage thin (10 tests vs 12–17 for peers); missing
   ternary, try/catch, lambdas, recursion, switch fall-through.
-- [#169](https://github.com/dekobon/big-code-analysis/issues/169) —
-  TypeScript and TSX have no real impl for `abc`/`npa`/`npm`/`wmc`; all
-  four are no-op stubs in `implement_metric_trait!`.
 - [#170](https://github.com/dekobon/big-code-analysis/issues/170) —
   C/C++ thin across `cyclomatic`, `exit`, `halstead`, `nargs`, `nom`,
   `tokens`.

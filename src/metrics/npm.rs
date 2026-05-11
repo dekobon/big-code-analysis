@@ -436,13 +436,100 @@ impl Npm for KotlinCode {
     }
 }
 
+// TypeScript / TSX share the same OOP node shape, so we expand the
+// same compute logic into both impls via `ts_npm_compute!`.
+//
+// What counts as a class method:
+// - `method_definition` direct children of `class_body` (regular
+//   instance methods, static methods, abstract method
+//   implementations, getters/setters/constructors). Each counts as
+//   one method — getter and setter each count separately, matching
+//   their distinct accessor semantics. Method overloads in TS share
+//   a single `method_definition` body (signature-only overloads are
+//   `method_signature` nodes inside a class body — those are
+//   declaration-only and we do not count them).
+// - `public_field_definition` whose initializer is an
+//   `arrow_function` (or `function_expression`). These are class
+//   members written as `foo = () => {}` and behave as methods.
+// - `abstract_method_signature` direct children of `class_body`
+//   (abstract method declarations on abstract classes).
+//
+// Interface decision: `method_signature`, `abstract_method_signature`,
+// and `construct_signature` direct children of `interface_body` count
+// toward `interface_npm` / `interface_nm`. Interface members are
+// implicitly public.
+//
+// Method overload signatures inside a class (`method_signature` as a
+// direct child of `class_body`) are NOT counted — they are
+// type-system declarations whose implementation is the `method_definition`
+// they precede. Counting them would double-count overloaded methods.
+macro_rules! ts_npm_compute {
+    ($lang:ident) => {
+        fn compute(node: &Node, stats: &mut Stats) {
+            use $lang::*;
+
+            if Self::is_func_space(node) && stats.is_disabled() {
+                stats.is_class_space = true;
+            }
+
+            match node.kind_id().into() {
+                ClassBody => {
+                    for member in node.children() {
+                        match member.kind_id().into() {
+                            MethodDefinition | AbstractMethodSignature => {
+                                stats.class_nm += 1;
+                                if super::npa::ts_member_is_public::<$lang>(&member) {
+                                    stats.class_npm += 1;
+                                }
+                            }
+                            // Field-as-arrow-function (`foo = () => …`) is a
+                            // class method written as a field initializer.
+                            PublicFieldDefinition
+                                if member.children().any(|c| {
+                                    matches!(c.kind_id().into(), ArrowFunction | FunctionExpression)
+                                }) =>
+                            {
+                                stats.class_nm += 1;
+                                if super::npa::ts_member_is_public::<$lang>(&member) {
+                                    stats.class_npm += 1;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                InterfaceBody => {
+                    let count = node
+                        .children()
+                        .filter(|c| {
+                            matches!(
+                                c.kind_id().into(),
+                                MethodSignature | AbstractMethodSignature | ConstructSignature
+                            )
+                        })
+                        .count();
+                    stats.interface_nm += count;
+                    stats.interface_npm = stats.interface_nm;
+                }
+                _ => {}
+            }
+        }
+    };
+}
+
+impl Npm for TypescriptCode {
+    ts_npm_compute!(Typescript);
+}
+
+impl Npm for TsxCode {
+    ts_npm_compute!(Tsx);
+}
+
 implement_metric_trait!(
     Npm,
     PythonCode,
     MozjsCode,
     JavascriptCode,
-    TypescriptCode,
-    TsxCode,
     RustCode,
     CppCode,
     PreprocCode,
@@ -1554,6 +1641,424 @@ class C {
             |metric| {
                 assert_eq!(metric.npm.class_npm_sum(), 1.0);
                 assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    // --- TypeScript / TSX NPM tests --------------------------------------
+    //
+    // TypeScript class methods are `method_definition` direct children of
+    // `class_body` (regular methods, static methods, constructors,
+    // getters, setters). Each `method_definition` counts once.
+    // `abstract_method_signature` (abstract method declaration with no
+    // body) is also counted. A `public_field_definition` whose value is
+    // an `arrow_function` is a class method written as a field
+    // initializer and counts once. Method overload signatures
+    // (`method_signature` as class_body children) are NOT counted —
+    // the implementation `method_definition` is the canonical method.
+    // Interface methods (`method_signature`, `abstract_method_signature`,
+    // `construct_signature`) count as implicitly-public interface
+    // methods.
+
+    #[test]
+    fn typescript_empty_class_no_methods() {
+        check_metrics::<TypescriptParser>("class C {}", "foo.ts", |metric| {
+            assert_eq!(metric.npm.class_npm_sum(), 0.0);
+            assert_eq!(metric.npm.class_nm_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.npm);
+        });
+    }
+
+    #[test]
+    fn typescript_default_public_methods() {
+        check_metrics::<TypescriptParser>(
+            "class C {
+                a(): void {}
+                b(): number { return 0; }
+                c(x: number): number { return x; }
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 3.0);
+                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_method_visibility() {
+        check_metrics::<TypescriptParser>(
+            "class C {
+                public a(): void {}
+                private b(): void {}
+                protected c(): void {}
+                d(): void {}
+            }",
+            "foo.ts",
+            |metric| {
+                // public + default-public = 2 npm; 4 nm.
+                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_static_methods() {
+        check_metrics::<TypescriptParser>(
+            "class C {
+                static a(): void {}
+                public static b(): void {}
+                private static c(): void {}
+            }",
+            "foo.ts",
+            |metric| {
+                // a (default public) + b (public) = 2 npm.
+                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_constructor_counts_as_method() {
+        // The constructor is a `method_definition` — one method.
+        check_metrics::<TypescriptParser>(
+            "class C {
+                constructor(public x: number) {}
+                m(): void {}
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_getter_setter_each_count_once() {
+        // `get x()` and `set x(v)` are distinct `method_definition`
+        // nodes — each counts as one method.
+        check_metrics::<TypescriptParser>(
+            "class C {
+                private _x: number = 0;
+                get x(): number { return this._x; }
+                set x(v: number) { this._x = v; }
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_arrow_field_counts_as_method() {
+        // `foo = () => {}` is a class method.
+        check_metrics::<TypescriptParser>(
+            "class C {
+                a: number = 0;
+                arrow = () => this.a;
+                private secret = () => this.a;
+            }",
+            "foo.ts",
+            |metric| {
+                // 2 methods (arrow public, secret private). 1 field.
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_method_overload_counts_once() {
+        // Only the implementation `method_definition` counts; the two
+        // signature-only `method_signature` overloads do not.
+        check_metrics::<TypescriptParser>(
+            "class C {
+                m(x: number): void;
+                m(x: string): void;
+                m(x: any): void {}
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_abstract_class_methods() {
+        // Abstract method signatures count; concrete methods count; both
+        // contribute to `nm`. `public` abstract method is public.
+        check_metrics::<TypescriptParser>(
+            "abstract class C {
+                abstract a(): void;
+                public abstract b(): number;
+                protected abstract c(): void;
+                public m(): void {}
+                private n(): void {}
+            }",
+            "foo.ts",
+            |metric| {
+                // a (default public abstract), b (public), m (public) = 3 npm.
+                // c (protected), n (private) demoted. Total nm = 5.
+                assert_eq!(metric.npm.class_npm_sum(), 3.0);
+                assert_eq!(metric.npm.class_nm_sum(), 5.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_interface_methods() {
+        // Interface method signatures are implicitly public.
+        check_metrics::<TypescriptParser>(
+            "interface I {
+                a(): void;
+                b(x: number): number;
+                c: string;
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.npm.interface_npm_sum(), 2.0);
+                assert_eq!(metric.npm.interface_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_generic_class_methods() {
+        check_metrics::<TypescriptParser>(
+            "class Box<T> {
+                value: T;
+                set(v: T): void { this.value = v; }
+                get(): T { return this.value; }
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_multiple_classes_and_interface() {
+        check_metrics::<TypescriptParser>(
+            "class A { m(): void {} }
+             class B { private h(): void {} }
+             interface I { p(): number; }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.interface_npm_sum(), 1.0);
+                assert_eq!(metric.npm.interface_nm_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    // TSX parity
+
+    #[test]
+    fn tsx_empty_class_no_methods() {
+        check_metrics::<TsxParser>("class C {}", "foo.tsx", |metric| {
+            assert_eq!(metric.npm.class_npm_sum(), 0.0);
+            assert_eq!(metric.npm.class_nm_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.npm);
+        });
+    }
+
+    #[test]
+    fn tsx_default_public_methods() {
+        check_metrics::<TsxParser>(
+            "class C {
+                a(): void {}
+                b(): number { return 0; }
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_method_visibility() {
+        check_metrics::<TsxParser>(
+            "class C {
+                public a(): void {}
+                private b(): void {}
+                protected c(): void {}
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_static_methods() {
+        check_metrics::<TsxParser>(
+            "class C {
+                static a(): void {}
+                private static b(): void {}
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_constructor_counts_as_method() {
+        check_metrics::<TsxParser>(
+            "class C {
+                constructor() {}
+                m(): void {}
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_getter_setter_each_count_once() {
+        check_metrics::<TsxParser>(
+            "class C {
+                private _x: number = 0;
+                get x(): number { return this._x; }
+                set x(v: number) { this._x = v; }
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_arrow_field_counts_as_method() {
+        check_metrics::<TsxParser>(
+            "class C {
+                arrow = () => 1;
+                private secret = () => 2;
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_method_overload_counts_once() {
+        check_metrics::<TsxParser>(
+            "class C {
+                m(x: number): void;
+                m(x: string): void;
+                m(x: any): void {}
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_abstract_class_methods() {
+        check_metrics::<TsxParser>(
+            "abstract class C {
+                abstract a(): void;
+                public m(): void {}
+                private n(): void {}
+            }",
+            "foo.tsx",
+            |metric| {
+                // a (default public) + m (public) = 2 npm; 3 nm.
+                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_interface_methods() {
+        check_metrics::<TsxParser>(
+            "interface I {
+                a(): void;
+                b(): number;
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.npm.interface_npm_sum(), 2.0);
+                assert_eq!(metric.npm.interface_nm_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_generic_class_methods() {
+        check_metrics::<TsxParser>(
+            "class Box<T> { value: T; set(v: T): void { this.value = v; } }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_multiple_classes_and_interface() {
+        check_metrics::<TsxParser>(
+            "class A { m(): void {} }
+             class B { private h(): void {} }
+             interface I { p(): number; }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.interface_npm_sum(), 1.0);
+                assert_eq!(metric.npm.interface_nm_sum(), 1.0);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );

@@ -497,8 +497,6 @@ implement_metric_trait!(
     PythonCode,
     MozjsCode,
     JavascriptCode,
-    TypescriptCode,
-    TsxCode,
     RustCode,
     CppCode,
     PreprocCode,
@@ -508,6 +506,93 @@ implement_metric_trait!(
     LuaCode,
     TclCode
 );
+
+// TypeScript / TSX share the same expression / statement vocabulary; the
+// `ts_abc_compute!` macro expands the same token-level Fitzpatrick rules
+// for both. Compared with the Java / C# impls we stay at the leaf-token
+// level rather than walking parenthesised / unary containers — TS source
+// rarely uses C-style `if (x)` conditions, so the
+// "unary-boolean-in-a-container" heuristic adds noise without catching
+// many real conditions. Conditions still capture every comparison and
+// control-flow arm.
+//
+// Declaration sentinel: `lexical_declaration` and `variable_declaration`
+// push a `Var` sentinel that suppresses counting the initializer `=` as
+// an assignment. The `Const` token promotes to `Const` (compile-time
+// constant — initializer is not a mutable assignment). `let` and `var`
+// keep the `Var` slot. Augmented assignments (`+=`) and update
+// expressions (`++`, `--`) always count.
+macro_rules! ts_abc_compute {
+    ($lang:ident) => {
+        fn compute(node: &Node, stats: &mut Stats) {
+            use $lang::*;
+
+            match node.kind_id().into() {
+                // Augmented assignments and pre/post increment/decrement
+                // always count.
+                PLUSEQ | DASHEQ | STAREQ | SLASHEQ | PERCENTEQ | STARSTAREQ | AMPEQ | PIPEEQ
+                | CARETEQ | LTLTEQ | GTGTEQ | GTGTGTEQ | AMPAMPEQ | PIPEPIPEEQ | QMARKQMARKEQ
+                | PLUSPLUS | DASHDASH => {
+                    stats.assignments += 1.;
+                }
+                // Variable declarations push a `Var` sentinel; the `Const`
+                // keyword promotes the top to `Const` so the initializer
+                // `=` is treated as a constant binding.
+                LexicalDeclaration | VariableDeclaration => {
+                    stats.declaration.push(DeclKind::Var);
+                }
+                Const => {
+                    if let Some(DeclKind::Var) = stats.declaration.last() {
+                        stats.declaration.push(DeclKind::Const);
+                    }
+                }
+                SEMI => {
+                    if let Some(DeclKind::Const | DeclKind::Var) = stats.declaration.last() {
+                        stats.declaration.clear();
+                    }
+                }
+                // Plain `=` outside `const` declarations is an assignment.
+                EQ => {
+                    if !matches!(stats.declaration.last(), Some(DeclKind::Const)) {
+                        stats.assignments += 1.;
+                    }
+                }
+                // Function invocation and object construction count as
+                // branches. Member calls and chained calls all surface
+                // as `CallExpression`.
+                CallExpression | NewExpression => {
+                    stats.branches += 1.;
+                }
+                // Comparison and equality operators, ternary `?`, `??`,
+                // `instanceof`, `else`, `case`, `default`, `catch`,
+                // `try`.
+                EQEQ | EQEQEQ | BANGEQ | BANGEQEQ | LTEQ | GTEQ | QMARK | QMARKQMARK
+                | Instanceof | Else | Case | Default | Try | Catch => {
+                    stats.conditions += 1.;
+                }
+                // `<` and `>` may also delimit type arguments / type
+                // parameters (`Array<number>`, `class Foo<T> {}`); skip
+                // those, count only comparison usage.
+                GT | LT
+                    if node.parent().is_some_and(|p| {
+                        !matches!(p.kind_id().into(), TypeArguments | TypeParameters)
+                    }) =>
+                {
+                    stats.conditions += 1.;
+                }
+                _ => {}
+            }
+        }
+    };
+}
+
+impl Abc for TypescriptCode {
+    ts_abc_compute!(Typescript);
+}
+
+impl Abc for TsxCode {
+    ts_abc_compute!(Tsx);
+}
 
 // Fitzpatrick's ABC rules adapted for Kotlin syntax. Kotlin shares the
 // JVM and Java's spec roots: assignments count once per `=` / augmented
@@ -2650,5 +2735,490 @@ function f(int $a, int $b): int {
             assert_eq!(metric.abc.assignments_sum(), 0.0);
             insta::assert_json_snapshot!(metric.abc);
         });
+    }
+
+    // --- TypeScript / TSX ABC tests --------------------------------------
+    //
+    // Assignment, branch, condition counting per Fitzpatrick:
+    // - Augmented assignment / `++` / `--` always count.
+    // - Plain `=` counts unless inside `const` declaration.
+    // - `call_expression` / `new_expression` count as branches.
+    // - Comparison / equality operators, ternary `?`, `??`, control-flow
+    //   arms (`else`, `case`, `default`, `catch`, `try`, `instanceof`),
+    //   and `<`/`>` (outside `type_arguments` / `type_parameters`) count
+    //   as conditions.
+
+    #[test]
+    fn typescript_assignments_basic() {
+        check_metrics::<TypescriptParser>(
+            "class C {
+                m(): void {
+                    let x = 0;          // const-sentinel suppressed since `let`, but x is Var → +1
+                    x = 1;              // +1
+                    x += 2;             // +1
+                    x++;                // +1
+                }
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_const_excluded_from_assignments() {
+        check_metrics::<TypescriptParser>(
+            "class C {
+                m(): void {
+                    const a = 1;        // suppressed (Const sentinel)
+                    const b = 2;        // suppressed
+                    let c = 3;          // +1 (Var sentinel)
+                }
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_branches_function_calls() {
+        check_metrics::<TypescriptParser>(
+            "class C {
+                m(): void {
+                    foo();              // +1
+                    bar(1, 2);          // +1
+                    new Date();         // +1
+                }
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_conditions_comparison_operators() {
+        check_metrics::<TypescriptParser>(
+            "class C {
+                m(x: number, y: number): boolean {
+                    return x == y       // +1
+                        || x === y      // +1
+                        || x != y       // +1
+                        || x !== y      // +1
+                        || x < y        // +1
+                        || x <= y       // +1
+                        || x > y        // +1
+                        || x >= y;      // +1
+                }
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 8.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_conditions_control_flow_arms() {
+        check_metrics::<TypescriptParser>(
+            "class C {
+                m(x: number): number {
+                    try {                       // +1 (try)
+                        if (x > 0) {            // +1 (>)
+                            return 1;
+                        } else {                // +1 (else)
+                            return -1;
+                        }
+                    } catch (e) {               // +1 (catch)
+                        return 0;
+                    }
+                }
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_conditions_switch_case() {
+        check_metrics::<TypescriptParser>(
+            "class C {
+                m(x: number): number {
+                    switch (x) {
+                        case 1:                 // +1
+                            return 1;
+                        case 2:                 // +1
+                            return 2;
+                        default:                // +1
+                            return 0;
+                    }
+                }
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_ternary_and_nullish() {
+        check_metrics::<TypescriptParser>(
+            "class C {
+                m(x: number | null): number {
+                    return x !== null           // +1 (!==)
+                        ? x                     // +1 (ternary ?)
+                        : 0;
+                }
+                n(x: number | null): number {
+                    return x ?? 0;              // +1 (??)
+                }
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_instanceof_counts_as_condition() {
+        check_metrics::<TypescriptParser>(
+            "class C {
+                m(o: unknown): boolean {
+                    return o instanceof C;      // +1
+                }
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_generic_lt_gt_not_a_condition() {
+        // `<T>` in `class C<T>` and `Array<number>` should not contribute
+        // to conditions even though the tokens are `<` and `>`.
+        check_metrics::<TypescriptParser>(
+            "class C<T> {
+                xs: Array<number> = [];
+                m(): void {
+                    const arr: Array<string> = [];   // suppressed const
+                    void arr;
+                }
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_abstract_class_abc() {
+        // Abstract methods have no body — they contribute nothing.
+        check_metrics::<TypescriptParser>(
+            "abstract class C {
+                abstract a(): void;
+                m(x: number): number {
+                    if (x > 0) return 1;        // +1 condition
+                    return 0;
+                }
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_interface_abc_zero() {
+        check_metrics::<TypescriptParser>(
+            "interface I {
+                a(): void;
+                b(): number;
+                p: string;
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_arrow_field_contributes_abc() {
+        // Arrow function class members are function spaces; their
+        // assignments/branches/conditions are counted.
+        check_metrics::<TypescriptParser>(
+            "class C {
+                arrow = (x: number) => {
+                    if (x > 0) {                // +1 condition
+                        return foo();           // +1 branch
+                    }
+                    return 0;
+                };
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.branches_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_parameter_property_init_not_assignment() {
+        // Parameter properties don't introduce a `=` token themselves;
+        // the constructor body has zero assignments.
+        check_metrics::<TypescriptParser>(
+            "class C {
+                constructor(public x: number, private y: string) {}
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    // TSX parity
+
+    #[test]
+    fn tsx_assignments_basic() {
+        check_metrics::<TsxParser>(
+            "class C {
+                m(): void {
+                    let x = 0;
+                    x = 1;
+                    x += 2;
+                    x++;
+                }
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_const_excluded_from_assignments() {
+        check_metrics::<TsxParser>(
+            "class C {
+                m(): void {
+                    const a = 1;
+                    let b = 2;
+                }
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_branches_function_calls() {
+        check_metrics::<TsxParser>(
+            "class C {
+                m(): void {
+                    foo();
+                    new Date();
+                }
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_conditions_comparison_operators() {
+        check_metrics::<TsxParser>(
+            "class C {
+                m(x: number, y: number): boolean {
+                    return x == y || x < y || x >= y;
+                }
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_conditions_control_flow_arms() {
+        check_metrics::<TsxParser>(
+            "class C {
+                m(x: number): number {
+                    try {
+                        if (x > 0) return 1;
+                        else return -1;
+                    } catch (e) {
+                        return 0;
+                    }
+                }
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_conditions_switch_case() {
+        check_metrics::<TsxParser>(
+            "class C {
+                m(x: number): number {
+                    switch (x) {
+                        case 1: return 1;
+                        case 2: return 2;
+                        default: return 0;
+                    }
+                }
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_ternary_and_nullish() {
+        check_metrics::<TsxParser>(
+            "class C {
+                m(x: number | null): number {
+                    return x !== null ? x : 0;
+                }
+                n(x: number | null): number { return x ?? 0; }
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_instanceof_counts_as_condition() {
+        check_metrics::<TsxParser>(
+            "class C { m(o: unknown): boolean { return o instanceof C; } }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_generic_lt_gt_not_a_condition() {
+        check_metrics::<TsxParser>(
+            "class C<T> { xs: Array<number> = []; }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_abstract_class_abc() {
+        check_metrics::<TsxParser>(
+            "abstract class C {
+                abstract a(): void;
+                m(x: number): number {
+                    if (x > 0) return 1;
+                    return 0;
+                }
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_interface_abc_zero() {
+        check_metrics::<TsxParser>(
+            "interface I { a(): void; p: string; }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_arrow_field_contributes_abc() {
+        check_metrics::<TsxParser>(
+            "class C {
+                arrow = (x: number) => {
+                    if (x > 0) return foo();
+                    return 0;
+                };
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.branches_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_parameter_property_init_not_assignment() {
+        check_metrics::<TsxParser>(
+            "class C { constructor(public x: number) {} }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
     }
 }

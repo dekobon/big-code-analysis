@@ -563,13 +563,155 @@ impl Npa for KotlinCode {
     }
 }
 
+// TypeScript / TSX share the same OOP node shape: `class_declaration`
+// and `abstract_class_declaration` both contain a `class_body`;
+// `interface_declaration` contains an `interface_body`. The
+// `ts_npa_compute!` macro expands the same compute logic for each enum,
+// so TS and TSX cannot drift.
+//
+// Visibility rule: a `public_field_definition` or `method_definition`
+// is considered public unless it carries an explicit
+// `accessibility_modifier` child whose only child is `private` or
+// `protected`. Default (no modifier) is public, matching TypeScript's
+// own semantics.
+//
+// Parameter properties (`constructor(private x: number)`) are class
+// attributes: each `required_parameter` carrying an
+// `accessibility_modifier` adds one to the enclosing class's `na`
+// (and to `npa` when the modifier is `public` or absent). The
+// grammar allows accessibility modifiers on parameters of any
+// `method_definition`, not only `constructor` — TypeScript itself
+// rejects that at type-check time, but accepting any method here
+// avoids fragile name-matching against the `constructor` identifier
+// (the grammar does not expose a dedicated constructor token).
+//
+// Interface decision: `property_signature` children of
+// `interface_body` count toward `interface_npa` / `interface_na`.
+// All interface members are implicitly public (TypeScript spec).
+// `index_signature` and `method_signature` are NOT attributes — they
+// belong to `npm`.
+macro_rules! ts_npa_compute {
+    ($lang:ident) => {
+        fn compute(node: &Node, stats: &mut Stats) {
+            use $lang::*;
+
+            if Self::is_func_space(node) && stats.is_disabled() {
+                stats.is_class_space = true;
+            }
+
+            match node.kind_id().into() {
+                ClassBody => {
+                    for member in node.children() {
+                        match member.kind_id().into() {
+                            // Plain field declaration (`x: T = expr;`, `private x: T;`,
+                            // `static x: T = expr;`). Each is one attribute.
+                            // Skip fields whose initializer is an arrow function or
+                            // function expression — those are methods written as
+                            // field initializers and are counted by `npm` instead.
+                            PublicFieldDefinition
+                                if !member.children().any(|c| {
+                                    matches!(c.kind_id().into(), ArrowFunction | FunctionExpression)
+                                }) =>
+                            {
+                                stats.class_na += 1;
+                                if ts_member_is_public::<$lang>(&member) {
+                                    stats.class_npa += 1;
+                                }
+                            }
+                            // Parameter properties on any `method_definition`. In
+                            // practice these only appear on the constructor.
+                            // Scan formal_parameters at the class-body level so
+                            // the attribute lands on the class space, not the
+                            // method's own function space.
+                            MethodDefinition => {
+                                if let Some(params) = member
+                                    .children()
+                                    .find(|c| matches!(c.kind_id().into(), FormalParameters))
+                                {
+                                    for param in params.children().filter(|c| {
+                                        matches!(
+                                            c.kind_id().into(),
+                                            RequiredParameter | RequiredParameter2
+                                        )
+                                    }) {
+                                        if param.children().any(|c| {
+                                            matches!(c.kind_id().into(), AccessibilityModifier)
+                                        }) {
+                                            stats.class_na += 1;
+                                            if ts_member_is_public::<$lang>(&param) {
+                                                stats.class_npa += 1;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                InterfaceBody => {
+                    let count = node
+                        .children()
+                        .filter(|c| matches!(c.kind_id().into(), PropertySignature))
+                        .count();
+                    stats.interface_na += count;
+                    stats.interface_npa = stats.interface_na;
+                }
+                _ => {}
+            }
+        }
+    };
+}
+
+// Trait used by the shared TS/TSX helpers to abstract over the per-
+// language token enums. Each enum exposes the same kind names; the
+// trait surfaces the four ids the visibility helpers need.
+pub(crate) trait TsOop {
+    const ACCESSIBILITY_MODIFIER: u16;
+    const PRIVATE: u16;
+    const PROTECTED: u16;
+}
+
+impl TsOop for Typescript {
+    const ACCESSIBILITY_MODIFIER: u16 = Typescript::AccessibilityModifier as u16;
+    const PRIVATE: u16 = Typescript::Private as u16;
+    const PROTECTED: u16 = Typescript::Protected as u16;
+}
+
+impl TsOop for Tsx {
+    const ACCESSIBILITY_MODIFIER: u16 = Tsx::AccessibilityModifier as u16;
+    const PRIVATE: u16 = Tsx::Private as u16;
+    const PROTECTED: u16 = Tsx::Protected as u16;
+}
+
+// Class members are public unless they declare an explicit
+// `accessibility_modifier` whose only child is `private` or `protected`.
+// Missing modifier means public, matching TypeScript's spec.
+pub(crate) fn ts_member_is_public<L: TsOop>(member: &Node) -> bool {
+    let Some(modifier) = member
+        .children()
+        .find(|c| c.kind_id() == L::ACCESSIBILITY_MODIFIER)
+    else {
+        return true;
+    };
+    !modifier
+        .children()
+        .any(|kw| kw.kind_id() == L::PRIVATE || kw.kind_id() == L::PROTECTED)
+}
+
+impl Npa for TypescriptCode {
+    ts_npa_compute!(Typescript);
+}
+
+impl Npa for TsxCode {
+    ts_npa_compute!(Tsx);
+}
+
 implement_metric_trait!(
     Npa,
     PythonCode,
     MozjsCode,
     JavascriptCode,
-    TypescriptCode,
-    TsxCode,
     RustCode,
     CppCode,
     PreprocCode,
@@ -1767,6 +1909,445 @@ mod tests {
             |metric| {
                 assert_eq!(metric.npa.class_npa_sum(), 0.0);
                 assert_eq!(metric.npa.class_na_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    // --- TypeScript / TSX NPA tests --------------------------------------
+    //
+    // TypeScript class fields are `public_field_definition` direct children
+    // of `class_body`. Default visibility is public; an explicit
+    // `accessibility_modifier` whose only child is `private`/`protected`
+    // demotes a field. Constructor parameter properties
+    // (`constructor(private x: number)`) count as class attributes.
+    // Fields whose initializer is an arrow function are methods, not
+    // attributes. Interface property signatures count as implicitly
+    // public attributes.
+
+    #[test]
+    fn typescript_empty_class_no_attributes() {
+        check_metrics::<TypescriptParser>("class C {}", "foo.ts", |metric| {
+            assert_eq!(metric.npa.class_npa_sum(), 0.0);
+            assert_eq!(metric.npa.class_na_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.npa);
+        });
+    }
+
+    #[test]
+    fn typescript_default_public_fields() {
+        // No accessibility modifier means public.
+        check_metrics::<TypescriptParser>(
+            "class C {
+                a: number = 1;
+                b: string = \"\";
+                c: boolean = false;
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_visibility_modifiers() {
+        // Public / private / protected. Default public.
+        check_metrics::<TypescriptParser>(
+            "class C {
+                public a: number = 1;
+                private b: number = 2;
+                protected c: number = 3;
+                d: number = 4;
+            }",
+            "foo.ts",
+            |metric| {
+                // public + default(public) = 2 npa; total na = 4.
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_static_fields() {
+        // `static` is orthogonal to visibility — the field still counts.
+        check_metrics::<TypescriptParser>(
+            "class C {
+                static a: number = 0;
+                public static b: number = 0;
+                private static c: number = 0;
+            }",
+            "foo.ts",
+            |metric| {
+                // a (default public) + b (public) = 2 npa; c is private.
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_parameter_properties() {
+        // Constructor parameter properties are class attributes.
+        check_metrics::<TypescriptParser>(
+            "class C {
+                constructor(public a: number, private b: string, c: boolean) {}
+            }",
+            "foo.ts",
+            |metric| {
+                // a, b are parameter properties (modifiered); c is a plain
+                // parameter and does NOT count. a is public, b is private.
+                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_readonly_field() {
+        // `readonly` is a non-visibility modifier — the field still counts
+        // and stays public unless paired with private/protected.
+        check_metrics::<TypescriptParser>(
+            "class C {
+                readonly a: number = 1;
+                private readonly b: number = 2;
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_abstract_class_attributes() {
+        // `abstract_class_declaration` opens its own class space; fields
+        // count just like a concrete class.
+        check_metrics::<TypescriptParser>(
+            "abstract class C {
+                public a: number = 1;
+                protected b: number = 2;
+                abstract m(): void;
+            }",
+            "foo.ts",
+            |metric| {
+                // a (public) + b (protected) = 2 attrs; npa = 1.
+                // `abstract m()` is a method, not an attribute.
+                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_arrow_field_is_method_not_attribute() {
+        // A field whose initializer is an arrow function is counted by
+        // npm, not npa.
+        check_metrics::<TypescriptParser>(
+            "class C {
+                a: number = 0;
+                arrow = () => this.a;
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_interface_property_signatures() {
+        // Interface property signatures count as implicitly-public
+        // attributes; method signatures are not attributes.
+        check_metrics::<TypescriptParser>(
+            "interface I {
+                a: number;
+                b: string;
+                m(): void;
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.npa.interface_npa_sum(), 2.0);
+                assert_eq!(metric.npa.interface_na_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_generic_class_attributes() {
+        // Type parameters on the class do not contribute attributes.
+        check_metrics::<TypescriptParser>(
+            "class Box<T, U> {
+                value: T;
+                other: U;
+                constructor(v: T, o: U) { this.value = v; this.other = o; }
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_getters_setters_not_attributes() {
+        // `get x()` / `set x(v)` are method_definitions, not attributes.
+        check_metrics::<TypescriptParser>(
+            "class C {
+                private _x: number = 0;
+                get x(): number { return this._x; }
+                set x(v: number) { this._x = v; }
+            }",
+            "foo.ts",
+            |metric| {
+                // Only `_x` counts as an attribute (private → not public).
+                assert_eq!(metric.npa.class_npa_sum(), 0.0);
+                assert_eq!(metric.npa.class_na_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_multiple_classes_and_interface() {
+        check_metrics::<TypescriptParser>(
+            "class A { x: number = 0; }
+             class B { private y: number = 0; }
+             interface I { z: number; }",
+            "foo.ts",
+            |metric| {
+                // A: 1 npa / 1 na (public). B: 0 npa / 1 na (private).
+                // I: 1 interface_npa / 1 interface_na.
+                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                assert_eq!(metric.npa.interface_npa_sum(), 1.0);
+                assert_eq!(metric.npa.interface_na_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_nested_class_attributes_independent() {
+        // Each class space tracks its own attributes; the outer class's
+        // sum gets the inner-class sum via merge. The Outer class has
+        // two `public_field_definition` direct children — `a` and the
+        // `Inner` static field whose value is a class expression.
+        // The class expression itself opens a separate `class` space
+        // with its own two fields. Total counted across both spaces:
+        // 2 (Outer: a + Inner) + 2 (inner anonymous class: b, c) = 4.
+        check_metrics::<TypescriptParser>(
+            "class Outer {
+                a: number = 0;
+                static Inner = class {
+                    b: number = 0;
+                    c: number = 0;
+                };
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 4.0);
+                assert_eq!(metric.npa.class_na_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    // TSX parity tests — mirror the TS rules to confirm the shared helper
+    // expansion behaves identically on the TSX grammar.
+
+    #[test]
+    fn tsx_empty_class_no_attributes() {
+        check_metrics::<TsxParser>("class C {}", "foo.tsx", |metric| {
+            assert_eq!(metric.npa.class_npa_sum(), 0.0);
+            assert_eq!(metric.npa.class_na_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.npa);
+        });
+    }
+
+    #[test]
+    fn tsx_default_public_fields() {
+        check_metrics::<TsxParser>(
+            "class C {
+                a: number = 1;
+                b: string = \"\";
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_visibility_modifiers() {
+        check_metrics::<TsxParser>(
+            "class C {
+                public a: number = 1;
+                private b: number = 2;
+                protected c: number = 3;
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_parameter_properties() {
+        check_metrics::<TsxParser>(
+            "class C {
+                constructor(public a: number, private b: string) {}
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_abstract_class_attributes() {
+        check_metrics::<TsxParser>(
+            "abstract class C {
+                public a: number = 1;
+                private b: number = 2;
+                abstract m(): void;
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_interface_property_signatures() {
+        check_metrics::<TsxParser>(
+            "interface I {
+                a: number;
+                b: string;
+                m(): void;
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.npa.interface_npa_sum(), 2.0);
+                assert_eq!(metric.npa.interface_na_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_arrow_field_is_method_not_attribute() {
+        check_metrics::<TsxParser>(
+            "class C {
+                a: number = 0;
+                arrow = () => this.a;
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_static_fields() {
+        check_metrics::<TsxParser>(
+            "class C {
+                static a: number = 0;
+                private static b: number = 0;
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_readonly_field() {
+        check_metrics::<TsxParser>(
+            "class C {
+                readonly a: number = 1;
+                private readonly b: number = 2;
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_generic_class_attributes() {
+        check_metrics::<TsxParser>("class Box<T> { value: T; }", "foo.tsx", |metric| {
+            assert_eq!(metric.npa.class_npa_sum(), 1.0);
+            assert_eq!(metric.npa.class_na_sum(), 1.0);
+            insta::assert_json_snapshot!(metric.npa);
+        });
+    }
+
+    #[test]
+    fn tsx_getters_setters_not_attributes() {
+        check_metrics::<TsxParser>(
+            "class C {
+                private _x: number = 0;
+                get x(): number { return this._x; }
+                set x(v: number) { this._x = v; }
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 0.0);
+                assert_eq!(metric.npa.class_na_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_multiple_classes_and_interface() {
+        check_metrics::<TsxParser>(
+            "class A { x: number = 0; }
+             class B { private y: number = 0; }
+             interface I { z: number; }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                assert_eq!(metric.npa.interface_npa_sum(), 1.0);
+                assert_eq!(metric.npa.interface_na_sum(), 1.0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
