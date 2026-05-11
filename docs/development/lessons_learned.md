@@ -684,3 +684,82 @@ can emit and asserts the artifact exists for it — without that test,
 the dead arm and its dangling artifact survive review indefinitely.
 
 ---
+
+## 15. Workspace-excluded crates drift outside every workspace-scoped gate
+
+The root `Cargo.toml` carries `[workspace].exclude = [..., "enums",
+...]` because the `enums/` codegen crate ships a non-published binary
+used only by `recreate-grammars.sh` — including it in the workspace
+would run pedantic clippy and per-PR tests against code that never
+ships. The carve-out is intentional, but it has a foot-gun: every
+gate that follows the workspace boundary (`cargo check --workspace`,
+`cargo clippy --workspace --all-targets`, `cargo test --workspace`,
+the per-PR `lint` / `test` CI jobs, `make pre-commit`'s cargo trio,
+`.pre-commit-config.yaml`'s clippy/test hooks) silently skips it.
+Lints on `enums/src/*.rs` drift undetected until someone runs the
+manual `cargo check -p enums --manifest-path enums/Cargo.toml`.
+
+**`unused_imports` in `enums/src/lib.rs` sat for the entire fork**
+(#162, fix 157d20f). The line `pub use crate::macros::*;` could not
+re-export the `macro_rules!` definitions in `macros.rs` (macros use
+a separate name namespace and none carried `#[macro_export]`), so
+rustc warned on every build of the codegen binary. The warning was
+invisible to every CI / pre-commit / Make gate because all of them
+went through `--workspace`. Only a manual one-shot check found it.
+
+The fix (#164, fix d6c96e5) added a dedicated `enums-check` Make
+target that runs `RUSTFLAGS="-D warnings" cargo check
+--manifest-path enums/Cargo.toml --all-targets --locked`, wired into
+`make pre-commit` / `make ci`'s parallel DAG, the `make lint`
+aggregate, the GitHub Actions `lint` job (twice, once via `make
+lint` and once explicitly, mirroring the `snapshot-anchors`
+defensive pattern), and the `.pre-commit-config.yaml` hook set. The
+CI job also injects a known unused-variable warning, asserts
+`enums-check` exits non-zero, and restores the file — so the gate's
+*effectiveness* is pinned, not just its existence.
+
+**Lesson:** Any crate listed in `[workspace].exclude` needs an
+explicit lint/check target that does NOT go through `--workspace`,
+otherwise its lint surface drifts silently. The dedicated gate must
+(a) be invoked from every place the workspace-scoped gates are
+(local `make` aggregate, pre-commit hooks, CI), (b) carry the same
+`RUSTFLAGS="-D warnings"` posture as the workspace gates so the
+behaviour matches between local and CI runs, and (c) ideally be
+backed by a sabotage-style "gate-effectiveness" test in CI — if the
+recipe ever stops failing on warnings, that test fires. Workspace
+exclusion is the right tool for binary-only sibling crates; pair it
+with a dedicated gate the moment you add it.
+
+---
+
+## 16. shellcheck's default severity is `style`, not `warning`
+
+`shellcheck` ships with `--severity style` as its default — looser
+than its formal `[warning]` tier. That means `make shellcheck`
+fails on `SC2006` (legacy backticks → `$(…)`) and similar
+style-only findings, not just on the SC2086 / SC2164 family that
+people typically associate with "shell lint warnings". An issue
+body that enumerates findings by ticket number (e.g., "SC2164,
+SC1083, SC2086") will miss style-tier hits and under-promise the
+scope of the cleanup.
+
+**Issue #165 enumerated SC2164 / SC1083 / SC2086 only**, but the
+actual `make shellcheck` failures included SC2006 backticks in
+`generate-grammars/generate-mozcpp.sh` and `…/generate-mozjs.sh`.
+The fix landed all four categories in one commit (`afc2cdf`); the
+SC2006 conversions were correct and mechanical, but they could
+just as easily have been missed by a fix-agent that took the issue
+body's enumeration as authoritative.
+
+**Lesson:** When triaging or fixing shell lint debt, re-run
+`shellcheck` against the actual file set *before* trusting an issue
+body's category list. The body may have been authored against a
+non-default severity, or simply have missed style-tier findings. As
+an issue-author convention, prefer pasting the raw `shellcheck`
+output rather than a hand-curated category list. As a fix-agent
+convention, run the tool on each target file at default severity
+and reconcile against the issue body — if categories diverge, the
+extras are also in scope and should land in the same commit so
+`make shellcheck` actually exits clean afterward.
+
+---
