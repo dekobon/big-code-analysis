@@ -51,9 +51,7 @@ mod tests {
     }
 
     #[test]
-    // FIXME: Ignoring this test temporarily due to a parse error (see issue: https://github.com/dekobon/big-code-analysis/issues/83),
-    // in order to allow CI to pass until the issue is resolved.
-    #[ignore]
+    #[ignore = "FIXME: parse error in nsPrintfCString sample (see dekobon/big-code-analysis#83)"]
     fn test_fn_id_strings() {
         let samples = vec!["nsPrintfCString(\"%\" PRIi32, lifetime.mTag);"];
         parse(&samples, false);

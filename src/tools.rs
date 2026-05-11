@@ -157,7 +157,7 @@ pub fn get_language_for_file(path: &Path) -> Option<LANG> {
 }
 
 fn mode_to_str(mode: &[u8]) -> Option<String> {
-    std::str::from_utf8(mode).ok().map(|m| m.to_lowercase())
+    std::str::from_utf8(mode).ok().map(str::to_lowercase)
 }
 
 // comment containing coding info are useful
@@ -220,6 +220,12 @@ const GENERATED_SCAN_LINES: usize = 50;
 /// ));
 /// assert!(!is_generated(b"fn main() { /* not generated */ }\n"));
 /// ```
+///
+/// # Panics
+///
+/// Panics if the embedded marker regex set fails to build; the marker
+/// list is a static literal so this represents a compile-time bug, not
+/// a runtime input that can be handled.
 pub fn is_generated(buf: &[u8]) -> bool {
     // Strip a leading UTF-8 BOM so a marker on the first line of a
     // BOM-prefixed file still matches against the line start. UTF-16 BOMs
@@ -391,7 +397,7 @@ pub fn guess_language<'a, P: AsRef<Path>>(buf: &[u8], path: P) -> (Option<LANG>,
         .as_ref()
         .extension()
         .and_then(|e| e.to_str())
-        .map(|e| e.to_lowercase())
+        .map(str::to_lowercase)
         .unwrap_or_default();
     let from_ext = get_from_ext(&ext);
 
@@ -461,7 +467,7 @@ pub(crate) fn normalize_line_endings(data: &mut Vec<u8>) {
 pub(crate) fn normalize_path<P: AsRef<Path>>(path: P) -> PathBuf {
     // Copied from Cargo sources: https://github.com/rust-lang/cargo/blob/master/src/cargo/util/paths.rs#L65
     let mut components = path.as_ref().components().peekable();
-    let mut ret = if let Some(c @ Component::Prefix(..)) = components.peek().cloned() {
+    let mut ret = if let Some(c @ Component::Prefix(..)) = components.peek().copied() {
         components.next();
         PathBuf::from(c.as_os_str())
     } else {
@@ -521,7 +527,7 @@ pub(crate) fn guess_file<S: ::std::hash::BuildHasher>(
         }
 
         let mut new_possibilities = Vec::new();
-        for p in possibilities.iter() {
+        for p in possibilities {
             if p.ends_with(&include_path) && current_path != p {
                 new_possibilities.push(p.clone());
             }
@@ -533,7 +539,7 @@ pub(crate) fn guess_file<S: ::std::hash::BuildHasher>(
         new_possibilities.clear();
 
         if let Some(parent) = current_path.parent() {
-            for p in possibilities.iter() {
+            for p in possibilities {
                 if p.starts_with(parent) && current_path != p {
                     new_possibilities.push(p.clone());
                 }
@@ -547,7 +553,7 @@ pub(crate) fn guess_file<S: ::std::hash::BuildHasher>(
 
         let mut dist_min = usize::MAX;
         let mut path_min = Vec::new();
-        for p in possibilities.iter() {
+        for p in possibilities {
             if current_path == p {
                 continue;
             }

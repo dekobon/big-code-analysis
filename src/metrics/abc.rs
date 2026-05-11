@@ -625,17 +625,13 @@ impl Abc for JavaCode {
             }
             EQ => {
                 // Excludes constant declarations
-                stats
+                if stats
                     .declaration
                     .last()
-                    .map(|decl| {
-                        if matches!(decl, DeclKind::Var) {
-                            stats.assignments += 1.;
-                        }
-                    })
-                    .unwrap_or_else(|| {
-                        stats.assignments += 1.;
-                    });
+                    .is_none_or(|decl| matches!(decl, DeclKind::Var))
+                {
+                    stats.assignments += 1.;
+                }
             }
             MethodInvocation | New => {
                 stats.branches += 1.;

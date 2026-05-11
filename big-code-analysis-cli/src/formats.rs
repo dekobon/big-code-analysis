@@ -309,7 +309,7 @@ fn handle_path(path: &Path, output_path: &Path, extension: &str) -> PathBuf {
 
     // Replace .. with . to keep files inside the output folder, warn on non-UTF-8 components
     let mut cleaned = PathBuf::new();
-    for component in path.iter() {
+    for component in path {
         let Some(s) = component.to_str() else {
             eprintln!(
                 "Warning: non-UTF-8 path component dropped from output path: {}",

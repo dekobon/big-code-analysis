@@ -67,13 +67,13 @@ impl<'a> HalsteadMaps<'a> {
     }
 
     pub(crate) fn merge(&mut self, other: &HalsteadMaps<'a>) {
-        for (k, v) in other.operators.iter() {
+        for (k, v) in &other.operators {
             *self.operators.entry(*k).or_insert(0) += v;
         }
-        for (k, v) in other.primitive_operators.iter() {
+        for (k, v) in &other.primitive_operators {
             *self.primitive_operators.entry(*k).or_insert(0) += v;
         }
-        for (k, v) in other.operands.iter() {
+        for (k, v) in &other.operands {
             *self.operands.entry(*k).or_insert(0) += v;
         }
     }

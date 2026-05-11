@@ -77,13 +77,15 @@ fn report_skipped_logs_each_skipped_file() {
 
 #[test]
 fn marker_in_body_is_not_skipped() {
+    use std::fmt::Write as _;
+
     // A file mentioning the phrase deep in its body must NOT be skipped.
     let dir = TempDir::new().unwrap();
     let root = dir.path().join("fix");
     std::fs::create_dir(&root).unwrap();
     let mut content = String::new();
     for i in 0..120 {
-        content.push_str(&format!("// line {i}\n"));
+        let _ = writeln!(content, "// line {i}");
     }
     content.push_str("// @generated -- but this is line 120, past the scan window\n");
     content.push_str("fn f() { let _ = 1 + 2; }\n");

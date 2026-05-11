@@ -87,7 +87,7 @@ impl Getter for PythonCode {
                     && (parent.kind_id() != ExpressionStatement || parent.child_count() != 1)
                 {
                     operator = HalsteadType::Operand;
-                };
+                }
                 operator
             }
             _ => HalsteadType::Unknown,

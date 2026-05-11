@@ -141,9 +141,10 @@ pub fn assert_checkstyle_well_formed_and_structural(xml_text: &str) {
                 let name = std::str::from_utf8(name_bytes.as_ref()).unwrap_or_else(|_| {
                     panic!("checkstyle end-element name is not UTF-8 at byte {pos}")
                 });
-                if !matches!(name, "checkstyle" | "file" | "error" | "exception") {
-                    panic!("checkstyle: unexpected end-element </{name}> at byte {pos}");
-                }
+                assert!(
+                    matches!(name, "checkstyle" | "file" | "error" | "exception"),
+                    "checkstyle: unexpected end-element </{name}> at byte {pos}"
+                );
                 depth = depth.saturating_sub(1);
             }
             Event::Eof => break,
@@ -152,12 +153,14 @@ pub fn assert_checkstyle_well_formed_and_structural(xml_text: &str) {
         buf.clear();
     }
 
-    if !saw_root {
-        panic!("checkstyle: document did not contain a <checkstyle> root element");
-    }
-    if depth != 0 {
-        panic!("checkstyle: unbalanced element depth {depth} at EOF");
-    }
+    assert!(
+        saw_root,
+        "checkstyle: document did not contain a <checkstyle> root element"
+    );
+    assert!(
+        depth == 0,
+        "checkstyle: unbalanced element depth {depth} at EOF"
+    );
 }
 
 fn check_element(start: &quick_xml::events::BytesStart<'_>, saw_root: &mut bool, pos: u64) {
@@ -167,9 +170,10 @@ fn check_element(start: &quick_xml::events::BytesStart<'_>, saw_root: &mut bool,
 
     match name {
         "checkstyle" => {
-            if *saw_root {
-                panic!("checkstyle: unexpected second <checkstyle> at byte {pos}");
-            }
+            assert!(
+                !*saw_root,
+                "checkstyle: unexpected second <checkstyle> at byte {pos}"
+            );
             *saw_root = true;
             require_attr(start, "version", "checkstyle", pos);
         }
@@ -181,11 +185,10 @@ fn check_element(start: &quick_xml::events::BytesStart<'_>, saw_root: &mut bool,
             require_attr(start, "source", "error", pos);
 
             let sev = attr_value(start, "severity").expect("checked by require_attr above");
-            if !matches!(sev.as_str(), "error" | "warning" | "info") {
-                panic!(
-                    "checkstyle: <error> severity={sev:?} not in XSD enum {{error, warning, info}} at byte {pos}"
-                );
-            }
+            assert!(
+                matches!(sev.as_str(), "error" | "warning" | "info"),
+                "checkstyle: <error> severity={sev:?} not in XSD enum {{error, warning, info}} at byte {pos}"
+            );
 
             let line = attr_value(start, "line").expect("checked by require_attr above");
             assert_positive_integer(&line, "line", pos);
@@ -206,15 +209,17 @@ fn assert_positive_integer(value: &str, attr: &str, pos: u64) {
     let n: u32 = value.parse().unwrap_or_else(|_| {
         panic!("checkstyle: <error> {attr}={value:?} is not an unsigned integer at byte {pos}")
     });
-    if n == 0 {
-        panic!("checkstyle: <error> {attr}=0 violates xs:positiveInteger at byte {pos}");
-    }
+    assert!(
+        n != 0,
+        "checkstyle: <error> {attr}=0 violates xs:positiveInteger at byte {pos}"
+    );
 }
 
 fn require_attr(start: &quick_xml::events::BytesStart<'_>, attr: &str, elem: &str, pos: u64) {
-    if attr_value(start, attr).is_none() {
-        panic!("checkstyle: <{elem}> missing required attribute `{attr}` at byte {pos}");
-    }
+    assert!(
+        attr_value(start, attr).is_some(),
+        "checkstyle: <{elem}> missing required attribute `{attr}` at byte {pos}"
+    );
 }
 
 fn attr_value(start: &quick_xml::events::BytesStart<'_>, name: &str) -> Option<String> {

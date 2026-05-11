@@ -77,7 +77,7 @@ impl Filter {
     /// Returns `true` if *any* of the configured predicates matches `node`.
     #[must_use]
     pub fn any(&self, node: &Node) -> bool {
-        for f in self.filters.iter() {
+        for f in &self.filters {
             if f(node) {
                 return true;
             }
@@ -88,7 +88,7 @@ impl Filter {
     /// Returns `true` if *every* configured predicate matches `node`.
     #[must_use]
     pub fn all(&self, node: &Node) -> bool {
-        for f in self.filters.iter() {
+        for f in &self.filters {
             if !f(node) {
                 return false;
             }
@@ -187,7 +187,7 @@ impl<
 
     fn get_filters(&self, filters: &[String]) -> Filter {
         let mut res: Vec<Box<FilterFn>> = Vec::new();
-        for f in filters.iter() {
+        for f in filters {
             let f = f.as_str();
             match f {
                 "all" => res.push(Box::new(|_: &Node| -> bool { true })),

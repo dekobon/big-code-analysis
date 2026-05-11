@@ -15,6 +15,18 @@ changes are marked with **(breaking)** in the entries below.
 
 ### Changed
 
+- Workspace-wide pedantic clippy + `missing_docs` lint posture is now
+  enforced. `[workspace.lints.rust]` adds `missing_docs = "warn"` and
+  `[workspace.lints.clippy]` adds `pedantic = "warn"` with explicit
+  carve-outs (`module_name_repetitions`, `missing_errors_doc` per the
+  host-identity baseline plus `too_many_lines`, `similar_names`,
+  `doc_markdown`, `needless_pass_by_value`, `struct_field_names`,
+  `if_not_else`, `unused_self`, `match_wildcard_for_single_variants`,
+  `struct_excessive_bools`, `ref_option`, each justified inline). All
+  three shipping crates inherit via `[lints] workspace = true`.
+  `cargo clippy --workspace --all-targets --all-features -- -D
+  warnings` and the default-features variant both exit clean
+  ([#158](https://github.com/dekobon/big-code-analysis/issues/158)).
 - Downgraded ~254 `#[inline(always)]` attributes to `#[inline]`
   across language modules, metric modules, and the `enums/`
   template, removing the `clippy::inline_always` warnings and
