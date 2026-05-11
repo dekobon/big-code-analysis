@@ -1,0 +1,44 @@
+# cargo-deny configuration. See https://embarkstudios.github.io/cargo-deny/
+#
+# The license `allow` set was carried over from the host-identity project
+# with MPL-2.0 added. `big-code-analysis` itself is licensed under
+# MPL-2.0, and several of its first-party crates re-license under MPL-2.0,
+# so MPL-2.0 must be accepted for the dependency graph to resolve.
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+ignore = []
+
+[licenses]
+version = 2
+# Permissive licenses compatible with Apache-2.0 OR MIT distribution,
+# plus MPL-2.0 for this project's own crates.
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "MIT-0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "MPL-2.0",
+]
+confidence-threshold = 0.93
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

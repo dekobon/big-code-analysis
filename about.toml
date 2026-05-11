@@ -1,0 +1,49 @@
+# cargo-about configuration. Drives generation of
+# THIRD-PARTY-LICENSES.md at release time. See
+# https://embarkstudios.github.io/cargo-about/.
+#
+# Keep `accepted` aligned with `deny.toml` `[licenses].allow` — if a
+# dependency arrives with a license not listed here, `cargo about
+# generate` (invoked by the `license-audit` CI job) fails, forcing an
+# explicit human decision before the dep can ship in our binary.
+
+# License allowlist. Every transitive dependency of the release
+# binaries must resolve to at least one license in this set. `AND`-joined
+# licenses (e.g. `Apache-2.0 AND ISC` for ring) require every component
+# to be accepted; `OR`-joined licenses require at least one.
+accepted = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "MIT-0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "MPL-2.0",
+]
+
+# Do not pull in build-script-only or dev-only deps; they do not ship
+# in the binary we redistribute, so their attributions are not
+# required.
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+
+# Every target we build release binaries for. cargo-about walks the
+# dependency graph per target, so a Linux-only or Windows-only dep is
+# still captured. Keep this in sync with the `build` matrix in
+# .github/workflows/release.yml.
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-musl",
+    "x86_64-unknown-freebsd",
+    "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
+]
