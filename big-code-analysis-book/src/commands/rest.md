@@ -1,13 +1,14 @@
 # Rest API
 
-**bca-web** is a web server that allows users to analyze source code through a REST API. This service is useful for anyone looking to perform code analysis over HTTP.
+**bca-web** is a web server that allows users to analyze source code
+through a REST API. This service is useful for anyone looking to
+perform code analysis over HTTP.
 
 The server can be run on any host and port, and supports the following main functionalities:
 
 - Remove Comments from source code.
 - Retrieve Function Spans for given code.
 - Compute Metrics for the provided source code.
-
 
 ## Running the Server
 
@@ -150,7 +151,9 @@ POST http://127.0.0.1:8080/metrics
 - `id`: Unique identifier for the request.
 - `file_name`: The filename of the source code file.
 - `code`: The source code to analyze.
-- `unit`: A boolean value. `true` to compute only top-level metrics, `false` for detailed metrics across all units (functions, classes, etc.).
+- `unit`: A boolean value. `true` to compute only top-level metrics,
+  `false` for detailed metrics across all units (functions, classes,
+  etc.).
 
 **Response:**
 

@@ -1,6 +1,9 @@
 # big-code-analysis-web
 
-`bca-web` is a web server that provides source code analysis capabilities via a RESTful API. It enables developers to interact with the code analysis functionality from the big-code-analysis suite through HTTP requests.
+`bca-web` is a web server that provides source code analysis
+capabilities via a RESTful API. It enables developers to interact
+with the code analysis functionality from the big-code-analysis suite
+through HTTP requests.
 
 ## Features
 
