@@ -137,6 +137,12 @@ changes are marked with **(breaking)** in the entries below.
   and a weekly Monday 06:23 UTC cron. All `uses:` are pinned to commit
   SHAs and job permissions follow least-privilege
   ([#153](https://github.com/dekobon/big-code-analysis/issues/153)).
+- Top-level `LICENSE` file containing the verbatim MPL-2.0 text, so
+  the references in `about.hbs` (cargo-about output) and
+  `CONTRIBUTING.md` resolve and downstream consumers can find the
+  license at the conventional path. `Cargo.toml`'s
+  `license = "MPL-2.0"` SPDX declaration is unchanged
+  ([#163](https://github.com/dekobon/big-code-analysis/issues/163)).
 
 ### Fixed
 
