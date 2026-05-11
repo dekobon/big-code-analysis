@@ -1,0 +1,99 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH BCA 1  "big-code-analysis 0.0.25" "big-code-analysis Manual"
+.SH NAME
+bca \- Analyze source code.
+.SH SYNOPSIS
+\fBbca\fR [\fB\-p\fR|\fB\-\-paths\fR] [\fB\-I\fR|\fB\-\-include\fR] [\fB\-X\fR|\fB\-\-exclude\fR] [\fB\-j\fR|\fB\-\-num\-jobs\fR] [\fB\-l\fR|\fB\-\-language\-type\fR] [\fB\-\-ls\fR] [\fB\-\-le\fR] [\fB\-w\fR|\fB\-\-warning\fR] [\fB\-\-no\-skip\-generated\fR] [\fB\-\-report\-skipped\fR] [\fB\-\-preproc\-data\fR] [\fB\-\-paths\-from\fR] [\fB\-\-no\-ignore\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] <\fIsubcommands\fR>
+.SH DESCRIPTION
+Analyze source code.
+.SH OPTIONS
+.TP
+\fB\-p\fR, \fB\-\-paths\fR \fI<PATHS>\fR
+Input files or directories to analyze
+.TP
+\fB\-I\fR, \fB\-\-include\fR [\fI<INCLUDE>...\fR]
+Glob to include files
+.TP
+\fB\-X\fR, \fB\-\-exclude\fR [\fI<EXCLUDE>...\fR]
+Glob to exclude files
+.TP
+\fB\-j\fR, \fB\-\-num\-jobs\fR \fI<NUM_JOBS>\fR
+Number of jobs
+.TP
+\fB\-l\fR, \fB\-\-language\-type\fR \fI<LANGUAGE_TYPE>\fR
+Force a language type instead of inferring from extension
+.TP
+\fB\-\-ls\fR \fI<LINE_START>\fR
+Line start (used by `dump` and `find`)
+.TP
+\fB\-\-le\fR \fI<LINE_END>\fR
+Line end (used by `dump` and `find`)
+.TP
+\fB\-w\fR, \fB\-\-warning\fR
+Print warnings (skipped files, unrecognized languages)
+.TP
+\fB\-\-no\-skip\-generated\fR
+Disable auto\-skip of files marked as generated (e.g. `@generated`, `DO NOT EDIT`, `GENERATED CODE` near the top). By default the CLI skips such files so generated bindings do not skew metrics
+.TP
+\fB\-\-report\-skipped\fR
+Log a "skipped (generated): <path>" line to stderr for each file auto\-skipped by the generated\-code detector. Useful for auditing which files were excluded
+.TP
+\fB\-\-preproc\-data\fR \fI<PREPROC_DATA>\fR
+Existing preprocessor\-data JSON to consume during C/C++ analysis. Use `bca preproc` to produce one
+.TP
+\fB\-\-paths\-from\fR \fI<PATHS_FROM>\fR
+Read newline\-separated input paths from a file. Use `\-` to read from stdin. Combined as a union with any `\-\-paths` values; globs still apply. Blank lines are skipped; `#` is treated as a path character (not a comment). To pass a file literally named `\-`, use `./\-`
+.TP
+\fB\-\-no\-ignore\fR
+Disable `.gitignore` / `.ignore` / global gitignore awareness when expanding directory seeds. Explicit file paths are always honored regardless of this flag
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version
+.SH SUBCOMMANDS
+.TP
+bca\-metrics(1)
+Compute per\-file metrics and emit them in a structured format
+.TP
+bca\-ops(1)
+Extract per\-file operands and operators
+.TP
+bca\-report(1)
+Generate an aggregated report across the analyzed source
+.TP
+bca\-dump(1)
+Dump the AST to stdout
+.TP
+bca\-find(1)
+Find nodes of one or more types
+.TP
+bca\-count(1)
+Count nodes of one or more types
+.TP
+bca\-functions(1)
+List functions/methods and their spans
+.TP
+bca\-strip\-comments(1)
+Remove comments from source files
+.TP
+bca\-preproc(1)
+Generate preprocessor\-data JSON for C/C++ analysis
+.TP
+bca\-list\-metrics(1)
+List the metrics this tool can compute and exit
+.TP
+bca\-check(1)
+Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed"
+.TP
+bca\-help(1)
+Print this message or the help of the given subcommand(s)
+.SH EXTRA
+Migrating from the flag\-style CLI? See the migration guide:
+  big\-code\-analysis\-book/src/migration.md
+.SH VERSION
+v0.0.25
+.SH AUTHORS
+Calixte Denizet <cdenizet@mozilla.com>, Elijah Zupancic <elijah@zupancic.name>

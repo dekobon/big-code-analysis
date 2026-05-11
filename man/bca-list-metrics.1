@@ -1,0 +1,26 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH BCA-LIST-METRICS 1  "big-code-analysis 0.0.25" "big-code-analysis Manual"
+.SH NAME
+bca\-list\-metrics \- List the metrics this tool can compute and exit
+.SH SYNOPSIS
+\fBbca\-list\-metrics\fR [\fB\-h\fR|\fB\-\-help\fR] [\fIMODE\fR] 
+.SH DESCRIPTION
+List the metrics this tool can compute and exit
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help (see a summary with \*(Aq\-h\*(Aq)
+.TP
+[\fIMODE\fR] [default: names]
+What to print: `names` (one per line) or `descriptions` (name + one\-line summary)
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+names: Print metric names, one per line
+.IP \(bu 2
+descriptions: Print metric names alongside short descriptions
+.RE

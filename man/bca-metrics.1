@@ -1,0 +1,46 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH BCA-METRICS 1  "big-code-analysis 0.0.25" "big-code-analysis Manual"
+.SH NAME
+bca\-metrics \- Compute per\-file metrics and emit them in a structured format
+.SH SYNOPSIS
+\fBbca\-metrics\fR [\fB\-O\fR|\fB\-\-output\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-pretty\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+.SH DESCRIPTION
+Compute per\-file metrics and emit them in a structured format
+.SH OPTIONS
+.TP
+\fB\-O\fR, \fB\-\-output\-format\fR \fI<OUTPUT_FORMAT>\fR
+Output format
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+cbor
+.IP \(bu 2
+checkstyle
+.IP \(bu 2
+clang\-warning
+.IP \(bu 2
+csv
+.IP \(bu 2
+json
+.IP \(bu 2
+msvc\-warning
+.IP \(bu 2
+sarif
+.IP \(bu 2
+toml
+.IP \(bu 2
+yaml
+.RE
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fI<OUTPUT>\fR
+Output directory. Filenames mirror input paths plus the format extension. Stdout if omitted (CBOR requires this flag)
+.TP
+\fB\-\-pretty\fR
+Pretty\-print JSON / TOML output
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help

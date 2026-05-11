@@ -3,24 +3,8 @@ use std::thread::available_parallelism;
 
 use clap::Parser;
 
-use big_code_analysis_web::server::{DEFAULT_PARSE_TIMEOUT_SECS, run_with_timeout};
-
-#[derive(Parser, Debug)]
-#[clap(name = "bca-web", version, author, about = "Run a web server.")]
-struct Opts {
-    /// Number of jobs.
-    #[clap(long, short = 'j')]
-    num_jobs: Option<usize>,
-    /// Host for the web server.
-    #[clap(long, default_value = "127.0.0.1")]
-    host: String,
-    /// Port for the web server.
-    #[clap(long, short, default_value = "8080")]
-    port: u16,
-    /// Timeout in seconds for each parse operation (0 = no timeout).
-    #[clap(long, default_value_t = DEFAULT_PARSE_TIMEOUT_SECS)]
-    parse_timeout_secs: u64,
-}
+use big_code_analysis_web::cli::Opts;
+use big_code_analysis_web::server::run_with_timeout;
 
 #[actix_web::main]
 async fn main() {

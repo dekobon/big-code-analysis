@@ -1,0 +1,32 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH BCA-WEB 1  "big-code-analysis 0.0.25" "big-code-analysis Manual"
+.SH NAME
+bca\-web \- Run a web server.
+.SH SYNOPSIS
+\fBbca\-web\fR [\fB\-j\fR|\fB\-\-num\-jobs\fR] [\fB\-\-host\fR] [\fB\-p\fR|\fB\-\-port\fR] [\fB\-\-parse\-timeout\-secs\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] 
+.SH DESCRIPTION
+Run a web server.
+.SH OPTIONS
+.TP
+\fB\-j\fR, \fB\-\-num\-jobs\fR \fI<NUM_JOBS>\fR
+Number of jobs
+.TP
+\fB\-\-host\fR \fI<HOST>\fR [default: 127.0.0.1]
+Host for the web server
+.TP
+\fB\-p\fR, \fB\-\-port\fR \fI<PORT>\fR [default: 8080]
+Port for the web server
+.TP
+\fB\-\-parse\-timeout\-secs\fR \fI<PARSE_TIMEOUT_SECS>\fR [default: 30]
+Timeout in seconds for each parse operation (0 = no timeout)
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version
+.SH VERSION
+v0.0.25
+.SH AUTHORS
+Calixte Denizet <cdenizet@mozilla.com>, Elijah Zupancic <elijah@zupancic.name>
