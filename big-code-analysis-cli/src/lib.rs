@@ -89,13 +89,13 @@ fn write_stdout_or_die(bytes: &[u8]) {
     }
 }
 
-/// Clap-derived argument schema for the `bca` CLI binary.
-///
-/// Exposed so the workspace `xtask` crate can introspect the same
-/// `clap::Command` tree that `bca` parses at runtime (man-page
-/// generation, shell-completion scaffolding). Embedders should treat
-/// this as an opaque type — its fields and the `Command` enum it
-/// wraps are private and may change between minor releases.
+/// Analyze source code.
+//
+// Single-line doc-comment kept in sync with the `about = "..."` attribute
+// below — clap promotes a doc-comment to `long_about`, which clap-mangen
+// renders into the manpage DESCRIPTION. The embedder contract for this
+// crate (which is why `Cli` is `pub` at all) lives in the crate-level
+// `//!` docs above, not here.
 #[derive(Parser, Debug)]
 #[clap(
     name = "bca",
