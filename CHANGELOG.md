@@ -171,6 +171,66 @@ changes are marked with **(breaking)** in the entries below.
   license at the conventional path. `Cargo.toml`'s
   `license = "MPL-2.0"` SPDX declaration is unchanged
   ([#163](https://github.com/dekobon/big-code-analysis/issues/163)).
+- Real `Abc`, `Npa`, `Npm`, `Wmc` implementations for Kotlin
+  (`KotlinCode`). The four metrics now report non-zero values for
+  Kotlin classes / interfaces / `object` singletons / `data class`
+  / nested+inner classes / companion-object members. Java is the
+  parity reference; deliberate divergences are documented in-code
+  (data-class compiler-synthesized members excluded; companion-object
+  members folded into the enclosing class; extension functions and
+  top-level `val`/`var`/`fun` excluded from class metrics;
+  primary-constructor parameter properties count as class
+  attributes; `init` blocks not methods). Adds 73 new Kotlin tests
+  with anchored snapshots
+  ([#168](https://github.com/dekobon/big-code-analysis/issues/168)).
+- Real `Abc`, `Npa`, `Npm`, `Wmc` implementations for TypeScript
+  (`TypescriptCode`) and TSX (`TsxCode`), sharing one compute body
+  per metric via `ts_<metric>_compute!` macros. Both languages now
+  score class / interface / abstract-class / generic-class /
+  parameter-property / accessor / arrow-field / overload shapes.
+  Documented decisions: default-public visibility; constructor
+  parameter properties count as attributes; interface `property_
+  signature` → npa and `method_signature` / `abstract_method_
+  signature` / `construct_signature` → npm (Java parity); method-
+  overload signatures are skipped (only the implementation counts);
+  arrow-function class fields count as methods, not attributes;
+  getters/setters each count once. Adds 99 new TS/TSX tests
+  ([#169](https://github.com/dekobon/big-code-analysis/issues/169)).
+- Generated Unix manpages (`man/bca.1`, `man/bca-web.1`, and one
+  `man/bca-<sub>.1` per `bca` subcommand: check, count, dump, find,
+  functions, list-metrics, metrics, ops, preproc, report,
+  strip-comments). Produced from the live clap derive schemas by a
+  new `xtask` workspace crate that depends on `clap_mangen`. The
+  pages are committed to `man/` so CI can drift-check them; the new
+  `manpage` job in `.github/workflows/ci.yml` runs `cargo xtask`
+  and `git diff --exit-code -- man/` on every PR. Release workflow
+  stages the pages into per-OS tarballs and the DEB / RPM / Alpine
+  apk / FreeBSD pkg / Homebrew formula assets so `man bca` works
+  after install on every shipping channel. `Cli` and `Opts` were
+  lifted from each binary's `main.rs` into the corresponding crate
+  `lib.rs` so `clap_mangen` can link against them. `cargo install`
+  from crates.io does not currently ship manpages (the workspace-
+  root `man/` directory is outside individual crate tarballs) —
+  noted as a follow-up
+  ([#171](https://github.com/dekobon/big-code-analysis/issues/171)).
+- 13 new C/C++ cognitive complexity tests (`c_*` in
+  `src/metrics/cognitive.rs`) covering ternary, try/catch, range-
+  based and nested loops, recursion, multi-label `goto`, C++11
+  lambdas, switch fall-through and nesting, and macro-expanded
+  control flow. The exercise locked in three documented gaps in
+  the C/C++ cognitive impl — `ConditionalExpression` (now tracked
+  by #172), `ForRangeLoop` (now tracked by #173), and recursion
+  (a static-analysis limitation documented at the top of the
+  file). FIXMEs in the new tests point at the fix issues
+  ([#167](https://github.com/dekobon/big-code-analysis/issues/167)).
+- ~28 new C/C++ tests across `cyclomatic`, `exit`, `halstead`,
+  `nargs`, `nom`, `tokens` bringing each metric near its peer-
+  language high-mark. Pinned the C-family behaviour for `goto`
+  (not in cyclomatic), `throw` (not in C++ `exit`), implicit
+  `this` (not counted by `nargs`), template parameter packs
+  (collapse to one runtime arg), lambdas-inside-functions (closures,
+  not methods), and the `&` vs `&&` Halstead separation
+  ([#170](https://github.com/dekobon/big-code-analysis/issues/170)).
 
 ### Fixed
 
