@@ -34,6 +34,7 @@ pub struct PreprocResults {
 
 impl PreprocFile {
     /// Adds new macros to the set of macro of a file.
+    #[must_use]
     pub fn new_macros(macros: &[&str]) -> Self {
         let mut pf = Self::default();
         for m in macros {

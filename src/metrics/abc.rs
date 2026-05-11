@@ -135,11 +135,13 @@ impl Stats {
     }
 
     /// Returns the `Abc` assignments metric value.
+    #[must_use]
     pub fn assignments(&self) -> f64 {
         self.assignments
     }
 
     /// Returns the `Abc` assignments sum metric value.
+    #[must_use]
     pub fn assignments_sum(&self) -> f64 {
         self.assignments_sum
     }
@@ -148,26 +150,31 @@ impl Stats {
     ///
     /// This value is computed dividing the `Abc`
     /// assignments value for the number of spaces.
+    #[must_use]
     pub fn assignments_average(&self) -> f64 {
         self.assignments_sum() / self.space_count as f64
     }
 
     /// Returns the `Abc` assignments minimum value.
+    #[must_use]
     pub fn assignments_min(&self) -> f64 {
         self.assignments_min
     }
 
     /// Returns the `Abc` assignments maximum value.
+    #[must_use]
     pub fn assignments_max(&self) -> f64 {
         self.assignments_max
     }
 
     /// Returns the `Abc` branches metric value.
+    #[must_use]
     pub fn branches(&self) -> f64 {
         self.branches
     }
 
     /// Returns the `Abc` branches sum metric value.
+    #[must_use]
     pub fn branches_sum(&self) -> f64 {
         self.branches_sum
     }
@@ -176,26 +183,31 @@ impl Stats {
     ///
     /// This value is computed dividing the `Abc`
     /// branches value for the number of spaces.
+    #[must_use]
     pub fn branches_average(&self) -> f64 {
         self.branches_sum() / self.space_count as f64
     }
 
     /// Returns the `Abc` branches minimum value.
+    #[must_use]
     pub fn branches_min(&self) -> f64 {
         self.branches_min
     }
 
     /// Returns the `Abc` branches maximum value.
+    #[must_use]
     pub fn branches_max(&self) -> f64 {
         self.branches_max
     }
 
     /// Returns the `Abc` conditions metric value.
+    #[must_use]
     pub fn conditions(&self) -> f64 {
         self.conditions
     }
 
     /// Returns the `Abc` conditions sum metric value.
+    #[must_use]
     pub fn conditions_sum(&self) -> f64 {
         self.conditions_sum
     }
@@ -204,26 +216,31 @@ impl Stats {
     ///
     /// This value is computed dividing the `Abc`
     /// conditions value for the number of spaces.
+    #[must_use]
     pub fn conditions_average(&self) -> f64 {
         self.conditions_sum() / self.space_count as f64
     }
 
     /// Returns the `Abc` conditions minimum value.
+    #[must_use]
     pub fn conditions_min(&self) -> f64 {
         self.conditions_min
     }
 
     /// Returns the `Abc` conditions maximum value.
+    #[must_use]
     pub fn conditions_max(&self) -> f64 {
         self.conditions_max
     }
 
     /// Returns the `Abc` magnitude metric value.
+    #[must_use]
     pub fn magnitude(&self) -> f64 {
         (self.assignments.powi(2) + self.branches.powi(2) + self.conditions.powi(2)).sqrt()
     }
 
     /// Returns the `Abc` magnitude sum metric value.
+    #[must_use]
     pub fn magnitude_sum(&self) -> f64 {
         (self.assignments_sum.powi(2) + self.branches_sum.powi(2) + self.conditions_sum.powi(2))
             .sqrt()

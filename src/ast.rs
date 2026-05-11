@@ -67,6 +67,7 @@ impl Serialize for AstNode {
 }
 
 impl AstNode {
+    #[must_use]
     pub fn new(r#type: &'static str, value: String, span: Span, children: Vec<AstNode>) -> Self {
         Self {
             r#type,

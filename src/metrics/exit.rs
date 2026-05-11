@@ -67,18 +67,22 @@ impl Stats {
     }
 
     /// Returns the `NExit` metric value
+    #[must_use]
     pub fn exit(&self) -> f64 {
         self.exit as f64
     }
     /// Returns the `NExit` metric sum value
+    #[must_use]
     pub fn exit_sum(&self) -> f64 {
         self.exit_sum as f64
     }
     /// Returns the `NExit` metric  minimum value
+    #[must_use]
     pub fn exit_min(&self) -> f64 {
         self.exit_min as f64
     }
     /// Returns the `NExit` metric maximum value
+    #[must_use]
     pub fn exit_max(&self) -> f64 {
         self.exit_max as f64
     }
@@ -89,6 +93,7 @@ impl Stats {
     /// for the total number of functions/closures in a space.
     ///
     /// If there are no functions in a code, its value is `NAN`.
+    #[must_use]
     pub fn exit_average(&self) -> f64 {
         self.exit_sum() / self.total_space_functions as f64
     }

@@ -99,6 +99,7 @@ impl Stats {
 
     /// Counts the number of function definitions in a scope
     #[inline]
+    #[must_use]
     pub fn functions(&self) -> f64 {
         // Only function definitions are considered, not general declarations
         self.functions as f64
@@ -106,12 +107,14 @@ impl Stats {
 
     /// Counts the number of closures in a scope
     #[inline]
+    #[must_use]
     pub fn closures(&self) -> f64 {
         self.closures as f64
     }
 
     /// Return the sum metric for functions
     #[inline]
+    #[must_use]
     pub fn functions_sum(&self) -> f64 {
         // Only function definitions are considered, not general declarations
         self.functions_sum as f64
@@ -119,30 +122,35 @@ impl Stats {
 
     /// Return the sum metric for closures
     #[inline]
+    #[must_use]
     pub fn closures_sum(&self) -> f64 {
         self.closures_sum as f64
     }
 
     /// Returns the average number of function definitions over all spaces
     #[inline]
+    #[must_use]
     pub fn functions_average(&self) -> f64 {
         self.functions_sum() / self.space_count as f64
     }
 
     /// Returns the average number of closures over all spaces
     #[inline]
+    #[must_use]
     pub fn closures_average(&self) -> f64 {
         self.closures_sum() / self.space_count as f64
     }
 
     /// Returns the average number of function definitions and closures over all spaces
     #[inline]
+    #[must_use]
     pub fn average(&self) -> f64 {
         self.total() / self.space_count as f64
     }
 
     /// Counts the number of function definitions in a scope
     #[inline]
+    #[must_use]
     pub fn functions_min(&self) -> f64 {
         // Only function definitions are considered, not general declarations
         self.functions_min as f64
@@ -150,11 +158,13 @@ impl Stats {
 
     /// Counts the number of closures in a scope
     #[inline]
+    #[must_use]
     pub fn closures_min(&self) -> f64 {
         self.closures_min as f64
     }
     /// Counts the number of function definitions in a scope
     #[inline]
+    #[must_use]
     pub fn functions_max(&self) -> f64 {
         // Only function definitions are considered, not general declarations
         self.functions_max as f64
@@ -162,12 +172,14 @@ impl Stats {
 
     /// Counts the number of closures in a scope
     #[inline]
+    #[must_use]
     pub fn closures_max(&self) -> f64 {
         self.closures_max as f64
     }
     /// Returns the total number of function definitions and
     /// closures in a scope
     #[inline]
+    #[must_use]
     pub fn total(&self) -> f64 {
         self.functions_sum() + self.closures_sum()
     }

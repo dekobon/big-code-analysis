@@ -37,6 +37,7 @@ pub struct Node<'a>(pub OtherNode<'a>);
 impl<'a> Node<'a> {
     /// Checks if a node represents a syntax error or contains any syntax errors
     /// anywhere within it.
+    #[must_use]
     pub fn has_error(&self) -> bool {
         self.0.has_error()
     }
