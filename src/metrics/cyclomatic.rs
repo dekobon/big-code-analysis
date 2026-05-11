@@ -3204,6 +3204,213 @@ f() {
         });
     }
 
+    /// Two nested `for` loops contribute +1 each on top of the function and
+    /// unit decisions.  No condition expressions, so `&&` / `||` do not fire.
+    #[test]
+    fn c_nested_loops() {
+        check_metrics::<CppParser>(
+            "void f() {
+                 for (int i = 0; i < 10; ++i) {     // +1
+                     for (int j = 0; j < 10; ++j) { // +1
+                         g(i, j);
+                     }
+                 }
+             }",
+            "foo.c",
+            |metric| {
+                // standard: unit(1) + fn(1) + 2 for = 4
+                // modified: identical (no switch container, no extra arms)
+                let s = &metric.cyclomatic;
+                assert_eq!(s.cyclomatic_sum(), 4.0);
+                assert_eq!(s.cyclomatic_max(), 3.0);
+                assert_eq!(s.cyclomatic_modified_sum(), 4.0);
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 2.0,
+                      "min": 1.0,
+                      "max": 3.0,
+                      "modified": {
+                        "sum": 4.0,
+                        "average": 2.0,
+                        "min": 1.0,
+                        "max": 3.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// `?:` ternary is matched by `Cpp::ConditionalExpression` in the
+    /// C-family macro and contributes +1 standard *and* +1 modified.
+    /// Two nested ternaries in one expression therefore add 2 to each.
+    #[test]
+    fn c_ternary_chain() {
+        check_metrics::<CppParser>(
+            "int f(int a, int b, int c) {
+                 return a > 0 ? a : (b > 0 ? b : c); // +2 ternaries (?: each)
+             }",
+            "foo.c",
+            |metric| {
+                // standard: unit(1) + fn(1) + 2 ?: = 4
+                let s = &metric.cyclomatic;
+                assert_eq!(s.cyclomatic_sum(), 4.0);
+                assert_eq!(s.cyclomatic_max(), 3.0);
+                assert_eq!(s.cyclomatic_modified_sum(), 4.0);
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 2.0,
+                      "min": 1.0,
+                      "max": 3.0,
+                      "modified": {
+                        "sum": 4.0,
+                        "average": 2.0,
+                        "min": 1.0,
+                        "max": 3.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// Short-circuit `&&` / `||` chains each contribute +1 — every binary
+    /// operator token in the chain is a separate decision (Lizard parity).
+    #[test]
+    fn c_short_circuit_chain() {
+        check_metrics::<CppParser>(
+            "int f(int a, int b, int c, int d) {
+                 if (a && b || c && d) {            // 3 logical ops + 1 if = 4
+                     return 1;
+                 }
+                 return 0;
+             }",
+            "foo.c",
+            |metric| {
+                // standard: unit(1) + fn(1) + if(1) + && (2) + || (1) = 6
+                let s = &metric.cyclomatic;
+                assert_eq!(s.cyclomatic_sum(), 6.0);
+                assert_eq!(s.cyclomatic_max(), 5.0);
+                assert_eq!(s.cyclomatic_modified_sum(), 6.0);
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 6.0,
+                      "average": 3.0,
+                      "min": 1.0,
+                      "max": 5.0,
+                      "modified": {
+                        "sum": 6.0,
+                        "average": 3.0,
+                        "min": 1.0,
+                        "max": 5.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// Switch with intentional fall-through: every `case` adds +1 standard
+    /// regardless of whether the arm `break`s.  Modified collapses all three
+    /// arms into one switch container.
+    #[test]
+    fn c_switch_fallthrough() {
+        check_metrics::<CppParser>(
+            "int f(int x) {
+                 int r = 0;
+                 switch (x) {
+                     case 1:                // +1
+                     case 2:                // +1
+                         r = 10;
+                         break;
+                     case 3:                // +1
+                         r = 20;
+                         break;
+                 }
+                 return r;
+             }",
+            "foo.c",
+            |metric| {
+                // standard: unit(1) + fn(1) + 3 cases = 5
+                // modified: unit(1) + fn(1) + 1 switch container = 3
+                let s = &metric.cyclomatic;
+                assert_eq!(s.cyclomatic_sum(), 5.0);
+                assert_eq!(s.cyclomatic_modified_sum(), 3.0);
+                assert!(s.cyclomatic_modified_sum() < s.cyclomatic_sum());
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 5.0,
+                      "average": 2.5,
+                      "min": 1.0,
+                      "max": 4.0,
+                      "modified": {
+                        "sum": 3.0,
+                        "average": 1.5,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// `goto` is not a recognised decision keyword in the C-family macro
+    /// (only `If | For | While | Catch | ConditionalExpression | && | ||`
+    /// add complexity, plus `Case` / `SwitchStatement`).  The label and the
+    /// `goto` jump are control-flow, but the metric deliberately mirrors
+    /// Lizard, which also does not count `goto`.  This test pins that
+    /// decision so a future change that adds `Cpp::GotoStatement` to the
+    /// macro fires here first.
+    #[test]
+    fn c_goto_not_counted() {
+        check_metrics::<CppParser>(
+            "int f(int n) {
+                 int i = 0;
+             retry:
+                 if (i < n) {     // +1
+                     ++i;
+                     goto retry;  // ignored
+                 }
+                 return i;
+             }",
+            "foo.c",
+            |metric| {
+                // standard: unit(1) + fn(1) + if(1) = 3
+                // goto/label add nothing.
+                let s = &metric.cyclomatic;
+                assert_eq!(s.cyclomatic_sum(), 3.0);
+                assert_eq!(s.cyclomatic_modified_sum(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 1.5,
+                      "min": 1.0,
+                      "max": 2.0,
+                      "modified": {
+                        "sum": 3.0,
+                        "average": 1.5,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
     /// Direct accessor coverage: assert the modified-CCN getters return
     /// the values we expect from a known fixture, bypassing the JSON
     /// serializer.  Modified must never exceed standard for non-degenerate

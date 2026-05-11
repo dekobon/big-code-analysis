@@ -397,6 +397,157 @@ mod tests {
         );
     }
 
+    /// Free functions and member functions both surface as
+    /// `Cpp::FunctionDefinition` and count toward `functions`.  Member
+    /// functions are nested inside a struct/class space; the count is on
+    /// the function-definition node itself, not on the enclosing scope.
+    #[test]
+    fn cpp_free_and_member_functions() {
+        check_metrics::<CppParser>(
+            "int free_fn(int x) { return x; }
+             struct S {
+                 int member_fn(int x) { return x + 1; }
+             };",
+            "foo.cpp",
+            |metric| {
+                // 2 functions: `free_fn`, `S::member_fn`.
+                let s = &metric.nom;
+                assert_eq!(s.functions_sum(), 2.0);
+                assert_eq!(s.closures_sum(), 0.0);
+                assert_eq!(s.total(), 2.0);
+                insta::assert_json_snapshot!(metric.nom);
+            },
+        );
+    }
+
+    /// `static` member functions still surface as `Cpp::FunctionDefinition`
+    /// — the `static` keyword is a storage-class specifier, not a separate
+    /// node kind — so they are counted just like non-static members.
+    #[test]
+    fn cpp_static_member_function() {
+        check_metrics::<CppParser>(
+            "struct S {
+                 static int factory(int x) { return x; }
+                 int method(int x) { return x + 1; }
+             };",
+            "foo.cpp",
+            |metric| {
+                let s = &metric.nom;
+                assert_eq!(s.functions_sum(), 2.0);
+                assert_eq!(s.closures_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.nom);
+            },
+        );
+    }
+
+    /// Constructor and destructor definitions surface as
+    /// `Cpp::FunctionDefinition` nodes with a `function_declarator` whose
+    /// identifier is the class name (ctor) or `~ClassName` (dtor).  Both
+    /// count as functions.
+    #[test]
+    fn cpp_constructor_and_destructor() {
+        check_metrics::<CppParser>(
+            "struct S {
+                 S() {}
+                 ~S() {}
+                 int method() { return 0; }
+             };",
+            "foo.cpp",
+            |metric| {
+                let s = &metric.nom;
+                // 3 functions: S(), ~S(), method.
+                assert_eq!(s.functions_sum(), 3.0);
+                assert_eq!(s.closures_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.nom);
+            },
+        );
+    }
+
+    /// Operator overloads surface as `FunctionDefinition` whose declarator
+    /// has an `OperatorName` identifier (`operator+`, `operator==`).  Both
+    /// inline overloads count toward `functions`.
+    #[test]
+    fn cpp_operator_overloads() {
+        check_metrics::<CppParser>(
+            "struct V {
+                 int x;
+                 V operator+(const V& o) const { return V{x + o.x}; }
+                 bool operator==(const V& o) const { return x == o.x; }
+             };",
+            "foo.cpp",
+            |metric| {
+                let s = &metric.nom;
+                assert_eq!(s.functions_sum(), 2.0);
+                assert_eq!(s.closures_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.nom);
+            },
+        );
+    }
+
+    /// Function-template definition counts as a single function — the
+    /// `template<>` prefix wraps a `FunctionDefinition` and does not
+    /// produce additional function-definition nodes.
+    #[test]
+    fn cpp_function_template() {
+        check_metrics::<CppParser>(
+            "template<typename T>
+             T identity(T x) { return x; }",
+            "foo.cpp",
+            |metric| {
+                let s = &metric.nom;
+                assert_eq!(s.functions_sum(), 1.0);
+                assert_eq!(s.closures_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.nom);
+            },
+        );
+    }
+
+    /// Class-template member functions defined in-line each count as one
+    /// function.  The `template<>` head wraps the class, and the methods
+    /// inside it surface as ordinary `FunctionDefinition` nodes.
+    #[test]
+    fn cpp_class_template_members() {
+        check_metrics::<CppParser>(
+            "template<typename T>
+             struct Box {
+                 T value;
+                 T get() const { return value; }
+                 void set(T v) { value = v; }
+             };",
+            "foo.cpp",
+            |metric| {
+                let s = &metric.nom;
+                assert_eq!(s.functions_sum(), 2.0);
+                assert_eq!(s.closures_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.nom);
+            },
+        );
+    }
+
+    /// Lambdas inside a function body count as `closures`, not as
+    /// `functions` — Cpp::LambdaExpression is the closure kind.  The
+    /// enclosing function adds 1 to `functions`; each lambda adds 1 to
+    /// `closures`.
+    #[test]
+    fn cpp_lambdas_inside_function() {
+        check_metrics::<CppParser>(
+            "int run() {
+                 auto add = [](int a, int b) { return a + b; };
+                 auto mul = [](int a, int b) { return a * b; };
+                 return add(1, 2) + mul(3, 4);
+             }",
+            "foo.cpp",
+            |metric| {
+                let s = &metric.nom;
+                // 1 enclosing function + 2 closures.
+                assert_eq!(s.functions_sum(), 1.0);
+                assert_eq!(s.closures_sum(), 2.0);
+                assert_eq!(s.total(), 3.0);
+                insta::assert_json_snapshot!(metric.nom);
+            },
+        );
+    }
+
     #[test]
     fn javascript_nom() {
         check_metrics::<JavascriptParser>(

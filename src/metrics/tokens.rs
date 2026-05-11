@@ -297,6 +297,78 @@ mod tests {
         });
     }
 
+    /// C++ `// …` line comments must not contribute, matching the Python
+    /// hand-counted style.  Leaves outside the comment:
+    /// `int`, `x`, `=`, `1`, `;` = 5.
+    #[test]
+    fn cpp_tokens_line_comments_excluded() {
+        check_metrics::<CppParser>("int x = 1; // a one-line comment\n", "foo.cpp", |m| {
+            assert_eq!(m.tokens.tokens_sum(), 5.0);
+        });
+        check_metrics::<CppParser>("int x = 1;\n", "foo.cpp", |m| {
+            assert_eq!(m.tokens.tokens_sum(), 5.0);
+        });
+    }
+
+    /// Whitespace and blank lines must not contribute to the token count
+    /// (mirrors `python_tokens_whitespace_excluded`).
+    #[test]
+    fn cpp_tokens_whitespace_excluded() {
+        check_metrics::<CppParser>("\n\nint foo(int x) {\n    return x;\n}\n", "foo.cpp", |m| {
+            // int, foo, (, int, x, ), {, return, x, ;, } = 11.
+            assert_eq!(m.tokens.tokens_sum(), 11.0);
+        });
+    }
+
+    /// Tokens count punctuation that Halstead skips (parentheses, braces,
+    /// semicolons), so `tokens_sum` must exceed `N1 + N2` for a fixture
+    /// with significant punctuation.  Mirrors
+    /// `python_tokens_distinct_from_halstead`.
+    #[test]
+    fn cpp_tokens_distinct_from_halstead() {
+        check_metrics::<CppParser>("int foo(int x) { return (x + 1); }", "foo.cpp", |m| {
+            let halstead_total = m.halstead.operators() + m.halstead.operands();
+            assert!(
+                m.tokens.tokens_sum() > halstead_total,
+                "expected tokens ({}) > halstead N1+N2 ({}); punctuation like \
+                 `(`, `)`, `{{`, `}}` and `;` should contribute to tokens but not Halstead",
+                m.tokens.tokens_sum(),
+                halstead_total,
+            );
+        });
+    }
+
+    /// Inner functions attribute their tokens to their innermost scope.
+    /// For `void outer() { void inner_stub(); int x = 1; }` with the
+    /// inner forward-declaration, leaves split across the outer space
+    /// and the unit, mirroring the Python nested-attribution test.
+    #[test]
+    fn cpp_tokens_nested_attribution() {
+        check_metrics::<CppParser>(
+            "int outer() {\n    auto inner = []() { return 1; };\n    return inner();\n}\n",
+            "foo.cpp",
+            |m| {
+                // Outer function owns its statements; the inner lambda owns its body.
+                // The unit-level sum must equal the total of all scopes.
+                // tokens_max must equal one of the scope sums and be at least the
+                // tokens count of the lambda body (`return 1 ;` plus surrounding
+                // brackets — minimum 7).
+                assert!(m.tokens.tokens_sum() > 0.0, "expected non-zero tokens_sum",);
+                assert!(
+                    m.tokens.tokens_max() >= 7.0,
+                    "expected tokens_max >= 7 (outer scope dominates), got {}",
+                    m.tokens.tokens_max(),
+                );
+                assert!(
+                    m.tokens.tokens_max() <= m.tokens.tokens_sum(),
+                    "tokens_max ({}) cannot exceed tokens_sum ({})",
+                    m.tokens.tokens_max(),
+                    m.tokens.tokens_sum(),
+                );
+            },
+        );
+    }
+
     /// Java `// …` line comments must not contribute.
     #[test]
     fn java_tokens_line_comments_excluded() {

@@ -513,6 +513,92 @@ mod tests {
         );
     }
 
+    /// Pointer-arithmetic operators: `*` (dereference), `&` (address-of),
+    /// `->` (member-of-pointer), `+` (pointer + offset). Each is counted
+    /// once in `n1`; multiple uses bump `N1`. The headline integer values
+    /// (`u_operators`, `u_operands`) anchor the snapshot per the
+    /// snapshot-anchor policy.
+    #[test]
+    fn c_pointer_arithmetic_operators() {
+        check_metrics::<CppParser>(
+            "int g(int* p, int* q) {
+                 return *(p + 1) + *q;
+             }",
+            "foo.c",
+            |metric| {
+                // Unique operators: int, *, (), {, }, +, ;, return  (= 8)
+                //   `*` covers both pointer-type and dereference; the grammar
+                //   does NOT split them.  `,` does not appear (only one
+                //   parameter on each side of the body).
+                // Unique operands: g, p, q, 1                       (= 4)
+                assert_eq!(metric.halstead.u_operators(), 8.0);
+                assert_eq!(metric.halstead.u_operands(), 4.0);
+                insta::assert_json_snapshot!(metric.halstead);
+            },
+        );
+    }
+
+    /// Bitwise (`&`, `|`, `^`, `~`, `<<`, `>>`) and logical (`&&`, `||`,
+    /// `!`) operators are distinct kind_ids and count as separate unique
+    /// operators in Halstead.  `&` (bitwise-and) and `&&` (logical-and)
+    /// must NOT collapse, even though both render as ampersands.
+    #[test]
+    fn c_bitwise_and_logical_operators() {
+        check_metrics::<CppParser>(
+            "int f(int a, int b) {
+                 int x = (a & b) | (a ^ b);
+                 int y = ~a;
+                 int z = (a << 1) >> 2;
+                 return (a && b) || !x;
+             }",
+            "foo.c",
+            |metric| {
+                // Expect: 6 bitwise op kinds (& | ^ ~ << >>), 3 logical (&& || !).
+                // Plus int, (), {, }, =, ;, return, , — 8 syntactic / arithmetic
+                // operator kinds.  Six bitwise + three logical + eight = 17 unique
+                // operators is the upper bound; actuals depend on grammar collapse,
+                // so we assert a lower-bound and anchor via snapshot below.
+                let s = &metric.halstead;
+                assert!(
+                    s.u_operators() >= 14.0,
+                    "expected >= 14 unique operators (bitwise + logical + syntax), got {}",
+                    s.u_operators(),
+                );
+                assert_eq!(s.u_operands(), 8.0); // f, a, b, x, y, z, 1, 2
+                insta::assert_json_snapshot!(metric.halstead);
+            },
+        );
+    }
+
+    /// Increment / decrement (`++`, `--`) and `sizeof` / cast operators
+    /// each contribute distinct unique operators.  C-style casts in the
+    /// tree-sitter grammar surface as `cast_expression` with the type
+    /// token classified as a primitive_type operator.
+    #[test]
+    fn c_increment_decrement_and_sizeof() {
+        check_metrics::<CppParser>(
+            "void f(int* p) {
+                 int n = sizeof(int);
+                 ++p;
+                 --n;
+                 long w = (long) n;
+             }",
+            "foo.c",
+            |metric| {
+                // Unique operators include: void, int, long, *, =, sizeof, ++, --, (), {, }, ;
+                // Unique operands: f, p, n, w
+                let s = &metric.halstead;
+                assert!(
+                    s.u_operators() >= 10.0,
+                    "expected >= 10 unique operators including ++ / -- / sizeof / cast, got {}",
+                    s.u_operators(),
+                );
+                assert_eq!(s.u_operands(), 4.0);
+                insta::assert_json_snapshot!(metric.halstead);
+            },
+        );
+    }
+
     #[test]
     fn cpp_operators_and_operands() {
         // Define operators and operands for C/C++ grammar according to this specification:
