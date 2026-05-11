@@ -12,7 +12,7 @@ TS_CPP_CRATE="tree-sitter-cpp"
 JSON_CRATE_FILENAME=".cargo_vcs_info.json"
 
 # Get the current tree-sitter-cpp crate version from the tree-sitter-mozcpp grammar
-TS_CPP_VERSION=`grep -m 1 $TS_CPP_CRATE tree-sitter-mozcpp/Cargo.toml | cut -f2 -d "," | cut -f2 -d "=" | tr -d ' ' | tr -d } | tr -d \"`
+TS_CPP_VERSION=$(grep -m 1 "$TS_CPP_CRATE" tree-sitter-mozcpp/Cargo.toml | cut -f2 -d "," | cut -f2 -d "=" | tr -d ' ' | tr -d '}' | tr -d \")
 
 # Name assigned to the compressed binary crate downloaded from crates.io
 CRATE_OUTPUT="$TS_CPP_CRATE-download.gz"
@@ -21,40 +21,40 @@ CRATE_OUTPUT="$TS_CPP_CRATE-download.gz"
 CRATES_IO_LINK="https://crates.io/api/v1/crates/$TS_CPP_CRATE/$TS_CPP_VERSION/download"
 
 # Download the crate from crates.io and uncompress it
-wget -O $CRATE_OUTPUT $CRATES_IO_LINK && tar -xf $CRATE_OUTPUT
+wget -O "$CRATE_OUTPUT" "$CRATES_IO_LINK" && tar -xf "$CRATE_OUTPUT"
 
 # Uncompressed directory name
 CRATE_DIR="$TS_CPP_CRATE-$TS_CPP_VERSION"
 
 # Get the sha1 of the commit associated to the current tree-sitter-cpp crate version
-TS_CPP_SHA1=`grep "sha1" $CRATE_DIR/$JSON_CRATE_FILENAME | cut -f2 -d ":" | tr -d ' ' | tr -d \"`
+TS_CPP_SHA1=$(grep "sha1" "$CRATE_DIR/$JSON_CRATE_FILENAME" | cut -f2 -d ":" | tr -d ' ' | tr -d \")
 
 # Remove compressed binary file and the relative uncompressed directory
-rm -rf $CRATE_OUTPUT $CRATE_DIR
+rm -rf "$CRATE_OUTPUT" "$CRATE_DIR"
 
 # Enter the mozcpp directory
-pushd tree-sitter-mozcpp
+pushd tree-sitter-mozcpp || exit
 
 # Create tree-sitter-cpp directory
-mkdir -p $TS_CPP_CRATE
+mkdir -p "$TS_CPP_CRATE"
 
 # Enter tree-sitter-cpp directory
-pushd $TS_CPP_CRATE
+pushd "$TS_CPP_CRATE" || exit
 
 # Shallow clone tree-sitter-cpp to a specific revision
 git init
 git remote add origin https://github.com/tree-sitter/tree-sitter-cpp.git
-git fetch --depth 1 origin $TS_CPP_SHA1
+git fetch --depth 1 origin "$TS_CPP_SHA1"
 git checkout FETCH_HEAD
 
 # Install tree-sitter-cpp dependencies
 npm install -y
 
 # Exit tree-sitter-cpp directory
-popd
+popd || exit
 
 # Copy tree-sitter-cpp `scanner.c` functions into the `src` directory
-cp --verbose $TS_CPP_CRATE/src/scanner.c ./src/scanner.c
+cp --verbose "$TS_CPP_CRATE/src/scanner.c" ./src/scanner.c
 
 # Since the tree-sitter-mozcpp `scanner.c` file contains the very same functions
 # present in the tree-sitter-cpp `scanner.c` file, to avoid having a
@@ -63,10 +63,10 @@ cp --verbose $TS_CPP_CRATE/src/scanner.c ./src/scanner.c
 sed -i 's/tree_sitter_cpp/tree_sitter_mozcpp/g' ./src/scanner.c
 
 # Exit tree-sitter-mozcpp directory
-popd
+popd || exit
 
 # Generate tree-sitter-mozcpp grammar
 ./generate-grammars/generate-grammar.sh tree-sitter-mozcpp
 
 # Delete tree-sitter-mozcpp/tree-sitter-cpp directory
-rm -rf ./tree-sitter-mozcpp/$TS_CPP_CRATE
+rm -rf "./tree-sitter-mozcpp/$TS_CPP_CRATE"
