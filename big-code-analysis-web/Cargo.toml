@@ -1,12 +1,13 @@
 [package]
 name = "big-code-analysis-web"
-version = "0.0.25"
-authors = ["Calixte Denizet <cdenizet@mozilla.com>"]
-edition = "2024"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
 repository = "https://github.com/dekobon/big-code-analysis/tree/main/big-code-analysis-web"
 keywords = ["metrics"]
 description = "Run a web service to compute and export code metrics"
-license = "MPL-2.0"
 
 [dependencies]
 actix-rt = "^2.6"

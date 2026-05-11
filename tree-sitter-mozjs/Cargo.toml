@@ -2,6 +2,7 @@
 name = "tree-sitter-mozjs"
 description = "Mozjs grammar for the tree-sitter parsing library"
 version = "0.20.3"
+publish = false
 authors = ["Calixte Denizet <cdenizet@mozilla.com>"]
 license = "MIT"
 readme = "bindings/rust/README.md"

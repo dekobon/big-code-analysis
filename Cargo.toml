@@ -1,17 +1,39 @@
-[package]
-name = "big-code-analysis"
+[workspace]
+resolver = "3"
+members = ["big-code-analysis-cli", "big-code-analysis-web"]
+default-members = [".", "big-code-analysis-cli", "big-code-analysis-web"]
+exclude = [
+  "enums",
+  "tree-sitter-ccomment",
+  "tree-sitter-mozcpp",
+  "tree-sitter-mozjs",
+  "tree-sitter-preproc",
+  "tree-sitter-tcl",
+]
+
+[workspace.package]
 version = "0.0.25"
+edition = "2024"
+rust-version = "1.94"
+license = "MPL-2.0"
+repository = "https://github.com/dekobon/big-code-analysis"
 authors = [
   "Calixte Denizet <cdenizet@mozilla.com>",
   "Elijah Zupancic <elijah@zupancic.name>",
 ]
-edition = "2024"
-repository = "https://github.com/dekobon/big-code-analysis"
+
+[package]
+name = "big-code-analysis"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
 documentation = "https://docs.rs/big-code-analysis/"
 readme = "README.md"
 keywords = ["metrics"]
 description = "Tool to compute and export code metrics"
-license = "MPL-2.0"
 
 [dependencies]
 aho-corasick = "^1.0"
@@ -60,14 +82,9 @@ opt-level = 3
 [profile.dev.package.similar]
 opt-level = 3
 
-[workspace]
-members = ["big-code-analysis-cli", "big-code-analysis-web"]
-default-members = [".", "big-code-analysis-cli", "big-code-analysis-web"]
-exclude = ["enums"]
-
 [profile.release]
 opt-level = 3
-debug = false
+debug = "line-tables-only"
 rpath = false
 lto = true
 debug-assertions = false
@@ -75,4 +92,3 @@ codegen-units = 1
 panic = "unwind"
 incremental = false
 overflow-checks = false
-strip = "debuginfo"
