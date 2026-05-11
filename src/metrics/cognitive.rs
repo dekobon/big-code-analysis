@@ -2094,6 +2094,440 @@ mod tests {
     }
 
     #[test]
+    fn c_ternary() {
+        // Sonar's rule scores the C++ ternary `?:` as +1 (and +nesting), but
+        // `CppCode::compute` does not currently match on `ConditionalExpression`,
+        // so the operator is silently free. The single `if` is the only source
+        // of cognitive cost here.
+        // FIXME: track adding `ConditionalExpression` to the C/C++ cognitive
+        // dispatch so ternaries cost the same as other languages (#167).
+        check_metrics::<CppParser>(
+            "int f(int a) {
+                 if (a) { // +1
+                     return a > 0 ? 1 : -1; // should be +2 (nesting = 1)
+                 }
+                 return a > 0 ? 0 : -1; // should be +1
+             }",
+            "foo.c",
+            |metric| {
+                // Actual current behaviour: only the `if` contributes.
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn c_try_catch_single() {
+        check_metrics::<CppParser>(
+            "void f() {
+                 try {
+                     g();
+                 } catch (const std::exception& e) { // +1
+                     h();
+                 }
+             }",
+            "foo.cpp",
+            |metric| {
+                // Single catch clause +1.
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn c_try_multiple_catches() {
+        check_metrics::<CppParser>(
+            "void f() {
+                 try {
+                     g();
+                 } catch (const std::runtime_error& e) { // +1
+                     h();
+                 } catch (const std::logic_error& e) { // +1
+                     i();
+                 } catch (...) { // +1
+                     j();
+                 }
+             }",
+            "foo.cpp",
+            |metric| {
+                // Three catch clauses, each +1 at nesting 0 → 3.
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 3.0,
+                      "min": 0.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn c_try_catch_in_loop() {
+        check_metrics::<CppParser>(
+            "void f() {
+                 for (int i = 0; i < 10; ++i) { // +1
+                     try {
+                         g();
+                     } catch (const std::exception& e) { // +2 (nesting = 1)
+                         h();
+                     }
+                 }
+             }",
+            "foo.cpp",
+            |metric| {
+                // for +1, catch +2 (nesting = 1) → 3.
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 3.0,
+                      "min": 0.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn c_range_based_for() {
+        // C++11 range-based `for (auto x : v)` parses as `for_range_loop`, which
+        // is NOT in the `CppCode::compute` match arm — only the classic
+        // `for_statement` is. As with ternary, the range-for is currently free.
+        // FIXME: extend the C/C++ cognitive dispatch to include
+        // `ForRangeLoop` (#167).
+        check_metrics::<CppParser>(
+            "int sum(const std::vector<int>& v) {
+                 int s = 0;
+                 for (int x : v) { // should be +1
+                     s += x;
+                 }
+                 return s;
+             }",
+            "foo.cpp",
+            |metric| {
+                // Actual current behaviour: range-for is not tracked → 0.
+                assert_eq!(metric.cognitive.cognitive_sum(), 0.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 0.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 0.0,
+                      "average": 0.0,
+                      "min": 0.0,
+                      "max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn c_nested_for() {
+        check_metrics::<CppParser>(
+            "void f(int n, int m) {
+                 for (int i = 0; i < n; ++i) { // +1
+                     for (int j = 0; j < m; ++j) { // +2 (nesting = 1)
+                         for (int k = 0; k < 4; ++k) { // +3 (nesting = 2)
+                             g(i, j, k);
+                         }
+                     }
+                 }
+             }",
+            "foo.c",
+            |metric| {
+                // Three nested `for` loops → 1 + 2 + 3 = 6.
+                assert_eq!(metric.cognitive.cognitive_sum(), 6.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 6.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 6.0,
+                      "average": 6.0,
+                      "min": 0.0,
+                      "max": 6.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn c_nested_while() {
+        check_metrics::<CppParser>(
+            "void f(int n) {
+                 while (n > 0) { // +1
+                     while (n % 2 == 0) { // +2 (nesting = 1)
+                         n /= 2;
+                     }
+                     n -= 1;
+                 }
+             }",
+            "foo.c",
+            |metric| {
+                // Two nested `while` loops → 1 + 2 = 3.
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 3.0,
+                      "min": 0.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn c_recursion() {
+        // Sonar's rule scores each recursive call to the enclosing function
+        // as +1, but the file-level comment in `cognitive.rs` documents that
+        // recursion is not tracked for C/C++ because the call graph is only
+        // resolvable at run time. The body of `fact` therefore costs only
+        // the explicit `if`.
+        check_metrics::<CppParser>(
+            "int fact(int n) {
+                 if (n <= 1) { // +1
+                     return 1;
+                 }
+                 return n * fact(n - 1); // recursion: currently not counted
+             }",
+            "foo.c",
+            |metric| {
+                // Only the `if` contributes; recursion is a documented gap.
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn c_goto_sibling_jump() {
+        check_metrics::<CppParser>(
+            "void f(int n) {
+                 if (n < 0) { // +1
+                     goto err; // +1
+                 }
+                 if (n > 100) { // +1
+                     goto err; // +1
+                 }
+                 return;
+             err:
+                 abort();
+             }",
+            "foo.c",
+            |metric| {
+                // Two `if` (+1 each) and two `goto` (+1 each) at nesting 0
+                // (the `goto` cost is flat, not multiplied by nesting) → 4.
+                assert_eq!(metric.cognitive.cognitive_sum(), 4.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 4.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 4.0,
+                      "min": 0.0,
+                      "max": 4.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn c_lambda_inside_function() {
+        // Per `increase_nesting`, entering a lambda bumps the effective nesting
+        // by one — so an `if` directly inside a top-level lambda is +2 charged
+        // to the enclosing function (Cpp lambdas are not split into a separate
+        // FuncSpace by `getter.rs`, so the `if` is not double-counted).
+        // The lambda *is* counted as a closure by NoM, so the cognitive
+        // average is sum / (1 function + 1 closure) = 2 / 2 = 1.0.
+        check_metrics::<CppParser>(
+            "int f(const std::vector<int>& v) {
+                 auto pred = [](int x) {
+                     if (x > 0) { // +2 (lambda nesting = 1)
+                         return true;
+                     }
+                     return false;
+                 };
+                 return std::count_if(v.begin(), v.end(), pred);
+             }",
+            "foo.cpp",
+            |metric| {
+                // Single `if` inside lambda at lambda-nesting 1 → +2.
+                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 2.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn c_switch_fall_through() {
+        // A `case` without `break` (fall-through) does not add cognitive cost
+        // beyond the enclosing `switch` itself: only `switch` is in the match
+        // arm. Same accounting as `c_switch` above — switch +1 only.
+        check_metrics::<CppParser>(
+            "void f(int n) {
+                 switch (n) { // +1
+                     case 1:
+                     case 2:
+                         g();
+                         // fall-through
+                     case 3:
+                         h();
+                         break;
+                     default:
+                         i();
+                         break;
+                 }
+             }",
+            "foo.c",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn c_switch_in_loop() {
+        check_metrics::<CppParser>(
+            "void f(int n) {
+                 for (int i = 0; i < n; ++i) { // +1
+                     switch (i % 3) { // +2 (nesting = 1)
+                         case 0:
+                             a();
+                             break;
+                         case 1:
+                             b();
+                             break;
+                         default:
+                             c();
+                             break;
+                     }
+                 }
+             }",
+            "foo.c",
+            |metric| {
+                // for +1, switch +2 (nesting = 1) → 3.
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 3.0,
+                      "min": 0.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn c_macro_expanded_control_flow() {
+        // Per the file-level comment in `cognitive.rs`, macro expansion is not
+        // tracked for C/C++ — macros are treated as opaque tokens. This is the
+        // defensive case: a control-flow-bearing macro contributes nothing on
+        // its own; only the explicit `if` in the function body is counted.
+        check_metrics::<CppParser>(
+            "#define CHECK(x) do { if (!(x)) return; } while (0)
+             void f(int a, int b) {
+                 CHECK(a);              // expansion is opaque: 0
+                 if (b < 0) {           // +1
+                     return;
+                 }
+             }",
+            "foo.c",
+            |metric| {
+                // Only the explicit `if` contributes.
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
     fn mozjs_switch() {
         check_metrics::<MozjsParser>(
             "function f() {
