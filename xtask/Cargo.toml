@@ -15,5 +15,8 @@ clap_mangen = "0.2"
 big-code-analysis-cli = { path = "../big-code-analysis-cli" }
 big-code-analysis-web = { path = "../big-code-analysis-web" }
 
+[dev-dependencies]
+tempfile = "^3.0"
+
 [lints]
 workspace = true
