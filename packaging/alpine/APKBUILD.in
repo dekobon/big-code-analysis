@@ -1,0 +1,30 @@
+# Maintainer: Elijah Zupancic <elijah@zupancic.name>
+pkgname=big-code-analysis
+# abuild rejects semver pre-release hyphens (e.g. 1.0.0-rc1) with
+# "not a valid version" and expects the underscore form (1.0.0_rc1).
+# `@@APK_PKGVER@@` is `@@VERSION@@` with `-` replaced by `_` by the
+# release workflow; the upstream tag/filename still uses the hyphen
+# form via `@@VERSION@@`.
+pkgver=@@APK_PKGVER@@
+pkgrel=0
+pkgdesc="Compute maintainability metrics for source code in many languages"
+url="https://github.com/dekobon/big-code-analysis"
+arch="@@ARCH@@"
+license="MPL-2.0"
+source="big-code-analysis-@@VERSION@@-@@TARGET@@.tar.gz::https://github.com/dekobon/big-code-analysis/releases/download/v@@VERSION@@/big-code-analysis-@@VERSION@@-@@TARGET@@.tar.gz"
+options="!check"
+builddir="$srcdir/big-code-analysis-@@VERSION@@-@@TARGET@@"
+
+package() {
+	install -Dm755 "$builddir/bca"     "$pkgdir/usr/bin/bca"
+	install -Dm755 "$builddir/bca-web" "$pkgdir/usr/bin/bca-web"
+	install -Dm644 "$builddir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+	# Per-binary TPL — bca and bca-web have non-overlapping direct
+	# deps (clap/ignore vs actix-web/tokio/futures), so a single
+	# combined notices file would under-attribute one side. Ship
+	# both.
+	install -Dm644 "$builddir/THIRD-PARTY-LICENSES-bca.md" "$pkgdir/usr/share/licenses/$pkgname/THIRD-PARTY-LICENSES-bca.md"
+	install -Dm644 "$builddir/THIRD-PARTY-LICENSES-bca-web.md" "$pkgdir/usr/share/licenses/$pkgname/THIRD-PARTY-LICENSES-bca-web.md"
+}
+
+sha512sums="@@SHA512@@  big-code-analysis-@@VERSION@@-@@TARGET@@.tar.gz"

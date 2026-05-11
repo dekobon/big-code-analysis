@@ -26,3 +26,69 @@ workspace = true
 assert_cmd = "^2.0"
 predicates = "^3.0"
 pretty_assertions = "^1.3"
+
+# Debian/Ubuntu packaging — consumed by `cargo deb` in release CI.
+# The binary asset path `target/release/bca-web` is rewritten by
+# cargo-deb to `target/<triple>/release/bca-web` when `--target` is
+# passed; all other asset source paths are resolved relative to this
+# crate's Cargo.toml. `name` is intentionally omitted — cargo-deb
+# defaults the deb package name to the cargo package name
+# (`big-code-analysis-web`), which is what we want.
+[package.metadata.deb]
+maintainer = "Elijah Zupancic <elijah@zupancic.name>"
+section = "devel"
+priority = "optional"
+extended-description = """\
+REST API server wrapping the big-code-analysis library.
+
+big-code-analysis-web ships the `bca-web` daemon, which exposes the
+maintainability-metric extractors from big-code-analysis (cognitive
+complexity, cyclomatic, Halstead, LOC, maintainability index, ABC,
+exit points, and more) as an HTTP service. Source can be posted in
+any of the languages supported by the library — C, C++, JavaScript,
+TypeScript, Python, Java, C#, Go, Kotlin, Rust, Bash, Lua, Perl,
+PHP, and Tcl — and results are returned as JSON.\
+"""
+assets = [
+  [
+    "target/release/bca-web",
+    "usr/bin/",
+    "755",
+  ],
+  [
+    "../README.md",
+    "usr/share/doc/big-code-analysis-web/README.md",
+    "644",
+  ],
+  [
+    "../LICENSE",
+    "usr/share/doc/big-code-analysis-web/LICENSE",
+    "644",
+  ],
+  # Per-binary TPL — covers bca-web's dep closure (actix-web, tokio,
+  # futures + lib + grammars). bca's clap/ignore deps are NOT in this
+  # file; they ship in THIRD-PARTY-LICENSES-bca.md alongside the CLI
+  # crate's deb.
+  [
+    "../THIRD-PARTY-LICENSES-bca-web.md",
+    "usr/share/doc/big-code-analysis-web/THIRD-PARTY-LICENSES-bca-web.md",
+    "644",
+  ],
+]
+
+# RHEL/Rocky/Fedora/Amazon Linux packaging — consumed by
+# `cargo generate-rpm` in release CI. Source paths are resolved
+# relative to this crate's Cargo.toml. `name` is intentionally
+# omitted — defaults to the cargo package name.
+[package.metadata.generate-rpm]
+summary = "REST API server for big-code-analysis metrics"
+license = "MPL-2.0"
+vendor = "Elijah Zupancic"
+url = "https://github.com/dekobon/big-code-analysis"
+assets = [
+  { source = "../target/release/bca-web", dest = "/usr/bin/bca-web", mode = "755" },
+  { source = "../README.md", dest = "/usr/share/doc/big-code-analysis-web/README.md", mode = "644", doc = true },
+  { source = "../LICENSE", dest = "/usr/share/doc/big-code-analysis-web/LICENSE", mode = "644" },
+  { source = "../THIRD-PARTY-LICENSES-bca-web.md", dest = "/usr/share/doc/big-code-analysis-web/THIRD-PARTY-LICENSES-bca-web.md", mode = "644" },
+]
+auto-req = "disabled"

@@ -1,0 +1,13 @@
+Compute maintainability metrics for source code in many languages.
+
+big-code-analysis is a tree-sitter-based Rust library and command-line
+tool that extracts metrics — cognitive complexity, cyclomatic, Halstead,
+LOC, maintainability index, ABC, exit points, and more — from source
+code in C, C++, JavaScript, TypeScript, Python, Java, C#, Go, Kotlin,
+Rust, Bash, Lua, Perl, PHP, and Tcl.
+
+Two binaries are installed:
+  bca       - CLI for analysing files or trees and emitting
+              JSON/YAML/TOML/CBOR reports.
+  bca-web   - REST API server that wraps the same library for HTTP
+              callers.

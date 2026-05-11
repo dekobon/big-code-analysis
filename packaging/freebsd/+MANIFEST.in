@@ -1,0 +1,12 @@
+name: big-code-analysis
+version: "@@VERSION@@"
+origin: devel/big-code-analysis
+comment: "Compute maintainability metrics for source code in many languages"
+arch: "FreeBSD:14:amd64"
+www: "https://github.com/dekobon/big-code-analysis"
+maintainer: "elijah@zupancic.name"
+prefix: "/usr/local"
+licenselogic: "single"
+licenses: ["MPL20"]
+desc: "big-code-analysis is a tree-sitter-based Rust library and CLI for computing maintainability metrics (cognitive complexity, cyclomatic, Halstead, LOC, MI, ABC, and more) across many programming languages. Ships two binaries: bca (CLI) and bca-web (REST API server)."
+categories: [devel]

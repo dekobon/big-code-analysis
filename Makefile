@@ -42,7 +42,7 @@ FIND_EXCLUDE   := $(foreach dir,$(EXCLUDE_DIRS),! -path './$(dir)/*')
 # warnings on `$(2)`, e.g. $(call find-by-ext,md,).
 find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name "*.$(1)" -type f $(FIND_EXCLUDE))
 
-.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check snapshot-anchors enums-check lint clippy udeps insta-review insta-accept clean install install-cli install-web doc doc-open book book-serve all pre-commit ci _check-find _pc-fmt _pc-clippy _pc-test _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-snapshot-anchors _pc-enums-check _ci-fmt-check _ci-clippy _ci-test _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-snapshot-anchors _ci-enums-check _ci-cargo-pipeline
+.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check snapshot-anchors enums-check lint clippy udeps insta-review insta-accept clean install install-cli install-web doc doc-open book book-serve all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local _check-find _pc-fmt _pc-clippy _pc-test _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-snapshot-anchors _pc-enums-check _ci-fmt-check _ci-clippy _ci-test _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-snapshot-anchors _ci-enums-check _ci-cargo-pipeline
 
 # Default target
 help:
@@ -98,6 +98,12 @@ help:
 	@echo "  all                                  Check, test, build release"
 	@echo "  pre-commit                           Verify formatting, lint, test (recommended before commit)"
 	@echo "  ci                                   Validate formatting, lint, test (no auto-fix)"
+	@echo ""
+	@echo "Release engineering:"
+	@echo "  release-check                        Pre-tag gate: deny + about + CHANGELOG (VERSION=x.y.z)"
+	@echo "  verify-changelog                     Verify CHANGELOG.md has section for VERSION=x.y.z"
+	@echo "  pkg-deb-local                        Build .deb locally (host target, no CI matrix)"
+	@echo "  pkg-rpm-local                        Build .rpm locally (host target, no CI matrix)"
 
 # ---------------------------------------------------------------------------
 # Prerequisites
@@ -417,3 +423,88 @@ _ci-cargo-pipeline:
 	$(MAKE) _ci-test
 	$(MAKE) _ci-build
 	$(MAKE) _ci-udeps
+
+# ---------------------------------------------------------------------------
+# Release engineering
+#
+# These targets mirror the gates `.github/workflows/release.yml` runs at
+# tag time. Run `make release-check VERSION=x.y.z` before pushing a tag —
+# it surfaces deny/about/CHANGELOG drift locally instead of letting CI
+# fail mid-release. None of the targets here actually publishes or
+# uploads anything; the release workflow is the only mutator.
+# ---------------------------------------------------------------------------
+
+# verify-changelog: confirm CHANGELOG.md has a `## [VERSION]` section.
+# Fixed-string match so dots in the version aren't treated as regex
+# wildcards. Mirrors the preflight check in release.yml.
+verify-changelog:
+	@if [ -z "$(VERSION)" ]; then \
+	  echo "ERROR: VERSION not set. Usage: make verify-changelog VERSION=0.1.0"; \
+	  exit 1; \
+	fi
+	@if ! grep -Fq "## [$(VERSION)]" CHANGELOG.md; then \
+	  echo "ERROR: CHANGELOG.md has no section for [$(VERSION)]"; \
+	  exit 1; \
+	fi
+	@echo "CHANGELOG.md contains section for [$(VERSION)]"
+
+# release-check: full pre-tag gate. cargo-deny enforces the license /
+# advisory / source allowlists; cargo-about's dry-run renders the
+# per-binary THIRD-PARTY-LICENSES files the release archives ship;
+# `cargo publish --dry-run -p big-code-analysis` is wrapped in a
+# best-effort guard because the five vendored grammar crates
+# (tree-sitter-{mozcpp,mozjs,ccomment,preproc,tcl}) are path-dep and
+# `publish = false`, so the lib dry-run can't actually resolve until
+# that's sorted (see #149's pre-public-release prerequisites). The
+# `if`-form (vs `|| true`) distinguishes the expected-failure case
+# (any non-zero exit) from a real `make` failure mode and lets us
+# print an actionable message rather than swallowing every possible
+# error. Once the grammar publish strategy lands in #149, remove
+# the wrapper entirely.
+release-check:
+	@if [ -z "$(VERSION)" ]; then \
+	  echo "ERROR: VERSION not set. Usage: make release-check VERSION=0.1.0"; \
+	  exit 1; \
+	fi
+	@echo "Running cargo deny check..."
+	@cargo deny check
+	@echo "Generating THIRD-PARTY-LICENSES-bca.md (dry-run)..."
+	@cargo about generate --locked \
+	  --config about.toml \
+	  --manifest-path big-code-analysis-cli/Cargo.toml \
+	  about.hbs > /dev/null
+	@echo "Generating THIRD-PARTY-LICENSES-bca-web.md (dry-run)..."
+	@cargo about generate --locked \
+	  --config about.toml \
+	  --manifest-path big-code-analysis-web/Cargo.toml \
+	  about.hbs > /dev/null
+	@echo "Dry-running cargo publish for big-code-analysis (best-effort, see CI gate)..."
+	@if ! cargo publish -p big-code-analysis --dry-run --locked; then \
+	  echo "::warning::big-code-analysis publish dry-run failed."; \
+	  echo "::warning::This is EXPECTED while the five vendored tree-sitter-*"; \
+	  echo "::warning::path-dep grammar crates remain unpublishable to crates.io"; \
+	  echo "::warning::(see #149's pre-public-release prerequisites). If the"; \
+	  echo "::warning::failure message looks unrelated (e.g. network, deny.toml"; \
+	  echo "::warning::violation, missing description field), investigate before"; \
+	  echo "::warning::tagging."; \
+	fi
+	@$(MAKE) verify-changelog VERSION=$(VERSION)
+	@echo "release-check passed for $(VERSION)"
+
+# Local cargo-deb invocation. Builds the binary first because the
+# release workflow's `--no-build` path requires the cross/runner layout
+# to be staged — this target is just for smoke-testing the metadata
+# block locally on the host triple.
+pkg-deb-local:
+	cargo build --release -p big-code-analysis-cli -p big-code-analysis-web
+	mkdir -p out
+	cargo deb -p big-code-analysis-cli --no-build --output out/
+	cargo deb -p big-code-analysis-web --no-build --output out/
+	@ls -lh out/*.deb
+
+pkg-rpm-local:
+	cargo build --release -p big-code-analysis-cli -p big-code-analysis-web
+	mkdir -p out
+	cargo generate-rpm -p big-code-analysis-cli --payload-compress zstd --output out/
+	cargo generate-rpm -p big-code-analysis-web --payload-compress zstd --output out/
+	@ls -lh out/*.rpm
