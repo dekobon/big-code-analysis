@@ -12,7 +12,7 @@ Please report vulnerabilities via one of the following:
   public): use the
   ["Report a vulnerability"](https://github.com/dekobon/big-code-analysis/security/advisories/new)
   button on this repository.
-- **Email**: <e.zupancic@f5.com>.
+- **Email**: <elijah@zupancic.name>.
 
 Please include the following in your report:
 
