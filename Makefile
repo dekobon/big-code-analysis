@@ -20,7 +20,8 @@ BASE_DIR       := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 # big-code-analysis-output submodule); `tree-sitter-*` are vendored
 # grammar crates that follow upstream conventions; `enums/` is excluded
 # from the workspace and owns its own files. None of these may be
-# reformatted by this project's tooling.
+# reformatted by this project's tooling. Glob entries (e.g. `tree-sitter-*`)
+# are quoted at the use site below — keep this list plain.
 EXCLUDE_DIRS   := .claude .git target tests/repositories \
                   big-code-analysis-book/book \
                   tree-sitter-* enums
@@ -28,17 +29,20 @@ EXCLUDE_DIRS   := .claude .git target tests/repositories \
 # File finder: prefer fd/fdfind (fast, .gitignore-aware), fall back to find
 FD             := $(shell command -v fdfind 2>/dev/null || command -v fd 2>/dev/null)
 
-# Precomputed exclusion flags for fd and find
-FD_EXCLUDE     := $(foreach dir,$(EXCLUDE_DIRS),--exclude $(dir))
-FIND_EXCLUDE   := $(foreach dir,$(EXCLUDE_DIRS),! -path "./$(dir)/*")
+# Precomputed exclusion flags for fd and find. Single-quote each entry so
+# the recipe shell does not glob-expand patterns like `tree-sitter-*` into
+# absolute paths before fd/find see them (see #160). `find -path` uses its
+# own glob engine and accepts unquoted patterns the same way fd does.
+FD_EXCLUDE     := $(foreach dir,$(EXCLUDE_DIRS),--exclude '$(dir)')
+FIND_EXCLUDE   := $(foreach dir,$(EXCLUDE_DIRS),! -path './$(dir)/*')
 
 # Find files by extension with fd (preferred) or find (fallback).
-# Usage: $(call find-by-ext,EXTENSION[,EXTRA_FD_ARGS[,EXTRA_FIND_ARGS]])
-# Always pass all three args (use empty for unused) to avoid
-# --warn-undefined-variables warnings, e.g. $(call find-by-ext,md,,).
-find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name "*.$(1)" -type f $(FIND_EXCLUDE) $(3))
+# Usage: $(call find-by-ext,EXTENSION,EXTRA_FD_ARGS). Always pass the
+# second arg (empty if unused) to avoid --warn-undefined-variables
+# warnings on `$(2)`, e.g. $(call find-by-ext,md,).
+find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name "*.$(1)" -type f $(FIND_EXCLUDE))
 
-.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check snapshot-anchors lint clippy udeps insta-review insta-accept clean install install-cli install-web doc doc-open book book-serve all pre-commit ci _pc-fmt _pc-clippy _pc-test _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-snapshot-anchors _ci-fmt-check _ci-clippy _ci-test _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-snapshot-anchors _ci-cargo-pipeline
+.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check snapshot-anchors lint clippy udeps insta-review insta-accept clean install install-cli install-web doc doc-open book book-serve all pre-commit ci _check-find _pc-fmt _pc-clippy _pc-test _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-snapshot-anchors _ci-fmt-check _ci-clippy _ci-test _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-snapshot-anchors _ci-cargo-pipeline
 
 # Default target
 help:
@@ -151,23 +155,32 @@ fmt-check:
 	@$(MAKE) --no-print-directory toml-fmt-check
 	@echo "All formatting checks passed"
 
-markdown-fmt:
+# Sanity guard for the find-by-ext helper. If EXCLUDE_DIRS over-matches
+# (as it did in #160 when `tree-sitter-*` was unquoted and the recipe
+# shell expanded the glob into absolute paths), every lint that pipes
+# through `xargs -r` silently no-ops. Run as a prerequisite of every
+# recipe that consumes find-by-ext.
+_check-find:
+	@N=$$($(call find-by-ext,md,) | wc -l); \
+	  [ "$$N" -ge 5 ] || { echo "ERROR: find-by-ext returned $$N .md files (expected >=5); EXCLUDE_DIRS is over-matching — see #160"; exit 1; }
+
+markdown-fmt: _check-find
 	@echo "Auto-fixing Markdown files..."
-	@$(call find-by-ext,md,,) | xargs -r markdownlint-cli2 --fix || { echo "markdownlint-cli2 could not auto-fix all issues"; exit 1; }
+	@$(call find-by-ext,md,) | xargs -r markdownlint-cli2 --fix || { echo "markdownlint-cli2 could not auto-fix all issues"; exit 1; }
 
-markdown-lint:
+markdown-lint: _check-find
 	@echo "Linting Markdown files..."
-	@$(call find-by-ext,md,,) | xargs -r markdownlint-cli2 || { echo "markdownlint-cli2 found issues"; exit 1; }
+	@$(call find-by-ext,md,) | xargs -r markdownlint-cli2 || { echo "markdownlint-cli2 found issues"; exit 1; }
 
-sh-fmt:
-	@$(call find-by-ext,sh,,) | xargs -r shfmt -w -i 0 -ci -bn
+sh-fmt: _check-find
+	@$(call find-by-ext,sh,) | xargs -r shfmt -w -i 0 -ci -bn
 
-sh-fmt-check:
-	@$(call find-by-ext,sh,,) | xargs -r shfmt -d -i 0 -ci -bn || { echo "Bash scripts are not formatted (run 'make sh-fmt')"; exit 1; }
+sh-fmt-check: _check-find
+	@$(call find-by-ext,sh,) | xargs -r shfmt -d -i 0 -ci -bn || { echo "Bash scripts are not formatted (run 'make sh-fmt')"; exit 1; }
 
-shellcheck:
+shellcheck: _check-find
 	@echo "Linting bash scripts with shellcheck..."
-	@$(call find-by-ext,sh,,) | xargs -r shellcheck || { echo "Shellcheck found issues"; exit 1; }
+	@$(call find-by-ext,sh,) | xargs -r shellcheck || { echo "Shellcheck found issues"; exit 1; }
 
 toml-fmt:
 	@taplo fmt
