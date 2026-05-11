@@ -920,6 +920,16 @@ fn inspect_csharp_child(node: &Node, idx: usize, conditions: &mut f64) {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::float_cmp,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::similar_names,
+    clippy::doc_markdown,
+    clippy::needless_raw_string_hashes,
+    clippy::too_many_lines
+)]
 mod tests {
     use crate::tools::check_metrics;
 

@@ -437,6 +437,16 @@ pub async fn run_with_timeout(
 // curl --header "Content-Type: application/json" --request POST --data '{"id": "1234", "file_name": "prova.cpp", "code": "int x = 1;", "comment": true, "span": true}' http://127.0.0.1:8081/ast
 
 #[cfg(test)]
+#[allow(
+    clippy::float_cmp,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::similar_names,
+    clippy::doc_markdown,
+    clippy::needless_raw_string_hashes,
+    clippy::too_many_lines
+)]
 mod tests {
     use actix_web::web::Bytes;
     use actix_web::{http::StatusCode, http::header::ContentType, test};
