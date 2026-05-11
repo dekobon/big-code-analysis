@@ -75,6 +75,36 @@ changes are marked with **(breaking)** in the entries below.
   the new `lint` job
   ([#152](https://github.com/dekobon/big-code-analysis/issues/152)).
 
+### Fixed
+
+- Makefile `EXCLUDE_DIRS` no longer glob-expands the `tree-sitter-*`
+  entry into absolute paths at recipe-execution time, which had
+  silently neutered `make markdown-lint`, `make shellcheck`,
+  `make sh-fmt`, and `make sh-fmt-check` (each piped to `xargs -r`
+  against empty input and exited 0). The glob is now quoted in
+  `EXCLUDE_DIRS` and the `find`-fallback path strips the quoting so
+  vendored grammar trees stay excluded in both code paths
+  ([#160](https://github.com/dekobon/big-code-analysis/issues/160)).
+- Cleared 96 pre-existing `markdownlint-cli2` findings now that the
+  markdown-lint gate actually runs. Source edits in 10 files
+  (top-level README, the two crate-level READMEs, mdBook command and
+  developer chapters, `docs/file-detection.md`) reflow long prose,
+  demote stray H1s to H2 where appropriate, and add accessibility
+  attributes to inline `<img>` badges. The remaining flagged files
+  (AGENTS.md, CLAUDE.md, and book index pages) had their findings
+  absorbed by widening `.markdownlint-cli2.jsonc`: MD033 now allows
+  a narrow list of inline-HTML elements (`a`, `img`, `br`, `details`,
+  `summary`) for legitimately GitHub-rendered constructs, and MD060
+  (table-column-style) is disabled globally for content-driven tables
+  ([#161](https://github.com/dekobon/big-code-analysis/issues/161)).
+- Removed unused `pub use crate::macros::*;` re-export in
+  `enums/src/lib.rs`. The line could not re-export the
+  `macro_rules!` definitions in `enums/src/macros.rs` (macros use a
+  separate name namespace and none carried `#[macro_export]`), so the
+  re-export was dead. `#[macro_use] mod macros;` continues to make
+  the macros visible within the crate
+  ([#162](https://github.com/dekobon/big-code-analysis/issues/162)).
+
 ## [0.0.25] - 2026-05-10
 
 > **Fork-anchor note.** Forked from Mozilla's
