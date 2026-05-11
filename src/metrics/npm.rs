@@ -387,6 +387,55 @@ impl Npm for PhpCode {
     }
 }
 
+// Re-uses the visibility helper from the `Npa` impl. Kotlin's default
+// visibility is `public`, the opposite of Java's
+// package-private-by-default, so the "no modifier → public" branch is the
+// common case.
+impl Npm for KotlinCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        use Kotlin::*;
+
+        // Enables the `Npm` metric for any class-like func_space.
+        if Self::is_func_space(node) && stats.is_disabled() {
+            stats.is_class_space = true;
+        }
+
+        // Each `ClassBody` contributes its direct `FunctionDeclaration`
+        // and `SecondaryConstructor` children to whichever func_space is
+        // currently on the stack. Companion objects (not a func_space)
+        // fold into the enclosing class — companion functions read as
+        // static methods on the parent. Nested classes and interfaces
+        // open their own func_space, so their members do not bleed into
+        // the outer space.
+        //
+        // Kotlin properties can declare custom `getter` / `setter`
+        // blocks, but these are still property accessors, not separate
+        // methods (the Kotlin spec is explicit on this), and they are
+        // not counted here. `data class` synthesizes
+        // `copy` / `equals` / `hashCode` / `toString` at compile time;
+        // those are not user code and are also not counted.
+        if !matches!(node.kind_id().into(), ClassBody) {
+            return;
+        }
+        let is_interface = super::npa::kotlin_class_body_is_interface(node);
+        // tree-sitter-kotlin elides the `class_member_declaration` and
+        // `declaration` rule layers, so function declarations and
+        // secondary constructors appear as direct children of
+        // `class_body`. `Self::is_func` recognises both kinds.
+        for func in node.children().filter(|c| Self::is_func(c)) {
+            if is_interface {
+                stats.interface_nm += 1;
+                stats.interface_npm += 1;
+            } else {
+                stats.class_nm += 1;
+                if super::npa::kotlin_is_public(&func) {
+                    stats.class_npm += 1;
+                }
+            }
+        }
+    }
+}
+
 implement_metric_trait!(
     Npm,
     PythonCode,
@@ -398,7 +447,6 @@ implement_metric_trait!(
     CppCode,
     PreprocCode,
     CcommentCode,
-    KotlinCode,
     GoCode,
     PerlCode,
     BashCode,
@@ -1184,6 +1232,330 @@ mod tests {
             "<?php class A { function f(): void {} }",
             "foo.php",
             |metric| insta::assert_json_snapshot!(metric.npm),
+        );
+    }
+
+    // --- Kotlin NPM tests -------------------------------------------------
+
+    #[test]
+    fn kotlin_empty_class_no_methods() {
+        check_metrics::<KotlinParser>("class C {}", "foo.kt", |metric| {
+            assert_eq!(metric.npm.class_npm_sum(), 0.0);
+            assert_eq!(metric.npm.class_nm_sum(), 0.0);
+            assert_eq!(metric.npm.interface_nm_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.npm);
+        });
+    }
+
+    #[test]
+    fn kotlin_public_methods_default() {
+        // Kotlin default visibility is public — no modifier means public.
+        check_metrics::<KotlinParser>(
+            "class C {
+                fun a() {}
+                fun b(): Int = 0
+                fun c(x: Int): Int = x
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 3.0);
+                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_private_method() {
+        check_metrics::<KotlinParser>(
+            "class C {
+                fun a() {}                  // public
+                private fun b() {}          // private
+                fun c() {}                  // public
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_protected_internal_methods() {
+        check_metrics::<KotlinParser>(
+            "open class C {
+                protected fun a() {}
+                internal fun b() {}
+                public fun c() {}
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_secondary_constructor_counts() {
+        // Secondary constructors are explicit `secondary_constructor`
+        // nodes; they count as methods (matching the Java rule).
+        check_metrics::<KotlinParser>(
+            "class C {
+                private var a: Int = 0
+                constructor(n: Int) { a = n }
+                constructor(n: Int, m: Int) { a = n + m }
+                fun get(): Int = a
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 3.0);
+                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_companion_object_methods() {
+        // Companion object methods fold into the enclosing class (static
+        // members).
+        check_metrics::<KotlinParser>(
+            "class Holder {
+                fun memberFn() {}
+                companion object {
+                    fun staticFn() {}
+                    private fun secret() {}
+                }
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_data_class_methods() {
+        // `data class` compiler-generated members are NOT counted —
+        // only user-written `fun` declarations.
+        check_metrics::<KotlinParser>(
+            "data class Point(val x: Int, val y: Int) {
+                fun manhattan(): Int = x + y
+                private fun internal_(): Int = 0
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_object_singleton_methods() {
+        check_metrics::<KotlinParser>(
+            "object Util {
+                fun add(a: Int, b: Int): Int = a + b
+                private fun helper(): Int = 0
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_interface_methods() {
+        check_metrics::<KotlinParser>(
+            "interface I {
+                fun work(): Int
+                fun describe(): String
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.npm.interface_npm_sum(), 2.0);
+                assert_eq!(metric.npm.interface_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_interface_with_default_method() {
+        check_metrics::<KotlinParser>(
+            "interface I {
+                fun abs(n: Int): Int {
+                    return if (n < 0) -n else n
+                }
+                fun pure(): Int
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.npm.interface_npm_sum(), 2.0);
+                assert_eq!(metric.npm.interface_nm_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_override_fun_counts() {
+        check_metrics::<KotlinParser>(
+            "open class Base {
+                open fun greet(): String = \"hi\"
+            }
+            class Sub : Base() {
+                override fun greet(): String = \"yo\"
+                private fun secret() {}
+            }",
+            "foo.kt",
+            |metric| {
+                // Base: 1 method (public).
+                // Sub: 2 methods — override (public, no visibility modifier
+                //   so default public) + private secret.
+                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_nested_class_methods() {
+        check_metrics::<KotlinParser>(
+            "class Outer {
+                fun outerM() {}
+                class Nested {
+                    fun nestedM() {}
+                    private fun nestedSecret() {}
+                }
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_inner_class_methods() {
+        check_metrics::<KotlinParser>(
+            "class Outer {
+                fun outerM() {}
+                inner class Inner {
+                    fun innerM() {}
+                }
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_top_level_function_excluded() {
+        // Top-level `fun` belongs to `Unit`, not any class.
+        check_metrics::<KotlinParser>(
+            "fun freeFn() {}
+class C {
+    fun m() {}
+}",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_extension_function_excluded() {
+        // Extension functions parse as top-level `function_declaration`
+        // with a receiver-type prefix; they belong to the `Unit` space.
+        check_metrics::<KotlinParser>(
+            "fun List<Int>.sum2(): Int = this.size
+class C {
+    fun m() {}
+}",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_class_in_interface() {
+        // Interface with nested class — methods count to the right
+        // bucket.
+        check_metrics::<KotlinParser>(
+            "interface Outer {
+                fun work(): Int
+                class Helper {
+                    fun help() {}
+                }
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.npm.interface_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_interface_in_class() {
+        check_metrics::<KotlinParser>(
+            "class Outer {
+                fun work() {}
+                interface Sub {
+                    fun help(): Int
+                }
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.interface_npm_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_init_block_not_a_method() {
+        // `init` blocks are anonymous initializers — they are not
+        // function declarations and don't count toward `nm`/`npm`.
+        check_metrics::<KotlinParser>(
+            "class C(val n: Int) {
+                init { require(n >= 0) }
+                fun get(): Int = n
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
         );
     }
 }

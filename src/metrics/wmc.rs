@@ -166,6 +166,30 @@ impl Wmc for CsharpCode {
     }
 }
 
+impl Wmc for KotlinCode {
+    fn compute(space_kind: SpaceKind, cyclomatic: &cyclomatic::Stats, stats: &mut Stats) {
+        use SpaceKind::*;
+
+        // Kotlin's `class_declaration` becomes either `Class` or `Interface`
+        // via `Getter::get_space_kind` (the keyword child disambiguates).
+        // `object` singletons map to `Class`. Function spaces (top-level
+        // `fun`, member `fun`, secondary constructors, lambdas, anonymous
+        // functions) all contribute their cyclomatic to the enclosing
+        // class / interface. `companion_object` is not a `func_space`, so
+        // its members are aggregated into the surrounding class — matching
+        // Kotlin's semantics where companion methods are static members of
+        // the enclosing class.
+        if let Unit | Class | Interface | Function = space_kind {
+            if stats.space_kind == Unknown {
+                stats.space_kind = space_kind;
+            }
+            if space_kind == Function {
+                stats.cyclomatic = cyclomatic.cyclomatic_sum();
+            }
+        }
+    }
+}
+
 impl Wmc for PhpCode {
     fn compute(space_kind: SpaceKind, cyclomatic: &cyclomatic::Stats, stats: &mut Stats) {
         use SpaceKind::*;
@@ -194,7 +218,6 @@ implement_metric_trait!(
     CppCode,
     PreprocCode,
     CcommentCode,
-    KotlinCode,
     GoCode,
     PerlCode,
     BashCode,
@@ -1198,6 +1221,367 @@ mod tests {
             }",
             "foo.php",
             |metric| insta::assert_json_snapshot!(metric.wmc),
+        );
+    }
+
+    // --- Kotlin WMC tests -------------------------------------------------
+    //
+    // Reference: Kotlin `class_declaration` carries either a `class` or
+    // `interface` keyword child; the getter routes the former to
+    // `SpaceKind::Class` and the latter to `SpaceKind::Interface`. Member
+    // function cyclomatic complexity accumulates into the enclosing
+    // class/interface bucket, mirroring the Java impl.
+
+    #[test]
+    fn kotlin_empty_class() {
+        // Empty class — no methods, WMC = 0.
+        check_metrics::<KotlinParser>("class Empty {}", "foo.kt", |metric| {
+            assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+            assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.wmc);
+        });
+    }
+
+    #[test]
+    fn kotlin_single_class() {
+        // wmc = 1 (method base) + 1 (if) + 2 (when-entries 0/else) = 4
+        check_metrics::<KotlinParser>(
+            "class C {
+                fun m(x: Int): Int {       // +1
+                    if (x > 0) {           // +1
+                        return x
+                    }
+                    return when (x) {
+                        0 -> 0             // +1 (WhenEntry)
+                        else -> -x         // +1 (WhenEntry)
+                    }
+                }
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 4.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_multiple_classes() {
+        // A: constructor 1 + setA 1 + getA 1 = 3
+        // B: constructor 1 + getB 1 = 2
+        check_metrics::<KotlinParser>(
+            "class A {
+                private var a: Int = 0
+                constructor(n: Int) { a = n }   // +1
+                fun setA(n: Int) { a = n }      // +1
+                fun getA(): Int = a             // +1
+            }
+            class B {
+                private var b: Int = 0
+                constructor(n: Int) { b = n }   // +1
+                fun getB(): Int = b             // +1
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 5.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_nested_class() {
+        // Outer: 0 methods. Nested: m(): +1
+        check_metrics::<KotlinParser>(
+            "class Outer {
+                class Nested {
+                    fun m() { println(\"hi\") }   // +1
+                }
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_inner_class() {
+        // `inner class` differs semantically (captures outer reference) but
+        // structurally still opens a new class space.
+        check_metrics::<KotlinParser>(
+            "class Outer {
+                fun outerM() {}                    // +1
+                inner class Inner {
+                    fun innerM() {}                // +1
+                }
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_data_class() {
+        // `data class` synthesizes copy/equals/hashCode/toString at
+        // compile time, but only user-written methods are counted —
+        // compiler-generated members are not user code.
+        check_metrics::<KotlinParser>(
+            "data class Point(val x: Int, val y: Int) {
+                fun manhattan(): Int = kotlin.math.abs(x) + kotlin.math.abs(y)  // +1
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_object_singleton() {
+        // `object` declarations are singletons; the getter routes them to
+        // `SpaceKind::Class` so their methods count as class methods.
+        check_metrics::<KotlinParser>(
+            "object Util {
+                fun add(a: Int, b: Int): Int = a + b   // +1
+                fun gtZero(n: Int): Boolean {          // +1
+                    return n > 0
+                }
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_companion_object() {
+        // Companion-object members are not a separate func_space; they fold
+        // into the enclosing class's WMC (Kotlin's "static members"
+        // semantics).
+        check_metrics::<KotlinParser>(
+            "class Holder {
+                val instance: Int = 1
+                fun get(): Int = instance               // +1
+                companion object {
+                    val SCALE: Int = 10
+                    fun mk(): Holder = Holder()         // +1
+                }
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_interface_simple() {
+        // Interface methods all contribute to the interface bucket.
+        check_metrics::<KotlinParser>(
+            "interface I {
+                fun work(): Int                         // +1
+                fun describe(): String                  // +1
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_interface_with_default_method() {
+        // Default method with control flow counts its full cyclomatic.
+        check_metrics::<KotlinParser>(
+            "interface I {
+                fun abs(n: Int): Int {                   // +1
+                    return if (n < 0) -n else n          // +1 if
+                }
+                fun pure(): Int                          // +1
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_override_function() {
+        // `override fun` is structurally just a `function_declaration` with
+        // an `override` modifier — counts like any other method.
+        check_metrics::<KotlinParser>(
+            "open class Base {
+                open fun greet(): String = \"hi\"        // +1
+            }
+            class Sub : Base() {
+                override fun greet(): String = \"yo\"    // +1
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_secondary_constructor() {
+        // Secondary constructors are explicit `secondary_constructor`
+        // nodes; they count as methods.
+        check_metrics::<KotlinParser>(
+            "class C {
+                private var a: Int = 0
+                constructor(n: Int) {                    // +1
+                    a = n
+                }
+                constructor(n: Int, m: Int) {            // +1
+                    a = n + m
+                }
+                fun get(): Int = a                       // +1
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_init_block() {
+        // `init` blocks are anonymous initializers, not function spaces;
+        // they do not add to WMC directly. The class still has whatever
+        // methods it declares.
+        check_metrics::<KotlinParser>(
+            "class C(val n: Int) {
+                init {                                   // not counted
+                    require(n >= 0) { \"n must be non-negative\" }
+                }
+                fun get(): Int = n                       // +1
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_top_level_function_excluded() {
+        // Top-level `fun` and `val` belong to the `Unit` space, not a class
+        // space — they must not contribute to any class metric.
+        check_metrics::<KotlinParser>(
+            "fun freeFunction(): Int = 42
+            val freeVal: Int = 0
+            class C { fun m(): Int = 1 }                 // +1
+            ",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_extension_function_excluded() {
+        // Extension functions look syntactically like methods but the
+        // grammar parses them as top-level `function_declaration` with a
+        // receiver-type prefix; they belong to the `Unit` space, not a
+        // class. Class still gets +1 for its declared method.
+        check_metrics::<KotlinParser>(
+            "fun List<Int>.sum2(): Int = this.size       // top-level
+            class C { fun m(): Int = 1 }                 // +1
+            ",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_generic_class() {
+        // Generic class with two methods.
+        check_metrics::<KotlinParser>(
+            "class Box<T>(val value: T) {
+                fun get(): T = value                     // +1
+                fun mapTo(f: (T) -> T): T = f(value)     // +1
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_class_in_interface() {
+        // Nested class inside an interface: the inner class is a class
+        // space (its method counts toward classes_wmc), and the interface
+        // is the outer.
+        check_metrics::<KotlinParser>(
+            "interface Outer {
+                fun work(): Int                          // +1 (interface)
+                class Helper {
+                    fun help(): Int = 0                  // +1 (class)
+                }
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_interface_in_class() {
+        // Inverse of the prior test.
+        check_metrics::<KotlinParser>(
+            "class Outer {
+                fun work(): Int = 1                      // +1 (class)
+                interface Sub {
+                    fun help(): Int                      // +1 (interface)
+                }
+            }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
         );
     }
 }
