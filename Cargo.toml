@@ -1,6 +1,11 @@
 [workspace]
 resolver = "3"
-members = ["big-code-analysis-cli", "big-code-analysis-web"]
+members = ["big-code-analysis-cli", "big-code-analysis-web", "xtask"]
+# `xtask` is intentionally excluded from `default-members`: it's a
+# build-time helper that renders man pages from the live clap
+# definitions (see `xtask/src/main.rs` and `man/`). It builds cleanly
+# under `cargo build --workspace`, but a bare `cargo build` at the repo
+# root should not pull in a binary that has no shipping counterpart.
 default-members = [".", "big-code-analysis-cli", "big-code-analysis-web"]
 exclude = [
   "enums",

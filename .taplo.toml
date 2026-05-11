@@ -10,6 +10,7 @@ include = [
     "big-code-analysis-cli/**/*.toml",
     "big-code-analysis-web/**/*.toml",
     "big-code-analysis-book/**/*.toml",
+    "xtask/**/*.toml",
     "mise.toml",
     ".typos.toml",
 ]

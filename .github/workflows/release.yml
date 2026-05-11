@@ -256,6 +256,16 @@ jobs:
             cargo check --release --locked --target "$TARGET"
           fi
 
+      # Generate man pages once per build leg. The committed `man/`
+      # directory acts as a CI-gated cache (see ci.yml `manpage` job),
+      # but regenerating here keeps the release artefacts tied to the
+      # exact clap schema of the binaries we just built — no chance of
+      # a tag carrying stale pages because someone forgot to re-run
+      # `cargo xtask` before tagging.
+      - name: Regenerate man pages
+        shell: bash
+        run: cargo xtask
+
       - name: Build release binaries (bca + bca-web)
         shell: bash
         env:
@@ -313,6 +323,11 @@ jobs:
             --manifest-path big-code-analysis-web/Cargo.toml \
             about.hbs \
             > "dist/${STAGE}/THIRD-PARTY-LICENSES-bca-web.md"
+          # Stage man pages alongside the binaries. Every per-OS
+          # package builder below pulls them back out of this tarball
+          # so the same set is shipped regardless of format.
+          mkdir -p "dist/${STAGE}/man"
+          cp man/*.1 "dist/${STAGE}/man/"
           echo "STAGE=$STAGE" >> "$GITHUB_ENV"
 
       # Debug symbols are staged under dist/debug/ so the archive-upload
@@ -461,10 +476,20 @@ jobs:
           # `../THIRD-PARTY-LICENSES-<bin>.md`) resolves.
           cp "dist/${STAGE}/THIRD-PARTY-LICENSES-bca.md"     THIRD-PARTY-LICENSES-bca.md
           cp "dist/${STAGE}/THIRD-PARTY-LICENSES-bca-web.md" THIRD-PARTY-LICENSES-bca-web.md
+          # Pull man pages back to the workspace `man/` directory so
+          # each crate's [package.metadata.deb].assets references
+          # (`../man/<page>.1`) resolve. The committed copies should
+          # already be here from the checkout, but the build job
+          # regenerates them — use the archived copies as the source
+          # of truth.
+          mkdir -p man
+          cp "dist/${STAGE}/man/"*.1 man/
           test -f "target/${TARGET}/release/bca"
           test -f "target/${TARGET}/release/bca-web"
           test -f THIRD-PARTY-LICENSES-bca.md
           test -f THIRD-PARTY-LICENSES-bca-web.md
+          test -f man/bca.1
+          test -f man/bca-web.1
 
       - name: Build .deb
         env:
@@ -536,6 +561,11 @@ jobs:
           cp "dist/${STAGE}/bca-web" "target/release/bca-web"
           cp "dist/${STAGE}/THIRD-PARTY-LICENSES-bca.md"     THIRD-PARTY-LICENSES-bca.md
           cp "dist/${STAGE}/THIRD-PARTY-LICENSES-bca-web.md" THIRD-PARTY-LICENSES-bca-web.md
+          # Pull man pages back to the workspace `man/` directory so
+          # each crate's [package.metadata.generate-rpm].assets
+          # references (`../man/<page>.1`) resolve.
+          mkdir -p man
+          cp "dist/${STAGE}/man/"*.1 man/
           # Surface staging failures here (finding #2) instead of
           # waiting for cargo-generate-rpm to fail with an opaque
           # "asset not found" further down the pipeline.
@@ -545,6 +575,8 @@ jobs:
           test -f "target/release/bca-web"
           test -f THIRD-PARTY-LICENSES-bca.md
           test -f THIRD-PARTY-LICENSES-bca-web.md
+          test -f man/bca.1
+          test -f man/bca-web.1
 
       - name: Build .rpm
         env:
@@ -728,10 +760,20 @@ jobs:
             VERSION="${{ needs.preflight.outputs.version }}"
             STAGE="big-code-analysis-${VERSION}-x86_64-unknown-freebsd"
             mkdir -p stage/usr/local/bin \
+                     stage/usr/local/share/man/man1 \
                      stage/usr/local/share/licenses/big-code-analysis
             tar -xzf "dist/${STAGE}.tar.gz" -C dist
             install -m 755 "dist/${STAGE}/bca"     stage/usr/local/bin/bca
             install -m 755 "dist/${STAGE}/bca-web" stage/usr/local/bin/bca-web
+            # FreeBSD's mandoc-derived man infrastructure expects gzipped
+            # pages under share/man/man1. `gzip -9n` strips the original
+            # filename + timestamp so the archive bytes stay reproducible
+            # across re-renders of the same source file.
+            for m in dist/${STAGE}/man/*.1; do
+              base=$(basename "$m")
+              install -m 644 "$m" "stage/usr/local/share/man/man1/${base}"
+              gzip -9n "stage/usr/local/share/man/man1/${base}"
+            done
             install -m 644 "dist/${STAGE}/LICENSE" \
               stage/usr/local/share/licenses/big-code-analysis/LICENSE
             install -m 644 "dist/${STAGE}/THIRD-PARTY-LICENSES-bca.md" \
@@ -808,6 +850,13 @@ jobs:
               # in either side cannot slip through.
               test -s /usr/share/doc/big-code-analysis-cli/THIRD-PARTY-LICENSES-bca.md
               test -s /usr/share/doc/big-code-analysis-web/THIRD-PARTY-LICENSES-bca-web.md
+              # Man pages — dpkg auto-gzips pages under share/man/man1,
+              # so check for any extension. A missing page is a release
+              # regression that this smoke is the cheapest place to
+              # catch.
+              ls /usr/share/man/man1/bca.1* >/dev/null
+              ls /usr/share/man/man1/bca-web.1* >/dev/null
+              ls /usr/share/man/man1/bca-metrics.1* >/dev/null
             '
 
   smoke-rpm:
@@ -847,6 +896,19 @@ jobs:
               bca-web --version | grep -F "$VERSION"
               test -s /usr/share/doc/big-code-analysis-cli/THIRD-PARTY-LICENSES-bca.md
               test -s /usr/share/doc/big-code-analysis-web/THIRD-PARTY-LICENSES-bca-web.md
+              # Man pages — rpm leaves these uncompressed by default;
+              # accept either form so a future packaging change that
+              # gzips them does not break the smoke. Fedora minimal
+              # images filter `/usr/share/man` via `tsflags=nodocs`,
+              # so allow a missing-pages outcome only when nodocs is
+              # explicitly set.
+              if grep -q "^tsflags=.*nodocs" /etc/dnf/dnf.conf /etc/yum.conf 2>/dev/null; then
+                echo "nodocs configured; skipping man-page presence check"
+              else
+                ls /usr/share/man/man1/bca.1*         >/dev/null
+                ls /usr/share/man/man1/bca-web.1*     >/dev/null
+                ls /usr/share/man/man1/bca-metrics.1* >/dev/null
+              fi
             '
 
   smoke-apk:
@@ -885,6 +947,12 @@ jobs:
               bca-web --version | grep -F "$VERSION"
               test -s /usr/share/licenses/big-code-analysis/THIRD-PARTY-LICENSES-bca.md
               test -s /usr/share/licenses/big-code-analysis/THIRD-PARTY-LICENSES-bca-web.md
+              # abuild gzips man pages under /usr/share/man/man1 during
+              # `abuild -F` (see packaging/alpine/APKBUILD.in). A
+              # missing page is a regression worth failing the release.
+              ls /usr/share/man/man1/bca.1.gz         >/dev/null
+              ls /usr/share/man/man1/bca-web.1.gz     >/dev/null
+              ls /usr/share/man/man1/bca-metrics.1.gz >/dev/null
             '
 
   smoke-freebsd:
@@ -912,6 +980,11 @@ jobs:
             bca-web --version | grep -F "${{ needs.preflight.outputs.version }}"
             test -s /usr/local/share/licenses/big-code-analysis/THIRD-PARTY-LICENSES-bca.md
             test -s /usr/local/share/licenses/big-code-analysis/THIRD-PARTY-LICENSES-bca-web.md
+            # FreeBSD packaging installs gzipped pages under
+            # /usr/local/share/man/man1 (see the package-freebsd job).
+            test -f /usr/local/share/man/man1/bca.1.gz
+            test -f /usr/local/share/man/man1/bca-web.1.gz
+            test -f /usr/local/share/man/man1/bca-metrics.1.gz
 
   smoke-macos:
     name: smoke macOS tarball (${{ matrix.runner }})
@@ -939,6 +1012,11 @@ jobs:
           "dist/${STAGE}/bca-web" --version | grep -F "$VERSION"
           test -s "dist/${STAGE}/THIRD-PARTY-LICENSES-bca.md"
           test -s "dist/${STAGE}/THIRD-PARTY-LICENSES-bca-web.md"
+          # macOS tarball ships pages alongside the binaries; the
+          # Homebrew formula's `man1.install Dir["man/*.1"]` step picks
+          # them up from this layout.
+          test -f "dist/${STAGE}/man/bca.1"
+          test -f "dist/${STAGE}/man/bca-web.1"
 
   smoke-windows:
     name: smoke Windows zip (${{ matrix.target }})
@@ -995,6 +1073,14 @@ jobs:
           if (-not $tplWeb -or $tplWeb.Length -eq 0) {
             throw "THIRD-PARTY-LICENSES-bca-web.md missing or empty in zip"
           }
+          # Man pages — packaged under `man/` alongside the binaries.
+          # Windows has no native man reader, but the pages still ship
+          # for users who run WSL or `man.exe` ports; a missing page
+          # is a regression we want to catch here.
+          $manBca = Get-ChildItem -Recurse extracted -Filter bca.1 | Select-Object -First 1
+          if (-not $manBca) { throw "man/bca.1 missing from zip" }
+          $manWeb = Get-ChildItem -Recurse extracted -Filter bca-web.1 | Select-Object -First 1
+          if (-not $manWeb) { throw "man/bca-web.1 missing from zip" }
 
   # ─── Stage 4 — sign, attest, SBOM ────────────────────────────────────
   # All artefacts are pulled into a single flat `release/` directory so

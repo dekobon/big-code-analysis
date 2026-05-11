@@ -262,6 +262,28 @@ jobs:
           fi
           echo "PASS: enums-check correctly rejected the injected warning"
 
+  manpage:
+    name: man pages up to date
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          submodules: false
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable tip
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - name: Regenerate man pages
+        run: cargo xtask
+      - name: Verify no drift
+        run: |
+          if ! git diff --exit-code -- man/; then
+            echo "::error::Committed man pages drift from the clap schema. Run 'cargo xtask' locally and commit the result."
+            exit 1
+          fi
+
   # Single required status check for branch protection — depends on
   # every gating job. Passing this one check guarantees the full matrix
   # passed.
@@ -278,6 +300,7 @@ jobs:
       - deny
       - license-audit
       - lint
+      - manpage
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

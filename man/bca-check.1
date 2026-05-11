@@ -1,0 +1,24 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH BCA-CHECK 1  "big-code-analysis 0.0.25" "big-code-analysis Manual"
+.SH NAME
+bca\-check \- Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed"
+.SH SYNOPSIS
+\fBbca\-check\fR [\fB\-\-threshold\fR] [\fB\-\-config\fR] [\fB\-\-no\-fail\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+.SH DESCRIPTION
+Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed"
+.SH OPTIONS
+.TP
+\fB\-\-threshold\fR \fI<THRESHOLDS>\fR
+Threshold expressed as `<metric>=<limit>`. Repeatable. Metric names match `bca list\-metrics`; sub\-metrics use a dotted form (e.g. `loc.lloc`, `halstead.volume`). CLI flags override values from `\-\-config`. Limits must be finite and non\-negative; `0` is allowed and means "no value permitted"
+.TP
+\fB\-\-config\fR \fI<CONFIG>\fR
+Path to a TOML config with a `[thresholds]` table:
+
+```toml [thresholds] cyclomatic = 15 "loc.lloc" = 200 ```
+.TP
+\fB\-\-no\-fail\fR
+Print offenders to stderr but exit 0 even when thresholds are exceeded. Useful while adopting baselines without flipping CI red. Default: exit 2 when any threshold is exceeded
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help (see a summary with \*(Aq\-h\*(Aq)

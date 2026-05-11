@@ -25,6 +25,15 @@ package() {
 	# both.
 	install -Dm644 "$builddir/THIRD-PARTY-LICENSES-bca.md" "$pkgdir/usr/share/licenses/$pkgname/THIRD-PARTY-LICENSES-bca.md"
 	install -Dm644 "$builddir/THIRD-PARTY-LICENSES-bca-web.md" "$pkgdir/usr/share/licenses/$pkgname/THIRD-PARTY-LICENSES-bca-web.md"
+	# Man pages — abuild's postcheck rejects uncompressed pages
+	# under share/man, so install + gzip in lockstep. `gzip -9n`
+	# strips the original filename + timestamp so the archive bytes
+	# stay reproducible across re-renders of the same source file.
+	for m in "$builddir/man/"*.1; do
+		base=$(basename "$m")
+		install -Dm644 "$m" "$pkgdir/usr/share/man/man1/${base}"
+	done
+	gzip -9n "$pkgdir/usr/share/man/man1/"*.1
 }
 
 sha512sums="@@SHA512@@  big-code-analysis-@@VERSION@@-@@TARGET@@.tar.gz"

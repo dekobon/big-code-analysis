@@ -1,0 +1,35 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH BCA-REPORT 1  "big-code-analysis 0.0.25" "big-code-analysis Manual"
+.SH NAME
+bca\-report \- Generate an aggregated report across the analyzed source
+.SH SYNOPSIS
+\fBbca\-report\fR [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-top\fR] [\fB\-\-strip\-prefix\fR] [\fB\-h\fR|\fB\-\-help\fR] <\fIFORMAT\fR> 
+.SH DESCRIPTION
+Generate an aggregated report across the analyzed source
+.SH OPTIONS
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fI<OUTPUT>\fR
+Output file. Stdout if omitted
+.TP
+\fB\-\-top\fR \fI<TOP>\fR [default: 20]
+Maximum number of entries per hotspot table
+.TP
+\fB\-\-strip\-prefix\fR \fI<STRIP_PREFIX>\fR [default: ]
+Path prefix to strip from displayed file paths
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help
+.TP
+<\fIFORMAT\fR>
+Report format
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+markdown
+.IP \(bu 2
+html
+.RE
