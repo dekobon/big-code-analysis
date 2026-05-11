@@ -231,6 +231,36 @@ jobs:
       # this check.
       - name: snapshot anchors (explicit)
         run: python3 check-snapshot-anchors.py
+      # Defensive: the prior `make lint` step already runs enums-check
+      # as part of its aggregate. Repeating it here protects against a
+      # regression to that aggregate (e.g., enums-check accidentally
+      # dropped from the `lint` recipe), which is precisely the failure
+      # mode #164 was filed against — `[workspace].exclude` had hidden
+      # the crate from every workspace-scoped lint until the gate
+      # existed. The redundant invocation is cheap (cargo cache is warm)
+      # and pins the gate at the workflow level.
+      - name: enums-crate check (explicit)
+        run: make enums-check
+      # Gate-effectiveness test: inject a known unused-variable warning
+      # into enums/src/main.rs and assert `make enums-check` FAILS.
+      # Catches regressions where RUSTFLAGS is silently dropped, the
+      # recipe stops failing on warnings, or `--all-targets` is
+      # removed. The trap restores the file even if the assertion
+      # fails. This step runs only in CI — locally, a developer who
+      # changes the gate should re-verify with the same maneuver.
+      - name: enums-check gate-effectiveness test
+        run: |
+          set -eu
+          test_file=enums/src/main.rs
+          cp "$test_file" "$test_file.bak"
+          trap 'mv "$test_file.bak" "$test_file"' EXIT
+          printf '\nfn _enums_check_gate_sabotage() { let unused_x = 1u32; }\n' >> "$test_file"
+          if make enums-check > /tmp/sabotage.log 2>&1; then
+            echo "FAIL: enums-check did not reject the injected warning"
+            tail -40 /tmp/sabotage.log
+            exit 1
+          fi
+          echo "PASS: enums-check correctly rejected the injected warning"
 
   # Single required status check for branch protection — depends on
   # every gating job. Passing this one check guarantees the full matrix
