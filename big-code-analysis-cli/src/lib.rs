@@ -3,6 +3,19 @@
 //! Exists so the workspace `xtask` crate can render man pages from the
 //! same `clap::Command` tree that `bca` parses at runtime — the binary
 //! `main` is a one-liner that delegates to [`run`].
+//!
+//! # Embedder contract
+//!
+//! This crate is published to crates.io to support man-page generation
+//! and to keep the binary's `main` trivial; it is **not** a re-entrant
+//! library API. [`run`] and the internal helpers it calls
+//! (`die` / `die_io`, `run_check`, etc.) terminate the calling process
+//! via [`std::process::exit`] on user-input errors (bad threshold
+//! specs, missing paths, parser failures, broken pipes, and so on)
+//! and on the `check` subcommand's "thresholds exceeded" exit-2 path.
+//! Hosting [`run`] inside another process will tear that process down
+//! without unwinding. If you need a re-entrant entry point, drive the
+//! [`big_code_analysis`] library crate directly.
 
 #![allow(
     clippy::too_many_lines,
@@ -16,7 +29,6 @@
     // section on the entry point adds noise without adding signal.
     clippy::missing_panics_doc
 )]
-#![allow(missing_docs)]
 mod format_util;
 mod formats;
 mod html_report;
@@ -77,6 +89,13 @@ fn write_stdout_or_die(bytes: &[u8]) {
     }
 }
 
+/// Clap-derived argument schema for the `bca` CLI binary.
+///
+/// Exposed so the workspace `xtask` crate can introspect the same
+/// `clap::Command` tree that `bca` parses at runtime (man-page
+/// generation, shell-completion scaffolding). Embedders should treat
+/// this as an opaque type — its fields and the `Command` enum it
+/// wraps are private and may change between minor releases.
 #[derive(Parser, Debug)]
 #[clap(
     name = "bca",
@@ -830,6 +849,30 @@ fn run_check(globals: GlobalOpts, args: CheckArgs, preproc: Option<Arc<PreprocRe
     }
 }
 
+/// Parse `std::env::args_os()` and execute the selected `bca`
+/// subcommand. Intended to be called from the `bca` binary's `main`,
+/// which is a one-liner over this function.
+///
+/// # Termination contract
+///
+/// This function **may terminate the calling process** rather than
+/// return. It is not a re-entrant library entry point:
+///
+/// - clap argument-parsing failures bubble up through
+///   [`clap::Error::exit`] (exit 0 on `--help` / `--version`, exit 2
+///   on usage errors).
+/// - User-input errors (invalid threshold spec, unreadable preproc
+///   data, missing `--output` parent directory, walk errors, mutually
+///   exclusive output-format combinations, broken-pipe writes, etc.)
+///   call `process::exit(1)` via internal `die` / `die_io` helpers.
+/// - The `check` subcommand calls `process::exit(2)` when any
+///   threshold is exceeded, reserving exit 1 for tool errors so CI can
+///   distinguish "metric regression" from "tool crashed".
+///
+/// Hosts that call [`run`] will be torn down on any of those paths
+/// without unwinding. If you need to drive the same functionality from
+/// inside another process, use the [`big_code_analysis`] library crate
+/// directly instead of going through this entry point.
 pub fn run() {
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
