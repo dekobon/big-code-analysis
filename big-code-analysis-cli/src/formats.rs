@@ -2,7 +2,7 @@
 
 use std::fs::{File, create_dir_all};
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use clap::ValueEnum;
 use serde::Serialize;
@@ -303,26 +303,29 @@ trait WritePrettyOnStdout: WriteOnStdout {
 }
 
 fn handle_path(path: &Path, output_path: &Path, extension: &str) -> PathBuf {
-    // Remove root /
-    let path = path.strip_prefix("/").unwrap_or(path);
-
-    // Remove root ./
-    let path = path.strip_prefix("./").unwrap_or(path);
-
-    // Replace .. with . to keep files inside the output folder, warn on non-UTF-8 components
+    // Walk components rather than iterating raw OsStr fragments: this
+    // strips Windows path prefixes (`C:`, `\\?\…`) and root separators
+    // alongside Unix `/` and `./`, so `output_path.join(filename)` does
+    // not get overridden by an absolute input filename.
     let mut cleaned = PathBuf::new();
-    for component in path {
-        let Some(s) = component.to_str() else {
-            eprintln!(
-                "Warning: non-UTF-8 path component dropped from output path: {}",
-                path.display()
-            );
-            continue;
-        };
-        cleaned.push(if s == ".." { "." } else { s });
+    for component in path.components() {
+        match component {
+            Component::Prefix(_) | Component::RootDir | Component::CurDir => {}
+            // Keep files inside the output folder.
+            Component::ParentDir => cleaned.push("."),
+            Component::Normal(s) => {
+                let Some(s) = s.to_str() else {
+                    eprintln!(
+                        "Warning: non-UTF-8 path component dropped from output path: {}",
+                        path.display()
+                    );
+                    continue;
+                };
+                cleaned.push(s);
+            }
+        }
     }
 
-    // Append the extension and build the final path
     let mut filename = cleaned.into_os_string();
     filename.push(extension);
     output_path.join(filename)
