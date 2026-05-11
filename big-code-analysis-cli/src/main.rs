@@ -1,3 +1,9 @@
+#![allow(
+    clippy::too_many_lines,
+    clippy::struct_excessive_bools,
+    clippy::similar_names,
+    clippy::needless_pass_by_value
+)]
 #![allow(missing_docs)]
 mod format_util;
 mod formats;

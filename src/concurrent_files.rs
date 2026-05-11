@@ -1,3 +1,5 @@
+#![allow(clippy::needless_pass_by_value)]
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -274,5 +276,60 @@ impl<Config: 'static + Send + Sync> ConcurrentRunner<Config> {
         }
 
         all_files
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::Builder;
+    use walkdir::WalkDir;
+
+    // `tempfile::TempDir::new()` uses a default `.tmp` prefix, which
+    // would itself trip `is_hidden` and filter the entire fixture out.
+    // The tests below use `Builder::new().prefix("visible-")` to land
+    // on a non-hidden root.
+    fn make_visible_tempdir() -> tempfile::TempDir {
+        Builder::new().prefix("visible-").tempdir().unwrap()
+    }
+
+    /// Returns the visited `DirEntry` filenames for a directory tree,
+    /// applying the same `filter_entry(is_hidden)` gate used by
+    /// `explore`.
+    fn walk_skipping_hidden(dir: &Path) -> Vec<String> {
+        WalkDir::new(dir)
+            .into_iter()
+            .filter_entry(|e| !is_hidden(e))
+            .filter_map(Result::ok)
+            .filter_map(|e| e.file_name().to_str().map(str::to_owned))
+            .collect()
+    }
+
+    #[test]
+    fn is_hidden_skips_dotfiles_and_keeps_regular_files() {
+        let dir = make_visible_tempdir();
+        std::fs::write(dir.path().join("keep.rs"), "// kept\n").unwrap();
+        std::fs::write(dir.path().join(".env"), "secret=1\n").unwrap();
+        std::fs::write(dir.path().join(".gitignore"), "target/\n").unwrap();
+
+        let visited = walk_skipping_hidden(dir.path());
+        assert!(visited.iter().any(|n| n == "keep.rs"));
+        assert!(!visited.iter().any(|n| n == ".env"));
+        assert!(!visited.iter().any(|n| n == ".gitignore"));
+    }
+
+    #[test]
+    fn is_hidden_prunes_hidden_directories_recursively() {
+        let dir = make_visible_tempdir();
+        let hidden_dir = dir.path().join(".hidden");
+        std::fs::create_dir(&hidden_dir).unwrap();
+        std::fs::write(hidden_dir.join("inside.rs"), "// inside hidden\n").unwrap();
+        std::fs::write(dir.path().join("visible.rs"), "// visible\n").unwrap();
+
+        let visited = walk_skipping_hidden(dir.path());
+        // The hidden directory and everything inside it must be pruned.
+        assert!(visited.iter().any(|n| n == "visible.rs"));
+        assert!(!visited.iter().any(|n| n == ".hidden"));
+        assert!(!visited.iter().any(|n| n == "inside.rs"));
     }
 }

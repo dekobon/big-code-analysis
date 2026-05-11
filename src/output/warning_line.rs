@@ -22,6 +22,8 @@
 //! produces empty output (zero bytes), not a blank line. Offenders
 //! whose path is not valid UTF-8 are skipped with a warning to stderr.
 
+#![allow(clippy::doc_markdown)]
+
 use std::io::{self, Write};
 
 use crate::output::offenders::{OffenderRecord, TOOL_ID, warn_non_utf8_path};

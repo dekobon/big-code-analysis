@@ -4,7 +4,7 @@
 // variants per arm and obscure the per-language token sets that are the
 // point of these files. Allowed at the module level rather than per
 // function so the per-language impl blocks stay readable.
-#![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
+#![allow(clippy::enum_glob_use, clippy::if_not_else, clippy::wildcard_imports)]
 
 use std::io::{self, Write};
 use std::path::PathBuf;

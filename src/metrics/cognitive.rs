@@ -5,9 +5,10 @@
 // point of these files. Allowed at the module level rather than per
 // function so the per-language impl blocks stay readable.
 #![allow(
-    clippy::wildcard_imports,
     clippy::enum_glob_use,
-    clippy::match_same_arms
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::wildcard_imports
 )]
 // Metric counts (token, function, branch, argument, etc.) are stored as
 // `usize` and crossed with `f64` averages, ratios, and Halstead scores

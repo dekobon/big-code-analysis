@@ -4,7 +4,12 @@
 // variants per arm and obscure the per-language token sets that are the
 // point of these files. Allowed at the module level rather than per
 // function so the per-language impl blocks stay readable.
-#![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
+#![allow(
+    clippy::enum_glob_use,
+    clippy::if_not_else,
+    clippy::too_many_lines,
+    clippy::wildcard_imports
+)]
 
 use std::collections::{HashMap, HashSet, hash_map};
 use std::path::{Path, PathBuf};
@@ -81,9 +86,14 @@ pub fn get_macros<S: ::std::hash::BuildHasher>(
 ///
 /// # Panics
 ///
-/// Panics if the graph carries a node weight without a corresponding
-/// `nodes` map entry — both maps are built in lockstep so this is a
-/// load-bearing invariant rather than a recoverable condition.
+/// Panics if any of the lockstep invariants between the include graph
+/// `g`, the `nodes` map, and the `scc_map` is violated at runtime —
+/// specifically: an SCC component node missing from the graph, a graph
+/// node weight without a `nodes` map entry, a DFS-visited node without
+/// a stored weight, or an empty-path replacement node without a
+/// `scc_map` entry. These data structures are built in lockstep by
+/// this function, so all four conditions represent unrecoverable
+/// programmer errors rather than reachable input failures.
 pub fn fix_includes<S: ::std::hash::BuildHasher>(
     files: &mut HashMap<PathBuf, PreprocFile, S>,
     all_files: &HashMap<String, Vec<PathBuf>, S>,
@@ -172,7 +182,10 @@ pub fn fix_includes<S: ::std::hash::BuildHasher>(
 
             eprintln!("Warning: possible include cycle:");
             for p in &paths {
-                eprintln!("  - {p:?}");
+                // Explicit quotes preserve whitespace visibility for
+                // paths that contain spaces — important when the cycle
+                // warning is the only signal a user gets.
+                eprintln!("  - \"{p}\"");
             }
             eprintln!();
 

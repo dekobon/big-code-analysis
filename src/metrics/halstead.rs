@@ -4,7 +4,14 @@
 // variants per arm and obscure the per-language token sets that are the
 // point of these files. Allowed at the module level rather than per
 // function so the per-language impl blocks stay readable.
-#![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
+#![allow(
+    clippy::doc_markdown,
+    clippy::enum_glob_use,
+    clippy::match_wildcard_for_single_variants,
+    clippy::similar_names,
+    clippy::unused_self,
+    clippy::wildcard_imports
+)]
 // Metric counts (token, function, branch, argument, etc.) are stored as
 // `usize` and crossed with `f64` averages, ratios, and Halstead scores
 // across the cyclomatic / MI / Halstead computations. The `usize as f64`

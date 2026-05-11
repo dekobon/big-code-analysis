@@ -5,9 +5,11 @@
 // site is bounded by the count it came from. Allowing the lints at the
 // module level keeps the metric arithmetic legible.
 #![allow(
-    clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
-    clippy::cast_sign_loss
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::similar_names,
+    clippy::too_many_lines
 )]
 
 use std::collections::BTreeMap;
