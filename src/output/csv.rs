@@ -255,7 +255,6 @@ fn csv_err(e: csv::Error) -> io::Error {
 mod tests {
     use super::*;
     use crate::spaces::{CodeMetrics, SpaceKind};
-    use std::path::PathBuf;
 
     fn empty_space(name: &str, kind: SpaceKind, start: usize, end: usize) -> FuncSpace {
         FuncSpace {
@@ -345,6 +344,7 @@ d""#
         {
             use std::ffi::OsStr;
             use std::os::unix::ffi::OsStrExt;
+            use std::path::PathBuf;
 
             let bad = PathBuf::from(OsStr::from_bytes(b"\xff\xfe.rs"));
             let space = empty_space("root", SpaceKind::Unit, 1, 1);
