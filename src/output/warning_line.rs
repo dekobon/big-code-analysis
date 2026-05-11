@@ -300,6 +300,11 @@ mod tests {
         insta::assert_snapshot!("msvc_warning_empty", render_msvc(&[]));
     }
 
+    // The committed snapshot pins forward-slash separators. On Windows
+    // `render_msvc` renders backslashes (verified by
+    // `msvc_path_uses_backslashes_on_windows`), so gate the multi-offender
+    // snapshot to non-Windows.
+    #[cfg(not(windows))]
     #[test]
     fn msvc_multi_snapshot() {
         let mut err = rec("src/zeta.rs", "cognitive", 30.0, 15.0);
