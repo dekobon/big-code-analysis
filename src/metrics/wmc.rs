@@ -135,58 +135,49 @@ where
     fn compute(space_kind: SpaceKind, cyclomatic: &cyclomatic::Stats, stats: &mut Stats);
 }
 
+// Shared WMC compute for languages with class / interface / function /
+// unit space kinds (Java, C#, Kotlin). Records the space kind once and,
+// for function spaces, captures the cyclomatic sum so the aggregator can
+// roll it into the enclosing class / interface.
+fn class_interface_compute(
+    space_kind: SpaceKind,
+    cyclomatic: &cyclomatic::Stats,
+    stats: &mut Stats,
+) {
+    use SpaceKind::*;
+
+    if let Unit | Class | Interface | Function = space_kind {
+        if stats.space_kind == Unknown {
+            stats.space_kind = space_kind;
+        }
+        if space_kind == Function {
+            stats.cyclomatic = cyclomatic.cyclomatic_sum();
+        }
+    }
+}
+
 impl Wmc for JavaCode {
     fn compute(space_kind: SpaceKind, cyclomatic: &cyclomatic::Stats, stats: &mut Stats) {
-        use SpaceKind::*;
-
-        if let Unit | Class | Interface | Function = space_kind {
-            if stats.space_kind == Unknown {
-                stats.space_kind = space_kind;
-            }
-            if space_kind == Function {
-                // Saves the cyclomatic complexity of the method
-                stats.cyclomatic = cyclomatic.cyclomatic_sum();
-            }
-        }
+        class_interface_compute(space_kind, cyclomatic, stats);
     }
 }
 
 impl Wmc for CsharpCode {
     fn compute(space_kind: SpaceKind, cyclomatic: &cyclomatic::Stats, stats: &mut Stats) {
-        use SpaceKind::*;
-
-        if let Unit | Class | Interface | Function = space_kind {
-            if stats.space_kind == Unknown {
-                stats.space_kind = space_kind;
-            }
-            if space_kind == Function {
-                stats.cyclomatic = cyclomatic.cyclomatic_sum();
-            }
-        }
+        class_interface_compute(space_kind, cyclomatic, stats);
     }
 }
 
+// Kotlin's `class_declaration` becomes either `Class` or `Interface` via
+// `Getter::get_space_kind` (the keyword child disambiguates). `object`
+// singletons map to `Class`. Function spaces (top-level `fun`, member
+// `fun`, secondary constructors, lambdas, anonymous functions) contribute
+// their cyclomatic to the enclosing class / interface. `companion_object`
+// is not a `func_space`, so its members fold into the surrounding class —
+// matching Kotlin's "static members" semantics.
 impl Wmc for KotlinCode {
     fn compute(space_kind: SpaceKind, cyclomatic: &cyclomatic::Stats, stats: &mut Stats) {
-        use SpaceKind::*;
-
-        // Kotlin's `class_declaration` becomes either `Class` or `Interface`
-        // via `Getter::get_space_kind` (the keyword child disambiguates).
-        // `object` singletons map to `Class`. Function spaces (top-level
-        // `fun`, member `fun`, secondary constructors, lambdas, anonymous
-        // functions) all contribute their cyclomatic to the enclosing
-        // class / interface. `companion_object` is not a `func_space`, so
-        // its members are aggregated into the surrounding class — matching
-        // Kotlin's semantics where companion methods are static members of
-        // the enclosing class.
-        if let Unit | Class | Interface | Function = space_kind {
-            if stats.space_kind == Unknown {
-                stats.space_kind = space_kind;
-            }
-            if space_kind == Function {
-                stats.cyclomatic = cyclomatic.cyclomatic_sum();
-            }
-        }
+        class_interface_compute(space_kind, cyclomatic, stats);
     }
 }
 
