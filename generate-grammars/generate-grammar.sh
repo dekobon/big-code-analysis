@@ -5,7 +5,7 @@
 # Usage: ./generate-grammars/generate-grammar.sh GRAMMAR_NAME
 
 # Enter grammar directory
-pushd $1
+pushd "$1" || exit
 
 # Install dependencies
 npm install --include=dev
@@ -17,7 +17,7 @@ npm install --include=dev
 rm -rf node_modules
 
 # Exit grammar directory
-popd
+popd || exit
 
 # Recreate grammars
 ./recreate-grammars.sh
