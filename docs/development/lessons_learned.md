@@ -763,3 +763,69 @@ extras are also in scope and should land in the same commit so
 `make shellcheck` actually exits clean afterward.
 
 ---
+
+## 17. Workspace-excluded codegen templates re-introduce cleaned-up patterns
+
+The `enums/` crate is `[workspace].exclude`d (lesson 15), but it
+*emits* code into the workspace via `enums/templates/rust.rs` — the
+output lands in the per-language `src/languages/language_*.rs`
+files. A lint cleanup that rewrites the emitted output without
+also rewriting the template is silent until the next
+`recreate-grammars.sh` run, at which point every fix is reverted
+in a single regenerate.
+
+**Issue #158 batch 1 (`f661c1c`)** rewrote ~254 `#[inline(always)]`
+attributes to `#[inline]` across all language modules. Three of
+those attribute strings live in `enums/templates/rust.rs`
+(`impl From<u16>`, `impl PartialEq<u16>`, etc.) and would have been
+re-emitted as `#[inline(always)]` on the next grammar bump,
+silently undoing the workspace cleanup. The fix included
+`enums/templates/rust.rs` in the rewrite even though it is in an
+excluded crate, because the *output* of that template is what the
+workspace clippy gate scans.
+
+**Lesson:** When a cleanup pass touches code under `src/languages/`,
+`src/`, or any other workspace-scanned directory, also grep
+`enums/templates/`, `generate-grammars/`, and any other codegen
+input for the pattern you are removing. Workspace exclusion
+protects the *template crate* from the workspace gate, not the
+*emitted code*. Generated artifacts are downstream of their
+template; the template owns the long-term posture. A clippy
+cleanup that ignores the template buys exactly one regeneration
+cycle before the lint debt comes back.
+
+---
+
+## 18. `cargo clippy --fix` is one lint at a time; cross-lint regressions hide between passes
+
+`cargo clippy --fix -- -A clippy::all -W clippy::implicit_clone`
+runs the borrow checker once, applies the suggested rewrite for
+the warned lint, and exits. It does not re-run the full default
+clippy lint set against the rewritten code. That means an
+auto-applied fix can satisfy the targeted lint while introducing
+a *different* lint that the project's `-D warnings` gate cares
+about.
+
+**Issue #158 batch 1 (`401ed06`)** ran `cargo clippy --fix -W
+clippy::implicit_clone` over a `path_min.drain(..).map(|p|
+p.to_path_buf()).collect()` site in `guess_file`. The auto-fix
+rewrote `.to_path_buf()` → `.clone()`, satisfying
+`implicit_clone`. On the next workspace clippy run, however,
+`clippy::map_clone` (a default-feature lint) fired on the same
+line because `.map(|p| p.clone())` is now redundant with
+`.cloned()`. The `--all-features` gate (which was the only one
+re-run after the auto-fix pass) didn't surface this because
+`map_clone` is default-feature scoped on the version of clippy in
+use. The default-features `-D warnings` run on the next CI tick
+would have failed the build.
+
+**Lesson:** After every `cargo clippy --fix` pass — especially
+when the `-W <single lint>` flag is used to scope the rewrite —
+re-run the full project lint gate in both `--all-features` and
+default-features flavours before committing. `cargo clippy
+--workspace --all-targets -- -D warnings` is the load-bearing
+verification, not the targeted lint check that `--fix` itself
+does. Treat `--fix` as a *proposal generator*, not a
+verification.
+
+---
