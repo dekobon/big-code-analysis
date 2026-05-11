@@ -150,8 +150,8 @@ generated lookups update automatically.
   resolver, which then falls back to `guess_language` — the file is
   skipped only if auto-detection also fails. See
   [`big-code-analysis-cli/src/main.rs`](../big-code-analysis-cli/src/main.rs).
-- **REST (`bca-web`)** — every endpoint that takes a path
-  + buffer calls `guess_language` to resolve the language before
+- **REST (`bca-web`)** — every endpoint that takes a path plus
+  buffer calls `guess_language` to resolve the language before
   dispatching to a parser.
 - **Tests** — `tests/common/mod.rs` falls back to `guess_language` when
   the test harness cannot infer the language another way.

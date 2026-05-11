@@ -4,7 +4,7 @@
 [![Task Status](https://community-tc.services.mozilla.com/api/github/v1/repository/dekobon/big-code-analysis/master/badge.svg)](https://community-tc.services.mozilla.com/api/github/v1/repository/dekobon/big-code-analysis/master/latest)
 [![codecov](https://codecov.io/gh/dekobon/big-code-analysis/branch/master/graph/badge.svg)](https://codecov.io/gh/dekobon/big-code-analysis)
 <a href="https://chat.mozilla.org/#/room/#big-code-analysis:mozilla.org" target="_blank">
-   <img src="https://img.shields.io/badge/chat%20on%20[m]-%23rust--code--analysis%3Amozilla.org-blue">
+   <img alt="Chat on Matrix" src="https://img.shields.io/badge/chat%20on%20[m]-%23rust--code--analysis%3Amozilla.org-blue">
 </a>
 
 **big-code-analysis** is a hard fork of the [rust-code-analysis](https://github.com/mozilla/rust-code-analysis) project.
@@ -27,7 +27,7 @@ This tool can be used to:
 
 In addition, we provide a **bca-web** tool to use the library through a REST API.
 
-# Usage
+## Usage
 
 **big-code-analysis** supports many types of programming languages and
 computes a great variety of metrics. You can find up to date documentation at
@@ -91,13 +91,13 @@ Have a look at
 <a href="https://dekobon.github.io/big-code-analysis/developers/update-grammars.html" target="_blank">Update grammars guide</a>
 to learn how to update languages grammars.
 
-# Contributing
+## Contributing
 
 If you want to contribute to the development of this software, have a look at the
 guidelines contained in our
 <a href="https://dekobon.github.io/big-code-analysis/developers/index.html" target="_blank">Developers Guide</a>.
 
-# Licenses
+## Licenses
 
 - Mozilla-defined grammars are released under the MIT license.
 

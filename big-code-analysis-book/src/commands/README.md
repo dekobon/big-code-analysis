@@ -1,6 +1,9 @@
 # Commands
 
-**bca** offers a range of **commands** to analyze and extract information from source code. Each command **may** include parameters specific to the task it performs. Below, we describe the core types of commands available in **bca**.
+**bca** offers a range of **commands** to analyze and extract
+information from source code. Each command **may** include parameters
+specific to the task it performs. Below, we describe the core types
+of commands available in **bca**.
 
 ## Metrics
 
@@ -32,7 +35,9 @@ Nodes can be used to:
 
 ## REST API
 
-**bca-web** runs a server offering a REST API. This allows users to send source code via HTTP and receive corresponding metrics in `JSON` format.
+**bca-web** runs a server offering a REST API. This allows users to
+send source code via HTTP and receive corresponding metrics in `JSON`
+format.
 
 ## Skipping generated code
 

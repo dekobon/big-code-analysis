@@ -21,7 +21,6 @@ On our
 you can find the `Linux` and `Windows` binaries already compiled and
 packed for you.
 
-
 ## API docs
 
 If you prefer to use **big-code-analysis** as a crate, you can find the

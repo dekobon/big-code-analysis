@@ -5,7 +5,12 @@
   // of repeating `### Added` / `### Changed` etc. across version
   // sections. MD013 line-length is widened to 120 to match the project's
   // editorconfig; tables and code blocks are exempt because their layout
-  // is dictated by content, not rewrap-friendly prose.
+  // is dictated by content, not rewrap-friendly prose. MD033 allows a
+  // small set of inline HTML elements that render meaningfully on
+  // GitHub / mdBook (badges, anchor blocks, line breaks, collapsible
+  // sections). MD060 (table-column-style) is disabled — our tables are
+  // content-driven and the bot-aligned style would force noisy padding
+  // edits on every column-width change.
   "config": {
     "MD013": {
       "line_length": 120,
@@ -14,7 +19,20 @@
     },
     "MD024": {
       "siblings_only": true
-    }
+    },
+    "MD033": {
+      // Inline HTML elements that GitHub / mdBook render meaningfully and
+      // have no clean markdown equivalent. Keep this list narrow: if you
+      // reach for <kbd>, <sub>, <sup>, <em>, etc., prefer the markdown
+      // equivalent (`**`, `*`, …) and don't extend the allowlist.
+      //   a       — anchored links with id= / target="_blank"
+      //   img     — README badges and inline diagrams
+      //   br      — hard line breaks inside table cells
+      //   details — collapsible sections in long READMEs
+      //   summary — header row of a <details> block
+      "allowed_elements": ["a", "img", "br", "details", "summary"]
+    },
+    "MD060": false
   },
   "ignores": [
     "target/**",
