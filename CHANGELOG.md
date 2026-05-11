@@ -68,6 +68,22 @@ changes are marked with **(breaking)** in the entries below.
   cannot inherit, so it keeps literal pins with a lockstep-update
   comment in both manifests
   ([#159](https://github.com/dekobon/big-code-analysis/issues/159)).
+- Promoted the workspace-excluded `enums` crate's CI gate from
+  `cargo check` to `cargo clippy --all-targets --locked -- -D warnings`,
+  fixing three pre-existing `clippy::manual_is_ascii_check` sites in
+  `enums/src/common.rs` (replaced range-based ASCII checks with
+  `c.is_ascii_lowercase()` / `is_ascii_uppercase()` / `is_ascii_digit()`).
+  The gate now enforces the same lint floor as the workspace
+  ([#166](https://github.com/dekobon/big-code-analysis/issues/166)).
+- Rewrote `.github/dependabot.yml`: added a `github-actions` ecosystem
+  entry (grouped, weekly, `ci:` commit prefix) so SHA-pinned action
+  bumps auto-update; standardised cargo entries on `deps:` prefix and
+  added `version-update:semver-major` ignore rules so MSRV-bumping
+  deps no longer auto-merge; trimmed `open-pull-requests-limit` from
+  99 to 5 for the five vendored grammar directories and `/enums`
+  (kept 99 for `/`); added a previously-missing cargo entry for
+  `/tree-sitter-tcl`
+  ([#154](https://github.com/dekobon/big-code-analysis/issues/154)).
 
 ### Added
 
@@ -116,6 +132,11 @@ changes are marked with **(breaking)** in the entries below.
   drifts silently — the gate would have caught the `unused_imports`
   warning that motivated #162
   ([#164](https://github.com/dekobon/big-code-analysis/issues/164)).
+- CodeQL scanning workflow (`.github/workflows/codeql.yml`) covering
+  Rust, Python, and GitHub Actions on push to `main`, PRs to `main`,
+  and a weekly Monday 06:23 UTC cron. All `uses:` are pinned to commit
+  SHAs and job permissions follow least-privilege
+  ([#153](https://github.com/dekobon/big-code-analysis/issues/153)).
 
 ### Fixed
 
