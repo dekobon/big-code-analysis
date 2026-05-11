@@ -2099,8 +2099,8 @@ mod tests {
         // `CppCode::compute` does not currently match on `ConditionalExpression`,
         // so the operator is silently free. The single `if` is the only source
         // of cognitive cost here.
-        // FIXME: track adding `ConditionalExpression` to the C/C++ cognitive
-        // dispatch so ternaries cost the same as other languages (#167).
+        // FIXME(#172): add `ConditionalExpression` to the C/C++ cognitive
+        // dispatch so ternaries cost the same as other languages.
         check_metrics::<CppParser>(
             "int f(int a) {
                  if (a) { // +1
@@ -2225,8 +2225,8 @@ mod tests {
         // C++11 range-based `for (auto x : v)` parses as `for_range_loop`, which
         // is NOT in the `CppCode::compute` match arm — only the classic
         // `for_statement` is. As with ternary, the range-for is currently free.
-        // FIXME: extend the C/C++ cognitive dispatch to include
-        // `ForRangeLoop` (#167).
+        // FIXME(#173): extend the C/C++ cognitive dispatch to include
+        // `ForRangeLoop`.
         check_metrics::<CppParser>(
             "int sum(const std::vector<int>& v) {
                  int s = 0;
