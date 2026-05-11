@@ -50,5 +50,15 @@ repos:
         entry: python3 check-snapshot-anchors.py
         pass_filenames: false
 
+      # The `enums/` crate is workspace-excluded, so the workspace
+      # clippy/test hooks above never touch it. Add a dedicated check
+      # so warnings here cannot drift (see #164).
+      - id: enums-check
+        name: enums-check
+        language: system
+        files: '^enums/.*\.(rs|toml|lock)$'
+        entry: make enums-check
+        pass_filenames: false
+
 default_language_version:
     python: python3

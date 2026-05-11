@@ -42,7 +42,7 @@ FIND_EXCLUDE   := $(foreach dir,$(EXCLUDE_DIRS),! -path './$(dir)/*')
 # warnings on `$(2)`, e.g. $(call find-by-ext,md,).
 find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name "*.$(1)" -type f $(FIND_EXCLUDE))
 
-.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check snapshot-anchors lint clippy udeps insta-review insta-accept clean install install-cli install-web doc doc-open book book-serve all pre-commit ci _check-find _pc-fmt _pc-clippy _pc-test _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-snapshot-anchors _ci-fmt-check _ci-clippy _ci-test _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-snapshot-anchors _ci-cargo-pipeline
+.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check snapshot-anchors enums-check lint clippy udeps insta-review insta-accept clean install install-cli install-web doc doc-open book book-serve all pre-commit ci _check-find _pc-fmt _pc-clippy _pc-test _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-snapshot-anchors _pc-enums-check _ci-fmt-check _ci-clippy _ci-test _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-snapshot-anchors _ci-enums-check _ci-cargo-pipeline
 
 # Default target
 help:
@@ -79,6 +79,7 @@ help:
 	@echo "  toml-lint                            Lint TOML files with taplo"
 	@echo "  makefile-check                       Lint Makefile with checkmake"
 	@echo "  snapshot-anchors                     Block new bare insta snapshots"
+	@echo "  enums-check                          cargo check on workspace-excluded enums crate"
 	@echo "  lint                                 Run all linters"
 	@echo ""
 	@echo "Maintenance:"
@@ -200,6 +201,29 @@ snapshot-anchors:
 	@echo "Checking insta snapshot anchors..."
 	@python3 $(BASE_DIR)check-snapshot-anchors.py
 
+# The `enums/` crate is listed in `[workspace].exclude` (it ships a
+# non-published codegen binary used only by `recreate-grammars.sh`), so
+# it is invisible to `cargo {check,clippy,test} --workspace` and to the
+# `lint` / `test` CI jobs. Without an explicit gate, lint regressions in
+# `enums/src/*.rs` drift silently — the `unused_imports` warning fixed
+# in #162 went unnoticed for that exact reason (see #164).
+#
+# RUSTFLAGS is set per-recipe (defensive): CI exports the same value at
+# workflow scope, so the recipe-local export is redundant in CI but
+# necessary locally to keep `make enums-check` behave identically
+# everywhere.
+#
+# This is intentionally `cargo check`, not `cargo clippy`: clippy
+# requires fixing 3 pre-existing `manual_is_ascii_check` sites in
+# `enums/src/common.rs` first (tracked as #166). `cargo check` already
+# catches the rustc-level warning class that motivated #164 (e.g.,
+# `unused_imports`, `dead_code`), so the gate closes that drift today.
+enums-check:
+	@echo "Checking workspace-excluded enums crate..."
+	@RUSTFLAGS="-D warnings" cargo check \
+	  --manifest-path $(BASE_DIR)enums/Cargo.toml \
+	  --all-targets --locked
+
 # ---------------------------------------------------------------------------
 # Lint aggregate
 # ---------------------------------------------------------------------------
@@ -212,18 +236,16 @@ udeps:
 	@echo "Detecting unused dependencies..."
 	@cargo +nightly udeps --workspace --all-targets
 
+# Reuse the _ci-* family so `make lint` runs the same set of gates as
+# `make ci`'s non-cargo-pipeline branch, in parallel. _ci-clippy holds
+# the workspace `target/` lock; the other lints don't use cargo at all
+# (or use a separate `target/`, in _ci-enums-check's case), so they
+# fan out safely.
 lint:
-	@$(MAKE) --no-print-directory clippy
-	@echo "Running bash script lints..."
-	@$(MAKE) --no-print-directory shellcheck
-	@echo "Running Markdown lints..."
-	@$(MAKE) --no-print-directory markdown-lint
-	@echo "Running TOML lints..."
-	@$(MAKE) --no-print-directory toml-lint
-	@echo "Running Makefile lints..."
-	@$(MAKE) --no-print-directory makefile-check
-	@echo "Running snapshot-anchor lint..."
-	@$(MAKE) --no-print-directory snapshot-anchors
+	$(MAKE) -j --output-sync=target \
+	  _ci-clippy \
+	  _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check \
+	  _ci-snapshot-anchors _ci-enums-check
 
 # ---------------------------------------------------------------------------
 # Maintenance
@@ -263,7 +285,7 @@ pre-commit:
 	$(MAKE) -j --output-sync=target \
 	  _pc-test \
 	  _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check \
-	  _pc-snapshot-anchors
+	  _pc-snapshot-anchors _pc-enums-check
 	@echo "Pre-commit checks passed"
 
 ci:
@@ -271,7 +293,7 @@ ci:
 	$(MAKE) -j --output-sync=target \
 	  _ci-cargo-pipeline \
 	  _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check \
-	  _ci-snapshot-anchors
+	  _ci-snapshot-anchors _ci-enums-check
 	@echo "CI checks passed"
 
 # ---------------------------------------------------------------------------
@@ -293,7 +315,13 @@ ci:
 #    ├── _pc-markdown-lint
 #    ├── _pc-toml-lint
 #    ├── _pc-makefile-check
-#    └── _pc-snapshot-anchors
+#    ├── _pc-snapshot-anchors
+#    └── _pc-enums-check
+#
+# _pc-enums-check runs cargo on `enums/Cargo.toml`, which has its own
+# `target/` (the crate is workspace-excluded), so it does NOT share the
+# `target/` lock with the workspace cargo chain and is safe to run in
+# parallel with _pc-clippy/_pc-test/_pc-udeps.
 #
 # Do not invoke _pc-* targets directly; use `make pre-commit`.
 # ---------------------------------------------------------------------------
@@ -326,6 +354,9 @@ _pc-makefile-check: _pc-fmt
 _pc-snapshot-anchors: _pc-fmt
 	$(MAKE) snapshot-anchors
 
+_pc-enums-check: _pc-fmt
+	$(MAKE) enums-check
+
 # ---------------------------------------------------------------------------
 # CI validation targets (no auto-formatting)
 #
@@ -338,7 +369,11 @@ _pc-snapshot-anchors: _pc-fmt
 #   2. parallel:
 #      _ci-cargo-pipeline: clippy → test → build → udeps
 #      _ci-shellcheck, _ci-markdown-lint, _ci-toml-lint, _ci-makefile-check,
-#      _ci-snapshot-anchors
+#      _ci-snapshot-anchors, _ci-enums-check
+#
+# _ci-enums-check runs on `enums/Cargo.toml`, which has its own `target/`
+# (workspace-excluded), so it does NOT share the workspace cargo lock and
+# is safe to run alongside _ci-cargo-pipeline.
 # ---------------------------------------------------------------------------
 _ci-fmt-check:
 	$(MAKE) fmt-check
@@ -371,6 +406,9 @@ _ci-makefile-check:
 
 _ci-snapshot-anchors:
 	$(MAKE) snapshot-anchors
+
+_ci-enums-check:
+	$(MAKE) enums-check
 
 # Sequential cargo pipeline for local `make ci`. udeps shares the cargo
 # target/ lock with the rest of the pipeline, so it is serialized here
