@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 mod format_util;
 mod formats;
 mod html_report;

@@ -78,6 +78,7 @@ pub struct CommentRmCfg {
     pub path: PathBuf,
 }
 
+/// Type tag identifying the comment-removal action; carries no data.
 pub struct CommentRm {
     _guard: (),
 }

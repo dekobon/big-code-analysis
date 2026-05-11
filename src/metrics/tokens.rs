@@ -146,10 +146,13 @@ impl Stats {
     }
 }
 
+/// Per-language counting of tokens.
 pub trait Tokens
 where
     Self: Checker,
 {
+    /// Walk `node` and update `stats` with this metric for the language
+    /// implementing the trait.
     fn compute(node: &Node, stats: &mut Stats) {
         if node.child_count() != 0 {
             return;

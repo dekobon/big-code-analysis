@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 #![allow(
     clippy::float_cmp,
     clippy::cast_precision_loss,

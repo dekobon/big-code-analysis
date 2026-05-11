@@ -75,6 +75,7 @@ impl Serialize for AstNode {
 }
 
 impl AstNode {
+    /// Builds an `AstNode` with the supplied type, value, span, and children.
     #[must_use]
     pub fn new(r#type: &'static str, value: String, span: Span, children: Vec<AstNode>) -> Self {
         Self {
@@ -132,6 +133,7 @@ fn build<T: ParserTrait>(parser: &T, span: bool, comment: bool) -> Option<AstNod
     }
 }
 
+/// Type tag identifying the AST extraction action; carries no data.
 pub struct AstCallback {
     _guard: (),
 }

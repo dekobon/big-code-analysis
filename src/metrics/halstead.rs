@@ -48,6 +48,9 @@ pub enum HalsteadType {
     Unknown,
 }
 
+/// Per-space operator / operand occurrence maps used to compute the
+/// Halstead `Stats` struct. One map per distinct operator (`kind_id`)
+/// and one per distinct operand (`text`); merged across nested spaces.
 #[derive(Debug, Default, Clone)]
 pub struct HalsteadMaps<'a> {
     pub(crate) operators: HashMap<u16, u64>,
@@ -305,10 +308,13 @@ impl Stats {
     }
 }
 
+/// Per-language extraction of Halstead operator/operand maps.
 pub trait Halstead
 where
     Self: Checker + Getter,
 {
+    /// Walk `node` and update `stats` with this metric for the language
+    /// implementing the trait.
     fn compute<'a>(node: &Node<'a>, code: &'a [u8], halstead_maps: &mut HalsteadMaps<'a>);
 }
 

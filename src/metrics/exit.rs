@@ -131,10 +131,13 @@ impl Stats {
     }
 }
 
+/// Per-language computation of the exit-point count.
 pub trait Exit
 where
     Self: Checker,
 {
+    /// Walk `node` and update `stats` with this metric for the language
+    /// implementing the trait.
     fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats);
 }
 

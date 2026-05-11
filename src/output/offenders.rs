@@ -44,8 +44,10 @@ pub(crate) fn warn_non_utf8_path<'a>(format: &str, path: &'a Path) -> Option<&'a
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
+    /// Soft severity: report the violation but do not fail.
     #[default]
     Warning,
+    /// Hard severity: report the violation and fail any gate keyed off it.
     Error,
 }
 

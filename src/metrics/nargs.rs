@@ -230,11 +230,14 @@ fn compute_args<T: Checker>(node: &Node, nargs: &mut usize) {
     }
 }
 
+/// Per-language counting of function arguments.
 pub trait NArgs
 where
     Self: Checker,
     Self: std::marker::Sized,
 {
+    /// Walk `node` and update `stats` with this metric for the language
+    /// implementing the trait.
     fn compute(node: &Node, stats: &mut Stats) {
         if Self::is_func(node) {
             compute_args::<Self>(node, &mut stats.fn_nargs);

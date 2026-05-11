@@ -125,10 +125,13 @@ impl Stats {
     }
 }
 
+/// Per-language computation of weighted methods per class.
 pub trait Wmc
 where
     Self: Checker,
 {
+    /// Walk `node` and update `stats` with this metric for the language
+    /// implementing the trait.
     fn compute(space_kind: SpaceKind, cyclomatic: &cyclomatic::Stats, stats: &mut Stats);
 }
 
