@@ -94,7 +94,7 @@ pub struct OffenderRecord {
 impl OffenderRecord {
     /// Default human-readable message used by formats that do not carry
     /// their own templating. `"<metric> <value> exceeds limit <limit>"`,
-    /// with values formatted via [`MessageMetric`]: integer fast-path
+    /// with values formatted via `MessageMetric`: integer fast-path
     /// for safe integers, six-decimal rounding for non-integer finites,
     /// `"NaN"` / `"inf"` / `"-inf"` for non-finite values. The Display
     /// adapter writes directly into the format buffer, so this builds
