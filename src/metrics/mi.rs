@@ -108,10 +108,13 @@ impl Stats {
     }
 }
 
+/// Per-language computation of the maintainability index.
 pub trait Mi
 where
     Self: Checker,
 {
+    /// Walk `node` and update `stats` with this metric for the language
+    /// implementing the trait.
     fn compute(
         loc: &loc::Stats,
         cyclomatic: &cyclomatic::Stats,

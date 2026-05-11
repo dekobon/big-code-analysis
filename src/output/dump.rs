@@ -180,6 +180,7 @@ pub struct DumpCfg {
     pub line_end: Option<usize>,
 }
 
+/// Type tag identifying the AST-dump action; carries no data.
 pub struct Dump {
     _guard: (),
 }

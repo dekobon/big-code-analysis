@@ -284,10 +284,13 @@ impl Stats {
     }
 }
 
+/// Per-language computation of the ABC metric.
 pub trait Abc
 where
     Self: Checker,
 {
+    /// Walk `node` and update `stats` with this metric for the language
+    /// implementing the trait.
     fn compute(node: &Node, stats: &mut Stats);
 }
 

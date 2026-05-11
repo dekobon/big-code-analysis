@@ -54,6 +54,7 @@ impl Default for Sloc {
 }
 
 impl Sloc {
+    /// The `SLOC` metric value for this space (source lines, including blanks and comments).
     #[inline]
     #[must_use]
     pub fn sloc(&self) -> f64 {
@@ -82,6 +83,7 @@ impl Sloc {
         self.sloc_max as f64
     }
 
+    /// Folds `other` into `self`, updating the min/max accumulators.
     #[inline]
     pub fn merge(&mut self, other: &Sloc) {
         self.sloc_min = self.sloc_min.min(other.sloc() as usize);
@@ -116,6 +118,7 @@ impl Default for Ploc {
 }
 
 impl Ploc {
+    /// The `PLOC` metric value for this space (physical lines of code, excluding blanks and comments).
     #[inline]
     #[must_use]
     pub fn ploc(&self) -> f64 {
@@ -138,6 +141,7 @@ impl Ploc {
         self.ploc_max as f64
     }
 
+    /// Folds `other` into `self`, unioning the line set and updating min/max.
     #[inline]
     pub fn merge(&mut self, other: &Ploc) {
         // Merge ploc lines
@@ -181,6 +185,7 @@ impl Default for Cloc {
 }
 
 impl Cloc {
+    /// The `CLOC` metric value for this space (comment lines, standalone + trailing).
     #[inline]
     #[must_use]
     pub fn cloc(&self) -> f64 {
@@ -203,6 +208,7 @@ impl Cloc {
         self.cloc_max as f64
     }
 
+    /// Folds `other` into `self`, summing comment counts and updating min/max.
     #[inline]
     pub fn merge(&mut self, other: &Cloc) {
         // Merge cloc lines
@@ -241,6 +247,7 @@ impl Default for Lloc {
 }
 
 impl Lloc {
+    /// The `LLOC` metric value for this space (logical statements).
     #[inline]
     #[must_use]
     pub fn lloc(&self) -> f64 {
@@ -263,6 +270,7 @@ impl Lloc {
         self.lloc_max as f64
     }
 
+    /// Folds `other` into `self`, summing statement counts and updating min/max.
     #[inline]
     pub fn merge(&mut self, other: &Lloc) {
         // Merge lloc lines
@@ -562,10 +570,13 @@ impl Stats {
     }
 }
 
+/// Per-language computation of the lines-of-code metrics.
 pub trait Loc
 where
     Self: Checker,
 {
+    /// Walk `node` and update `stats` with this metric for the language
+    /// implementing the trait.
     fn compute(node: &Node, stats: &mut Stats, is_func_space: bool, is_unit: bool);
 }
 

@@ -34,6 +34,12 @@ use crate::node::{Node, Tree};
 use crate::preproc::{PreprocResults, get_macros};
 use crate::traits::*;
 
+/// Parsed source plus the tree-sitter `Tree` for a given language `T`.
+///
+/// Construct with [`Parser::new`] and feed the result into the metric,
+/// alterator, or AST-dump entry points. The type parameter `T` is one
+/// of the language code tags (`RustCode`, `PythonCode`, etc.) declared
+/// by [`mk_code!`].
 #[derive(Debug)]
 pub struct Parser<
     T: LanguageInfo
@@ -61,11 +67,14 @@ pub struct Parser<
 
 type FilterFn = dyn Fn(&Node) -> bool;
 
+/// Collection of node-matching predicates used by the AST-walking
+/// metric and dump routines to decide whether to visit a node.
 pub struct Filter {
     filters: Vec<Box<FilterFn>>,
 }
 
 impl Filter {
+    /// Returns `true` if *any* of the configured predicates matches `node`.
     #[must_use]
     pub fn any(&self, node: &Node) -> bool {
         for f in self.filters.iter() {
@@ -76,6 +85,7 @@ impl Filter {
         false
     }
 
+    /// Returns `true` if *every* configured predicate matches `node`.
     #[must_use]
     pub fn all(&self, node: &Node) -> bool {
         for f in self.filters.iter() {

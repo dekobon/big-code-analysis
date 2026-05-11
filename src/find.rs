@@ -65,6 +65,7 @@ pub struct FindCfg {
     pub line_end: Option<usize>,
 }
 
+/// Type tag identifying the node-find action; carries no data.
 pub struct Find {
     _guard: (),
 }

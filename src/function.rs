@@ -127,6 +127,7 @@ pub struct FunctionCfg {
     pub path: PathBuf,
 }
 
+/// Type tag identifying the function-extraction action; carries no data.
 pub struct Function {
     _guard: (),
 }

@@ -93,6 +93,7 @@ pub struct CodeMetrics {
     pub nargs: nargs::Stats,
     /// `NExits` data
     pub nexits: exit::Stats,
+    /// `Cognitive` data
     pub cognitive: cognitive::Stats,
     /// `Cyclomatic` data
     pub cyclomatic: cyclomatic::Stats,
@@ -134,6 +135,8 @@ impl fmt::Display for CodeMetrics {
 }
 
 impl CodeMetrics {
+    /// Sum each metric component from `other` into `self` in place. Used to
+    /// roll nested function-space metrics into their parent space.
     pub fn merge(&mut self, other: &CodeMetrics) {
         self.cognitive.merge(&other.cognitive);
         self.cyclomatic.merge(&other.cyclomatic);
@@ -447,6 +450,7 @@ pub struct MetricsCfg {
     pub path: PathBuf,
 }
 
+/// Type tag identifying the metric-computation action; carries no data.
 pub struct Metrics {
     _guard: (),
 }

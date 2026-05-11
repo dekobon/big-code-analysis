@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 mod common;
 
 use common::compare_rca_output_with_files;

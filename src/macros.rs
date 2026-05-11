@@ -295,6 +295,7 @@ macro_rules! mk_emacs_mode {
 macro_rules! mk_code {
     ( $( ($camel:ident, $code:ident, $parser:ident, $name:ident, $docname:expr) ),* ) => {
         $(
+            #[doc = concat!("Per-language code type tag for ", $docname, "; carries no data.")]
             pub struct $code { _guard: (), }
 
             impl LanguageInfo for $code {

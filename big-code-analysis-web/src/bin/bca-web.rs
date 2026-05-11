@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 use std::thread::available_parallelism;
 
 use clap::Parser;

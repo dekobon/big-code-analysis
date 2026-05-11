@@ -255,6 +255,7 @@ pub struct OpsCfg {
     pub path: PathBuf,
 }
 
+/// Type tag identifying the operator/operand extraction action; carries no data.
 pub struct OpsCode {
     _guard: (),
 }
