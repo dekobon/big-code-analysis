@@ -87,6 +87,34 @@ changes are marked with **(breaking)** in the entries below.
 
 ### Added
 
+- Full binary-release pipeline (`.github/workflows/release.yml`) plus
+  packaging skeletons under `packaging/`. Tagging `vX.Y.Z` on `main`
+  runs preflight (tag/CHANGELOG/version-parity gates), builds release
+  binaries for 8 platforms (x86_64/aarch64 across linux-gnu,
+  linux-musl, freebsd, darwin, windows-msvc), assembles archives
+  containing both `bca` and `bca-web` alongside `README.md`,
+  `LICENSE`, `CHANGELOG.md`, and per-binary
+  `THIRD-PARTY-LICENSES-bca.md` / `THIRD-PARTY-LICENSES-bca-web.md`
+  (the two binaries have non-overlapping direct deps — clap/ignore
+  vs actix-web/tokio/futures — so a single shared notices file would
+  under-attribute one side), builds
+  two `.deb`/`.rpm`/`.apk`/FreeBSD-pkg artefacts per arch (one each
+  for the CLI and web crates), smoke-installs every package across
+  Ubuntu 22.04/24.04, Debian 12, Rocky 9, Fedora, Amazon 2023,
+  Alpine 3.20, FreeBSD 14, macOS, and Windows, then signs +
+  attests + uploads them. CycloneDX SBOMs and SHA256SUMS are
+  minisign-signed and SLSA-build-provenance-attested. A
+  `publish-crates` job (Trusted Publishing via OIDC, order
+  `big-code-analysis` → `-cli` → `-web`) and the Homebrew tap /
+  Scoop bucket pushes are gated by repo vars
+  (`ENABLE_CRATES_PUBLISH`, `ENABLE_HOMEBREW_TAP`,
+  `ENABLE_SCOOP_BUCKET`) so the binary pipeline can ship today
+  while the vendored-grammar publish strategy is still deferred
+  (see [#149](https://github.com/dekobon/big-code-analysis/issues/149)).
+  `Makefile` gains `release-check`, `verify-changelog`,
+  `pkg-deb-local`, `pkg-rpm-local` targets to surface preflight
+  drift before tagging
+  ([#155](https://github.com/dekobon/big-code-analysis/issues/155)).
 - `#[must_use]` on 157 public accessor methods flagged by
   `clippy::must_use_candidate` — the per-metric getter families
   under `src/metrics/` (loc, abc, halstead, npa, npm, nom, nargs,

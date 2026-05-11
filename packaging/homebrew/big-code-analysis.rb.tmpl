@@ -1,0 +1,40 @@
+# typed: false
+# frozen_string_literal: true
+
+# Rendered by .github/workflows/release.yml on each v* tag.
+# Tokens substituted: @@VERSION@@, @@SHA256_AARCH64@@.
+class BigCodeAnalysis < Formula
+  desc "Compute maintainability metrics for source code in many languages"
+  homepage "https://github.com/dekobon/big-code-analysis"
+  version "@@VERSION@@"
+  license "MPL-2.0"
+
+  # Apple-silicon-only. Intel Macs install via `cargo install
+  # big-code-analysis-cli` / `cargo install big-code-analysis-web`
+  # or run the aarch64 build under Rosetta 2. GitHub's macos-13
+  # runner pool was too oversubscribed to justify keeping Intel in
+  # the release matrix.
+  on_macos do
+    on_arm do
+      url "https://github.com/dekobon/big-code-analysis/releases/download/v#{version}/big-code-analysis-#{version}-aarch64-apple-darwin.tar.gz"
+      sha256 "@@SHA256_AARCH64@@"
+    end
+  end
+
+  def install
+    bin.install "bca"
+    bin.install "bca-web"
+    # Per-binary TPL — bca and bca-web have non-overlapping direct
+    # deps (clap/ignore vs actix-web/tokio/futures), so we ship two
+    # notices files rather than a merged one that would
+    # under-attribute one side.
+    doc.install "README.md", "LICENSE", "CHANGELOG.md",
+                "THIRD-PARTY-LICENSES-bca.md",
+                "THIRD-PARTY-LICENSES-bca-web.md"
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/bca --version")
+    assert_match version.to_s, shell_output("#{bin}/bca-web --version")
+  end
+end

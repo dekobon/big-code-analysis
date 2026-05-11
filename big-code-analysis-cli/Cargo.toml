@@ -35,3 +35,73 @@ jsonschema = "^0.46"
 predicates = "^3.0"
 quick-xml = "^0.39"
 tempfile = "^3.0"
+
+# Debian/Ubuntu packaging — consumed by `cargo deb` in release CI.
+# The binary asset path `target/release/bca` is rewritten by cargo-deb
+# to `target/<triple>/release/bca` when `--target` is passed; all other
+# asset source paths are resolved relative to this crate's Cargo.toml.
+# `name` is intentionally omitted — cargo-deb defaults the deb package
+# name to the cargo package name (`big-code-analysis-cli`), which is
+# what we want.
+[package.metadata.deb]
+maintainer = "Elijah Zupancic <elijah@zupancic.name>"
+section = "devel"
+priority = "optional"
+extended-description = """\
+Compute maintainability metrics for source code in many languages.
+
+big-code-analysis-cli ships the `bca` command, which extracts metrics
+(cognitive complexity, cyclomatic, Halstead, LOC, maintainability index,
+ABC, exit points, and more) from source code via tree-sitter parsers
+for C, C++, JavaScript, TypeScript, Python, Java, C#, Go, Kotlin, Rust,
+Bash, Lua, Perl, PHP, and Tcl. Reports can be emitted as JSON, YAML,
+TOML, CBOR, or rendered as Markdown / HTML.\
+"""
+assets = [
+  [
+    "target/release/bca",
+    "usr/bin/",
+    "755",
+  ],
+  [
+    "../README.md",
+    "usr/share/doc/big-code-analysis-cli/README.md",
+    "644",
+  ],
+  [
+    "../LICENSE",
+    "usr/share/doc/big-code-analysis-cli/LICENSE",
+    "644",
+  ],
+  # Per-binary TPL — covers bca's dep closure (clap + ignore + lib +
+  # grammars). bca-web's actix-web/tokio/futures deps are NOT in this
+  # file; they ship in THIRD-PARTY-LICENSES-bca-web.md alongside the
+  # web crate's deb.
+  [
+    "../THIRD-PARTY-LICENSES-bca.md",
+    "usr/share/doc/big-code-analysis-cli/THIRD-PARTY-LICENSES-bca.md",
+    "644",
+  ],
+]
+
+# RHEL/Rocky/Fedora/Amazon Linux packaging — consumed by
+# `cargo generate-rpm` in release CI. Source paths are resolved
+# relative to this crate's Cargo.toml. `name` is intentionally
+# omitted — defaults to the cargo package name.
+[package.metadata.generate-rpm]
+summary = "Compute maintainability metrics for source code in many languages (CLI)"
+license = "MPL-2.0"
+vendor = "Elijah Zupancic"
+url = "https://github.com/dekobon/big-code-analysis"
+# `doc = true` marks a file as `%doc` in the generated spec, which
+# Fedora's container images (and any system with `tsflags=nodocs` in
+# dnf.conf) filter out on install. Keep `%doc` only on the README —
+# the LICENSE / THIRD-PARTY-LICENSES files are compliance artefacts
+# and must not be filtered out.
+assets = [
+  { source = "../target/release/bca", dest = "/usr/bin/bca", mode = "755" },
+  { source = "../README.md", dest = "/usr/share/doc/big-code-analysis-cli/README.md", mode = "644", doc = true },
+  { source = "../LICENSE", dest = "/usr/share/doc/big-code-analysis-cli/LICENSE", mode = "644" },
+  { source = "../THIRD-PARTY-LICENSES-bca.md", dest = "/usr/share/doc/big-code-analysis-cli/THIRD-PARTY-LICENSES-bca.md", mode = "644" },
+]
+auto-req = "disabled"

@@ -1,0 +1,1413 @@
+name: Release
+
+# Triggered by `v*` tags. `workflow_dispatch` is available for rehearsal
+# against an existing tag; the pre-release gate keeps tap/bucket
+# updates from leaking during rehearsal.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to release (e.g. v0.1.0 or v0.0.0-test1)"
+        required: true
+        type: string
+
+# Never cancel an in-flight release — external publishes must be atomic.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# Default to read-only; jobs escalate explicitly.
+permissions:
+  contents: read
+
+# All `uses:` below are pinned to commit SHAs to eliminate supply-chain
+# risk from action-release spoofing. Bump via Dependabot (see
+# .github/dependabot.yml), which rewrites the SHA + version comment.
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+  RUSTUP_MAX_RETRIES: 10
+  RUSTFLAGS: "-D warnings"
+  # Pinned toolchain for deterministic release builds. Separate from the
+  # library MSRV (1.94, enforced in ci.yml); release-time builds use a
+  # newer compiler to pick up post-MSRV optimisations.
+  RUST_TOOLCHAIN: "1.94.0"
+  CROSS_VERSION: "0.2.5"
+  # cargo-deb 2.x cannot parse `resolver = "3"` in Cargo.toml (stabilised
+  # in Rust 1.84); 3.x adds support. cargo-generate-rpm 0.15 has the same
+  # limitation — 0.20 is the first resolver-3-aware release.
+  CARGO_DEB_VERSION: "3.6.3"
+  CARGO_GENERATE_RPM_VERSION: "0.20.0"
+  CARGO_CYCLONEDX_VERSION: "0.5.7"
+  CARGO_ABOUT_VERSION: "0.8.4"
+
+jobs:
+  # ─── Stage 0 — preflight gate ────────────────────────────────────────
+  preflight:
+    name: preflight
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.classify.outputs.version }}
+      tag: ${{ steps.classify.outputs.tag }}
+      prerelease: ${{ steps.classify.outputs.prerelease }}
+      ref: ${{ steps.classify.outputs.ref }}
+    steps:
+      - name: Resolve tag
+        id: tag
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -eu
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            TAG="$INPUT_TAG"
+          else
+            TAG="$REF_NAME"
+          fi
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]; then
+            echo "::error::Tag '$TAG' is not a valid semver release tag"
+            exit 1
+          fi
+          # abuild's pkgver grammar accepts only `_<alpha|beta|pre|rc|cvs|svn|git|hg|p><digits>`
+          # with no dots in the suffix. The render step maps the semver
+          # hyphen to abuild's underscore, but `1.0.0-rc.2` would still
+          # emit `1.0.0_rc.2` which apk rejects mid-pipeline. Fail here
+          # instead, so tag-format mistakes cost 30 s in preflight rather
+          # than 2+ min across four apk arches.
+          if [[ "$TAG" == *-*.* ]]; then
+            echo "::error::Pre-release suffix in '$TAG' contains a dot. abuild does not accept dotted suffixes (e.g. 'rc.2'); use 'rc2' instead."
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      # Always check out the tag ref, not the event SHA. Critical for
+      # workflow_dispatch where github.sha points at the branch HEAD.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable tip
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      # Parity check against `big-code-analysis-cli` (the primary binary
+      # owner). Workspace `[workspace.package].version` is inherited by
+      # every shipping crate via `version.workspace = true`, so the CLI's
+      # reported version matches the lib's and the web crate's.
+      - name: Verify tag ↔ Cargo.toml version parity
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -eu
+          CARGO_VERSION=$(cargo metadata --format-version 1 --no-deps \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); print(next(p for p in d['packages'] if p['name']=='big-code-analysis-cli')['version'])")
+          if [[ "$CARGO_VERSION" != "$VERSION" ]]; then
+            echo "::error::Tag version ($VERSION) != big-code-analysis-cli Cargo.toml version ($CARGO_VERSION)"
+            exit 1
+          fi
+
+      - name: Verify minisign.pub is not the placeholder
+        run: |
+          set -eu
+          # Anchored match against the exact committed placeholder comment.
+          # A real public key file's `untrusted comment:` line won't start with this.
+          if grep -q '^untrusted comment: placeholder' minisign.pub; then
+            echo "::error::minisign.pub is still the committed placeholder. Rotate the key before tagging a release."
+            exit 1
+          fi
+
+      # Package-level dry-run for the library. Catches metadata errors
+      # (missing description/license, non-packageable files, path-dep
+      # version drift) before any external publish fires.
+      #
+      # Gated by `vars.ENABLE_CRATES_PUBLISH`: the five vendored grammar
+      # crates (tree-sitter-{mozcpp,mozjs,ccomment,preproc,tcl}) are
+      # `publish = false` and depended on via path. Until a decision is
+      # made on whether to rename forks under `bca-tree-sitter-*`, vend
+      # inline C source, or skip crates.io entirely, `cargo publish
+      # --dry-run -p big-code-analysis` cannot succeed — it would try to
+      # resolve those path deps against crates.io. Skipping the dry-run
+      # is the only way binary releases can still go out while that
+      # decision is deferred.
+      - name: Dry-run cargo publish for big-code-analysis
+        if: vars.ENABLE_CRATES_PUBLISH == 'true'
+        run: cargo publish -p big-code-analysis --dry-run --locked
+
+      - name: Extract release notes from CHANGELOG
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -eu
+          CHANGELOG=CHANGELOG.md
+          if ! grep -Fq "## [${VERSION}]" "$CHANGELOG"; then
+            echo "::error::CHANGELOG.md has no section for [${VERSION}]"
+            exit 1
+          fi
+          # Fixed-string match on the section header — avoids treating
+          # dots in the version as regex wildcards.
+          awk -v header="## [${VERSION}]" '
+            index($0, header) == 1 { capture=1; next }
+            capture && /^## \[/ { exit }
+            capture { print }
+          ' "$CHANGELOG" > release-notes.md
+          if [[ ! -s release-notes.md ]]; then
+            echo "::error::Extracted release notes are empty"
+            exit 1
+          fi
+
+      - name: Classify release
+        id: classify
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -eu
+          PRERELEASE=false
+          if [[ "$TAG" == *-* ]]; then PRERELEASE=true; fi
+          {
+            echo "tag=$TAG"
+            echo "version=$VERSION"
+            echo "prerelease=$PRERELEASE"
+            echo "ref=$TAG"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-notes
+          path: release-notes.md
+          if-no-files-found: error
+
+  # ─── Stage 1 — build matrix (per OS / arch) ──────────────────────────
+  build:
+    name: build ${{ matrix.target }}
+    needs: preflight
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-gnu,   runner: ubuntu-22.04,   cross: false }
+          - { target: aarch64-unknown-linux-gnu,  runner: ubuntu-22.04,   cross: true  }
+          - { target: x86_64-unknown-linux-musl,  runner: ubuntu-latest,  cross: true  }
+          - { target: aarch64-unknown-linux-musl, runner: ubuntu-latest,  cross: true  }
+          - { target: x86_64-unknown-freebsd,     runner: ubuntu-latest,  cross: true  }
+          # Intel macOS dropped from prebuilt artefacts (parity with
+          # host-identity): GitHub's macos-13 runner pool is chronically
+          # oversubscribed (1h+ queue waits), and Apple stopped shipping
+          # Intel Macs in late 2023. Intel users install via `cargo
+          # install big-code-analysis-cli` or run the aarch64 binary
+          # under Rosetta 2.
+          - { target: aarch64-apple-darwin,       runner: macos-latest,   cross: false }
+          - { target: x86_64-pc-windows-msvc,     runner: windows-latest, cross: false }
+          - { target: aarch64-pc-windows-msvc,    runner: windows-latest, cross: false }
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.preflight.outputs.ref }}
+
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable tip
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ matrix.target }}
+
+      - name: Install cross (Linux / FreeBSD cross-compile)
+        if: matrix.cross
+        uses: taiki-e/install-action@9ca1734d8940023f074414ee621fd530c4ce10f2 # v2.62.23
+        with:
+          tool: cross@${{ env.CROSS_VERSION }}
+
+      - name: Install cargo-about
+        uses: taiki-e/install-action@9ca1734d8940023f074414ee621fd530c4ce10f2 # v2.62.23
+        with:
+          tool: cargo-about@${{ env.CARGO_ABOUT_VERSION }}
+
+      # Per-target tree-sitter compile guard. The vendored grammars
+      # build their C source via the `cc` crate, which is the most
+      # likely place a cross-toolchain regression manifests (missing
+      # CC_<target>, missing sysroot, libc mismatch). Compiling one
+      # grammar standalone for `$TARGET` before fanning out the full
+      # build surfaces those failures in under a minute instead of the
+      # 10+ minutes a full `cross build` takes. tree-sitter-ccomment
+      # is the smallest vendored grammar (~50 KB of generated C) and
+      # is in `[workspace].exclude`, so cargo treats it as a
+      # standalone crate. We `cd` into the crate (rather than using
+      # `--manifest-path` from the workspace root) because cross
+      # v0.2.5 mounts the cwd's parent inside its docker container
+      # and `--manifest-path` to a sibling can mis-resolve the mount
+      # boundary on some target images.
+      - name: Tree-sitter compile guard for ${{ matrix.target }}
+        shell: bash
+        working-directory: tree-sitter-ccomment
+        env:
+          TARGET: ${{ matrix.target }}
+          USE_CROSS: ${{ matrix.cross }}
+        run: |
+          set -eu
+          if [[ "$USE_CROSS" == "true" ]]; then
+            cross check --release --locked --target "$TARGET"
+          else
+            cargo check --release --locked --target "$TARGET"
+          fi
+
+      - name: Build release binaries (bca + bca-web)
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          USE_CROSS: ${{ matrix.cross }}
+        run: |
+          set -eu
+          if [[ "$USE_CROSS" == "true" ]]; then
+            cross build --release --locked --target "$TARGET" \
+              -p big-code-analysis-cli -p big-code-analysis-web
+          else
+            cargo build --release --locked --target "$TARGET" \
+              -p big-code-analysis-cli -p big-code-analysis-web
+          fi
+
+      - name: Stage archive contents
+        shell: bash
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -eu
+          STAGE="big-code-analysis-${VERSION}-${TARGET}"
+          mkdir -p "dist/${STAGE}"
+          if [[ "$TARGET" == *windows* ]]; then
+            cp "target/${TARGET}/release/bca.exe"     "dist/${STAGE}/bca.exe"
+            cp "target/${TARGET}/release/bca-web.exe" "dist/${STAGE}/bca-web.exe"
+          else
+            cp "target/${TARGET}/release/bca"     "dist/${STAGE}/bca"
+            cp "target/${TARGET}/release/bca-web" "dist/${STAGE}/bca-web"
+          fi
+          cp README.md LICENSE CHANGELOG.md "dist/${STAGE}/"
+          # Transitive-dependency attributions. The MPL-2.0 §3.3 sink
+          # clause plus a long tail of permissive deps (BSD, MIT, ISC,
+          # Apache+LLVM) require shipping per-crate notices alongside
+          # the binary.
+          #
+          # Generate ONE TPL per binary. The CLI and web crates each
+          # have unique direct deps (clap+ignore for CLI; actix-web,
+          # tokio, futures for web) that the OTHER's dep graph does
+          # not pull in. A single TPL from either crate
+          # under-attributes the other's deps and breaks Apache-2.0
+          # §4(d) / ISC notice obligations for that subset. Ship both
+          # and have each binary's package format reference the one
+          # that covers its dependency closure.
+          cargo about generate --locked \
+            --config about.toml \
+            --target "$TARGET" \
+            --manifest-path big-code-analysis-cli/Cargo.toml \
+            about.hbs \
+            > "dist/${STAGE}/THIRD-PARTY-LICENSES-bca.md"
+          cargo about generate --locked \
+            --config about.toml \
+            --target "$TARGET" \
+            --manifest-path big-code-analysis-web/Cargo.toml \
+            about.hbs \
+            > "dist/${STAGE}/THIRD-PARTY-LICENSES-bca-web.md"
+          echo "STAGE=$STAGE" >> "$GITHUB_ENV"
+
+      # Debug symbols are staged under dist/debug/ so the archive-upload
+      # glob (`dist/*.tar.gz`, `dist/*.zip`) cannot accidentally scoop
+      # them into the primary-archive artefact.
+      # Cross-arch binaries (e.g. aarch64 on an x86_64 runner) cannot be
+      # processed by the host binutils — `objcopy` fails with "Unable to
+      # recognise the format of the input file". `llvm-objcopy` and
+      # `llvm-strip` are architecture-agnostic over ELF and handle every
+      # Rust Linux/FreeBSD target from any runner.
+      - name: Install llvm-objcopy (ELF-agnostic strip/objcopy)
+        if: ${{ !contains(matrix.target, 'windows') && !contains(matrix.target, 'apple') }}
+        run: |
+          set -eu
+          if ! command -v llvm-objcopy >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends llvm
+          fi
+          llvm-objcopy --version | head -n1
+
+      - name: Strip binaries and extract debug symbols (Unix)
+        if: ${{ !contains(matrix.target, 'windows') }}
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -eu
+          mkdir -p dist/debug
+          for BIN_NAME in bca bca-web; do
+            BIN="dist/${STAGE}/${BIN_NAME}"
+            if [[ "$TARGET" == *apple* ]]; then
+              dsymutil "$BIN" -o "dist/${STAGE}.${BIN_NAME}.dSYM"
+              strip -x "$BIN"
+              tar -czf "dist/debug/${STAGE}.${BIN_NAME}.dSYM.tar.gz" \
+                -C dist "${STAGE}.${BIN_NAME}.dSYM"
+              rm -rf "dist/${STAGE}.${BIN_NAME}.dSYM"
+            else
+              llvm-objcopy --only-keep-debug "$BIN" "dist/debug/${STAGE}.${BIN_NAME}.debug"
+              llvm-strip --strip-unneeded "$BIN"
+              llvm-objcopy --add-gnu-debuglink="dist/debug/${STAGE}.${BIN_NAME}.debug" "$BIN"
+            fi
+          done
+
+      - name: Collect PDB debug symbols (Windows)
+        if: contains(matrix.target, 'windows')
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -eu
+          mkdir -p dist/debug
+          for BIN_NAME in bca bca-web; do
+            PDB="target/${TARGET}/release/${BIN_NAME}.pdb"
+            if [[ -f "$PDB" ]]; then
+              cp "$PDB" "dist/debug/${STAGE}.${BIN_NAME}.pdb"
+            fi
+          done
+
+      - name: Create archive (Unix)
+        if: ${{ !contains(matrix.target, 'windows') }}
+        shell: bash
+        run: |
+          set -eu
+          cd dist
+          tar -czf "${STAGE}.tar.gz" "${STAGE}"
+          rm -rf "${STAGE}"
+
+      - name: Create archive (Windows)
+        if: contains(matrix.target, 'windows')
+        shell: pwsh
+        run: |
+          Set-Location dist
+          Compress-Archive -Path $env:STAGE -DestinationPath "$env:STAGE.zip"
+          Remove-Item -Recurse -Force $env:STAGE
+
+      # Archive (primary artefact). Uploading from a single flat dir
+      # ensures the downloaded layout at Stage 4 is predictable:
+      # merge-multiple leaves every file at the top of `release/`.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: archive-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: debug-${{ matrix.target }}
+          path: dist/debug/
+          if-no-files-found: ignore
+
+  # ─── Stage 2 — native packages ───────────────────────────────────────
+  # Two .deb and two .rpm artefacts per arch — one for `bca` (CLI) and
+  # one for `bca-web` (server). They install side by side; users who
+  # only want one tool aren't forced to pull the other in.
+  package-deb:
+    name: package .deb (${{ matrix.crate }} / ${{ matrix.deb_arch }})
+    needs: [preflight, build]
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { crate: big-code-analysis-cli, target: x86_64-unknown-linux-gnu,  deb_arch: amd64 }
+          - { crate: big-code-analysis-cli, target: aarch64-unknown-linux-gnu, deb_arch: arm64 }
+          - { crate: big-code-analysis-web, target: x86_64-unknown-linux-gnu,  deb_arch: amd64 }
+          - { crate: big-code-analysis-web, target: aarch64-unknown-linux-gnu, deb_arch: arm64 }
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.preflight.outputs.ref }}
+
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable tip
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ matrix.target }}
+
+      - uses: taiki-e/install-action@9ca1734d8940023f074414ee621fd530c4ce10f2 # v2.62.23
+        with:
+          tool: cargo-deb@${{ env.CARGO_DEB_VERSION }}
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: archive-${{ matrix.target }}
+          path: dist
+
+      - name: Unpack archive into cargo-deb target layout
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -eu
+          STAGE="big-code-analysis-${VERSION}-${TARGET}"
+          tar -xzf "dist/${STAGE}.tar.gz" -C dist
+          # cargo-deb with --target looks in target/<triple>/release/.
+          # Stage both binaries; the per-crate assets list picks whichever
+          # one this invocation actually packages.
+          mkdir -p "target/${TARGET}/release"
+          cp "dist/${STAGE}/bca"     "target/${TARGET}/release/bca"
+          cp "dist/${STAGE}/bca-web" "target/${TARGET}/release/bca-web"
+          chmod 755 "target/${TARGET}/release/bca" "target/${TARGET}/release/bca-web"
+          # Stage both TPLs at the workspace root so each crate's
+          # [package.metadata.deb].assets list (which references
+          # `../THIRD-PARTY-LICENSES-<bin>.md`) resolves.
+          cp "dist/${STAGE}/THIRD-PARTY-LICENSES-bca.md"     THIRD-PARTY-LICENSES-bca.md
+          cp "dist/${STAGE}/THIRD-PARTY-LICENSES-bca-web.md" THIRD-PARTY-LICENSES-bca-web.md
+          test -f "target/${TARGET}/release/bca"
+          test -f "target/${TARGET}/release/bca-web"
+          test -f THIRD-PARTY-LICENSES-bca.md
+          test -f THIRD-PARTY-LICENSES-bca-web.md
+
+      - name: Build .deb
+        env:
+          TARGET: ${{ matrix.target }}
+          CRATE: ${{ matrix.crate }}
+        run: |
+          set -eu
+          mkdir -p out
+          cargo deb --no-build --no-strip \
+            -p "$CRATE" \
+            --target "$TARGET" \
+            --output "out/"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: deb-${{ matrix.crate }}-${{ matrix.deb_arch }}
+          path: out/*.deb
+          if-no-files-found: error
+
+  package-rpm:
+    name: package .rpm (${{ matrix.crate }} / ${{ matrix.rpm_arch }})
+    needs: [preflight, build]
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { crate: big-code-analysis-cli, target: x86_64-unknown-linux-gnu,  rpm_arch: x86_64 }
+          - { crate: big-code-analysis-cli, target: aarch64-unknown-linux-gnu, rpm_arch: aarch64 }
+          - { crate: big-code-analysis-web, target: x86_64-unknown-linux-gnu,  rpm_arch: x86_64 }
+          - { crate: big-code-analysis-web, target: aarch64-unknown-linux-gnu, rpm_arch: aarch64 }
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.preflight.outputs.ref }}
+
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable tip
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ matrix.target }}
+
+      - uses: taiki-e/install-action@9ca1734d8940023f074414ee621fd530c4ce10f2 # v2.62.23
+        with:
+          tool: cargo-generate-rpm@${{ env.CARGO_GENERATE_RPM_VERSION }}
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: archive-${{ matrix.target }}
+          path: dist
+
+      - name: Unpack archive into cargo-generate-rpm layout
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -eu
+          STAGE="big-code-analysis-${VERSION}-${TARGET}"
+          tar -xzf "dist/${STAGE}.tar.gz" -C dist
+          # cargo-generate-rpm looks up `target/release/<bin>` assets
+          # relative to the workspace. When cross-building, the real
+          # binary lives under target/<triple>/release/. Populate both
+          # paths so the tool finds the binary regardless of whether
+          # its --target handling rewrites the asset path.
+          mkdir -p "target/${TARGET}/release" target/release
+          cp "dist/${STAGE}/bca"     "target/${TARGET}/release/bca"
+          cp "dist/${STAGE}/bca-web" "target/${TARGET}/release/bca-web"
+          cp "dist/${STAGE}/bca"     "target/release/bca"
+          cp "dist/${STAGE}/bca-web" "target/release/bca-web"
+          cp "dist/${STAGE}/THIRD-PARTY-LICENSES-bca.md"     THIRD-PARTY-LICENSES-bca.md
+          cp "dist/${STAGE}/THIRD-PARTY-LICENSES-bca-web.md" THIRD-PARTY-LICENSES-bca-web.md
+          # Surface staging failures here (finding #2) instead of
+          # waiting for cargo-generate-rpm to fail with an opaque
+          # "asset not found" further down the pipeline.
+          test -f "target/${TARGET}/release/bca"
+          test -f "target/${TARGET}/release/bca-web"
+          test -f "target/release/bca"
+          test -f "target/release/bca-web"
+          test -f THIRD-PARTY-LICENSES-bca.md
+          test -f THIRD-PARTY-LICENSES-bca-web.md
+
+      - name: Build .rpm
+        env:
+          TARGET: ${{ matrix.target }}
+          RPM_ARCH: ${{ matrix.rpm_arch }}
+          CRATE: ${{ matrix.crate }}
+        run: |
+          set -eu
+          mkdir -p out
+          cargo generate-rpm \
+            -p "$CRATE" \
+            --target "$TARGET" \
+            --arch "$RPM_ARCH" \
+            --payload-compress zstd \
+            --output "out/"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rpm-${{ matrix.crate }}-${{ matrix.rpm_arch }}
+          path: out/*.rpm
+          if-no-files-found: error
+
+  # Run abuild via `docker run alpine …` from an ubuntu host to avoid the
+  # glibc-Node-on-musl-container trap that breaks `actions/checkout` and
+  # most JavaScript actions when jobs.container is set to an alpine image.
+  # The .apk ships both `bca` and `bca-web` from a single package — the
+  # binaries are tiny relative to the grammar payload, and splitting them
+  # would force users to opt in to both for the common "I want both"
+  # case. Same logic for FreeBSD / Homebrew / Scoop downstream.
+  package-apk:
+    name: package .apk (${{ matrix.apk_arch }})
+    needs: [preflight, build]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-musl,  apk_arch: x86_64 }
+          - { target: aarch64-unknown-linux-musl, apk_arch: aarch64 }
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.preflight.outputs.ref }}
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: archive-${{ matrix.target }}
+          path: dist
+
+      - name: Render APKBUILD
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+          TARGET: ${{ matrix.target }}
+          APK_ARCH: ${{ matrix.apk_arch }}
+        run: |
+          set -eu
+          STAGE="big-code-analysis-${VERSION}-${TARGET}"
+          SHA512=$(sha512sum "dist/${STAGE}.tar.gz" | awk '{print $1}')
+          # Hyphen→underscore for abuild pkgver; see APKBUILD.in for rationale.
+          APK_PKGVER="${VERSION//-/_}"
+          mkdir -p build/big-code-analysis
+          cp "dist/${STAGE}.tar.gz" "build/big-code-analysis/"
+          sed -e "s|@@VERSION@@|${VERSION}|g" \
+              -e "s|@@APK_PKGVER@@|${APK_PKGVER}|g" \
+              -e "s|@@TARGET@@|${TARGET}|g" \
+              -e "s|@@ARCH@@|${APK_ARCH}|g" \
+              -e "s|@@SHA512@@|${SHA512}|g" \
+              packaging/alpine/APKBUILD.in > build/big-code-analysis/APKBUILD
+
+      # abuild refuses to build when its own CARCH (read from the
+      # container's `uname -m`) doesn't match `arch=` in APKBUILD. For
+      # cross-arch builds (aarch64 on an x86_64 runner), run the Alpine
+      # container under qemu for the target architecture so abuild's
+      # CARCH matches.
+      - uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
+        if: matrix.apk_arch != 'x86_64'
+
+      - name: Build .apk inside alpine:3.20 container
+        env:
+          APK_ARCH: ${{ matrix.apk_arch }}
+          ABUILD_PRIV: ${{ secrets.ALPINE_ABUILD_KEY_PRIV }}
+          ABUILD_PUB: ${{ secrets.ALPINE_ABUILD_KEY_PUB }}
+        run: |
+          set -eu
+          mkdir -p out/apk
+          DOCKER_PLATFORM=$([[ "$APK_ARCH" == "aarch64" ]] && echo linux/arm64 || echo linux/amd64)
+          # Pass secrets via mounted files, not env — keeps them out of
+          # `docker inspect` and `ps` for the container.
+          SECRETS_DIR=$(mktemp -d)
+          trap 'rm -rf "$SECRETS_DIR"' EXIT
+          if [[ -n "${ABUILD_PRIV:-}" && -n "${ABUILD_PUB:-}" ]]; then
+            printf '%s' "$ABUILD_PRIV" > "$SECRETS_DIR/big-code-analysis.rsa"
+            printf '%s' "$ABUILD_PUB"  > "$SECRETS_DIR/big-code-analysis.rsa.pub"
+            SIGNED=1
+          else
+            echo "::warning::ALPINE_ABUILD_KEY_* secrets not set; abuild will generate an ephemeral key"
+            SIGNED=0
+          fi
+          # Pass SIGNED and APK_ARCH with explicit values. The value-less
+          # `-e FOO` form reads from the current process's exported
+          # environment, but these are plain shell locals, not exports.
+          docker run --rm --platform "$DOCKER_PLATFORM" \
+            -v "$PWD/build:/build" \
+            -v "$PWD/out/apk:/out" \
+            -v "$SECRETS_DIR:/keys:ro" \
+            -e APK_ARCH="$APK_ARCH" \
+            -e SIGNED="$SIGNED" \
+            alpine:3.20 sh -eu -c '
+              apk add --no-cache alpine-sdk
+              adduser -D -G abuild builder
+              if [ "$SIGNED" = "1" ]; then
+                mkdir -p /home/builder/.abuild /etc/apk/keys
+                install -m 600 -o builder -g abuild /keys/big-code-analysis.rsa /home/builder/.abuild/big-code-analysis.rsa
+                install -m 644 /keys/big-code-analysis.rsa.pub /etc/apk/keys/big-code-analysis.rsa.pub
+                install -m 644 -o builder -g abuild /keys/big-code-analysis.rsa.pub /home/builder/.abuild/big-code-analysis.rsa.pub
+                echo "PACKAGER_PRIVKEY=/home/builder/.abuild/big-code-analysis.rsa" > /home/builder/.abuild/abuild.conf
+                chown builder:abuild /home/builder/.abuild/abuild.conf
+              else
+                su builder -c "abuild-keygen -a -n"
+              fi
+              chown -R builder:abuild /build
+              cp -r /build/big-code-analysis /home/builder/big-code-analysis
+              chown -R builder:abuild /home/builder/big-code-analysis
+              # abuild defaults SRCDEST to /var/cache/distfiles and will
+              # wget from the `source=` URL when the tarball is not there.
+              # The GitHub Release for the tag does not exist yet at this
+              # stage — `publish` runs later — so the fetch 404s. Point
+              # SRCDEST at the pre-copied tarball alongside the APKBUILD.
+              su builder -c "cd /home/builder/big-code-analysis && SRCDEST=/home/builder/big-code-analysis abuild -F -r"
+              # Inside `sh -c '...'` (single-quoted), `*` is already
+              # literal — escaping the quotes around `*.apk` passed the
+              # literal string `"*.apk"` to find, which then matched
+              # nothing and silently left /out empty.
+              find /home/builder/packages -name "*.apk" -exec cp {} /out/ \;
+              cp /home/builder/big-code-analysis/APKBUILD /out/APKBUILD.${APK_ARCH}
+            '
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: apk-${{ matrix.apk_arch }}
+          path: out/apk/**
+          if-no-files-found: error
+
+  package-freebsd:
+    name: package FreeBSD .pkg
+    needs: [preflight, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.preflight.outputs.ref }}
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: archive-x86_64-unknown-freebsd
+          path: dist
+
+      - name: Render +MANIFEST and ports Makefile
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          set -eu
+          sed "s|@@VERSION@@|${VERSION}|g" \
+            packaging/freebsd/+MANIFEST.in > +MANIFEST
+          mkdir -p out
+          sed "s|@@VERSION@@|${VERSION}|g" \
+            packaging/freebsd/port/Makefile > "out/freebsd-port-Makefile"
+          cp packaging/freebsd/port/pkg-descr "out/freebsd-port-pkg-descr"
+
+      - name: Build .pkg in FreeBSD VM
+        uses: vmactions/freebsd-vm@d1e65811565151536c0c894fff74f06351ed26e6 # v1.4.5
+        with:
+          release: "14.0"
+          usesh: true
+          prepare: |
+            pkg install -y ca_root_nss
+          run: |
+            set -eu
+            VERSION="${{ needs.preflight.outputs.version }}"
+            STAGE="big-code-analysis-${VERSION}-x86_64-unknown-freebsd"
+            mkdir -p stage/usr/local/bin \
+                     stage/usr/local/share/licenses/big-code-analysis
+            tar -xzf "dist/${STAGE}.tar.gz" -C dist
+            install -m 755 "dist/${STAGE}/bca"     stage/usr/local/bin/bca
+            install -m 755 "dist/${STAGE}/bca-web" stage/usr/local/bin/bca-web
+            install -m 644 "dist/${STAGE}/LICENSE" \
+              stage/usr/local/share/licenses/big-code-analysis/LICENSE
+            install -m 644 "dist/${STAGE}/THIRD-PARTY-LICENSES-bca.md" \
+              stage/usr/local/share/licenses/big-code-analysis/THIRD-PARTY-LICENSES-bca.md
+            install -m 644 "dist/${STAGE}/THIRD-PARTY-LICENSES-bca-web.md" \
+              stage/usr/local/share/licenses/big-code-analysis/THIRD-PARTY-LICENSES-bca-web.md
+            # pkg's `create -M <manifest> -r <stage>` does not auto-
+            # scan the stage tree — without an explicit plist the
+            # resulting package ends up metadata-only (zero files). A
+            # plist is just a list of package-relative file paths, one
+            # per line; generate it from what we just staged.
+            (cd stage && find . -type f | sed 's|^\./|/|' | sort) > pkg-plist
+            echo "::group::pkg-plist"
+            cat pkg-plist
+            echo "::endgroup::"
+            pkg create -M +MANIFEST -p pkg-plist -r stage -o out
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: freebsd-pkg
+          path: out/**
+          if-no-files-found: error
+
+  # ─── Stage 3 — smoke test (install + run each package) ───────────────
+  # aarch64 smoke tests use QEMU user-mode emulation to install/run the
+  # arm64 package inside an aarch64 container image. Every smoke step
+  # asserts both `bca --version` AND `bca-web --version` match the tag
+  # so a regression in only one binary cannot slip through.
+  smoke-deb:
+    name: smoke .deb (${{ matrix.image }} / ${{ matrix.arch }})
+    needs: [preflight, package-deb]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [ubuntu:22.04, ubuntu:24.04, debian:12]
+        arch: [amd64, arm64]
+    steps:
+      - uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
+        if: matrix.arch == 'arm64'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: deb-big-code-analysis-cli-${{ matrix.arch }}
+          path: dist
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: deb-big-code-analysis-web-${{ matrix.arch }}
+          path: dist
+      - name: Install and run inside ${{ matrix.image }} (${{ matrix.arch }})
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+          IMAGE: ${{ matrix.image }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -eu
+          docker run --rm --platform "linux/${ARCH}" \
+            -v "$PWD/dist:/w" -e VERSION -e DEBIAN_FRONTEND=noninteractive \
+            "$IMAGE" bash -eux -c '
+              # Docker Ubuntu images ship /etc/dpkg/dpkg.cfg.d/docker-clean
+              # (and sometimes /excludes) with path-exclude= lines that
+              # block /usr/share/doc and /usr/share/man from being written
+              # on install. That filters our license files out, which is
+              # what broke the smoke assertions in host-identity. Remove
+              # those configs so dpkg ships the full payload.
+              rm -f /etc/dpkg/dpkg.cfg.d/docker-clean /etc/dpkg/dpkg.cfg.d/excludes
+              apt-get update -qq
+              apt-get install -y -qq /w/big-code-analysis-cli_*.deb /w/big-code-analysis-web_*.deb
+              bca --version     | grep -F "$VERSION"
+              bca-web --version | grep -F "$VERSION"
+              # Each binary ships its own TPL covering its dep
+              # closure (CLI side: clap, ignore, … + lib + grammars;
+              # web side: actix-web, tokio, futures + lib + grammars).
+              # Verify both are present and non-empty so a regression
+              # in either side cannot slip through.
+              test -s /usr/share/doc/big-code-analysis-cli/THIRD-PARTY-LICENSES-bca.md
+              test -s /usr/share/doc/big-code-analysis-web/THIRD-PARTY-LICENSES-bca-web.md
+            '
+
+  smoke-rpm:
+    name: smoke .rpm (${{ matrix.image }} / ${{ matrix.arch }})
+    needs: [preflight, package-rpm]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [rockylinux:9, fedora:latest, amazonlinux:2023]
+        arch: [x86_64, aarch64]
+    steps:
+      - uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
+        if: matrix.arch == 'aarch64'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: rpm-big-code-analysis-cli-${{ matrix.arch }}
+          path: dist
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: rpm-big-code-analysis-web-${{ matrix.arch }}
+          path: dist
+      - name: Install and run inside ${{ matrix.image }} (${{ matrix.arch }})
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+          IMAGE: ${{ matrix.image }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -eu
+          DOCKER_ARCH=$([[ "$ARCH" == "aarch64" ]] && echo arm64 || echo amd64)
+          docker run --rm --platform "linux/${DOCKER_ARCH}" \
+            -v "$PWD/dist:/w" -e VERSION \
+            "$IMAGE" bash -eu -c '
+              if command -v dnf >/dev/null; then PKG=dnf; else PKG=yum; fi
+              $PKG install -y /w/big-code-analysis-cli-*.rpm /w/big-code-analysis-web-*.rpm
+              bca --version     | grep -F "$VERSION"
+              bca-web --version | grep -F "$VERSION"
+              test -s /usr/share/doc/big-code-analysis-cli/THIRD-PARTY-LICENSES-bca.md
+              test -s /usr/share/doc/big-code-analysis-web/THIRD-PARTY-LICENSES-bca-web.md
+            '
+
+  smoke-apk:
+    name: smoke .apk (${{ matrix.arch }})
+    needs: [preflight, package-apk]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+    steps:
+      - uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
+        if: matrix.arch == 'aarch64'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: apk-${{ matrix.arch }}
+          path: dist
+      - name: Install and run inside alpine:3.20 (${{ matrix.arch }})
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -eu
+          DOCKER_ARCH=$([[ "$ARCH" == "aarch64" ]] && echo arm64 || echo amd64)
+          docker run --rm --platform "linux/${DOCKER_ARCH}" \
+            -v "$PWD/dist:/w" -e VERSION \
+            alpine:3.20 sh -eux -c '
+              # `path: out/apk/**` upload preserves the artifact directory
+              # structure, so the .apk may land at /w/*.apk or /w/apk/*.apk
+              # depending on upload-artifact version. Locate it instead of
+              # relying on a fixed glob.
+              APK=$(find /w -name "*.apk" | head -n1)
+              test -n "$APK" || { echo "no .apk found under /w"; find /w; exit 1; }
+              apk add --no-cache --allow-untrusted "$APK"
+              bca --version     | grep -F "$VERSION"
+              bca-web --version | grep -F "$VERSION"
+              test -s /usr/share/licenses/big-code-analysis/THIRD-PARTY-LICENSES-bca.md
+              test -s /usr/share/licenses/big-code-analysis/THIRD-PARTY-LICENSES-bca-web.md
+            '
+
+  smoke-freebsd:
+    name: smoke FreeBSD .pkg
+    needs: [preflight, package-freebsd]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: freebsd-pkg
+          path: dist
+      - name: Install and run inside FreeBSD 14 VM
+        uses: vmactions/freebsd-vm@d1e65811565151536c0c894fff74f06351ed26e6 # v1.4.5
+        with:
+          release: "14.0"
+          usesh: true
+          run: |
+            set -eux
+            PKG=$(ls dist/*.pkg | head -n1)
+            pkg install -y "$PKG"
+            # Diagnostic: print files the package installed — if any
+            # binary is missing, `pkg info -l` exposes it.
+            pkg info -l big-code-analysis
+            bca --version     | grep -F "${{ needs.preflight.outputs.version }}"
+            bca-web --version | grep -F "${{ needs.preflight.outputs.version }}"
+            test -s /usr/local/share/licenses/big-code-analysis/THIRD-PARTY-LICENSES-bca.md
+            test -s /usr/local/share/licenses/big-code-analysis/THIRD-PARTY-LICENSES-bca-web.md
+
+  smoke-macos:
+    name: smoke macOS tarball (${{ matrix.runner }})
+    needs: [preflight, build]
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: macos-latest, target: aarch64-apple-darwin }
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: archive-${{ matrix.target }}
+          path: dist
+      - name: Extract and run
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -eu
+          STAGE="big-code-analysis-${VERSION}-${TARGET}"
+          tar -xzf "dist/${STAGE}.tar.gz" -C dist
+          "dist/${STAGE}/bca"     --version | grep -F "$VERSION"
+          "dist/${STAGE}/bca-web" --version | grep -F "$VERSION"
+          test -s "dist/${STAGE}/THIRD-PARTY-LICENSES-bca.md"
+          test -s "dist/${STAGE}/THIRD-PARTY-LICENSES-bca-web.md"
+
+  smoke-windows:
+    name: smoke Windows zip (${{ matrix.target }})
+    needs: [preflight, build]
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The aarch64-pc-windows-msvc lane is a STRUCTURAL smoke only —
+        # GitHub's free-tier Windows runners are x86_64, so we can't
+        # execute the arm64 binary. We still want to catch "missing
+        # binary in archive" regressions (the most common failure
+        # mode for a cross-built Windows package), so we extract the
+        # zip and assert the expected layout without running the .exes.
+        # The x86_64 lane runs the full execution smoke.
+        include:
+          - { target: x86_64-pc-windows-msvc,  exec: "true"  }
+          - { target: aarch64-pc-windows-msvc, exec: "false" }
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: archive-${{ matrix.target }}
+          path: dist
+      - shell: pwsh
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+          EXEC: ${{ matrix.exec }}
+        run: |
+          Set-Location dist
+          $zip = Get-ChildItem *.zip | Select-Object -First 1
+          Expand-Archive $zip.FullName -DestinationPath extracted
+          $bca = Get-ChildItem -Recurse extracted -Filter bca.exe | Select-Object -First 1
+          $bcaWeb = Get-ChildItem -Recurse extracted -Filter bca-web.exe | Select-Object -First 1
+          if (-not $bca)    { throw "bca.exe missing from zip" }
+          if (-not $bcaWeb) { throw "bca-web.exe missing from zip" }
+          if ($env:EXEC -eq "true") {
+            $out1 = & $bca.FullName --version
+            if ($out1 -notmatch [regex]::Escape($env:VERSION)) {
+              throw "bca version mismatch: $out1"
+            }
+            $out2 = & $bcaWeb.FullName --version
+            if ($out2 -notmatch [regex]::Escape($env:VERSION)) {
+              throw "bca-web version mismatch: $out2"
+            }
+          }
+          # $tpl is a FileInfo; .Length on FileInfo is file size in bytes.
+          # Both binaries ship their own TPL — verify each is present
+          # and non-empty in the zip.
+          $tplBca = Get-ChildItem -Recurse extracted -Filter THIRD-PARTY-LICENSES-bca.md | Select-Object -First 1
+          if (-not $tplBca -or $tplBca.Length -eq 0) {
+            throw "THIRD-PARTY-LICENSES-bca.md missing or empty in zip"
+          }
+          $tplWeb = Get-ChildItem -Recurse extracted -Filter THIRD-PARTY-LICENSES-bca-web.md | Select-Object -First 1
+          if (-not $tplWeb -or $tplWeb.Length -eq 0) {
+            throw "THIRD-PARTY-LICENSES-bca-web.md missing or empty in zip"
+          }
+
+  # ─── Stage 4 — sign, attest, SBOM ────────────────────────────────────
+  # All artefacts are pulled into a single flat `release/` directory so
+  # downstream globs (SHA256SUMS, publish, verify) are trivial.
+  sign-attest:
+    name: sign + attest
+    needs:
+      - preflight
+      - build
+      - package-deb
+      - package-rpm
+      - package-apk
+      - package-freebsd
+      - smoke-deb
+      - smoke-rpm
+      - smoke-apk
+      - smoke-freebsd
+      - smoke-macos
+      - smoke-windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.preflight.outputs.ref }}
+
+      - name: Gather all artefacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: "*"
+          path: incoming
+
+      - name: Flatten into release/
+        run: |
+          set -eu
+          mkdir -p release
+          # Every artefact's contents move to the top of release/.
+          # Duplicate file names across artefacts would collide, but
+          # our naming scheme (`big-code-analysis-<ver>-<target>.<ext>`,
+          # `big-code-analysis-{cli,web}_<ver>...deb/rpm`,
+          # APKBUILD.<arch>) is collision-free by construction.
+          # release-notes.md is explicitly excluded — it's consumed by
+          # the publish step as `body_path` and must not appear in
+          # SHA256SUMS (it isn't attached as a release asset, so
+          # verifiers running `sha256sum -c SHA256SUMS` would fail on
+          # a missing file).
+          find incoming -type f ! -name 'release-notes.md' \
+            -exec cp -n {} release/ \;
+          ls -la release/
+
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable tip
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: taiki-e/install-action@9ca1734d8940023f074414ee621fd530c4ce10f2 # v2.62.23
+        with:
+          tool: cargo-cyclonedx@${{ env.CARGO_CYCLONEDX_VERSION }}
+
+      - name: Generate CycloneDX SBOMs
+        run: |
+          set -eu
+          cargo cyclonedx --format json --all --describe crate --spec-version 1.5
+          cp big-code-analysis.cdx.json release/
+          cp big-code-analysis-cli/big-code-analysis-cli.cdx.json release/
+          cp big-code-analysis-web/big-code-analysis-web.cdx.json release/
+
+      - name: Compute SHA256SUMS
+        working-directory: release
+        run: |
+          set -eu
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS*' -print0 \
+            | sort -z \
+            | xargs -0 sha256sum > SHA256SUMS
+
+      - name: Install minisign
+        run: sudo apt-get update && sudo apt-get install -y minisign
+
+      - name: Sign SHA256SUMS with minisign
+        env:
+          MINISIGN_SECRET: ${{ secrets.MINISIGN_SECRET_KEY }}
+          MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
+        run: |
+          set -eu
+          if [[ -z "${MINISIGN_SECRET:-}" ]]; then
+            echo "::error::MINISIGN_SECRET_KEY not configured"
+            exit 1
+          fi
+          KEYFILE=$(mktemp)
+          trap 'rm -f "$KEYFILE"' EXIT
+          printf '%s' "$MINISIGN_SECRET" > "$KEYFILE"
+          chmod 600 "$KEYFILE"
+          printf '%s\n' "$MINISIGN_PASSWORD" | minisign -S -s "$KEYFILE" \
+            -m release/SHA256SUMS -x release/SHA256SUMS.minisig
+
+      - name: SLSA build provenance
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: |
+            release/*.tar.gz
+            release/*.zip
+            release/*.deb
+            release/*.rpm
+            release/*.apk
+            release/*.pkg
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-bundle
+          path: release/
+          if-no-files-found: error
+
+  # ─── Stage 5 — publish (only job that mutates the world) ─────────────
+  publish:
+    name: publish
+    needs: [preflight, sign-attest]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.preflight.outputs.ref }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-bundle
+          path: release
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-notes
+          path: .
+
+      - name: Attach artefacts to GitHub Release
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        with:
+          tag_name: ${{ needs.preflight.outputs.tag }}
+          body_path: release-notes.md
+          prerelease: ${{ needs.preflight.outputs.prerelease == 'true' }}
+          fail_on_unmatched_files: false
+          files: |
+            release/*.tar.gz
+            release/*.zip
+            release/*.deb
+            release/*.rpm
+            release/*.apk
+            release/*.pkg
+            release/*.debug
+            release/*.pdb
+            release/*.cdx.json
+            release/SHA256SUMS
+            release/SHA256SUMS.minisig
+            release/APKBUILD.*
+            release/freebsd-port-Makefile
+            release/freebsd-port-pkg-descr
+
+      - name: Compute tap/bucket SHA-256s
+        if: needs.preflight.outputs.prerelease != 'true'
+        id: hashes
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          set -eu
+          get() { sha256sum "release/big-code-analysis-${VERSION}-$1.tar.gz" | awk '{print $1}'; }
+          getzip() { sha256sum "release/big-code-analysis-${VERSION}-$1.zip" | awk '{print $1}'; }
+          {
+            echo "macos_aarch64=$(get aarch64-apple-darwin)"
+            echo "win_x86_64=$(getzip x86_64-pc-windows-msvc)"
+            echo "win_aarch64=$(getzip aarch64-pc-windows-msvc)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Render Homebrew formula
+        if: needs.preflight.outputs.prerelease != 'true' && vars.ENABLE_HOMEBREW_TAP == 'true'
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+          MACOS_AARCH64: ${{ steps.hashes.outputs.macos_aarch64 }}
+        run: |
+          set -eu
+          sed -e "s|@@VERSION@@|${VERSION}|g" \
+              -e "s|@@SHA256_AARCH64@@|${MACOS_AARCH64}|g" \
+              packaging/homebrew/big-code-analysis.rb.tmpl > big-code-analysis.rb
+
+      # Git clone with token header rather than embedded URL credential —
+      # keeps the PAT out of the clone's .git/config.
+      - name: Push Homebrew formula to tap repo
+        if: needs.preflight.outputs.prerelease != 'true' && vars.ENABLE_HOMEBREW_TAP == 'true'
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          set -eu
+          if [[ -z "${HOMEBREW_TAP_TOKEN:-}" ]]; then
+            echo "HOMEBREW_TAP_TOKEN not set — skipping tap push"
+            exit 0
+          fi
+          REPO="https://github.com/dekobon/homebrew-big-code-analysis.git"
+          AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$HOMEBREW_TAP_TOKEN" | base64 -w0)"
+          if ! git -c "http.extraheader=$AUTH_HEADER" ls-remote "$REPO" &>/dev/null; then
+            echo "::warning::tap repo $REPO not reachable — skipping tap push"
+            exit 0
+          fi
+          git -c "http.extraheader=$AUTH_HEADER" clone "$REPO" tap
+          mkdir -p tap/Formula
+          cp big-code-analysis.rb tap/Formula/big-code-analysis.rb
+          cd tap
+          git config user.name "big-code-analysis release bot"
+          git config user.email "release-bot@big-code-analysis"
+          git add Formula/big-code-analysis.rb
+          if git diff --cached --quiet; then
+            echo "Formula unchanged — skipping push"
+          else
+            git commit -m "big-code-analysis ${VERSION}"
+            git -c "http.extraheader=$AUTH_HEADER" push origin HEAD
+          fi
+
+      - name: Render Scoop manifest
+        if: needs.preflight.outputs.prerelease != 'true' && vars.ENABLE_SCOOP_BUCKET == 'true'
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+          WIN_X86_64: ${{ steps.hashes.outputs.win_x86_64 }}
+          WIN_AARCH64: ${{ steps.hashes.outputs.win_aarch64 }}
+        run: |
+          set -eu
+          sed -e "s|@@VERSION@@|${VERSION}|g" \
+              -e "s|@@SHA256_X86_64@@|${WIN_X86_64}|g" \
+              -e "s|@@SHA256_AARCH64@@|${WIN_AARCH64}|g" \
+              packaging/scoop/big-code-analysis.json.in > big-code-analysis.json
+
+      - name: Push Scoop manifest to bucket repo
+        if: needs.preflight.outputs.prerelease != 'true' && vars.ENABLE_SCOOP_BUCKET == 'true'
+        env:
+          SCOOP_BUCKET_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          set -eu
+          if [[ -z "${SCOOP_BUCKET_TOKEN:-}" ]]; then
+            echo "SCOOP_BUCKET_TOKEN not set — skipping bucket push"
+            exit 0
+          fi
+          REPO="https://github.com/dekobon/scoop-big-code-analysis.git"
+          AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$SCOOP_BUCKET_TOKEN" | base64 -w0)"
+          if ! git -c "http.extraheader=$AUTH_HEADER" ls-remote "$REPO" &>/dev/null; then
+            echo "::warning::bucket repo $REPO not reachable — skipping bucket push"
+            exit 0
+          fi
+          git -c "http.extraheader=$AUTH_HEADER" clone "$REPO" bucket
+          mkdir -p bucket/bucket
+          cp big-code-analysis.json bucket/bucket/big-code-analysis.json
+          cd bucket
+          git config user.name "big-code-analysis release bot"
+          git config user.email "release-bot@big-code-analysis"
+          git add bucket/big-code-analysis.json
+          if git diff --cached --quiet; then
+            echo "Manifest unchanged — skipping push"
+          else
+            git commit -m "big-code-analysis ${VERSION}"
+            git -c "http.extraheader=$AUTH_HEADER" push origin HEAD
+          fi
+
+  # ─── Stage 5b — crates.io publish ────────────────────────────────────
+  # Uploads the library first, then the CLI, then the web crate. The
+  # pinned toolchain's `cargo publish` waits for the new version to
+  # appear in the sparse index before returning, so each later publish
+  # step can resolve the preceding crate from the registry without an
+  # explicit sleep.
+  #
+  # Skipped unless `vars.ENABLE_CRATES_PUBLISH == 'true'` AND the tag
+  # is not a pre-release. As of S5, none of the five vendored grammar
+  # crates (tree-sitter-{mozcpp,mozjs,ccomment,preproc,tcl}) has a
+  # viable upstream on crates.io at matching versions, so a real
+  # publish run of `big-code-analysis` will fail until that's resolved
+  # (see parent issue #149's pre-public-release prerequisites). The
+  # gate keeps binary releases shippable in the meantime.
+  #
+  # Each step short-circuits if the version is already on crates.io,
+  # keeping `workflow_dispatch` re-runs on the same tag idempotent (the
+  # tap and bucket steps have the same property).
+  #
+  # Authentication is via crates.io Trusted Publishing (OIDC): the
+  # `auth` step exchanges the runner's GitHub-minted ID token for a
+  # short-lived registry token scoped to this run, which the
+  # subsequent publish steps pass to `cargo publish` via
+  # `CARGO_REGISTRY_TOKEN`. The token auto-revokes when the job ends.
+  # A missing or misconfigured trusted publisher on crates.io (wrong
+  # owner/repo/workflow/environment claims) fails the `auth` step
+  # fast and loud; there is no static secret to be absent.
+  publish-crates:
+    name: publish to crates.io
+    needs: [preflight, sign-attest]
+    if: ${{ needs.preflight.outputs.prerelease != 'true' && vars.ENABLE_CRATES_PUBLISH == 'true' }}
+    runs-on: ubuntu-latest
+    # Binds the OIDC `environment` claim so the crates.io trusted
+    # publisher only accepts JWTs minted while this job runs in the
+    # `release` environment. Must exist on the repo before merge.
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.preflight.outputs.ref }}
+
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable tip
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      # Trusted Publishing: exchange the runner's OIDC ID token for a
+      # short-lived (30-minute) crates.io token authorizing every
+      # crate whose TP config matches `(owner, repo, workflow,
+      # environment)` in the JWT — so a single exchange covers all
+      # three: big-code-analysis, big-code-analysis-cli,
+      # big-code-analysis-web. The action's post-hook revokes the
+      # token when the job ends.
+      - name: Authenticate to crates.io via Trusted Publishing
+        id: auth
+        uses: rust-lang/crates-io-auth-action@bbd81622f20ce9e2dd9622e3218b975523e45bbe # v1.0.4
+
+      # Each publish step sets `CARGO_REGISTRY_TOKEN` in its own env
+      # because job-level `env:` cannot reference step outputs.
+      - name: Publish big-code-analysis
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          set -eu
+          # Query the sparse index (CDN-backed, no UA policing) rather
+          # than the HTML API, which has rate-limited and UA-gated our
+          # runner in the past. Each line is one published version.
+          INDEX="https://index.crates.io/bi/g-/big-code-analysis"
+          if curl -sfL "$INDEX" 2>/dev/null | grep -q "\"vers\":\"${VERSION}\""; then
+            echo "big-code-analysis ${VERSION} already on crates.io — skipping"
+          else
+            cargo publish -p big-code-analysis --locked
+          fi
+
+      - name: Publish big-code-analysis-cli
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          set -eu
+          INDEX="https://index.crates.io/bi/g-/big-code-analysis-cli"
+          if curl -sfL "$INDEX" 2>/dev/null | grep -q "\"vers\":\"${VERSION}\""; then
+            echo "big-code-analysis-cli ${VERSION} already on crates.io — skipping"
+          else
+            cargo publish -p big-code-analysis-cli --locked
+          fi
+
+      - name: Publish big-code-analysis-web
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          set -eu
+          INDEX="https://index.crates.io/bi/g-/big-code-analysis-web"
+          if curl -sfL "$INDEX" 2>/dev/null | grep -q "\"vers\":\"${VERSION}\""; then
+            echo "big-code-analysis-web ${VERSION} already on crates.io — skipping"
+          else
+            cargo publish -p big-code-analysis-web --locked
+          fi
+
+  # ─── Stage 6 — post-publish verification ─────────────────────────────
+  verify:
+    name: post-publish verify
+    needs: [preflight, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      attestations: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.preflight.outputs.ref }}
+      - name: Install minisign
+        run: sudo apt-get update && sudo apt-get install -y minisign
+      - name: Download artefact + signature from published release
+        env:
+          TAG: ${{ needs.preflight.outputs.tag }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          mkdir verify && cd verify
+          ART="big-code-analysis-${VERSION}-x86_64-unknown-linux-musl.tar.gz"
+          gh release download "$TAG" -R "${{ github.repository }}" \
+            -p "$ART" -p SHA256SUMS -p SHA256SUMS.minisig
+      - name: Verify minisign signature and checksum
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          set -eu
+          cd verify
+          minisign -Vm SHA256SUMS -p ../minisign.pub
+          # Exact-match on the filename field of SHA256SUMS so a
+          # future asset whose name contains the tarball name as a
+          # substring (e.g. a `.sig` or `.attestation.json` companion)
+          # can't cause sha256sum -c to try to verify two files.
+          # awk's $2==f is a fixed-string compare, so dots in the
+          # version aren't treated as regex wildcards.
+          awk -v f="big-code-analysis-${VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+              '$2 == f' SHA256SUMS \
+            | sha256sum -c
+      - name: Verify SLSA provenance
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          cd verify
+          gh attestation verify "big-code-analysis-${VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            -R "${{ github.repository }}"
