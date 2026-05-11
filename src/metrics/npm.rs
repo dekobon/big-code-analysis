@@ -24,6 +24,7 @@ use std::fmt;
 use crate::checker::Checker;
 use crate::langs::*;
 use crate::macros::implement_metric_trait;
+use crate::metrics::npa::ts_member_is_public;
 use crate::node::Node;
 use crate::*;
 
@@ -478,19 +479,22 @@ macro_rules! ts_npm_compute {
                         match member.kind_id().into() {
                             MethodDefinition | AbstractMethodSignature => {
                                 stats.class_nm += 1;
-                                if super::npa::ts_member_is_public::<$lang>(&member) {
+                                if ts_member_is_public!($lang, member) {
                                     stats.class_npm += 1;
                                 }
                             }
                             // Field-as-arrow-function (`foo = () => …`) is a
                             // class method written as a field initializer.
                             PublicFieldDefinition
-                                if member.children().any(|c| {
-                                    matches!(c.kind_id().into(), ArrowFunction | FunctionExpression)
-                                }) =>
+                                if member
+                                    .first_child(|id| {
+                                        id == $lang::ArrowFunction
+                                            || id == $lang::FunctionExpression
+                                    })
+                                    .is_some() =>
                             {
                                 stats.class_nm += 1;
-                                if super::npa::ts_member_is_public::<$lang>(&member) {
+                                if ts_member_is_public!($lang, member) {
                                     stats.class_npm += 1;
                                 }
                             }
