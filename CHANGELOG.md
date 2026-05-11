@@ -15,6 +15,19 @@ changes are marked with **(breaking)** in the entries below.
 
 ### Changed
 
+- Downgraded ~254 `#[inline(always)]` attributes to `#[inline]`
+  across language modules, metric modules, and the `enums/`
+  template, removing the `clippy::inline_always` warnings and
+  letting LLVM decide on inlining. Mechanical batch alongside
+  fixes for `clippy::semicolon_if_nothing_returned`,
+  `clippy::redundant_else`, `clippy::redundant_closure`,
+  `clippy::items_after_statements`,
+  `clippy::unnecessary_debug_formatting` (path `{:?}` →
+  `path.display()` in `eprintln!` warning logs),
+  `clippy::unnested_or_patterns`, `clippy::implicit_clone`,
+  `clippy::manual_string_new`, `clippy::needless_raw_string_hashes`,
+  and `clippy::uninlined_format_args`. Public API unchanged
+  ([#158](https://github.com/dekobon/big-code-analysis/issues/158)).
 - Cargo workspace now uses `resolver = "3"` and inherits shared
   package metadata (`version`, `edition`, `rust-version`, `license`,
   `authors`) via `[workspace.package]` so the three shipping crates
@@ -46,6 +59,14 @@ changes are marked with **(breaking)** in the entries below.
 
 ### Added
 
+- `#[must_use]` on 157 public accessor methods flagged by
+  `clippy::must_use_candidate` — the per-metric getter families
+  under `src/metrics/` (loc, abc, halstead, npa, npm, nom, nargs,
+  cyclomatic, wmc, exit, cognitive, tokens, mi) plus the
+  `Alterator`, `ParserTrait`, `OffenderRecord`, `Severity`, `Node`,
+  `Ast`, and preproc / tools public entry points. Callers that
+  ignored the return value will now see a compiler warning
+  ([#158](https://github.com/dekobon/big-code-analysis/issues/158)).
 - Minimal `.markdownlint-cli2.jsonc` enabling `MD024 siblings_only`
   so Keep-a-Changelog repeated `### Added` / `### Changed` headers
   across version sections don't trip the no-duplicate-heading rule.

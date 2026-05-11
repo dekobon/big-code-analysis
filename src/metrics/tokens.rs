@@ -78,12 +78,14 @@ impl Stats {
 
     /// Returns the total token count across all merged spaces.
     #[inline]
+    #[must_use]
     pub fn tokens_sum(&self) -> f64 {
         self.tokens_sum as f64
     }
 
     /// Returns the average tokens per space.
     #[inline]
+    #[must_use]
     pub fn tokens_average(&self) -> f64 {
         self.tokens_sum() / self.space_count as f64
     }
@@ -96,6 +98,7 @@ impl Stats {
     /// that bypasses the metric pipeline serializes to a meaningful
     /// number rather than `1.8446744e19`.
     #[inline]
+    #[must_use]
     pub fn tokens_min(&self) -> f64 {
         if self.tokens_min == usize::MAX {
             0.0
@@ -106,6 +109,7 @@ impl Stats {
 
     /// Returns the largest single-space token count.
     #[inline]
+    #[must_use]
     pub fn tokens_max(&self) -> f64 {
         self.tokens_max as f64
     }

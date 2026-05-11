@@ -79,19 +79,23 @@ impl Stats {
     }
 
     /// Returns the `Cognitive Complexity` metric value
+    #[must_use]
     pub fn cognitive(&self) -> f64 {
         self.structural as f64
     }
     /// Returns the `Cognitive Complexity` sum metric value
+    #[must_use]
     pub fn cognitive_sum(&self) -> f64 {
         self.structural_sum as f64
     }
 
     /// Returns the `Cognitive Complexity` minimum metric value
+    #[must_use]
     pub fn cognitive_min(&self) -> f64 {
         self.structural_min as f64
     }
     /// Returns the `Cognitive Complexity` maximum metric value
+    #[must_use]
     pub fn cognitive_max(&self) -> f64 {
         self.structural_max as f64
     }
@@ -102,6 +106,7 @@ impl Stats {
     /// for the total number of functions/closures in a space.
     ///
     /// If there are no functions in a code, its value is `NAN`.
+    #[must_use]
     pub fn cognitive_average(&self) -> f64 {
         self.cognitive_sum() / self.total_space_functions as f64
     }

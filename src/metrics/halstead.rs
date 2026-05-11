@@ -130,36 +130,42 @@ impl Stats {
 
     /// Returns `η1`, the number of distinct operators
     #[inline]
+    #[must_use]
     pub fn u_operators(&self) -> f64 {
         self.u_operators as f64
     }
 
     /// Returns `N1`, the number of total operators
     #[inline]
+    #[must_use]
     pub fn operators(&self) -> f64 {
         self.operators as f64
     }
 
     /// Returns `η2`, the number of distinct operands
     #[inline]
+    #[must_use]
     pub fn u_operands(&self) -> f64 {
         self.u_operands as f64
     }
 
     /// Returns `N2`, the number of total operands
     #[inline]
+    #[must_use]
     pub fn operands(&self) -> f64 {
         self.operands as f64
     }
 
     /// Returns the program length
     #[inline]
+    #[must_use]
     pub fn length(&self) -> f64 {
         self.operands() + self.operators()
     }
 
     /// Returns the calculated estimated program length
     #[inline]
+    #[must_use]
     pub fn estimated_program_length(&self) -> f64 {
         let uo = self.u_operators();
         let ud = self.u_operands();
@@ -170,6 +176,7 @@ impl Stats {
 
     /// Returns the purity ratio
     #[inline]
+    #[must_use]
     pub fn purity_ratio(&self) -> f64 {
         let len = self.length();
         if len == 0.0 {
@@ -181,6 +188,7 @@ impl Stats {
 
     /// Returns the program vocabulary
     #[inline]
+    #[must_use]
     pub fn vocabulary(&self) -> f64 {
         self.u_operands() + self.u_operators()
     }
@@ -189,6 +197,7 @@ impl Stats {
     ///
     /// Unit of measurement: bits
     #[inline]
+    #[must_use]
     pub fn volume(&self) -> f64 {
         // Assumes a uniform binary encoding for the vocabulary is used.
         let vocab = self.vocabulary();
@@ -201,6 +210,7 @@ impl Stats {
 
     /// Returns the estimated difficulty required to program
     #[inline]
+    #[must_use]
     pub fn difficulty(&self) -> f64 {
         let ud = self.u_operands();
         if ud == 0.0 {
@@ -212,6 +222,7 @@ impl Stats {
 
     /// Returns the estimated level of difficulty required to program
     #[inline]
+    #[must_use]
     pub fn level(&self) -> f64 {
         let d = self.difficulty();
         if d == 0.0 { 0.0 } else { 1. / d }
@@ -219,6 +230,7 @@ impl Stats {
 
     /// Returns the estimated effort required to program
     #[inline]
+    #[must_use]
     pub fn effort(&self) -> f64 {
         self.difficulty() * self.volume()
     }
@@ -227,6 +239,7 @@ impl Stats {
     ///
     /// Unit of measurement: seconds
     #[inline]
+    #[must_use]
     pub fn time(&self) -> f64 {
         // The floating point `18.` aims to describe the processing rate of the
         // human brain. It is called Stoud number, S, and its
@@ -247,6 +260,7 @@ impl Stats {
     /// This metric represents the average amount of work a programmer can do
     /// without introducing an error.
     #[inline]
+    #[must_use]
     pub fn bugs(&self) -> f64 {
         // The floating point `3000.` represents the number of elementary
         // mental discriminations.

@@ -99,26 +99,31 @@ impl Stats {
     }
 
     /// Returns the `Cyclomatic` metric value for the current space.
+    #[must_use]
     pub fn cyclomatic(&self) -> f64 {
         self.cyclomatic
     }
 
     /// Returns the sum of standard cyclomatic values across all spaces.
+    #[must_use]
     pub fn cyclomatic_sum(&self) -> f64 {
         self.cyclomatic_sum
     }
 
     /// Returns the average standard cyclomatic complexity.
+    #[must_use]
     pub fn cyclomatic_average(&self) -> f64 {
         self.cyclomatic_sum() / self.n as f64
     }
 
     /// Returns the maximum standard cyclomatic complexity.
+    #[must_use]
     pub fn cyclomatic_max(&self) -> f64 {
         self.cyclomatic_max
     }
 
     /// Returns the minimum standard cyclomatic complexity.
+    #[must_use]
     pub fn cyclomatic_min(&self) -> f64 {
         self.cyclomatic_min
     }
@@ -133,26 +138,31 @@ impl Stats {
     /// and standard = 0, so modified can exceed standard for arm-less
     /// containers.  This matches Lizard's `-m` convention, which keys on
     /// the switch keyword rather than the presence of arms.
+    #[must_use]
     pub fn cyclomatic_modified(&self) -> f64 {
         self.cyclomatic_modified
     }
 
     /// Returns the sum of modified cyclomatic values across all spaces.
+    #[must_use]
     pub fn cyclomatic_modified_sum(&self) -> f64 {
         self.cyclomatic_modified_sum
     }
 
     /// Returns the average modified cyclomatic complexity.
+    #[must_use]
     pub fn cyclomatic_modified_average(&self) -> f64 {
         self.cyclomatic_modified_sum() / self.n as f64
     }
 
     /// Returns the maximum modified cyclomatic complexity.
+    #[must_use]
     pub fn cyclomatic_modified_max(&self) -> f64 {
         self.cyclomatic_modified_max
     }
 
     /// Returns the minimum modified cyclomatic complexity.
+    #[must_use]
     pub fn cyclomatic_modified_min(&self) -> f64 {
         self.cyclomatic_modified_min
     }

@@ -69,30 +69,35 @@ impl Stats {
 
     /// Returns the `Wmc` metric value of the classes in a space.
     #[inline]
+    #[must_use]
     pub fn class_wmc(&self) -> f64 {
         self.class_wmc
     }
 
     /// Returns the `Wmc` metric value of the interfaces in a space.
     #[inline]
+    #[must_use]
     pub fn interface_wmc(&self) -> f64 {
         self.interface_wmc
     }
 
     /// Returns the sum of the `Wmc` metric values of the classes in a space.
     #[inline]
+    #[must_use]
     pub fn class_wmc_sum(&self) -> f64 {
         self.class_wmc_sum
     }
 
     /// Returns the sum of the `Wmc` metric values of the interfaces in a space.
     #[inline]
+    #[must_use]
     pub fn interface_wmc_sum(&self) -> f64 {
         self.interface_wmc_sum
     }
 
     /// Returns the total `Wmc` metric value in a space.
     #[inline]
+    #[must_use]
     pub fn total_wmc(&self) -> f64 {
         self.class_wmc_sum() + self.interface_wmc_sum()
     }

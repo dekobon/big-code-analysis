@@ -59,6 +59,7 @@ impl Stats {
     ///
     /// Its value can be negative.
     #[inline]
+    #[must_use]
     pub fn mi_original(&self) -> f64 {
         if self.inputs_are_empty() {
             return 0.0;
@@ -72,6 +73,7 @@ impl Stats {
     ///
     /// Its value can be negative.
     #[inline]
+    #[must_use]
     pub fn mi_sei(&self) -> f64 {
         if self.inputs_are_empty() {
             return 0.0;
@@ -84,6 +86,7 @@ impl Stats {
     /// Returns the `Mi` metric calculated using the derivative formula
     /// employed by Microsoft Visual Studio.
     #[inline]
+    #[must_use]
     pub fn mi_visual_studio(&self) -> f64 {
         if self.inputs_are_empty() {
             return 0.0;

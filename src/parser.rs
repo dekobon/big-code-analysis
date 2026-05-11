@@ -58,6 +58,7 @@ pub struct Filter {
 }
 
 impl Filter {
+    #[must_use]
     pub fn any(&self, node: &Node) -> bool {
         for f in self.filters.iter() {
             if f(node) {
@@ -67,6 +68,7 @@ impl Filter {
         false
     }
 
+    #[must_use]
     pub fn all(&self, node: &Node) -> bool {
         for f in self.filters.iter() {
             if !f(node) {

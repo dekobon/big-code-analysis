@@ -51,6 +51,7 @@ pub enum Severity {
 
 impl Severity {
     /// Lowercase token used by Checkstyle XML and most CI integrations.
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Warning => "warning",
@@ -95,6 +96,7 @@ impl OffenderRecord {
     /// `"NaN"` / `"inf"` / `"-inf"` for non-finite values. The Display
     /// adapter writes directly into the format buffer, so this builds
     /// one `String` per call rather than three.
+    #[must_use]
     pub fn default_message(&self) -> String {
         format!(
             "{} {} exceeds limit {}",

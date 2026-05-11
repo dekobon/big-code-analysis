@@ -32,6 +32,7 @@ impl Default for Sloc {
 
 impl Sloc {
     #[inline]
+    #[must_use]
     pub fn sloc(&self) -> f64 {
         // This metric counts the number of lines in a file
         // The if construct is needed to count the line of code that represents
@@ -46,12 +47,14 @@ impl Sloc {
 
     /// The `Sloc` metric minimum value.
     #[inline]
+    #[must_use]
     pub fn sloc_min(&self) -> f64 {
         self.sloc_min as f64
     }
 
     /// The `Sloc` metric maximum value.
     #[inline]
+    #[must_use]
     pub fn sloc_max(&self) -> f64 {
         self.sloc_max as f64
     }
@@ -91,6 +94,7 @@ impl Default for Ploc {
 
 impl Ploc {
     #[inline]
+    #[must_use]
     pub fn ploc(&self) -> f64 {
         // This metric counts the number of instruction lines in a code
         // https://en.wikipedia.org/wiki/Source_lines_of_code
@@ -99,12 +103,14 @@ impl Ploc {
 
     /// The `Ploc` metric minimum value.
     #[inline]
+    #[must_use]
     pub fn ploc_min(&self) -> f64 {
         self.ploc_min as f64
     }
 
     /// The `Ploc` metric maximum value.
     #[inline]
+    #[must_use]
     pub fn ploc_max(&self) -> f64 {
         self.ploc_max as f64
     }
@@ -153,6 +159,7 @@ impl Default for Cloc {
 
 impl Cloc {
     #[inline]
+    #[must_use]
     pub fn cloc(&self) -> f64 {
         // Comments are counted regardless of their placement
         // https://en.wikipedia.org/wiki/Source_lines_of_code
@@ -161,12 +168,14 @@ impl Cloc {
 
     /// The `Cloc` metric minimum value.
     #[inline]
+    #[must_use]
     pub fn cloc_min(&self) -> f64 {
         self.cloc_min as f64
     }
 
     /// The `Cloc` metric maximum value.
     #[inline]
+    #[must_use]
     pub fn cloc_max(&self) -> f64 {
         self.cloc_max as f64
     }
@@ -210,6 +219,7 @@ impl Default for Lloc {
 
 impl Lloc {
     #[inline]
+    #[must_use]
     pub fn lloc(&self) -> f64 {
         // This metric counts the number of statements in a code
         // https://en.wikipedia.org/wiki/Source_lines_of_code
@@ -218,12 +228,14 @@ impl Lloc {
 
     /// The `Lloc` metric minimum value.
     #[inline]
+    #[must_use]
     pub fn lloc_min(&self) -> f64 {
         self.lloc_min as f64
     }
 
     /// The `Lloc` metric maximum value.
     #[inline]
+    #[must_use]
     pub fn lloc_max(&self) -> f64 {
         self.lloc_max as f64
     }
@@ -351,6 +363,7 @@ impl Stats {
     ///
     /// Counts the number of lines in a scope
     #[inline]
+    #[must_use]
     pub fn sloc(&self) -> f64 {
         self.sloc.sloc()
     }
@@ -359,6 +372,7 @@ impl Stats {
     ///
     /// Counts the number of instruction lines in a scope
     #[inline]
+    #[must_use]
     pub fn ploc(&self) -> f64 {
         self.ploc.ploc()
     }
@@ -367,6 +381,7 @@ impl Stats {
     ///
     /// Counts the number of statements in a scope
     #[inline]
+    #[must_use]
     pub fn lloc(&self) -> f64 {
         self.lloc.lloc()
     }
@@ -375,6 +390,7 @@ impl Stats {
     ///
     /// Counts the number of comments in a scope
     #[inline]
+    #[must_use]
     pub fn cloc(&self) -> f64 {
         self.cloc.cloc()
     }
@@ -383,6 +399,7 @@ impl Stats {
     ///
     /// Counts the number of blank lines in a scope
     #[inline]
+    #[must_use]
     pub fn blank(&self) -> f64 {
         self.sloc() - self.ploc() - self.cloc.only_comment_lines as f64
     }
@@ -391,6 +408,7 @@ impl Stats {
     ///
     /// This value is computed dividing the `Sloc` value for the number of spaces
     #[inline]
+    #[must_use]
     pub fn sloc_average(&self) -> f64 {
         self.sloc() / self.space_count as f64
     }
@@ -399,6 +417,7 @@ impl Stats {
     ///
     /// This value is computed dividing the `Ploc` value for the number of spaces
     #[inline]
+    #[must_use]
     pub fn ploc_average(&self) -> f64 {
         self.ploc() / self.space_count as f64
     }
@@ -407,6 +426,7 @@ impl Stats {
     ///
     /// This value is computed dividing the `Lloc` value for the number of spaces
     #[inline]
+    #[must_use]
     pub fn lloc_average(&self) -> f64 {
         self.lloc() / self.space_count as f64
     }
@@ -415,6 +435,7 @@ impl Stats {
     ///
     /// This value is computed dividing the `Cloc` value for the number of spaces
     #[inline]
+    #[must_use]
     pub fn cloc_average(&self) -> f64 {
         self.cloc() / self.space_count as f64
     }
@@ -423,66 +444,77 @@ impl Stats {
     ///
     /// This value is computed dividing the `Blank` value for the number of spaces
     #[inline]
+    #[must_use]
     pub fn blank_average(&self) -> f64 {
         self.blank() / self.space_count as f64
     }
 
     /// The `Sloc` metric minimum value.
     #[inline]
+    #[must_use]
     pub fn sloc_min(&self) -> f64 {
         self.sloc.sloc_min()
     }
 
     /// The `Sloc` metric maximum value.
     #[inline]
+    #[must_use]
     pub fn sloc_max(&self) -> f64 {
         self.sloc.sloc_max()
     }
 
     /// The `Cloc` metric minimum value.
     #[inline]
+    #[must_use]
     pub fn cloc_min(&self) -> f64 {
         self.cloc.cloc_min()
     }
 
     /// The `Cloc` metric maximum value.
     #[inline]
+    #[must_use]
     pub fn cloc_max(&self) -> f64 {
         self.cloc.cloc_max()
     }
 
     /// The `Ploc` metric minimum value.
     #[inline]
+    #[must_use]
     pub fn ploc_min(&self) -> f64 {
         self.ploc.ploc_min()
     }
 
     /// The `Ploc` metric maximum value.
     #[inline]
+    #[must_use]
     pub fn ploc_max(&self) -> f64 {
         self.ploc.ploc_max()
     }
 
     /// The `Lloc` metric minimum value.
     #[inline]
+    #[must_use]
     pub fn lloc_min(&self) -> f64 {
         self.lloc.lloc_min()
     }
 
     /// The `Lloc` metric maximum value.
     #[inline]
+    #[must_use]
     pub fn lloc_max(&self) -> f64 {
         self.lloc.lloc_max()
     }
 
     /// The `Blank` metric minimum value.
     #[inline]
+    #[must_use]
     pub fn blank_min(&self) -> f64 {
         self.blank_min as f64
     }
 
     /// The `Blank` metric maximum value.
     #[inline]
+    #[must_use]
     pub fn blank_max(&self) -> f64 {
         self.blank_max as f64
     }

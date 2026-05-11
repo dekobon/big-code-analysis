@@ -127,6 +127,7 @@ pub fn write_file(path: &Path, data: &[u8]) -> std::io::Result<()> {
 /// let path = Path::new("build.rs");
 /// get_language_for_file(&path).unwrap();
 /// ```
+#[must_use]
 pub fn get_language_for_file(path: &Path) -> Option<LANG> {
     if let Some(ext) = path.extension() {
         let ext = ext.to_str()?.to_lowercase();
