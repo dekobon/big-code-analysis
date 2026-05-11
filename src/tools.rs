@@ -1,3 +1,11 @@
+// Per-language metric and AST modules deliberately consume the macro-
+// generated tree-sitter token enums via `use crate::*` and `use Foo::*`
+// inside match expressions — explicit imports would list dozens of
+// variants per arm and obscure the per-language token sets that are the
+// point of these files. Allowed at the module level rather than per
+// function so the per-language impl blocks stay readable.
+#![allow(clippy::wildcard_imports, clippy::enum_glob_use)]
+
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fs::{self, File};
