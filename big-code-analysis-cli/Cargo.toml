@@ -1,12 +1,13 @@
 [package]
 name = "big-code-analysis-cli"
-version = "0.0.25"
-authors = ["Calixte Denizet <cdenizet@mozilla.com>"]
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
 repository = "https://github.com/dekobon/big-code-analysis/blob/main/big-code-analysis-cli/"
-edition = "2024"
 keywords = ["metrics"]
 description = "Tool to compute and export code metrics"
-license = "MPL-2.0"
 
 [[bin]]
 name = "bca"

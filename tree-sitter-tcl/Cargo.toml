@@ -2,6 +2,7 @@
 name = "tree-sitter-tcl"
 description = "Tcl grammar for the tree-sitter parsing library"
 version = "1.1.0"
+publish = false
 keywords = ["incremental", "parsing", "TCL"]
 categories = ["parsing", "text-editors"]
 repository = "https://github.com/tree-sitter-grammars/tree-sitter-tcl"

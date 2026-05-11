@@ -1,6 +1,7 @@
 [package]
 name = "enums"
 version = "0.0.1"
+publish = false
 authors = ["Calixte Denizet <cdenizet@mozilla.com>"]
 edition = "2024"
 
@@ -28,4 +29,4 @@ tree-sitter-mozcpp = { path = "../tree-sitter-mozcpp", version = "=0.20.4" }
 tree-sitter-mozjs = { path = "../tree-sitter-mozjs", version = "=0.20.3" }
 
 [profile.release]
-strip = "debuginfo"
+debug = "line-tables-only"
