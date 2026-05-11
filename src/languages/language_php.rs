@@ -440,7 +440,7 @@ pub enum Php {
 }
 
 impl From<Php> for &'static str {
-    #[inline(always)]
+    #[inline]
     fn from(tok: Php) -> Self {
         match tok {
             Php::End => "end",
@@ -881,7 +881,7 @@ impl From<Php> for &'static str {
 }
 
 impl From<u16> for Php {
-    #[inline(always)]
+    #[inline]
     fn from(x: u16) -> Self {
         num::FromPrimitive::from_u16(x).unwrap_or(Self::Error)
     }
@@ -889,7 +889,7 @@ impl From<u16> for Php {
 
 // Php == u16
 impl PartialEq<u16> for Php {
-    #[inline(always)]
+    #[inline]
     fn eq(&self, x: &u16) -> bool {
         *self == Into::<Self>::into(*x)
     }
@@ -897,7 +897,7 @@ impl PartialEq<u16> for Php {
 
 // u16 == Php
 impl PartialEq<Php> for u16 {
-    #[inline(always)]
+    #[inline]
     fn eq(&self, x: &Php) -> bool {
         *x == *self
     }

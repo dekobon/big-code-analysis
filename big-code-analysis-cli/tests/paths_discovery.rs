@@ -29,7 +29,6 @@ fn make_tree(dir: &Path) -> (PathBuf, PathBuf) {
 }
 
 fn json_files(dir: &Path) -> Vec<String> {
-    let mut found = Vec::new();
     fn visit(dir: &Path, found: &mut Vec<String>) {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
@@ -42,6 +41,7 @@ fn json_files(dir: &Path) -> Vec<String> {
             }
         }
     }
+    let mut found = Vec::new();
     visit(dir, &mut found);
     found.sort();
     found

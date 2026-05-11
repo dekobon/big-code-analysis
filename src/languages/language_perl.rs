@@ -404,7 +404,7 @@ pub enum Perl {
 }
 
 impl From<Perl> for &'static str {
-    #[inline(always)]
+    #[inline]
     fn from(tok: Perl) -> Self {
         match tok {
             Perl::End => "end",
@@ -809,7 +809,7 @@ impl From<Perl> for &'static str {
 }
 
 impl From<u16> for Perl {
-    #[inline(always)]
+    #[inline]
     fn from(x: u16) -> Self {
         num::FromPrimitive::from_u16(x).unwrap_or(Self::Error)
     }
@@ -817,7 +817,7 @@ impl From<u16> for Perl {
 
 // Perl == u16
 impl PartialEq<u16> for Perl {
-    #[inline(always)]
+    #[inline]
     fn eq(&self, x: &u16) -> bool {
         *self == Into::<Self>::into(*x)
     }
@@ -825,7 +825,7 @@ impl PartialEq<u16> for Perl {
 
 // u16 == Perl
 impl PartialEq<Perl> for u16 {
-    #[inline(always)]
+    #[inline]
     fn eq(&self, x: &Perl) -> bool {
         *x == *self
     }

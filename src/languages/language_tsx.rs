@@ -408,7 +408,7 @@ pub enum Tsx {
 }
 
 impl From<Tsx> for &'static str {
-    #[inline(always)]
+    #[inline]
     fn from(tok: Tsx) -> Self {
         match tok {
             Tsx::End => "end",
@@ -817,7 +817,7 @@ impl From<Tsx> for &'static str {
 }
 
 impl From<u16> for Tsx {
-    #[inline(always)]
+    #[inline]
     fn from(x: u16) -> Self {
         num::FromPrimitive::from_u16(x).unwrap_or(Self::Error)
     }
@@ -825,7 +825,7 @@ impl From<u16> for Tsx {
 
 // Tsx == u16
 impl PartialEq<u16> for Tsx {
-    #[inline(always)]
+    #[inline]
     fn eq(&self, x: &u16) -> bool {
         *self == Into::<Self>::into(*x)
     }
@@ -833,7 +833,7 @@ impl PartialEq<u16> for Tsx {
 
 // u16 == Tsx
 impl PartialEq<Tsx> for u16 {
-    #[inline(always)]
+    #[inline]
     fn eq(&self, x: &Tsx) -> bool {
         *x == *self
     }

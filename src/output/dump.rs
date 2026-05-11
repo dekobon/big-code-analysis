@@ -86,10 +86,10 @@ fn dump_tree_helper(
     let node_row = node.start_row() + 1;
     let mut display = true;
     if let Some(line_start) = line_start {
-        display = node_row >= *line_start
+        display = node_row >= *line_start;
     }
     if let Some(line_end) = line_end {
-        display = display && node_row <= *line_end
+        display = display && node_row <= *line_end;
     }
 
     if display {

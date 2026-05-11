@@ -68,45 +68,45 @@ impl Stats {
     }
 
     /// Returns the `Wmc` metric value of the classes in a space.
-    #[inline(always)]
+    #[inline]
     pub fn class_wmc(&self) -> f64 {
         self.class_wmc
     }
 
     /// Returns the `Wmc` metric value of the interfaces in a space.
-    #[inline(always)]
+    #[inline]
     pub fn interface_wmc(&self) -> f64 {
         self.interface_wmc
     }
 
     /// Returns the sum of the `Wmc` metric values of the classes in a space.
-    #[inline(always)]
+    #[inline]
     pub fn class_wmc_sum(&self) -> f64 {
         self.class_wmc_sum
     }
 
     /// Returns the sum of the `Wmc` metric values of the interfaces in a space.
-    #[inline(always)]
+    #[inline]
     pub fn interface_wmc_sum(&self) -> f64 {
         self.interface_wmc_sum
     }
 
     /// Returns the total `Wmc` metric value in a space.
-    #[inline(always)]
+    #[inline]
     pub fn total_wmc(&self) -> f64 {
         self.class_wmc_sum() + self.interface_wmc_sum()
     }
 
     // Accumulates the `Wmc` metric values
     // of classes and interfaces into the sums
-    #[inline(always)]
+    #[inline]
     pub(crate) fn compute_sum(&mut self) {
         self.class_wmc_sum += self.class_wmc;
         self.interface_wmc_sum += self.interface_wmc;
     }
 
     // Checks if the `Wmc` metric is disabled
-    #[inline(always)]
+    #[inline]
     pub(crate) fn is_disabled(&self) -> bool {
         matches!(self.space_kind, SpaceKind::Function | SpaceKind::Unknown)
     }

@@ -391,7 +391,7 @@ pub enum Typescript {
 }
 
 impl From<Typescript> for &'static str {
-    #[inline(always)]
+    #[inline]
     fn from(tok: Typescript) -> Self {
         match tok {
             Typescript::End => "end",
@@ -787,7 +787,7 @@ impl From<Typescript> for &'static str {
 }
 
 impl From<u16> for Typescript {
-    #[inline(always)]
+    #[inline]
     fn from(x: u16) -> Self {
         num::FromPrimitive::from_u16(x).unwrap_or(Self::Error)
     }
@@ -795,7 +795,7 @@ impl From<u16> for Typescript {
 
 // Typescript == u16
 impl PartialEq<u16> for Typescript {
-    #[inline(always)]
+    #[inline]
     fn eq(&self, x: &u16) -> bool {
         *self == Into::<Self>::into(*x)
     }
@@ -803,7 +803,7 @@ impl PartialEq<u16> for Typescript {
 
 // u16 == Typescript
 impl PartialEq<Typescript> for u16 {
-    #[inline(always)]
+    #[inline]
     fn eq(&self, x: &Typescript) -> bool {
         *x == *self
     }

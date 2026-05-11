@@ -273,7 +273,7 @@ pub enum Javascript {
 }
 
 impl From<Javascript> for &'static str {
-    #[inline(always)]
+    #[inline]
     fn from(tok: Javascript) -> Self {
         match tok {
             Javascript::End => "end",
@@ -549,7 +549,7 @@ impl From<Javascript> for &'static str {
 }
 
 impl From<u16> for Javascript {
-    #[inline(always)]
+    #[inline]
     fn from(x: u16) -> Self {
         num::FromPrimitive::from_u16(x).unwrap_or(Self::Error)
     }
@@ -557,7 +557,7 @@ impl From<u16> for Javascript {
 
 // Javascript == u16
 impl PartialEq<u16> for Javascript {
-    #[inline(always)]
+    #[inline]
     fn eq(&self, x: &u16) -> bool {
         *self == Into::<Self>::into(*x)
     }
@@ -565,7 +565,7 @@ impl PartialEq<u16> for Javascript {
 
 // u16 == Javascript
 impl PartialEq<Javascript> for u16 {
-    #[inline(always)]
+    #[inline]
     fn eq(&self, x: &Javascript) -> bool {
         *x == *self
     }

@@ -297,7 +297,7 @@ pub enum Kotlin {
 }
 
 impl From<Kotlin> for &'static str {
-    #[inline(always)]
+    #[inline]
     fn from(tok: Kotlin) -> Self {
         match tok {
             Kotlin::End => "end",
@@ -595,7 +595,7 @@ impl From<Kotlin> for &'static str {
 }
 
 impl From<u16> for Kotlin {
-    #[inline(always)]
+    #[inline]
     fn from(x: u16) -> Self {
         num::FromPrimitive::from_u16(x).unwrap_or(Self::Error)
     }
@@ -603,7 +603,7 @@ impl From<u16> for Kotlin {
 
 // Kotlin == u16
 impl PartialEq<u16> for Kotlin {
-    #[inline(always)]
+    #[inline]
     fn eq(&self, x: &u16) -> bool {
         *self == Into::<Self>::into(*x)
     }
@@ -611,7 +611,7 @@ impl PartialEq<u16> for Kotlin {
 
 // u16 == Kotlin
 impl PartialEq<Kotlin> for u16 {
-    #[inline(always)]
+    #[inline]
     fn eq(&self, x: &Kotlin) -> bool {
         *x == *self
     }

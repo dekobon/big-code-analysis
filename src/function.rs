@@ -47,7 +47,7 @@ pub fn function<T: ParserTrait>(parser: &T) -> Vec<FunctionSpan> {
                 });
             } else {
                 spans.push(FunctionSpan {
-                    name: "".to_string(),
+                    name: String::new(),
                     start_line,
                     end_line,
                     error: true,

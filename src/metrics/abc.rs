@@ -4,8 +4,7 @@ use std::fmt;
 
 use crate::checker::Checker;
 use crate::macros::{
-    csharp_invocation_expr_kinds, csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds,
-    csharp_var_declarator_kinds, implement_metric_trait,
+    csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds, implement_metric_trait,
 };
 use crate::node::Node;
 use crate::*;
@@ -230,14 +229,14 @@ impl Stats {
             .sqrt()
     }
 
-    #[inline(always)]
+    #[inline]
     pub(crate) fn compute_sum(&mut self) {
         self.assignments_sum += self.assignments;
         self.branches_sum += self.branches;
         self.conditions_sum += self.conditions;
     }
 
-    #[inline(always)]
+    #[inline]
     pub(crate) fn compute_minmax(&mut self) {
         self.assignments_min = self.assignments_min.min(self.assignments);
         self.assignments_max = self.assignments_max.max(self.assignments);
@@ -367,7 +366,12 @@ fn csharp_inspect_container(container_node: &Node, conditions: &mut f64) {
         // was established up the chain.
         if matches!(
             node_kind,
-            csharp_invocation_expr_kinds!() | Identifier | True | False
+            crate::Csharp::InvocationExpression
+                | crate::Csharp::InvocationExpression2
+                | crate::Csharp::InvocationExpression3
+                | Identifier
+                | True
+                | False
         ) {
             if has_boolean_content {
                 *conditions += 1.;
@@ -390,7 +394,12 @@ fn csharp_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 
             if matches!(
                 node_kind,
-                csharp_invocation_expr_kinds!() | Identifier | True | False
+                crate::Csharp::InvocationExpression
+                    | crate::Csharp::InvocationExpression2
+                    | crate::Csharp::InvocationExpression3
+                    | Identifier
+                    | True
+                    | False
             ) && matches!(list_kind, BinaryExpression)
                 && !matches!(list_kind, ArgumentList)
             {
@@ -686,7 +695,7 @@ impl Abc for JavaCode {
                         ParenthesizedExpression | UnaryExpression
                     )
                 {
-                    java_inspect_container(&value, &mut stats.conditions)
+                    java_inspect_container(&value, &mut stats.conditions);
                 }
             }
             // Counts unary conditions inside implicit return statements in lambda expressions
@@ -698,7 +707,7 @@ impl Abc for JavaCode {
                         ParenthesizedExpression | UnaryExpression
                     )
                 {
-                    java_inspect_container(&value, &mut stats.conditions)
+                    java_inspect_container(&value, &mut stats.conditions);
                 }
             }
             // Counts unary conditions inside ternary expressions
@@ -773,7 +782,10 @@ impl Abc for CsharpCode {
                     stats.assignments += 1.;
                 }
             }
-            csharp_invocation_expr_kinds!() | ObjectCreationExpression => {
+            crate::Csharp::InvocationExpression
+            | crate::Csharp::InvocationExpression2
+            | crate::Csharp::InvocationExpression3
+            | ObjectCreationExpression => {
                 stats.branches += 1.;
             }
             GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | Default | QMARK | Try | Catch => {
@@ -802,7 +814,9 @@ impl Abc for CsharpCode {
             ArgumentList => {
                 csharp_count_unary_conditions(node, &mut stats.conditions);
             }
-            csharp_var_declarator_kinds!() | AssignmentExpression => {
+            crate::Csharp::VariableDeclarator
+            | crate::Csharp::VariableDeclarator2
+            | AssignmentExpression => {
                 // Child 2 is the RHS of `lhs = rhs`.
                 inspect_csharp_child(node, 2, &mut stats.conditions);
             }
@@ -835,10 +849,19 @@ impl Abc for CsharpCode {
                 // `cond ? a : b` — children are [cond, ?, a, :, b].
                 if let Some(condition) = node.child(0) {
                     match condition.kind_id().into() {
-                        csharp_invocation_expr_kinds!() | Identifier | True | False => {
+                        crate::Csharp::InvocationExpression
+                        | crate::Csharp::InvocationExpression2
+                        | crate::Csharp::InvocationExpression3
+                        | Identifier
+                        | True
+                        | False => {
                             stats.conditions += 1.;
                         }
-                        csharp_paren_expr_kinds!() | csharp_prefix_unary_expr_kinds!() => {
+                        crate::Csharp::ParenthesizedExpression
+                        | crate::Csharp::ParenthesizedExpression2
+                        | crate::Csharp::ParenthesizedExpression3
+                        | crate::Csharp::PrefixUnaryExpression
+                        | crate::Csharp::PrefixUnaryExpression2 => {
                             csharp_inspect_container(&condition, &mut stats.conditions);
                         }
                         _ => {}
@@ -868,7 +891,11 @@ fn inspect_csharp_child(node: &Node, idx: usize, conditions: &mut f64) {
     if let Some(child) = node.child(idx)
         && matches!(
             child.kind_id().into(),
-            csharp_paren_expr_kinds!() | csharp_prefix_unary_expr_kinds!()
+            crate::Csharp::ParenthesizedExpression
+                | crate::Csharp::ParenthesizedExpression2
+                | crate::Csharp::ParenthesizedExpression3
+                | crate::Csharp::PrefixUnaryExpression
+                | crate::Csharp::PrefixUnaryExpression2
         )
     {
         csharp_inspect_container(&child, conditions);

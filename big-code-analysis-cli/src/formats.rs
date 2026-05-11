@@ -275,13 +275,13 @@ pub(crate) fn dump_msvc_warning(
     write_to_path_or_stdout(output_path, |w| write_msvc_warning(offenders, w))
 }
 
-#[inline(always)]
+#[inline]
 fn print_on_stdout(content: String) -> std::io::Result<()> {
     writeln!(std::io::stdout().lock(), "{content}")
 }
 
 trait WriteOnStdout {
-    #[inline(always)]
+    #[inline]
     fn write_on_stdout<T: Serialize>(content: T) -> std::io::Result<()> {
         print_on_stdout(Self::format(content)?)
     }

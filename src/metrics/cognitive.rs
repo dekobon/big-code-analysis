@@ -105,11 +105,11 @@ impl Stats {
     pub fn cognitive_average(&self) -> f64 {
         self.cognitive_sum() / self.total_space_functions as f64
     }
-    #[inline(always)]
+    #[inline]
     pub(crate) fn compute_sum(&mut self) {
         self.structural_sum += self.structural;
     }
-    #[inline(always)]
+    #[inline]
     pub(crate) fn compute_minmax(&mut self) {
         self.structural_min = self.structural_min.min(self.structural);
         self.structural_max = self.structural_max.max(self.structural);
@@ -202,17 +202,17 @@ impl BoolSequence {
     }
 }
 
-#[inline(always)]
+#[inline]
 fn increment(stats: &mut Stats) {
     stats.structural += stats.nesting + 1;
 }
 
-#[inline(always)]
+#[inline]
 fn increment_by_one(stats: &mut Stats) {
     stats.structural += 1;
 }
 
-#[inline(always)]
+#[inline]
 fn increment_branch_extension(stats: &mut Stats) {
     stats.structural += 1;
     stats.boolean_seq.reset();
@@ -239,7 +239,7 @@ fn increment_function_depth<T: PartialEq + From<u16>>(depth: &mut usize, node: &
     }
 }
 
-#[inline(always)]
+#[inline]
 fn increase_nesting(stats: &mut Stats, nesting: &mut usize, depth: usize, lambda: usize) {
     stats.nesting = *nesting + depth + lambda;
     increment(stats);

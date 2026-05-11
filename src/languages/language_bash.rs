@@ -288,7 +288,7 @@ pub enum Bash {
 }
 
 impl From<Bash> for &'static str {
-    #[inline(always)]
+    #[inline]
     fn from(tok: Bash) -> Self {
         match tok {
             Bash::End => "end",
@@ -577,7 +577,7 @@ impl From<Bash> for &'static str {
 }
 
 impl From<u16> for Bash {
-    #[inline(always)]
+    #[inline]
     fn from(x: u16) -> Self {
         num::FromPrimitive::from_u16(x).unwrap_or(Self::Error)
     }
@@ -585,7 +585,7 @@ impl From<u16> for Bash {
 
 // Bash == u16
 impl PartialEq<u16> for Bash {
-    #[inline(always)]
+    #[inline]
     fn eq(&self, x: &u16) -> bool {
         *self == Into::<Self>::into(*x)
     }
@@ -593,7 +593,7 @@ impl PartialEq<u16> for Bash {
 
 // u16 == Bash
 impl PartialEq<Bash> for u16 {
-    #[inline(always)]
+    #[inline]
     fn eq(&self, x: &Bash) -> bool {
         *x == *self
     }

@@ -272,7 +272,7 @@ pub enum Mozjs {
 }
 
 impl From<Mozjs> for &'static str {
-    #[inline(always)]
+    #[inline]
     fn from(tok: Mozjs) -> Self {
         match tok {
             Mozjs::End => "end",
@@ -545,7 +545,7 @@ impl From<Mozjs> for &'static str {
 }
 
 impl From<u16> for Mozjs {
-    #[inline(always)]
+    #[inline]
     fn from(x: u16) -> Self {
         num::FromPrimitive::from_u16(x).unwrap_or(Self::Error)
     }
@@ -553,7 +553,7 @@ impl From<u16> for Mozjs {
 
 // Mozjs == u16
 impl PartialEq<u16> for Mozjs {
-    #[inline(always)]
+    #[inline]
     fn eq(&self, x: &u16) -> bool {
         *self == Into::<Self>::into(*x)
     }
@@ -561,7 +561,7 @@ impl PartialEq<u16> for Mozjs {
 
 // u16 == Mozjs
 impl PartialEq<Mozjs> for u16 {
-    #[inline(always)]
+    #[inline]
     fn eq(&self, x: &Mozjs) -> bool {
         *x == *self
     }

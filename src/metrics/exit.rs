@@ -92,11 +92,11 @@ impl Stats {
     pub fn exit_average(&self) -> f64 {
         self.exit_sum() / self.total_space_functions as f64
     }
-    #[inline(always)]
+    #[inline]
     pub(crate) fn compute_sum(&mut self) {
         self.exit_sum += self.exit;
     }
-    #[inline(always)]
+    #[inline]
     pub(crate) fn compute_minmax(&mut self) {
         self.exit_max = self.exit_max.max(self.exit);
         self.exit_min = self.exit_min.min(self.exit);

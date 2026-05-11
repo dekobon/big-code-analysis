@@ -92,44 +92,44 @@ impl Stats {
     }
 
     /// Returns the number of function arguments in a space.
-    #[inline(always)]
+    #[inline]
     pub fn fn_args(&self) -> f64 {
         self.fn_nargs as f64
     }
 
     /// Returns the number of closure arguments in a space.
-    #[inline(always)]
+    #[inline]
     pub fn closure_args(&self) -> f64 {
         self.closure_nargs as f64
     }
 
     /// Returns the number of function arguments sum in a space.
-    #[inline(always)]
+    #[inline]
     pub fn fn_args_sum(&self) -> f64 {
         self.fn_nargs_sum as f64
     }
 
     /// Returns the number of closure arguments sum in a space.
-    #[inline(always)]
+    #[inline]
     pub fn closure_args_sum(&self) -> f64 {
         self.closure_nargs_sum as f64
     }
 
     /// Returns the average number of functions arguments in a space.
-    #[inline(always)]
+    #[inline]
     pub fn fn_args_average(&self) -> f64 {
         self.fn_nargs_sum as f64 / self.total_functions.max(1) as f64
     }
 
     /// Returns the average number of closures arguments in a space.
-    #[inline(always)]
+    #[inline]
     pub fn closure_args_average(&self) -> f64 {
         self.closure_nargs_sum as f64 / self.total_closures.max(1) as f64
     }
 
     /// Returns the total number of arguments of each function and
     /// closure in a space.
-    #[inline(always)]
+    #[inline]
     pub fn nargs_total(&self) -> f64 {
         self.fn_args_sum() + self.closure_args_sum()
     }
@@ -138,36 +138,36 @@ impl Stats {
     ///
     /// This value is computed dividing the `NArgs` value
     /// for the total number of functions/closures in a space.
-    #[inline(always)]
+    #[inline]
     pub fn nargs_average(&self) -> f64 {
         self.nargs_total() / (self.total_functions + self.total_closures).max(1) as f64
     }
     /// Returns the minimum number of function arguments in a space.
-    #[inline(always)]
+    #[inline]
     pub fn fn_args_min(&self) -> f64 {
         self.fn_nargs_min as f64
     }
     /// Returns the maximum number of function arguments in a space.
-    #[inline(always)]
+    #[inline]
     pub fn fn_args_max(&self) -> f64 {
         self.fn_nargs_max as f64
     }
     /// Returns the minimum number of closure arguments in a space.
-    #[inline(always)]
+    #[inline]
     pub fn closure_args_min(&self) -> f64 {
         self.closure_nargs_min as f64
     }
     /// Returns the maximum number of closure arguments in a space.
-    #[inline(always)]
+    #[inline]
     pub fn closure_args_max(&self) -> f64 {
         self.closure_nargs_max as f64
     }
-    #[inline(always)]
+    #[inline]
     pub(crate) fn compute_sum(&mut self) {
         self.closure_nargs_sum += self.closure_nargs;
         self.fn_nargs_sum += self.fn_nargs;
     }
-    #[inline(always)]
+    #[inline]
     pub(crate) fn compute_minmax(&mut self) {
         self.closure_nargs_min = self.closure_nargs_min.min(self.closure_nargs);
         self.closure_nargs_max = self.closure_nargs_max.max(self.closure_nargs);
@@ -181,7 +181,7 @@ impl Stats {
     }
 }
 
-#[inline(always)]
+#[inline]
 fn compute_args<T: Checker>(node: &Node, nargs: &mut usize) {
     if let Some(params) = node.child_by_field_name("parameters") {
         let node_params = params;

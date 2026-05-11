@@ -157,13 +157,13 @@ impl Stats {
         self.cyclomatic_modified_min
     }
 
-    #[inline(always)]
+    #[inline]
     pub(crate) fn compute_sum(&mut self) {
         self.cyclomatic_sum += self.cyclomatic;
         self.cyclomatic_modified_sum += self.cyclomatic_modified;
     }
 
-    #[inline(always)]
+    #[inline]
     pub(crate) fn compute_minmax(&mut self) {
         self.cyclomatic_max = self.cyclomatic_max.max(self.cyclomatic);
         self.cyclomatic_min = self.cyclomatic_min.min(self.cyclomatic);

@@ -103,7 +103,7 @@ fn switch_with_default_parity() {
         "c",
         ccn_sum(
             LANG::Cpp,
-            r#"void f(int x) {
+            r"void f(int x) {
     switch (x) {
         case 1: break;
         case 2: break;
@@ -111,7 +111,7 @@ fn switch_with_default_parity() {
         default: break;
     }
 }
-"#,
+",
             "c",
         ),
     );
@@ -119,7 +119,7 @@ fn switch_with_default_parity() {
         "java",
         ccn_sum(
             LANG::Java,
-            r#"class Parity {
+            r"class Parity {
     static void f(int x) {
         switch (x) {
             case 1: break;
@@ -129,7 +129,7 @@ fn switch_with_default_parity() {
         }
     }
 }
-"#,
+",
             "java",
         ),
     );
@@ -159,7 +159,7 @@ fn switch_without_default_parity() {
         "rust",
         ccn_sum(
             LANG::Rust,
-            r#"fn f(x: u8) {
+            r"fn f(x: u8) {
     match x {
         1 => {}
         2 => {}
@@ -167,7 +167,7 @@ fn switch_without_default_parity() {
         _ => {}
     }
 }
-"#,
+",
             "rs",
         ),
     );
@@ -175,14 +175,14 @@ fn switch_without_default_parity() {
         "c",
         ccn_sum(
             LANG::Cpp,
-            r#"void f(int x) {
+            r"void f(int x) {
     switch (x) {
         case 1: break;
         case 2: break;
         case 3: break;
     }
 }
-"#,
+",
             "c",
         ),
     );
@@ -190,7 +190,7 @@ fn switch_without_default_parity() {
         "java",
         ccn_sum(
             LANG::Java,
-            r#"class Parity {
+            r"class Parity {
     static void f(int x) {
         switch (x) {
             case 1: break;
@@ -199,7 +199,7 @@ fn switch_without_default_parity() {
         }
     }
 }
-"#,
+",
             "java",
         ),
     );
@@ -250,7 +250,7 @@ fn if_else_if_else_chain_parity() {
         "rust",
         ccn_sum(
             LANG::Rust,
-            r#"fn f(x: i32) -> i32 {
+            r"fn f(x: i32) -> i32 {
     if x == 1 {
         10
     } else if x == 2 {
@@ -261,7 +261,7 @@ fn if_else_if_else_chain_parity() {
         0
     }
 }
-"#,
+",
             "rs",
         ),
     );
@@ -269,7 +269,7 @@ fn if_else_if_else_chain_parity() {
         "c",
         ccn_sum(
             LANG::Cpp,
-            r#"int f(int x) {
+            r"int f(int x) {
     if (x == 1) {
         return 10;
     } else if (x == 2) {
@@ -280,7 +280,7 @@ fn if_else_if_else_chain_parity() {
         return 0;
     }
 }
-"#,
+",
             "c",
         ),
     );
@@ -288,7 +288,7 @@ fn if_else_if_else_chain_parity() {
         "java",
         ccn_sum(
             LANG::Java,
-            r#"class Parity {
+            r"class Parity {
     static int f(int x) {
         if (x == 1) {
             return 10;
@@ -301,7 +301,7 @@ fn if_else_if_else_chain_parity() {
         }
     }
 }
-"#,
+",
             "java",
         ),
     );
@@ -309,7 +309,7 @@ fn if_else_if_else_chain_parity() {
         "javascript",
         ccn_sum(
             LANG::Javascript,
-            r#"function f(x) {
+            r"function f(x) {
     if (x === 1) {
         return 10;
     } else if (x === 2) {
@@ -320,7 +320,7 @@ fn if_else_if_else_chain_parity() {
         return 0;
     }
 }
-"#,
+",
             "js",
         ),
     );
@@ -328,7 +328,7 @@ fn if_else_if_else_chain_parity() {
         "python",
         ccn_sum(
             LANG::Python,
-            r#"def f(x):
+            r"def f(x):
     if x == 1:
         return 10
     elif x == 2:
@@ -337,7 +337,7 @@ fn if_else_if_else_chain_parity() {
         return 30
     else:
         return 0
-"#,
+",
             "py",
         ),
     );
@@ -383,12 +383,12 @@ fn single_if_no_else_parity() {
         "rust",
         ccn_sum(
             LANG::Rust,
-            r#"fn f(x: i32) {
+            r"fn f(x: i32) {
     if x == 1 {
         let _ = x;
     }
 }
-"#,
+",
             "rs",
         ),
     );
@@ -396,12 +396,12 @@ fn single_if_no_else_parity() {
         "c",
         ccn_sum(
             LANG::Cpp,
-            r#"void f(int x) {
+            r"void f(int x) {
     if (x == 1) {
         x = x;
     }
 }
-"#,
+",
             "c",
         ),
     );
@@ -409,14 +409,14 @@ fn single_if_no_else_parity() {
         "java",
         ccn_sum(
             LANG::Java,
-            r#"class Parity {
+            r"class Parity {
     static void f(int x) {
         if (x == 1) {
             x = x;
         }
     }
 }
-"#,
+",
             "java",
         ),
     );
@@ -424,12 +424,12 @@ fn single_if_no_else_parity() {
         "javascript",
         ccn_sum(
             LANG::Javascript,
-            r#"function f(x) {
+            r"function f(x) {
     if (x === 1) {
         return x;
     }
 }
-"#,
+",
             "js",
         ),
     );
@@ -437,10 +437,10 @@ fn single_if_no_else_parity() {
         "python",
         ccn_sum(
             LANG::Python,
-            r#"def f(x):
+            r"def f(x):
     if x == 1:
         return x
-"#,
+",
             "py",
         ),
     );

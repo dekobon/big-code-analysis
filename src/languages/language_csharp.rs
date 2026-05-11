@@ -541,7 +541,7 @@ pub enum Csharp {
 }
 
 impl From<Csharp> for &'static str {
-    #[inline(always)]
+    #[inline]
     fn from(tok: Csharp) -> Self {
         match tok {
             Csharp::End => "end",
@@ -1093,7 +1093,7 @@ impl From<Csharp> for &'static str {
 }
 
 impl From<u16> for Csharp {
-    #[inline(always)]
+    #[inline]
     fn from(x: u16) -> Self {
         num::FromPrimitive::from_u16(x).unwrap_or(Self::Error)
     }
@@ -1101,7 +1101,7 @@ impl From<u16> for Csharp {
 
 // Csharp == u16
 impl PartialEq<u16> for Csharp {
-    #[inline(always)]
+    #[inline]
     fn eq(&self, x: &u16) -> bool {
         *self == Into::<Self>::into(*x)
     }
@@ -1109,7 +1109,7 @@ impl PartialEq<u16> for Csharp {
 
 // u16 == Csharp
 impl PartialEq<Csharp> for u16 {
-    #[inline(always)]
+    #[inline]
     fn eq(&self, x: &Csharp) -> bool {
         *x == *self
     }

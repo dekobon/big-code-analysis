@@ -72,49 +72,49 @@ impl Stats {
     }
 
     /// Returns the number of class public attributes in a space.
-    #[inline(always)]
+    #[inline]
     pub fn class_npa(&self) -> f64 {
         self.class_npa as f64
     }
 
     /// Returns the number of interface public attributes in a space.
-    #[inline(always)]
+    #[inline]
     pub fn interface_npa(&self) -> f64 {
         self.interface_npa as f64
     }
 
     /// Returns the number of class attributes in a space.
-    #[inline(always)]
+    #[inline]
     pub fn class_na(&self) -> f64 {
         self.class_na as f64
     }
 
     /// Returns the number of interface attributes in a space.
-    #[inline(always)]
+    #[inline]
     pub fn interface_na(&self) -> f64 {
         self.interface_na as f64
     }
 
     /// Returns the number of class public attributes sum in a space.
-    #[inline(always)]
+    #[inline]
     pub fn class_npa_sum(&self) -> f64 {
         self.class_npa_sum as f64
     }
 
     /// Returns the number of interface public attributes sum in a space.
-    #[inline(always)]
+    #[inline]
     pub fn interface_npa_sum(&self) -> f64 {
         self.interface_npa_sum as f64
     }
 
     /// Returns the number of class attributes sum in a space.
-    #[inline(always)]
+    #[inline]
     pub fn class_na_sum(&self) -> f64 {
         self.class_na_sum as f64
     }
 
     /// Returns the number of interface attributes sum in a space.
-    #[inline(always)]
+    #[inline]
     pub fn interface_na_sum(&self) -> f64 {
         self.interface_na_sum as f64
     }
@@ -128,7 +128,7 @@ impl Stats {
     /// This metric is an adaptation of the `Classified Class Data Accessibility` (`CCDA`)
     /// security metric for not classified attributes.
     /// Paper: <https://ieeexplore.ieee.org/abstract/document/5381538>
-    #[inline(always)]
+    #[inline]
     pub fn class_cda(&self) -> f64 {
         self.class_npa_sum() / self.class_na_sum as f64
     }
@@ -142,7 +142,7 @@ impl Stats {
     /// This metric is an adaptation of the `Classified Class Data Accessibility` (`CCDA`)
     /// security metric for not classified attributes.
     /// Paper: <https://ieeexplore.ieee.org/abstract/document/5381538>
-    #[inline(always)]
+    #[inline]
     pub fn interface_cda(&self) -> f64 {
         // For the Java language it's not necessary to compute the metric value
         // The metric value in Java can only be 1.0 or f64:NAN
@@ -162,26 +162,26 @@ impl Stats {
     /// This metric is an adaptation of the `Classified Class Data Accessibility` (`CCDA`)
     /// security metric for not classified attributes.
     /// Paper: <https://ieeexplore.ieee.org/abstract/document/5381538>
-    #[inline(always)]
+    #[inline]
     pub fn total_cda(&self) -> f64 {
         self.total_npa() / self.total_na()
     }
 
     /// Returns the total number of public attributes in a space.
-    #[inline(always)]
+    #[inline]
     pub fn total_npa(&self) -> f64 {
         self.class_npa_sum() + self.interface_npa_sum()
     }
 
     /// Returns the total number of attributes in a space.
-    #[inline(always)]
+    #[inline]
     pub fn total_na(&self) -> f64 {
         self.class_na_sum() + self.interface_na_sum()
     }
 
     // Accumulates the number of class and interface
     // public and not public attributes into the sums
-    #[inline(always)]
+    #[inline]
     pub(crate) fn compute_sum(&mut self) {
         self.class_npa_sum += self.class_npa;
         self.interface_npa_sum += self.interface_npa;
@@ -190,7 +190,7 @@ impl Stats {
     }
 
     // Checks if the `Npa` metric is disabled
-    #[inline(always)]
+    #[inline]
     pub(crate) fn is_disabled(&self) -> bool {
         !self.is_class_space
     }
