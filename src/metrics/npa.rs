@@ -448,38 +448,33 @@ impl Npa for PhpCode {
 // Kotlin's grammar models classes and interfaces under a single
 // `class_declaration` node; the `class` / `interface` keyword child
 // disambiguates. A `ClassBody` belongs to an interface iff its parent
-// `class_declaration` has an `interface` keyword child. Caches the result
-// at the helper level rather than re-walking the parent on every visit.
+// `class_declaration` has an `interface` keyword child.
 pub(crate) fn kotlin_class_body_is_interface(class_body: &Node) -> bool {
-    class_body
-        .parent()
-        .is_some_and(|p| match p.kind_id().into() {
-            Kotlin::ClassDeclaration => p.first_child(|id| id == Kotlin::Interface).is_some(),
-            _ => false,
-        })
+    class_body.parent().is_some_and(|p| {
+        matches!(p.kind_id().into(), Kotlin::ClassDeclaration)
+            && p.first_child(|id| id == Kotlin::Interface).is_some()
+    })
 }
 
 // Counts how many `VariableDeclaration`s a Kotlin `PropertyDeclaration`
 // introduces. Kotlin allows destructuring (`val (a, b) = pair`) via
 // `MultiVariableDeclaration`; each leaf binding counts as one attribute.
+// Empty multi-variable destructurings cannot occur in well-formed Kotlin,
+// but a defensive `.max(1)` keeps `property_declaration` at ≥1 attribute
+// (matches the C# accessor-counting fallback).
 fn kotlin_count_property_attrs(decl: &Node) -> usize {
     use Kotlin::*;
-    let count = decl
-        .children()
-        .filter_map(|c| match c.kind_id().into() {
-            VariableDeclaration => Some(1),
-            MultiVariableDeclaration => Some(
-                c.children()
-                    .filter(|n| matches!(n.kind_id().into(), VariableDeclaration))
-                    .count(),
-            ),
-            _ => None,
+    decl.children()
+        .map(|c| match c.kind_id().into() {
+            VariableDeclaration => 1,
+            MultiVariableDeclaration => c
+                .children()
+                .filter(|n| matches!(n.kind_id().into(), VariableDeclaration))
+                .count(),
+            _ => 0,
         })
-        .sum::<usize>();
-    // Empty multi-variable destructurings cannot occur in well-formed
-    // Kotlin, but a defensive `.max(1)` keeps `property_declaration` at
-    // ≥1 attribute (matches the C# accessor-counting fallback).
-    count.max(1)
+        .sum::<usize>()
+        .max(1)
 }
 
 // Kotlin's default visibility is `public`. A declaration is non-public
@@ -494,15 +489,16 @@ pub(crate) fn kotlin_is_public(decl: &Node) -> bool {
     let Some(visibility) = modifiers.first_child(|id| id == Kotlin::VisibilityModifier) else {
         return true;
     };
-    // Visibility modifier holds exactly one keyword child.
+    // The visibility modifier holds exactly one keyword child; absence or
+    // an explicit `public` both mean public.
     visibility
         .first_child(|id| {
             matches!(
                 id.into(),
-                Kotlin::Public | Kotlin::Private | Kotlin::Protected | Kotlin::Internal
+                Kotlin::Private | Kotlin::Protected | Kotlin::Internal
             )
         })
-        .is_none_or(|kw| kw.kind_id() == Kotlin::Public)
+        .is_none()
 }
 
 impl Npa for KotlinCode {

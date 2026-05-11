@@ -531,6 +531,13 @@ impl Abc for KotlinCode {
             PropertyDeclaration => {
                 stats.declaration.push(DeclKind::Var);
             }
+            // Primary-constructor parameter properties: `class C(val a: Int
+            // = 5)`. The optional default value is an initialiser, not an
+            // assignment, so push the same sentinel as `PropertyDeclaration`.
+            // `Val` later in the child stream promotes to `Const`.
+            ClassParameter => {
+                stats.declaration.push(DeclKind::Var);
+            }
             // `val` introduces an immutable binding; promote the pending
             // declaration to `Const` so the upcoming `=` is suppressed
             // (constants are not assignments in ABC).
@@ -596,23 +603,17 @@ impl Abc for KotlinCode {
             // else-clause and `when`'s `else ->` entry. Only count it
             // when it belongs to an `if_expression`; the `WhenEntry`
             // wrapper above already covers the `when` case.
-            Else => {
-                if node
-                    .parent()
-                    .is_some_and(|p| matches!(p.kind_id().into(), IfExpression))
-                {
-                    stats.conditions += 1.;
-                }
+            Else if node.parent().is_some_and(|p| p.kind_id() == IfExpression) => {
+                stats.conditions += 1.;
             }
             // `<` and `>` may appear as type-argument brackets
             // (`List<Int>`); exclude those by checking the parent kind.
-            LT | GT => {
-                if node
-                    .parent()
-                    .is_some_and(|p| !matches!(p.kind_id().into(), TypeArguments | TypeParameters))
-                {
-                    stats.conditions += 1.;
-                }
+            LT | GT
+                if node.parent().is_some_and(|p| {
+                    !matches!(p.kind_id().into(), TypeArguments | TypeParameters)
+                }) =>
+            {
+                stats.conditions += 1.;
             }
             _ => {}
         }
@@ -2637,6 +2638,24 @@ function f(int $a, int $b): int {
                 assert_eq!(metric.abc.assignments_sum(), 0.0);
                 assert_eq!(metric.abc.branches_sum(), 0.0);
                 assert_eq!(metric.abc.conditions_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_primary_constructor_default_value_not_assignment() {
+        // Regression: default values on primary-constructor `val`
+        // parameters are initialisers, not assignments. Without
+        // `ClassParameter` pushing a declaration sentinel, the `=` token
+        // here would be counted unconditionally as a standalone
+        // assignment.
+        check_metrics::<KotlinParser>(
+            "class C(val a: Int = 5)",
+            "foo.kt",
+            |metric| {
+                // `val a = 5` → suppressed (Const sentinel).
+                assert_eq!(metric.abc.assignments_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
