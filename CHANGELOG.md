@@ -13,6 +13,38 @@ changes are marked with **(breaking)** in the entries below.
 
 ## [Unreleased]
 
+### Changed
+
+- Cargo workspace now uses `resolver = "3"` and inherits shared
+  package metadata (`version`, `edition`, `rust-version`, `license`,
+  `authors`) via `[workspace.package]` so the three shipping crates
+  have a single source of truth. Per-crate `repository` URLs are
+  preserved so each crate's crates.io page still links to its own
+  subdirectory ([#150](https://github.com/dekobon/big-code-analysis/issues/150)).
+- MSRV is now declared as `1.94` in `[workspace.package]`
+  ([#150](https://github.com/dekobon/big-code-analysis/issues/150)).
+- `[profile.release]` drops `strip = "debuginfo"` and sets
+  `debug = "line-tables-only"` so release packaging can split
+  symbols into separate `.dbg` artefacts and panic backtraces still
+  carry line numbers. The same change applies to `enums/`'s
+  independent release profile
+  ([#150](https://github.com/dekobon/big-code-analysis/issues/150)).
+- The 5 vendored grammars (`tree-sitter-ccomment`, `tree-sitter-mozcpp`,
+  `tree-sitter-mozjs`, `tree-sitter-preproc`, `tree-sitter-tcl`) and
+  the `enums` codegen helper are now marked `publish = false` and
+  excluded from the workspace member list, leaving exactly three
+  publishable packages (`big-code-analysis`, `big-code-analysis-cli`,
+  `big-code-analysis-web`)
+  ([#150](https://github.com/dekobon/big-code-analysis/issues/150)).
+
+### Added
+
+- Minimal `.markdownlint-cli2.jsonc` enabling `MD024 siblings_only`
+  so Keep-a-Changelog repeated `### Added` / `### Changed` headers
+  across version sections don't trip the no-duplicate-heading rule.
+  A broader markdownlint configuration will land in
+  [#151](https://github.com/dekobon/big-code-analysis/issues/151).
+
 ## [0.0.25] - 2026-05-10
 
 > **Fork-anchor note.** Forked from Mozilla's

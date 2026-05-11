@@ -1,0 +1,11 @@
+{
+  // Minimal markdownlint configuration. A broader config will land in #151;
+  // for now we only enable `siblings_only` on MD024 so the Keep a Changelog
+  // convention of repeating `### Added` / `### Changed` etc. across version
+  // sections doesn't trip the no-duplicate-heading rule.
+  "config": {
+    "MD024": {
+      "siblings_only": true
+    }
+  }
+}
