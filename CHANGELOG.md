@@ -36,14 +36,44 @@ changes are marked with **(breaking)** in the entries below.
   publishable packages (`big-code-analysis`, `big-code-analysis-cli`,
   `big-code-analysis-web`)
   ([#150](https://github.com/dekobon/big-code-analysis/issues/150)).
+- The 18 shared `tree-sitter*` version pins (13 external, 5 vendored
+  path-deps) are now consolidated in `[workspace.dependencies]` in the
+  root `Cargo.toml`; the root crate inherits them via
+  `.workspace = true`. `enums/Cargo.toml` is `[workspace].exclude`d and
+  cannot inherit, so it keeps literal pins with a lockstep-update
+  comment in both manifests
+  ([#159](https://github.com/dekobon/big-code-analysis/issues/159)).
 
 ### Added
 
 - Minimal `.markdownlint-cli2.jsonc` enabling `MD024 siblings_only`
   so Keep-a-Changelog repeated `### Added` / `### Changed` headers
   across version sections don't trip the no-duplicate-heading rule.
-  A broader markdownlint configuration will land in
-  [#151](https://github.com/dekobon/big-code-analysis/issues/151).
+  Extended in this release with `MD013` (line_length 120,
+  tables/code_blocks false) and an `ignores` list covering `target/**`,
+  `node_modules/**`, `.claude/**`, `tests/repositories/**`, and
+  `big-code-analysis-book/book/**`
+  ([#151](https://github.com/dekobon/big-code-analysis/issues/151)).
+- Contributor-facing and release-process documentation: `CONTRIBUTING.md`,
+  `SECURITY.md`, `RELEASING.md`, and `.github/ISSUE_TEMPLATE/` (bug
+  report and feature request)
+  ([#156](https://github.com/dekobon/big-code-analysis/issues/156)).
+- Supply-chain hygiene configuration at the repo root: `deny.toml`
+  (cargo-deny: yanked-as-deny, license allow-list including MPL-2.0,
+  wildcards-as-deny, unknown-registry/git-as-deny), `about.toml` and
+  `about.hbs` (cargo-about template covering the 8 release targets),
+  and a `minisign.pub` placeholder the release preflight grep-matches
+  to fail fast on un-rotated keys
+  ([#151](https://github.com/dekobon/big-code-analysis/issues/151)).
+- Per-PR GitHub Actions pipeline (`.github/workflows/ci.yml`): `fmt`,
+  `clippy`, `docs`, `test` (3-OS matrix), `msrv` (1.94 build-only),
+  `feature-matrix`, `deny`, `license-audit`, `lint`, and an
+  `if: always()` aggregator `ci` job intended as the single required
+  status check for branch protection. All third-party actions are
+  pinned to commit SHAs. The standalone `snapshot-anchors.yml`
+  workflow is removed; `check-snapshot-anchors.py` now runs inside
+  the new `lint` job
+  ([#152](https://github.com/dekobon/big-code-analysis/issues/152)).
 
 ## [0.0.25] - 2026-05-10
 
