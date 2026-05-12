@@ -409,7 +409,12 @@ impl Cognitive for CppCode {
             IfStatement if !Self::is_else_if(node) => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
-            ForStatement | WhileStatement | DoStatement | SwitchStatement | CatchClause => {
+            ForStatement
+            | WhileStatement
+            | DoStatement
+            | SwitchStatement
+            | CatchClause
+            | ConditionalExpression => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
             GotoStatement | Else /* else-if also */ => {
@@ -2095,32 +2100,31 @@ mod tests {
 
     #[test]
     fn c_ternary() {
-        // Sonar's rule scores the C++ ternary `?:` as +1 (and +nesting), but
-        // `CppCode::compute` does not currently match on `ConditionalExpression`,
-        // so the operator is silently free. The single `if` is the only source
-        // of cognitive cost here.
-        // FIXME(#172): add `ConditionalExpression` to the C/C++ cognitive
-        // dispatch so ternaries cost the same as other languages.
+        // Sonar's rule scores the C++ ternary `?:` as +1 (and +nesting), matching
+        // the JS/Java/Python/Rust families. `CppCode::compute` now matches on
+        // `ConditionalExpression`, so the operator participates in nesting like
+        // any other conditional construct.
         check_metrics::<CppParser>(
             "int f(int a) {
                  if (a) { // +1
-                     return a > 0 ? 1 : -1; // should be +2 (nesting = 1)
+                     return a > 0 ? 1 : -1; // +2 (1 + nesting 1)
                  }
-                 return a > 0 ? 0 : -1; // should be +1
+                 return a > 0 ? 0 : -1; // +1
              }",
             "foo.c",
+            // expected: 1 (if) + 2 (nested ternary, nesting=1) + 1 (top-level
+            // ternary) = 4. max is 4 for the only function.
             |metric| {
-                // Actual current behaviour: only the `if` contributes.
-                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 4.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 4.0);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
                     @r###"
                     {
-                      "sum": 1.0,
-                      "average": 1.0,
+                      "sum": 4.0,
+                      "average": 4.0,
                       "min": 0.0,
-                      "max": 1.0
+                      "max": 4.0
                     }"###
                 );
             },
