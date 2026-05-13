@@ -509,7 +509,12 @@ impl Cognitive for JavaCode {
             IfStatement if !Self::is_else_if(node) => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
-            ForStatement | WhileStatement | DoStatement | SwitchBlock | CatchClause => {
+            ForStatement
+            | EnhancedForStatement
+            | WhileStatement
+            | DoStatement
+            | SwitchBlock
+            | CatchClause => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
             Else /* else-if also */ => {
@@ -2001,6 +2006,125 @@ mod tests {
         );
     }
 
+    // The tree-sitter-javascript / -typescript grammars fold both
+    // `for...in` and `for...of` into the same `for_in_statement` node
+    // (only the keyword token differs). The four regression tests below
+    // lock that in across every JS-family parser, so any future grammar
+    // bump that splits `for...of` into its own node kind would surface
+    // here rather than silently scoring `for...of` loops as 0 cognitive.
+
+    #[test]
+    fn javascript_for_of_loop() {
+        check_metrics::<JavascriptParser>(
+            "function f(xs) {
+                 let s = 0;
+                 for (const x of xs) { // +1
+                     s += x;
+                 }
+                 return s;
+             }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_for_of_loop() {
+        check_metrics::<MozjsParser>(
+            "function f(xs) {
+                 let s = 0;
+                 for (const x of xs) { // +1
+                     s += x;
+                 }
+                 return s;
+             }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_for_of_loop() {
+        check_metrics::<TypescriptParser>(
+            "function f(xs: number[]): number {
+                 let s = 0;
+                 for (const x of xs) { // +1
+                     s += x;
+                 }
+                 return s;
+             }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_for_of_loop() {
+        check_metrics::<TsxParser>(
+            "function f(xs: number[]): number {
+                 let s = 0;
+                 for (const x of xs) { // +1
+                     s += x;
+                 }
+                 return s;
+             }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
     #[test]
     fn rust_break_continue() {
         // Only labeled break and continue statements are considered
@@ -2948,6 +3072,71 @@ mod tests {
             }",
             "foo.java",
             |metric| {
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 3.0,
+                      "min": 0.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn java_enhanced_for_statement() {
+        check_metrics::<JavaParser>(
+            "class X {
+              public static int sum(int[] xs) {
+                int s = 0;
+                for (int x : xs) { // +1
+                  s += x;
+                }
+                return s;
+              }
+            }",
+            "foo.java",
+            |metric| {
+                // Java's enhanced-for `for (T x : c)` parses as
+                // `enhanced_for_statement`; it is a control-flow construct
+                // and counts the same as a classic `for_statement` → +1.
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn java_nested_enhanced_for_statement() {
+        check_metrics::<JavaParser>(
+            "class X {
+              public static void f(int[][] xss) {
+                for (int[] xs : xss) { // +1
+                  for (int x : xs) { // +2 (nesting = 1)
+                    g(x);
+                  }
+                }
+              }
+            }",
+            "foo.java",
+            |metric| {
+                // Nested enhanced-fors compound by nesting, matching the
+                // behaviour of nested classic `for` loops: 1 + 2 = 3.
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
                     @r###"
