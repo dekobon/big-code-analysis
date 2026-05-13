@@ -270,6 +270,17 @@ changes are marked with **(breaking)** in the entries below.
   silently masked by the Makefile `EXCLUDE_DIRS` glob bug fixed in
   [#160](https://github.com/dekobon/big-code-analysis/issues/160)
   ([#165](https://github.com/dekobon/big-code-analysis/issues/165)).
+- C++ range-based `for (x : v)` loops are now scored by cognitive
+  complexity. `CppCode::compute` in `src/metrics/cognitive.rs`
+  previously matched only the classic `ForStatement`; the C++11
+  `for_range_loop` node was missing from the dispatch, so range-fors
+  cost `0` and nested range-fors did not compound. The match arm now
+  includes `ForRangeLoop` alongside `ForStatement`, so range-fors
+  add `1 + nesting` like every other loop. Flipped the lock-in test
+  `c_range_based_for` to assert `+1`, added `c_nested_range_based_for`
+  for the compounding case, and refreshed 99 DeepSpeech integration
+  snapshots in the `big-code-analysis-output` submodule
+  ([#173](https://github.com/dekobon/big-code-analysis/issues/173)).
 
 ## [0.0.25] - 2026-05-10
 

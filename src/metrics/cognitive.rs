@@ -410,6 +410,7 @@ impl Cognitive for CppCode {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
             ForStatement
+            | ForRangeLoop
             | WhileStatement
             | DoStatement
             | SwitchStatement
@@ -2226,32 +2227,59 @@ mod tests {
 
     #[test]
     fn c_range_based_for() {
-        // C++11 range-based `for (auto x : v)` parses as `for_range_loop`, which
-        // is NOT in the `CppCode::compute` match arm — only the classic
-        // `for_statement` is. As with ternary, the range-for is currently free.
-        // FIXME(#173): extend the C/C++ cognitive dispatch to include
-        // `ForRangeLoop`.
         check_metrics::<CppParser>(
             "int sum(const std::vector<int>& v) {
                  int s = 0;
-                 for (int x : v) { // should be +1
+                 for (int x : v) { // +1
                      s += x;
                  }
                  return s;
              }",
             "foo.cpp",
             |metric| {
-                // Actual current behaviour: range-for is not tracked → 0.
-                assert_eq!(metric.cognitive.cognitive_sum(), 0.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 0.0);
+                // C++11 range-based `for (auto x : v)` parses as
+                // `for_range_loop`; it is a control-flow construct and
+                // counts the same as a classic `for_statement` → +1.
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
                     @r###"
                     {
-                      "sum": 0.0,
-                      "average": 0.0,
+                      "sum": 1.0,
+                      "average": 1.0,
                       "min": 0.0,
-                      "max": 0.0
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn c_nested_range_based_for() {
+        check_metrics::<CppParser>(
+            "void f(const std::vector<std::vector<int>>& vv) {
+                 for (const auto& row : vv) { // +1
+                     for (int x : row) { // +2 (nesting = 1)
+                         g(x);
+                     }
+                 }
+             }",
+            "foo.cpp",
+            |metric| {
+                // Nested range-fors compound by nesting, matching the
+                // behaviour of nested classic `for` loops: 1 + 2 = 3.
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 3.0,
+                      "min": 0.0,
+                      "max": 3.0
                     }"###
                 );
             },
