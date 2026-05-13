@@ -281,6 +281,18 @@ changes are marked with **(breaking)** in the entries below.
   for the compounding case, and refreshed 99 DeepSpeech integration
   snapshots in the `big-code-analysis-output` submodule
   ([#173](https://github.com/dekobon/big-code-analysis/issues/173)).
+- Java enhanced-for `for (T x : c)` loops are now scored by cognitive
+  complexity. `JavaCode::compute` in `src/metrics/cognitive.rs`
+  previously matched only the classic `ForStatement`; the
+  `enhanced_for_statement` node was missing from the dispatch, so
+  enhanced-fors cost `0` and nested enhanced-fors did not compound.
+  The match arm now includes `EnhancedForStatement` alongside
+  `ForStatement`, so enhanced-fors add `1 + nesting` like every
+  other loop. Cross-language audit also locked in regression tests
+  for JS / Mozjs / TypeScript / TSX `for...of`, which the upstream
+  grammars fold into the same `for_in_statement` node as `for...in`
+  and were therefore already scored correctly
+  ([#178](https://github.com/dekobon/big-code-analysis/issues/178)).
 
 ## [0.0.25] - 2026-05-10
 
