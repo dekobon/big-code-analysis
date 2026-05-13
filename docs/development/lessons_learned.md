@@ -829,3 +829,113 @@ does. Treat `--fix` as a *proposal generator*, not a
 verification.
 
 ---
+
+## 19. Metric dispatch enumerates kinds — missing arms score valid constructs as zero
+
+A per-language metric impl (`impl Cognitive for CppCode`, `impl Cyclomatic
+for JavaCode`, …) is built around a `match node.kind_id()` that lists the
+kinds which contribute to the metric. The list is *coverage*, not
+*compilation*: a grammar can emit a valid construct under a node kind the
+match arm forgot, and the metric silently emits zero for it. This is
+related to lesson 1 (whole-metric no-op silently returns zero), lesson 2
+(aliased kind_ids inside one logical rule), and lesson 11 (cross-language
+disagreement). The new failure mode: an *already-implemented* metric has
+a populated dispatch table that simply doesn't enumerate every node kind
+the grammar emits for the construct the metric is supposed to count.
+
+**C/C++ ternary `?:` was not counted for cognitive** (#172, `b2ae93f`).
+`impl Cognitive for CppCode` enumerated `ForStatement | WhileStatement |
+DoStatement | SwitchStatement | CatchClause` in its nesting arm but
+omitted `ConditionalExpression`, while every JS-family impl already
+included `TernaryExpression`. Every C / C++ source file in the corpus
+scored `0` cognitive for ternaries — the DeepSpeech submodule absorbed
+363 snapshots' worth of upward metric shift when the fix landed.
+
+**C++ range-based `for (auto x : v)` was not counted for cognitive**
+(#173, `7eef01a`). The same dispatch arm matched only `ForStatement`
+and missed `ForRangeLoop` — the distinct C++11 grammar kind. Classic
+loops scored `+1 (+nesting)`; range-based loops scored `0`. The fix
+moved 99 DeepSpeech snapshots.
+
+**Java enhanced-for `for (T x : c)` was not counted for cognitive**
+(#178, `96b73d6`). `JavaCode::compute` matched `ForStatement` but
+missed `EnhancedForStatement`. Discovered via the cross-language audit
+table built off the C++ fix in #173 — without that systematic sweep,
+the bug would have stayed invisible. The same audit confirmed the
+JS-family `for...of` was fine (grammar folds both `for...in` and
+`for...of` into one `for_in_statement` kind), and locked four
+dedicated regression tests (`javascript_for_of_loop`, `mozjs_for_of_loop`,
+`typescript_for_of_loop`, `tsx_for_of_loop`) in so a future grammar
+split would fail loudly.
+
+**Locked-in tests with `FIXME` comments made the bugs visible in CI**
+(#167, `4b41187`; issue links added in `e8b9a4e`). Three of the new
+C/C++ cognitive tests (`c_ternary`, `c_range_based_for`, `c_recursion`)
+deliberately asserted the current-wrong values with an inline FIXME;
+once the fix issues were filed, a follow-up retargeted each FIXME at
+its tracking issue (`FIXME(#172)`, `FIXME(#173)`). The fix commits
+(`b2ae93f`, `7eef01a`) flipped a literal expected value rather than
+re-deriving from scratch, and each test failed loudly the moment its
+dispatch arm was changed. The "assert wrong, flip on fix" anchor is a
+useful idiom whenever a bug is identified before its fix is scheduled
+— it keeps the gap visible in the test suite instead of in a stale
+tracker, and the issue-link upgrade is cheap to apply later once the
+tracking number exists.
+
+**Lesson:** When a metric impl uses a `match` on node kinds, treat the
+arm list as a coverage claim, not a complete spec. After touching or
+auditing one, grep `src/languages/language_<lang>.rs` for every kind
+whose name suggests the construct (`rg 'For[A-Z]' src/languages/`
+for loops, `rg 'Conditional|Ternary' …` for `?:`, …) and confirm
+each is either explicitly matched or explicitly excluded with a
+comment. When fixing one language's omission, build the audit table
+for the other ~15 — a survey table in the fix issue, like the one
+in #178, catches sibling bugs in the same pass. Anchor each
+known-wrong-but-unfixed case in a regression test with an inline
+`FIXME(#NNN)` so the bug stays visible in CI and the eventual fix
+flips a literal value rather than re-deriving the right one.
+
+---
+
+## 20. `PathBuf::join(absolute)` silently replaces the base — iterate `Path::components()`
+
+`PathBuf::join(arg)` silently *replaces* the receiver when `arg` is
+absolute: `PathBuf::from("/tmp").join("/etc/passwd")` returns
+`/etc/passwd`, not `/tmp/etc/passwd`. The behaviour is documented but
+easy to miss when writing a "normalize then place under base"
+routine. A normalizer that strips Unix-style `/` or `./` prefixes
+is not enough, because Windows paths carry a `Prefix` component
+(`D:\`) the same normalizer leaves intact, after which `join`
+happily treats the path as absolute and drops the user-supplied
+base. The bug is invisible on Unix and only surfaces against
+Windows test inputs.
+
+**`bca metrics -o tmpdir` wrote files to the drive root on Windows**
+(`4113bc6`). `handle_path` in `big-code-analysis-cli/src/formats.rs`
+stripped Unix-style `/` and `./` prefixes before
+`output_path.join(cleaned)`. On Windows, an input like
+`D:\a\src\foo.rs` left `cleaned` starting with `D:\`, `join` dropped
+the user-supplied `output_path`, and the output landed under
+`D:\a\src\…` instead of `<output_path>/a/src/…`. Three Windows
+smoke tests (`metrics_writes_per_file_json_to_output_dir`,
+`metrics_pretty_emits_indented_json`,
+`ops_writes_per_file_json_to_output_dir`) caught it; Unix CI was
+clean. The fix walks `Path::components()` and skips `Prefix`,
+`RootDir`, and `CurDir`, replaces `ParentDir` with `.` so the
+output stays contained under the requested base, and preserves the
+UTF-8 fallback warning for `Normal` components.
+
+**Lesson:** When normalizing a path for "place this somewhere under a
+base," iterate `Path::components()` and discriminate by the
+`Component` enum (`Prefix`, `RootDir`, `CurDir`, `ParentDir`,
+`Normal`) rather than stripping prefix bytes. `Component` is
+cross-platform — it surfaces the Windows `Prefix` variant
+explicitly, so the same code handles `/tmp/a/b`, `./a/b`, and
+`D:\a\b` correctly. Whenever a path is the result of normalization
+and is about to be passed to `PathBuf::join`, assert (or design so
+it cannot occur) that the input is not absolute on any platform —
+`join` silently throws away the base if it is. Windows-only test
+coverage is load-bearing here: a fix verified only on Unix can
+ship a regression that wipes out user output on Windows.
+
+---
