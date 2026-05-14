@@ -115,7 +115,12 @@ changes are marked with **(breaking)** in the entries below.
   derived Maintainability Index all benefit from the same gate.
   Default is OFF (tests still counted) to preserve existing numeric
   output for downstream library consumers; the issue author's
-  recommendation to flip the default is left for a follow-up
+  recommendation to flip the default is left for a follow-up.
+  `MetricsOptions` and `MetricsCfg` are both `#[non_exhaustive]` so
+  future option fields don't struct-literal-break downstream
+  callers; construct via `MetricsOptions::default()
+  .with_exclude_tests(true)` and `MetricsCfg::new(path)
+  .with_options(...)` (issue [#185](https://github.com/dekobon/big-code-analysis/issues/185))
   ([#182](https://github.com/dekobon/big-code-analysis/issues/182)).
 - Support for Elixir source files (`.ex`, `.exs`) via
   [`tree-sitter-elixir`](https://crates.io/crates/tree-sitter-elixir)

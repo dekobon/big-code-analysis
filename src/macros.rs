@@ -163,10 +163,7 @@ macro_rules! mk_action {
         /// let source_as_vec = source_code.as_bytes().to_vec();
         ///
         /// // Configuration options used by the function which computes the metrics
-        /// let cfg = MetricsCfg {
-        ///     path,
-        ///     ..Default::default()
-        /// };
+        /// let cfg = MetricsCfg::new(path);
         ///
         /// action::<Metrics>(&language, source_as_vec, &cfg.path.clone(), None, cfg);
         /// ```
@@ -232,7 +229,7 @@ macro_rules! mk_action {
         ///
         /// let path = PathBuf::from("foo.rs");
         /// let source_as_vec = source_code.as_bytes().to_vec();
-        /// let options = MetricsOptions { exclude_tests: true };
+        /// let options = MetricsOptions::default().with_exclude_tests(true);
         ///
         /// get_function_spaces_with_options(&language, source_as_vec, &path, None, options).unwrap();
         /// ```

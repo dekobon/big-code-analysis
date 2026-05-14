@@ -476,11 +476,14 @@ pub fn metrics_with_options<'a, T: ParserTrait>(
 
 /// Per-traversal options for [`metrics_with_options`].
 ///
-/// Constructed with [`MetricsOptions::default`] (all fields off) for
-/// backward-compatible behaviour, then toggled with builder-style
-/// setters. The defaults preserve every metric value emitted by the
-/// pre-#182 [`metrics`] entry point.
+/// Marked `#[non_exhaustive]` so future option fields can be added
+/// without breaking downstream struct-literal callers. Construct via
+/// `MetricsOptions { exclude_tests: …, ..Default::default() }` or
+/// start from `MetricsOptions::default()` and mutate. The defaults
+/// preserve every metric value emitted by the pre-#182 [`metrics`]
+/// entry point.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct MetricsOptions {
     /// When true, the traversal asks the language [`Checker`] to
     /// skip test-only subtrees (e.g. Rust `#[test]` / `#[cfg(test)]`
@@ -490,14 +493,56 @@ pub struct MetricsOptions {
     pub exclude_tests: bool,
 }
 
-/// Configuration options for computing
-/// the metrics of a code.
+impl MetricsOptions {
+    /// Builder-style setter for [`MetricsOptions::exclude_tests`].
+    ///
+    /// Provided because `MetricsOptions` is `#[non_exhaustive]` — the
+    /// struct-literal form is unavailable to downstream crates, so
+    /// external callers chain `MetricsOptions::default()
+    /// .with_exclude_tests(true)` instead.
+    #[inline]
+    #[must_use]
+    pub fn with_exclude_tests(mut self, exclude_tests: bool) -> Self {
+        self.exclude_tests = exclude_tests;
+        self
+    }
+}
+
+/// Configuration options for computing the metrics of a code.
+///
+/// Marked `#[non_exhaustive]` so future config fields can be added
+/// without breaking downstream struct-literal callers. Construct via
+/// `MetricsCfg { path: …, ..Default::default() }`.
 #[derive(Debug, Default)]
+#[non_exhaustive]
 pub struct MetricsCfg {
     /// Path to the file containing the code
     pub path: PathBuf,
     /// Per-traversal options forwarded to [`metrics_with_options`].
     pub options: MetricsOptions,
+}
+
+impl MetricsCfg {
+    /// Build a `MetricsCfg` for `path` with default options. Chain
+    /// [`MetricsCfg::with_options`] to override the per-traversal
+    /// flags. Required because `MetricsCfg` is `#[non_exhaustive]` —
+    /// downstream crates cannot use the struct-literal form.
+    #[inline]
+    #[must_use]
+    pub fn new(path: PathBuf) -> Self {
+        Self {
+            path,
+            ..Default::default()
+        }
+    }
+
+    /// Builder-style setter for [`MetricsCfg::options`].
+    #[inline]
+    #[must_use]
+    pub fn with_options(mut self, options: MetricsOptions) -> Self {
+        self.options = options;
+        self
+    }
 }
 
 /// Type tag identifying the metric-computation action; carries no data.
