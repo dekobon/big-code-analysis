@@ -322,6 +322,13 @@ struct State<'a> {
 /// Returns all function spaces data of a code. This function needs a parser to
 /// be created a priori in order to work.
 ///
+/// Equivalent to calling [`metrics_with_options`] with
+/// [`MetricsOptions::default`] — every node is visited and counted.
+/// Existing callers (including [`get_function_spaces`] and the
+/// `Metrics` callback used by the CLI) keep their previous behaviour
+/// through this entry point. Pass an explicit [`MetricsOptions`]
+/// (e.g. `exclude_tests: true`) to opt in to subtree filtering.
+///
 /// # Examples
 ///
 /// ```
@@ -342,6 +349,23 @@ struct State<'a> {
 /// metrics(&parser, &path).unwrap();
 /// ```
 pub fn metrics<'a, T: ParserTrait>(parser: &'a T, path: &'a Path) -> Option<FuncSpace> {
+    metrics_with_options(parser, path, MetricsOptions::default())
+}
+
+/// Like [`metrics`], but consults `options` while walking the AST.
+///
+/// Setting `options.exclude_tests = true` calls the language
+/// [`Checker`]'s `should_skip_subtree` hook on every node and prunes
+/// matching subtrees before any per-metric `compute` runs. The hook
+/// defaults to `false` for every language, so passing
+/// `exclude_tests = true` is a no-op except where a language module
+/// overrides it (today: `RustCode`, which filters Rust `#[test]` /
+/// `#[cfg(test)]` items).
+pub fn metrics_with_options<'a, T: ParserTrait>(
+    parser: &'a T,
+    path: &'a Path,
+    options: MetricsOptions,
+) -> Option<FuncSpace> {
     let code = parser.get_code();
     let node = parser.get_root();
     let mut cursor = node.cursor();
@@ -373,6 +397,14 @@ pub fn metrics<'a, T: ParserTrait>(parser: &'a T, path: &'a Path) -> Option<Func
     stack.push((node, 0));
 
     while let Some((node, level)) = stack.pop() {
+        // Prune test-only subtrees before any per-metric work runs.
+        // The hook is gated on `exclude_tests` so the default
+        // `metrics()` entry point keeps emitting the pre-#182
+        // numbers byte-for-byte.
+        if options.exclude_tests && T::Checker::should_skip_subtree(&node, code) {
+            continue;
+        }
+
         if level < last_level {
             finalize::<T>(&mut state_stack, last_level - level);
             last_level = level;
@@ -442,12 +474,30 @@ pub fn metrics<'a, T: ParserTrait>(parser: &'a T, path: &'a Path) -> Option<Func
     })
 }
 
+/// Per-traversal options for [`metrics_with_options`].
+///
+/// Constructed with [`MetricsOptions::default`] (all fields off) for
+/// backward-compatible behaviour, then toggled with builder-style
+/// setters. The defaults preserve every metric value emitted by the
+/// pre-#182 [`metrics`] entry point.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MetricsOptions {
+    /// When true, the traversal asks the language [`Checker`] to
+    /// skip test-only subtrees (e.g. Rust `#[test]` / `#[cfg(test)]`
+    /// functions and modules). Only language modules that override
+    /// [`Checker::should_skip_subtree`] honor this; others ignore
+    /// the flag.
+    pub exclude_tests: bool,
+}
+
 /// Configuration options for computing
 /// the metrics of a code.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct MetricsCfg {
     /// Path to the file containing the code
     pub path: PathBuf,
+    /// Per-traversal options forwarded to [`metrics_with_options`].
+    pub options: MetricsOptions,
 }
 
 /// Type tag identifying the metric-computation action; carries no data.
@@ -460,7 +510,7 @@ impl Callback for Metrics {
     type Cfg = MetricsCfg;
 
     fn call<T: ParserTrait>(cfg: Self::Cfg, parser: &T) -> Self::Res {
-        match metrics(parser, &cfg.path) {
+        match metrics_with_options(parser, &cfg.path, cfg.options) {
             Some(space) => dump_root(&space),
             _ => Ok(()),
         }
@@ -605,5 +655,198 @@ mod tests {
             !space.name_was_lossy,
             "name_was_lossy must be false for valid-UTF-8 paths"
         );
+    }
+
+    // --- #182: exclude_tests for Rust -----------------------------
+    //
+    // These exercise both flag values (`exclude_tests = false` is
+    // the documented backward-compatible default; `true` opts in to
+    // the new pruning). They are anchored on integer-valued
+    // accessors (`nom_functions_sum`, `cyclomatic_sum`,
+    // `cognitive_sum`, `n_operators`) rather than float magnitudes,
+    // because Halstead floats are bit-brittle (lessons_learned.md).
+
+    mod exclude_tests_rust {
+        use crate::{MetricsOptions, ParserTrait, RustParser, metrics_with_options};
+        use std::path::PathBuf;
+
+        fn analyse(source: &str, exclude_tests: bool) -> crate::FuncSpace {
+            let path = PathBuf::from("lib.rs");
+            let parser = RustParser::new(source.as_bytes().to_vec(), &path, None);
+            metrics_with_options(&parser, &path, MetricsOptions { exclude_tests })
+                .expect("metrics must yield a top-level space")
+        }
+
+        // Production function plus an outer-attribute `#[test]`
+        // function. With pruning on, the unit-level counts must
+        // drop to the production function alone.
+        #[test]
+        fn outer_test_attribute_elides_function() {
+            let source = "\
+fn prod() -> i32 { 1 + 2 }
+
+#[test]
+fn t() { assert_eq!(1 + 1, 2); }
+";
+            let baseline = analyse(source, false);
+            let pruned = analyse(source, true);
+
+            // Baseline: both functions counted (2 functions).
+            assert_eq!(baseline.metrics.nom.functions_sum() as usize, 2);
+            // Pruned: only the production function (1 function).
+            assert_eq!(pruned.metrics.nom.functions_sum() as usize, 1);
+            // Cyclomatic should also drop: prod has 1, test fn body
+            // adds its own branches via assert_eq!. We only require
+            // strict inequality (pruned < baseline) to stay robust
+            // against grammar tweaks in the assert macro expansion.
+            assert!(
+                pruned.metrics.cyclomatic.cyclomatic_sum()
+                    <= baseline.metrics.cyclomatic.cyclomatic_sum()
+            );
+        }
+
+        // `#[cfg(test)] mod tests { fn helper() {} #[test] fn t() {}
+        // }` — every function inside the gated module disappears.
+        #[test]
+        fn cfg_test_mod_elides_entire_module() {
+            let source = "\
+fn prod() -> i32 { 1 }
+
+#[cfg(test)]
+mod tests {
+    fn helper() -> i32 { 2 }
+    fn another_helper() -> i32 { 3 }
+    #[test] fn t() { assert_eq!(1, 1); }
+}
+";
+            let baseline = analyse(source, false);
+            let pruned = analyse(source, true);
+
+            // Baseline: prod + helper + another_helper + t = 4 functions.
+            assert_eq!(baseline.metrics.nom.functions_sum() as usize, 4);
+            // Pruned: only prod survives.
+            assert_eq!(pruned.metrics.nom.functions_sum() as usize, 1);
+        }
+
+        // `#[tokio::test]` is the most common async-runtime variant
+        // and must be elided too.
+        #[test]
+        fn tokio_test_attribute_is_elided() {
+            let source = "\
+fn prod() -> i32 { 1 }
+
+#[tokio::test]
+async fn async_t() { let _x = 1; }
+";
+            let pruned = analyse(source, true);
+            assert_eq!(pruned.metrics.nom.functions_sum() as usize, 1);
+        }
+
+        // `#[cfg(all(test, target_arch = \"x86_64\"))]` — the
+        // attribute parser must accept commas inside `all(...)`.
+        #[test]
+        fn cfg_all_test_with_extras_is_elided() {
+            let source = "\
+fn prod() -> i32 { 1 }
+
+#[cfg(all(test, target_arch = \"x86_64\"))]
+fn arch_specific_test() { let _x = 1; }
+";
+            let pruned = analyse(source, true);
+            assert_eq!(pruned.metrics.nom.functions_sum() as usize, 1);
+        }
+
+        // Plain prod-only file must be unchanged by either flag
+        // value — i.e. the flag is genuinely a no-op when there's
+        // no test code.
+        #[test]
+        fn pure_production_unaffected_by_flag() {
+            let source = "\
+fn prod() -> i32 { 1 + 2 }
+fn helper(x: i32) -> i32 { x * 2 }
+";
+            let baseline = analyse(source, false);
+            let pruned = analyse(source, true);
+            assert_eq!(
+                baseline.metrics.nom.functions_sum() as usize,
+                pruned.metrics.nom.functions_sum() as usize,
+            );
+            assert_eq!(
+                baseline.metrics.cyclomatic.cyclomatic_sum(),
+                pruned.metrics.cyclomatic.cyclomatic_sum(),
+            );
+        }
+
+        // Backward compat: with the flag off (the default), every
+        // node is still counted even when the source contains
+        // test items.
+        #[test]
+        fn default_flag_off_preserves_baseline() {
+            let source = "\
+fn prod() -> i32 { 1 }
+
+#[test]
+fn t() { assert_eq!(1, 1); }
+";
+            let baseline_default = analyse(source, false);
+            assert_eq!(baseline_default.metrics.nom.functions_sum() as usize, 2);
+        }
+
+        // Inner attribute on a module: `mod tests { #![cfg(test)] ... }`
+        // is the idiomatic form when you want to put the gate inside
+        // the module body rather than on the declaration.
+        #[test]
+        fn inner_cfg_test_attribute_elides_module() {
+            let source = "\
+fn prod() -> i32 { 1 }
+
+mod tests {
+    #![cfg(test)]
+    fn helper() -> i32 { 2 }
+    #[test] fn t() { assert_eq!(1, 1); }
+}
+";
+            let pruned = analyse(source, true);
+            assert_eq!(pruned.metrics.nom.functions_sum() as usize, 1);
+        }
+    }
+
+    // Non-Rust languages must ignore `exclude_tests = true` because
+    // they don't override `should_skip_subtree`. This is the
+    // "spot-check non-Rust" check from issue #182.
+    mod exclude_tests_non_rust {
+        use crate::{CppParser, MetricsOptions, ParserTrait, metrics_with_options};
+        use std::path::PathBuf;
+
+        #[test]
+        fn cpp_ignores_exclude_tests_flag() {
+            let source = "\
+int prod() { return 1; }
+int helper() { return 2; }
+";
+            let path = PathBuf::from("foo.cpp");
+            let parser = CppParser::new(source.as_bytes().to_vec(), &path, None);
+            let baseline = metrics_with_options(
+                &parser,
+                &path,
+                MetricsOptions {
+                    exclude_tests: false,
+                },
+            )
+            .expect("baseline must yield a top-level space");
+            let parser = CppParser::new(source.as_bytes().to_vec(), &path, None);
+            let pruned = metrics_with_options(
+                &parser,
+                &path,
+                MetricsOptions {
+                    exclude_tests: true,
+                },
+            )
+            .expect("pruned must yield a top-level space");
+            assert_eq!(
+                baseline.metrics.nom.functions_sum() as usize,
+                pruned.metrics.nom.functions_sum() as usize,
+            );
+        }
     }
 }
