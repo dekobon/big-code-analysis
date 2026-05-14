@@ -282,14 +282,17 @@ changes are marked with **(breaking)** in the entries below.
   strings idiomatically are now correspondingly lower
   ([#180](https://github.com/dekobon/big-code-analysis/issues/180)).
 - Halstead operand counts for C# `$"..."` interpolated strings no
-  longer double-count the inner identifiers. The
-  `InterpolatedStringExpression` wrapper is removed from
-  `CsharpCode::get_op_type`'s operand arm — it is structurally
-  always interpolated, so the inner `Interpolation` children already
-  contribute their identifiers as operands. `is_string` (for the LOC
-  comment/code classifier) is unchanged. C# `linq.cs` / `strings.cs`
-  integration snapshots refresh with lower `n2` / `N2` / volume /
-  effort and slightly higher MI
+  longer double-count the inner identifiers.
+  `CsharpCode::get_op_type` now routes `InterpolatedStringExpression`
+  through a conditional check (mirroring the Elixir/Bash precedents
+  from #180): when the literal carries any `Interpolation` child the
+  inner expressions already contribute their identifiers as operands
+  and the wrapper is classified as `Unknown`; when it does not (a
+  static `$"hello"` with no `{...}` substitution), the wrapper still
+  counts as one operand, matching the plain-string equivalent.
+  `is_string` (for the LOC comment/code classifier) is unchanged. C#
+  `linq.cs` / `strings.cs` integration snapshots refresh with lower
+  `n2` / `N2` / volume / effort and slightly higher MI
   ([#183](https://github.com/dekobon/big-code-analysis/issues/183)).
 - Makefile `EXCLUDE_DIRS` no longer glob-expands the `tree-sitter-*`
   entry into absolute paths at recipe-execution time, which had

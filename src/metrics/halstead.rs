@@ -1087,13 +1087,15 @@ mod tests {
 
     #[test]
     fn csharp_interpolated_string_no_double_count() {
-        // Regression: issue #183. A C# `$"Hello {name}!"` used to be
+        // Regression: issue #183. A C# `$"Hi {name}!"` used to be
         // classified as a Halstead operand (the wrapping
         // `InterpolatedStringExpression`) AND have its inner
         // `Interpolation`'s identifier classified as an operand too.
-        // `InterpolatedStringExpression` is structurally always
-        // interpolated, so removing it from the operand arm lets the
-        // inner identifier carry the operand contribution exactly once.
+        // The fix routes `InterpolatedStringExpression` through a
+        // conditional: when it has an `Interpolation` child, the inner
+        // identifier already carries the operand contribution and the
+        // wrapper is treated as `Unknown`; when it does not (static
+        // `$"hello"`), the wrapper still counts as one operand.
         //
         // expected: operand contributions for
         //   `class C { void M(string name) { string s = $"Hi {name}!"; } }`
@@ -1113,12 +1115,31 @@ mod tests {
     }
 
     #[test]
+    fn csharp_static_interpolated_string_is_operand() {
+        // Regression: issue #183. A `$"..."` with no `{...}` is
+        // semantically identical to `"..."` and must still contribute
+        // exactly one operand — the conditional `is_child(Interpolation)`
+        // check distinguishes it from a true interpolation. expected:
+        // operands are `C`, `M`, `s`, `$"hello"` → u_operands = 4, N2 = 4.
+        // A naive "always Unknown" fix would yield u_operands = 3, N2 = 3,
+        // diverging from the plain-string equivalent below.
+        check_metrics::<CsharpParser>(
+            "class C { void M() { string s = $\"hello\"; } }",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.halstead.u_operands(), 4.0);
+                assert_eq!(metric.halstead.operands(), 4.0);
+            },
+        );
+    }
+
+    #[test]
     fn csharp_plain_string_still_operand() {
-        // The fix for #183 only removes `InterpolatedStringExpression`
-        // from the operand arm; plain `StringLiteral`,
-        // `VerbatimStringLiteral`, and `RawStringLiteral` must still
-        // contribute exactly one operand each. expected: operands are
-        // `C`, `M`, `s`, `"hi"` → u_operands = 4, N2 = 4.
+        // The fix for #183 only changes how `InterpolatedStringExpression`
+        // is classified; plain `StringLiteral` (and `VerbatimStringLiteral`
+        // / `RawStringLiteral`) must still contribute exactly one operand
+        // each. expected: operands are `C`, `M`, `s`, `"hi"` →
+        // u_operands = 4, N2 = 4.
         check_metrics::<CsharpParser>(
             "class C { void M() { string s = \"hi\"; } }",
             "foo.cs",
