@@ -476,12 +476,17 @@ pub fn metrics_with_options<'a, T: ParserTrait>(
 
 /// Per-traversal options for [`metrics_with_options`].
 ///
-/// Marked `#[non_exhaustive]` so future option fields can be added
-/// without breaking downstream struct-literal callers. Construct via
-/// `MetricsOptions { exclude_tests: …, ..Default::default() }` or
-/// start from `MetricsOptions::default()` and mutate. The defaults
-/// preserve every metric value emitted by the pre-#182 [`metrics`]
-/// entry point.
+/// Marked `#[non_exhaustive]` so future option fields can land
+/// additively. Downstream callers must construct via the builder
+/// methods rather than struct-literal syntax (rustc rejects external
+/// struct literals on non-exhaustive types with E0639, including the
+/// `..Default::default()` spread form). The defaults preserve every
+/// metric value emitted by the pre-#182 [`metrics`] entry point.
+///
+/// ```
+/// use big_code_analysis::MetricsOptions;
+/// let opts = MetricsOptions::default().with_exclude_tests(true);
+/// ```
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct MetricsOptions {
@@ -510,9 +515,19 @@ impl MetricsOptions {
 
 /// Configuration options for computing the metrics of a code.
 ///
-/// Marked `#[non_exhaustive]` so future config fields can be added
-/// without breaking downstream struct-literal callers. Construct via
-/// `MetricsCfg { path: …, ..Default::default() }`.
+/// Marked `#[non_exhaustive]` so future config fields can land
+/// additively. Downstream callers must construct via the builder
+/// methods rather than struct-literal syntax (rustc rejects external
+/// struct literals on non-exhaustive types with E0639, including the
+/// `..Default::default()` spread form).
+///
+/// ```
+/// use std::path::PathBuf;
+/// use big_code_analysis::{MetricsCfg, MetricsOptions};
+///
+/// let cfg = MetricsCfg::new(PathBuf::from("lib.rs"))
+///     .with_options(MetricsOptions::default().with_exclude_tests(true));
+/// ```
 #[derive(Debug, Default)]
 #[non_exhaustive]
 pub struct MetricsCfg {

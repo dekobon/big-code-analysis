@@ -209,17 +209,11 @@ async fn metrics_json(
     let buf = payload.code.into_bytes();
     let (language, name) = guess_language(&buf, &path);
     if let Some(language) = language {
-        let cfg = WebMetricsCfg {
-            id: payload.id,
-            path,
-            unit: payload.unit,
-            language: name.to_string(),
-            // The REST surface keeps the pre-#182 default (every node
-            // counted) so existing clients see no numeric change. A
-            // future change can thread an `exclude_tests` query / body
-            // field through.
-            exclude_tests: false,
-        };
+        // `exclude_tests` defaults to `false` via `WebMetricsCfg::new`,
+        // preserving the pre-#182 numbers for every existing REST
+        // client. A future change can thread the flag through the
+        // request payload and chain `.with_exclude_tests(...)` here.
+        let cfg = WebMetricsCfg::new(payload.id, path, payload.unit, name.to_string());
         let result = run_parse(&config, move || {
             action::<WebMetricsCallback>(&language, buf, Path::new(""), None, cfg)
         })
@@ -242,19 +236,14 @@ async fn metrics_plain(
     let path = PathBuf::from(&info.file_name);
     let (language, name) = guess_language(&buf, &path);
     if let Some(language) = language {
-        let cfg = WebMetricsCfg {
-            id: String::new(),
-            path,
-            unit: info.unit.as_ref().is_some_and(|s| {
-                s == "1"
-                    || s.eq_ignore_ascii_case("true")
-                    || s.eq_ignore_ascii_case("yes")
-                    || s.eq_ignore_ascii_case("on")
-            }),
-            language: name.to_string(),
-            // Same rationale as the JSON variant above.
-            exclude_tests: false,
-        };
+        let unit = info.unit.as_ref().is_some_and(|s| {
+            s == "1"
+                || s.eq_ignore_ascii_case("true")
+                || s.eq_ignore_ascii_case("yes")
+                || s.eq_ignore_ascii_case("on")
+        });
+        // Same `exclude_tests` rationale as the JSON variant above.
+        let cfg = WebMetricsCfg::new(String::new(), path, unit, name.to_string());
         let result = run_parse(&config, move || {
             action::<WebMetricsCallback>(&language, buf, Path::new(""), None, cfg)
         })
