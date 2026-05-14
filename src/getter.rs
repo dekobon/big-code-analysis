@@ -1119,16 +1119,27 @@ impl Getter for TclCode {
 }
 
 /// Returns whether a PHP encapsed-string or heredoc node carries any
-/// interpolation child that would itself be classified as an operand
-/// by [`PhpCode::get_op_type`] — a direct `$var`, a `${name}` /
-/// `$name[…]` variant, or a `{$expr}` complex-interpolation wrapper.
+/// interpolation child that would itself walk to operand children
+/// counted by [`PhpCode::get_op_type`].
 ///
-/// `EncapsedString` ("...") holds interpolation children directly; a
-/// `Heredoc` wraps its contents in a `heredoc_body` child, so this
-/// helper descends one level through `heredoc_body` for that case.
-/// `Nowdoc` (single-quoted heredoc) and single-quoted `String` /
-/// `String2` / `String3` never interpolate and never reach this
-/// helper.
+/// The tree-sitter-php grammar emits these direct children inside
+/// `encapsed_string` and `heredoc_body` for every interpolation
+/// form:
+///
+/// - `"$name"` → `variable_name`
+/// - `"${name}"` → `dynamic_variable_name`
+/// - `"$arr[0]"` → `subscript_expression`
+/// - `"$obj->prop"` → `member_access_expression`
+/// - `"{$expr}"` (and all complex `{ … }` forms) → an anonymous `{`
+///   (`LBRACE`) plus the inner expression
+///
+/// `EncapsedString` (`"…"`) holds these children directly; `Heredoc`
+/// wraps them in a `heredoc_body` child, so this helper descends one
+/// level through `heredoc_body` for that case. An empty heredoc
+/// (`<<<EOT\nEOT;`) emits no `heredoc_body` at all, so it correctly
+/// reports no interpolation. `Nowdoc` (single-quoted heredoc) and
+/// single-quoted `String` / `String2` / `String3` never interpolate
+/// and never reach this helper.
 #[inline]
 fn php_string_has_interpolation(node: &Node) -> bool {
     fn is_interpolation_kind(kind: u16) -> bool {
@@ -1138,9 +1149,23 @@ fn php_string_has_interpolation(node: &Node) -> bool {
             Php::VariableName
             // `"${name}"` → direct `dynamic_variable_name` child.
             | Php::DynamicVariableName
-            // `"{$obj->p}"` → `{` (LBRACE) opens the complex-
-            // interpolation wrapper whose body is an arbitrary
-            // expression; the brace appears as a direct child.
+            // `"$arr[0]"` → direct `subscript_expression` child.
+            // The grammar gives this kind three numeric aliases.
+            | Php::SubscriptExpression
+            | Php::SubscriptExpression2
+            | Php::SubscriptExpression3
+            // `"$obj->prop"` → direct `member_access_expression`
+            // child. PHP's bare-interpolation syntax does not
+            // support `?->` (nullsafe) or `::` (scope), so only
+            // member-access aliases need handling here; nullsafe /
+            // scope forms always go through the `{ … }` wrapper.
+            | Php::MemberAccessExpression
+            | Php::MemberAccessExpression2
+            | Php::MemberAccessExpression3
+            // `"{$expr}"` → anonymous `{` (LBRACE) opens the
+            // complex-interpolation wrapper whose body is an
+            // arbitrary expression; the brace appears as a direct
+            // child.
             | Php::LBRACE
         )
     }

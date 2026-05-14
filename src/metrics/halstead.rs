@@ -1666,6 +1666,65 @@ f() {
     }
 
     #[test]
+    fn php_encapsed_string_bare_member_access_no_double_count() {
+        // Regression: issue #184 follow-up. The PHP grammar allows
+        // bare `$obj->prop` interpolation inside `"…"` without
+        // surrounding `{ … }`; tree-sitter-php emits this as a
+        // direct `member_access_expression` child of
+        // `encapsed_string` (kind_id 329 in the current grammar).
+        // The wrapper must drop to `Unknown` for that form too —
+        // otherwise the inner `$obj` and `prop` `name` tokens are
+        // walked as operands while the wrapper also counts,
+        // double-counting `N2`.
+        //
+        // Source:
+        //   <?php $obj = new stdClass; $obj->prop = "x"; echo "Hi $obj->prop!";
+        //
+        // Operands tallied by `get_id` (keyed on source bytes):
+        //   `$obj`        × 3 (LHS assignment, member-access target,
+        //                      inside the interpolated string)
+        //   `obj`  (name) × 3 (one per `variable_name`)
+        //   `prop` (name) × 2 (member-access RHS twice)
+        //   `stdClass`    × 1
+        //   `"x"`         × 1
+        // ⇒ u_operands = 5, N2 = 10.
+        // With the bug the wrapping `"Hi $obj->prop!"` text adds one
+        // more unique operand and one more occurrence ⇒ 6 / 11.
+        check_metrics::<PhpParser>(
+            "<?php $obj = new stdClass; $obj->prop = \"x\"; echo \"Hi $obj->prop!\";",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.halstead.u_operands(), 5.0);
+                assert_eq!(metric.halstead.operands(), 10.0);
+            },
+        );
+    }
+
+    #[test]
+    fn php_encapsed_string_bare_subscript_no_double_count() {
+        // Regression: issue #184 follow-up. Bare `$arr[0]` inside
+        // `"…"` produces a `subscript_expression` child of
+        // `encapsed_string` (kind_id 351). The wrapper must drop to
+        // `Unknown` for that form.
+        //
+        // Source:
+        //   <?php $arr = [1]; echo "Hi $arr[0]!";
+        //
+        // Operands tallied by `get_id`:
+        //   `$arr` × 2, `arr` × 2 (inner `name`), `1` × 1, `0` × 1.
+        // ⇒ u_operands = 4, N2 = 6.
+        // With the bug the wrapping `"Hi $arr[0]!"` text adds 1 / 1.
+        check_metrics::<PhpParser>(
+            "<?php $arr = [1]; echo \"Hi $arr[0]!\";",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.halstead.u_operands(), 4.0);
+                assert_eq!(metric.halstead.operands(), 6.0);
+            },
+        );
+    }
+
+    #[test]
     fn elixir_operators_and_operands() {
         // Exercises every Halstead family classified in Elixir's
         // `get_op_type`: control-flow keywords (`do`, `end`, `fn`),
