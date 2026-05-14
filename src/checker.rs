@@ -715,55 +715,49 @@ impl Checker for TsxCode {
     }
 }
 
-/// Returns true when an attribute body (text inside `#[...]` or
-/// `#![...]`, e.g. `test`, `cfg(test)`, `tokio::test`) marks an item
-/// as test-only.
-///
-/// Matches:
-/// - exact `test` (covers `#[test]`)
-/// - `cfg(test`-prefixed bodies (covers `cfg(test)`, `cfg(test, …)`,
-///   `cfg(all(test, …))`, `cfg(any(test, …))`)
-/// - common framework test macros suffixed with `::test`
-///   (`tokio::test`, `async_std::test`, `test_log::test`, etc.)
-/// - bare framework attributes: `rstest`, `wasm_bindgen_test`,
-///   `test_case`
-///
-/// The attribute text is whitespace-trimmed before matching so
-/// `# [ test ]` and `#[test]` look identical. A full attribute
-/// parser is overkill — these forms cover the idiomatic Rust test
-/// layout that issue #182 targets.
 fn rust_attribute_marks_test(body: &str) -> bool {
-    let trimmed: String = body.chars().filter(|c| !c.is_whitespace()).collect();
-    if trimmed == "test"
-        || trimmed == "rstest"
-        || trimmed == "wasm_bindgen_test"
-        || trimmed == "test_case"
-    {
+    let trimmed = body.trim();
+    let check = |s: &str| {
+        matches!(s, "test" | "rstest" | "wasm_bindgen_test" | "test_case")
+            || s.starts_with("cfg(test)")
+            || s.starts_with("cfg(test,")
+            || s.starts_with("cfg(all(test,")
+            || s.starts_with("cfg(all(test)")
+            || s.starts_with("cfg(any(test,")
+            || s.starts_with("cfg(any(test)")
+            || s.ends_with("::test")
+            || s.contains("::test(")
+    };
+    // Fast path: no allocation for the idiomatic forms where the body
+    // has no internal whitespace.
+    if check(trimmed) {
         return true;
     }
-    if trimmed.starts_with("cfg(test)")
-        || trimmed.starts_with("cfg(test,")
-        || trimmed.starts_with("cfg(all(test,")
-        || trimmed.starts_with("cfg(all(test)")
-        || trimmed.starts_with("cfg(any(test,")
-        || trimmed.starts_with("cfg(any(test)")
-    {
-        return true;
-    }
-    // `tokio::test`, `async_std::test`, `test_log::test`, etc. The
-    // path may also carry an argument list (`tokio::test(flavor =
-    // "multi_thread")`), so match the bare suffix as well as the
-    // call-style prefix.
-    if trimmed.ends_with("::test") || trimmed.contains("::test(") {
-        return true;
+    // Slow path: tolerate unusual spacing like `# [ cfg ( test ) ]`
+    // by collapsing all ASCII whitespace before re-checking.
+    if trimmed.bytes().any(|b| b.is_ascii_whitespace()) {
+        let compact: String = trimmed
+            .bytes()
+            .filter(|b| !b.is_ascii_whitespace())
+            .map(char::from)
+            .collect();
+        return check(&compact);
     }
     false
 }
 
-/// Returns true when `node` is a Rust item whose preceding outer
-/// attributes (or, for `mod` items, inner attributes) mark it as
-/// test-only. See [`rust_attribute_marks_test`] for the recognised
-/// attribute shapes.
+/// Strip the `#` / `#!` marker plus the `[...]` brackets from a
+/// Rust `AttributeItem` / `InnerAttributeItem` token's raw text,
+/// returning the inner body. Returns `None` if the input shape is
+/// unexpected — callers skip silently rather than feed the matcher
+/// the literal `#[...]` form.
+fn rust_attribute_body<'a>(text: &'a str, marker: &str) -> Option<&'a str> {
+    text.trim()
+        .strip_prefix(marker)
+        .and_then(|t| t.trim_start().strip_prefix('['))
+        .and_then(|t| t.trim().strip_suffix(']'))
+}
+
 fn rust_item_is_test_only(node: &Node, code: &[u8]) -> bool {
     // The tree-sitter Rust grammar exposes outer attributes
     // (`#[...]`) as `AttributeItem` siblings *before* the decorated
@@ -774,17 +768,11 @@ fn rust_item_is_test_only(node: &Node, code: &[u8]) -> bool {
         if s.kind_id() != Rust::AttributeItem {
             break;
         }
-        if let Some(text) = s.utf8_text(code) {
-            // `#[...]` -> strip the `#[` prefix and `]` suffix.
-            let inner = text
-                .trim()
-                .strip_prefix('#')
-                .and_then(|t| t.trim_start().strip_prefix('['))
-                .and_then(|t| t.trim().strip_suffix(']'))
-                .unwrap_or(text);
-            if rust_attribute_marks_test(inner) {
-                return true;
-            }
+        if let Some(text) = s.utf8_text(code)
+            && let Some(inner) = rust_attribute_body(text, "#")
+            && rust_attribute_marks_test(inner)
+        {
+            return true;
         }
         sibling = s.previous_sibling();
     }
@@ -800,16 +788,11 @@ fn rust_item_is_test_only(node: &Node, code: &[u8]) -> bool {
             if child.kind_id() != Rust::InnerAttributeItem {
                 continue;
             }
-            if let Some(text) = child.utf8_text(code) {
-                let inner = text
-                    .trim()
-                    .strip_prefix("#!")
-                    .and_then(|t| t.trim_start().strip_prefix('['))
-                    .and_then(|t| t.trim().strip_suffix(']'))
-                    .unwrap_or(text);
-                if rust_attribute_marks_test(inner) {
-                    return true;
-                }
+            if let Some(text) = child.utf8_text(code)
+                && let Some(inner) = rust_attribute_body(text, "#!")
+                && rust_attribute_marks_test(inner)
+            {
+                return true;
             }
         }
     }
