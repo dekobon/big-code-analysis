@@ -20,6 +20,7 @@ This is the list of programming languages parsed by
 - [x] Perl
 - [x] Php
 - [x] Python
+- [x] Ruby
 - [x] Rust
 - [x] Tcl
 - [x] Tsx
