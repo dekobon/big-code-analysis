@@ -1086,6 +1086,50 @@ mod tests {
     }
 
     #[test]
+    fn csharp_interpolated_string_no_double_count() {
+        // Regression: issue #183. A C# `$"Hello {name}!"` used to be
+        // classified as a Halstead operand (the wrapping
+        // `InterpolatedStringExpression`) AND have its inner
+        // `Interpolation`'s identifier classified as an operand too.
+        // `InterpolatedStringExpression` is structurally always
+        // interpolated, so removing it from the operand arm lets the
+        // inner identifier carry the operand contribution exactly once.
+        //
+        // expected: operand contributions for
+        //   `class C { void M(string name) { string s = $"Hi {name}!"; } }`
+        // — `C` (class), `M` (method), `name` (param), `s` (local),
+        // and the inner `name` (inside `{...}`). With the fix,
+        // u_operands = 4 (C, M, name, s); N2 = 5 (`name` twice).
+        // Without the fix, the wrapping `$"Hi {name}!"` would also
+        // count → u_operands = 5, N2 = 6.
+        check_metrics::<CsharpParser>(
+            "class C { void M(string name) { string s = $\"Hi {name}!\"; } }",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.halstead.u_operands(), 4.0);
+                assert_eq!(metric.halstead.operands(), 5.0);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_plain_string_still_operand() {
+        // The fix for #183 only removes `InterpolatedStringExpression`
+        // from the operand arm; plain `StringLiteral`,
+        // `VerbatimStringLiteral`, and `RawStringLiteral` must still
+        // contribute exactly one operand each. expected: operands are
+        // `C`, `M`, `s`, `"hi"` → u_operands = 4, N2 = 4.
+        check_metrics::<CsharpParser>(
+            "class C { void M() { string s = \"hi\"; } }",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.halstead.u_operands(), 4.0);
+                assert_eq!(metric.halstead.operands(), 4.0);
+            },
+        );
+    }
+
+    #[test]
     fn go_operators_and_operands() {
         check_metrics::<GoParser>(
             "package main
