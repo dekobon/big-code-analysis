@@ -91,6 +91,7 @@ section.lang-bash{background:rgba(96,128,96,0.08);border-left-color:rgba(96,128,
 section.lang-perl{background:rgba(180,120,60,0.08);border-left-color:rgba(180,120,60,0.55)}\
 section.lang-lua{background:rgba(0,86,180,0.08);border-left-color:rgba(0,86,180,0.55)}\
 section.lang-tcl{background:rgba(160,90,140,0.08);border-left-color:rgba(160,90,140,0.55)}\
+section.lang-ruby{background:rgba(204,52,45,0.08);border-left-color:rgba(204,52,45,0.55)}\
 section.lang-other{background:rgba(127,127,127,0.06);border-left-color:rgba(127,127,127,0.45)}\
 @media (prefers-color-scheme:dark){\
 section.lang-rust{background:rgba(222,128,82,0.16)}\
@@ -107,6 +108,7 @@ section.lang-bash{background:rgba(96,128,96,0.18)}\
 section.lang-perl{background:rgba(180,120,60,0.18)}\
 section.lang-lua{background:rgba(0,86,180,0.20)}\
 section.lang-tcl{background:rgba(160,90,140,0.20)}\
+section.lang-ruby{background:rgba(204,52,45,0.18)}\
 section.lang-other{background:rgba(200,200,200,0.10)}\
 }\
 .summary{font-size:0.9rem;color:#444;margin-bottom:0.5rem}\
@@ -152,6 +154,7 @@ const LANGUAGE_PALETTE: &[(&str, &str)] = &[
     ("perl", "perl"),
     ("lua", "lua"),
     ("tcl", "tcl"),
+    ("ruby", "ruby"),
 ];
 
 fn language_palette_slug(lang_name: &str) -> &'static str {
@@ -1302,6 +1305,7 @@ mod tests {
         // standalone "tsx"/"mozjs" entry.
         assert_eq!(language_palette_slug("typescript"), "typescript");
         assert_eq!(language_palette_slug("javascript"), "javascript");
+        assert_eq!(language_palette_slug("ruby"), "ruby");
         // Languages without an explicit palette entry fall through to
         // the neutral tint rather than fabricating a slug.
         assert_eq!(language_palette_slug("ccomment"), "other");

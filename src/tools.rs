@@ -338,6 +338,7 @@ fn get_from_interpreter(name: &str) -> Option<LANG> {
         "php" | "php-cgi" => Some(LANG::Php),
         "node" | "nodejs" => Some(LANG::Javascript),
         "tclsh" | "wish" => Some(LANG::Tcl),
+        "ruby" => Some(LANG::Ruby),
         _ => None,
     }
 }
@@ -813,7 +814,11 @@ mod tests {
 
     #[test]
     fn shebang_unknown_interpreter() {
-        assert_eq!(get_shebang_lang(b"#!/usr/bin/ruby\n"), None);
+        // `ocaml` is a real interpreter the project does not target —
+        // a stable sentinel for the "shebang names an interpreter
+        // outside the supported set" case (independent of which
+        // languages the workspace happens to recognise today).
+        assert_eq!(get_shebang_lang(b"#!/usr/bin/ocaml\n"), None);
     }
 
     #[test]
@@ -841,6 +846,14 @@ mod tests {
     fn guess_language_shebang_falls_through_when_no_extension() {
         let buf = b"#!/usr/bin/env python3\nprint('hi')\n";
         assert_eq!(guess_language(buf, "run"), (Some(LANG::Python), "python"));
+    }
+
+    #[test]
+    fn guess_language_shebang_detects_ruby_without_extension() {
+        // Gem executables under `bin/` are extensionless Ruby scripts
+        // identified solely by their `#!/usr/bin/env ruby` shebang.
+        let buf = b"#!/usr/bin/env ruby\nputs 'hi'\n";
+        assert_eq!(guess_language(buf, "run"), (Some(LANG::Ruby), "ruby"));
     }
 
     #[test]
