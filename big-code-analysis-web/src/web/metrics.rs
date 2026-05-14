@@ -44,7 +44,13 @@ pub struct WebMetricsInfo {
 }
 
 /// Server request configuration.
+///
+/// Marked `#[non_exhaustive]` so future config fields can land
+/// additively. Downstream embedders construct via
+/// [`WebMetricsCfg::new`] plus the `with_*` builder setters rather
+/// than struct-literal syntax (rustc E0639).
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct WebMetricsCfg {
     /// Request identifier.
     pub id: String,
@@ -57,8 +63,32 @@ pub struct WebMetricsCfg {
     /// When true, skip language-specific test subtrees (currently
     /// Rust `#[test]` / `#[cfg(test)]`). Defaults to false at every
     /// call site so the REST API keeps emitting the same numbers it
-    /// did before #182.
+    /// did before #182. Toggle via
+    /// [`WebMetricsCfg::with_exclude_tests`].
     pub exclude_tests: bool,
+}
+
+impl WebMetricsCfg {
+    /// Build a server-request config with `exclude_tests` defaulted
+    /// to `false` (pre-#182 behaviour, every node counted). Chain
+    /// [`WebMetricsCfg::with_exclude_tests`] to toggle.
+    #[must_use]
+    pub fn new(id: String, path: PathBuf, unit: bool, language: String) -> Self {
+        Self {
+            id,
+            path,
+            unit,
+            language,
+            exclude_tests: false,
+        }
+    }
+
+    /// Builder-style setter for [`WebMetricsCfg::exclude_tests`].
+    #[must_use]
+    pub fn with_exclude_tests(mut self, exclude_tests: bool) -> Self {
+        self.exclude_tests = exclude_tests;
+        self
+    }
 }
 
 /// Unit structure to implement the `Callback` trait.
