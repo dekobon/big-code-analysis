@@ -1,6 +1,6 @@
 // See `src/languages/mod.rs` for the rationale behind the per-file
 // pedantic carve-outs below.
-#![allow(clippy::match_same_arms)]
+#![allow(clippy::match_same_arms, clippy::too_many_lines)]
 
 // Code generated; DO NOT EDIT.
 

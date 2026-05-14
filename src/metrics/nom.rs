@@ -254,7 +254,8 @@ implement_metric_trait!(
     LuaCode,
     TclCode,
     PhpCode,
-    CsharpCode
+    CsharpCode,
+    ElixirCode
 );
 
 #[cfg(test)]
@@ -1750,6 +1751,25 @@ outer() {
                       "closures_max": 0.0
                     }"###
                 );
+            },
+        );
+    }
+
+    // Documents Elixir's current default-impl behaviour: `def`/`defp`
+    // surface as `Call` nodes whose target is an `Identifier`, and
+    // `is_func` returns `false`, so Nom only counts `AnonymousFunction`
+    // closures. Two anon functions + zero functions is the load-bearing
+    // claim — a future real impl that started counting `def` calls
+    // would flip this. Tracked alongside #179 (same root cause: no
+    // source-byte access in the per-node `compute`).
+    #[test]
+    fn elixir_default_nom_counts_only_anonymous_functions() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def public_fn(x), do: x + 1\n  defp private_fn(x), do: x - 1\n  def with_anon do\n    inc = fn x -> x + 1 end\n    dec = fn x -> x - 1 end\n    {inc, dec}\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 0.0);
+                assert_eq!(metric.nom.closures_sum(), 2.0);
             },
         );
     }

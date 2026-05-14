@@ -1166,3 +1166,79 @@ impl Getter for PhpCode {
 
     get_operator!(Php);
 }
+
+impl Getter for ElixirCode {
+    fn get_space_kind(node: &Node) -> SpaceKind {
+        use Elixir as E;
+
+        match node.kind_id().into() {
+            E::AnonymousFunction => SpaceKind::Function,
+            E::Source => SpaceKind::Unit,
+            _ => SpaceKind::Unknown,
+        }
+    }
+
+    fn get_op_type(node: &Node) -> HalsteadType {
+        use Elixir as E;
+
+        match node.kind_id().into() {
+            // Reserved-word keywords that have dedicated token kinds in
+            // the grammar — block delimiters, exception clauses, the
+            // `fn` keyword, and word-form logical / membership operators.
+            // (Macro-shaped keywords like `def`/`defp`/`if`/`case`/`cond`
+            // are NOT here: they surface as `Identifier` tokens in a
+            // `Call`'s `target` field and are counted as operands below.)
+            E::Do | E::End | E::End2 | E::Else | E::After | E::Catch | E::Rescue | E::Fn
+            | E::When | E::Not | E::Or | E::And | E::In | E::Notin
+            // Structural punctuation acting as operators
+            | E::LPAREN | E::LPAREN2 | E::RPAREN | E::LBRACE | E::RBRACE
+            | E::LBRACK | E::LBRACK2 | E::RBRACK | E::LTLT | E::GTGT
+            | E::COMMA | E::SEMI | E::COLON | E::COLONCOLON | E::DOT
+            | E::DOTDOT | E::DOTDOTDOT | E::PERCENT | E::HASHLBRACE | E::AT
+            // Arithmetic / unary
+            | E::PLUS | E::DASH | E::STAR | E::STARSTAR | E::SLASH
+            // Comparison
+            | E::EQEQ | E::EQEQEQ | E::BANGEQ | E::BANGEQEQ
+            | E::LT | E::GT | E::LTEQ | E::GTEQ
+            // Logical
+            | E::AMPAMP | E::PIPEPIPE | E::BANG
+            // Bitwise / Erlang-band
+            | E::AMP | E::PIPE | E::CARET | E::TILDE
+            | E::AMPAMPAMP | E::PIPEPIPEPIPE | E::CARETCARETCARET | E::TILDETILDETILDE
+            | E::LTLTLT | E::GTGTGT
+            // Assignment / match
+            | E::EQ
+            // Concat / list operations
+            | E::PLUSPLUS | E::DASHDASH | E::LTGT
+            | E::PLUSPLUSPLUS | E::DASHDASHDASH
+            // Pipe / capture / generator / stab arrow
+            | E::PIPEGT | E::LTPIPEGT | E::DASHGT | E::LTDASH
+            // Map pair / default arg / regex match / range step
+            | E::EQGT | E::BSLASHBSLASH | E::EQTILDE | E::SLASHSLASH
+            // Custom / less common Elixir operators
+            | E::LTTILDE | E::TILDEGT | E::LTTILDEGT | E::LTLTTILDE | E::TILDEGTGT
+                => HalsteadType::Operator,
+
+            // Operands: identifiers and literals. `String`/`Charlist`/
+            // `Sigil` are classified as a single operand each, matching
+            // how Bash treats `HeredocBody2` and JS treats template
+            // literals. Note: identifiers used inside an
+            // `interpolation` child of these literals are *also* walked
+            // and classified as operands here, which slightly inflates
+            // `N2` for interpolated text — tracked by #180.
+            E::Identifier | E::Alias | E::OperatorIdentifier
+            | E::SigilName | E::SigilName2 | E::SigilModifiers
+            | E::Keyword | E::Keyword2 | E::QuotedKeyword
+            | E::Integer | E::Float | E::Char
+            | E::Atom | E::Atom2 | E::QuotedAtom
+            | E::Boolean | E::True | E::False
+            | E::Nil | E::Nil2
+            | E::String | E::Charlist | E::Sigil
+                => HalsteadType::Operand,
+
+            _ => HalsteadType::Unknown,
+        }
+    }
+
+    get_operator!(Elixir);
+}

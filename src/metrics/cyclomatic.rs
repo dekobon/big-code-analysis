@@ -508,6 +508,39 @@ impl Cyclomatic for PhpCode {
 
 implement_metric_trait!(Cyclomatic, PreprocCode, CcommentCode);
 
+impl Cyclomatic for ElixirCode {
+    // Elixir's `if`/`unless`/`for`/`while`/`with`/`case`/`cond` constructs
+    // are ordinary `Call` nodes whose target is an `Identifier`; the
+    // trait does not get the source bytes, so we cannot inspect the
+    // identifier text here. We count what surfaces as a distinct
+    // `kind_id`:
+    //   - short-circuit booleans (`&&`, `||`, `and`, `or`)
+    //   - `stab_clause` arms (case/cond/with arms, multi-clause
+    //     anonymous functions)
+    //   - `rescue`/`catch` exception handlers (try/rescue/catch)
+    // The headline under-count is plain `if`/`unless` (which add no
+    // arms): they will report 0 cyclomatic. FIXME(#179): once
+    // `Cyclomatic::compute` accepts the source bytes, distinguish
+    // those Call targets and add `+1` per occurrence.
+    fn compute(node: &Node, stats: &mut Stats) {
+        use Elixir as E;
+
+        if matches!(
+            node.kind_id().into(),
+            E::AMPAMP
+                | E::PIPEPIPE
+                | E::And
+                | E::Or
+                | E::StabClause
+                | E::RescueBlock
+                | E::CatchBlock
+        ) {
+            stats.cyclomatic += 1.;
+            stats.cyclomatic_modified += 1.;
+        }
+    }
+}
+
 impl Cyclomatic for BashCode {
     fn compute(node: &Node, stats: &mut Stats) {
         match node.kind_id().into() {
@@ -2994,6 +3027,169 @@ f() {
                       }
                     }"###
                 );
+            },
+        );
+    }
+
+    // Elixir's `case`/`cond`/`with`/`fn` arms surface as `stab_clause`
+    // nodes, which are the *only* branching construct we can detect
+    // without inspecting source-text identifiers. A three-arm `case`
+    // yields three stab clauses; +1 entry path gives cyc=4.
+    #[test]
+    fn elixir_case_arms() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def classify(x) do\n    case x do\n      1 -> :one\n      2 -> :two\n      _ -> :other\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                // 3 stab clauses + 1 (entry path) = cyc 4
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                {
+                  "sum": 4.0,
+                  "average": 4.0,
+                  "min": 4.0,
+                  "max": 4.0,
+                  "modified": {
+                    "sum": 4.0,
+                    "average": 4.0,
+                    "min": 4.0,
+                    "max": 4.0
+                  }
+                }"###
+                );
+            },
+        );
+    }
+
+    // Each short-circuit boolean (`&&`, `||`, `and`, `or`) is one
+    // decision point — Elixir does not expose `if`/`unless` as a
+    // distinct kind_id, so this is the only operator-driven path the
+    // metric can see.
+    #[test]
+    fn elixir_logical_operators() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(x, y) do\n    x and y or (x && y) || x\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                // and + or + && + || = 4 decisions + 1 entry = cyc 5
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                {
+                  "sum": 5.0,
+                  "average": 5.0,
+                  "min": 5.0,
+                  "max": 5.0,
+                  "modified": {
+                    "sum": 5.0,
+                    "average": 5.0,
+                    "min": 5.0,
+                    "max": 5.0
+                  }
+                }"###
+                );
+            },
+        );
+    }
+
+    // `rescue`/`catch` clauses inside `try/rescue/catch/end` count as
+    // branches. Inside each clause, the matched pattern is its own
+    // `stab_clause` — so a single-arm rescue adds `+2` (the block
+    // wrapper and its single stab arm).
+    #[test]
+    fn elixir_try_rescue() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def safe do\n    try do\n      do_it()\n    rescue\n      ArgumentError -> :bad\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                // rescue block (+1) + its stab clause (+1) + 1 entry = cyc 3
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                {
+                  "sum": 3.0,
+                  "average": 3.0,
+                  "min": 3.0,
+                  "max": 3.0,
+                  "modified": {
+                    "sum": 3.0,
+                    "average": 3.0,
+                    "min": 3.0,
+                    "max": 3.0
+                  }
+                }"###
+                );
+            },
+        );
+    }
+
+    // A function with no branching has the entry path alone → cyc=1.
+    // This pins the headline-wrong but documented behaviour for `if`
+    // calls: because `if x do ... end` surfaces as a `Call` we cannot
+    // distinguish from any other call without source-text inspection,
+    // it adds 0 here. FIXME(#179): once `Cyclomatic::compute` can
+    // read source bytes, count `if`/`unless`/`for`/`while`/`with`
+    // call targets.
+    #[test]
+    fn elixir_if_call_not_counted_yet() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(x) do\n    if x > 0 do\n      :pos\n    else\n      :neg\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                // No branch detected; entry path only.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 1.0);
+            },
+        );
+    }
+
+    // `fn ... end` is its own function space (`get_space_kind` →
+    // `Function`), so its cyclomatic gets its own `+1` entry path
+    // alongside the Unit's `+1`. Stab clauses inside count `+1` each
+    // because we cannot distinguish a 1-arm fn from a 1-arm case
+    // without source-text inspection. A two-arm `fn` therefore yields:
+    // 1 (Unit entry) + 1 (anon-fn entry) + 2 (stab clauses) = 4.
+    #[test]
+    fn elixir_anonymous_fn_arms_count() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f do\n    multi = fn 0 -> :zero; _ -> :other end\n    multi.(0)\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+            },
+        );
+    }
+
+    // `cond do ... end` is the standard Elixir multi-way conditional;
+    // each clause is a `stab_clause`, so a three-clause `cond` adds
+    // three branches. Plus the unit's `+1` entry path → cyc=4.
+    #[test]
+    fn elixir_cond_arms() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(x) do\n    cond do\n      x < 0 -> :neg\n      x == 0 -> :zero\n      true -> :pos\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+            },
+        );
+    }
+
+    // `with` chains use `<-` arrows, which parse as `binary_operator`
+    // nodes — NOT `stab_clause`s — so they currently add 0 cyclomatic.
+    // The fallthrough `else` branch, when present, contains
+    // `stab_clause`s that DO count. This pins the documented gap.
+    #[test]
+    fn elixir_with_else_only_counts_else_arms() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(x) do\n    with {:ok, v} <- fetch(x),\n         {:ok, w} <- fetch(v) do\n      {:ok, w}\n    else\n      :error -> :nope\n      other -> {:bad, other}\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                // 2 else-block stab clauses + 1 entry path = cyc 3.
+                // The `<-` arrows in the `with` head are not counted.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
             },
         );
     }

@@ -307,6 +307,26 @@ impl Exit for PhpCode {
 
 implement_metric_trait!(Exit, PreprocCode, CcommentCode);
 
+impl Exit for ElixirCode {
+    // Elixir has no `return` statement: the last expression in a function
+    // body is the return value. Early-exit happens through `throw`,
+    // `raise`, `reraise`, or `exit`, all of which surface as `Call`
+    // nodes whose target is an `Identifier` whose text spells the
+    // keyword. Mirrors the Bash/Tcl pattern of comparing target text.
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+        if node.kind_id() == Elixir::Call
+            && let Some(target) = node.child_by_field_name("target")
+            && target.kind_id() == Elixir::Identifier
+            && matches!(
+                target.utf8_text(code),
+                Some("throw" | "raise" | "reraise" | "exit")
+            )
+        {
+            stats.exit += 1;
+        }
+    }
+}
+
 #[cfg(test)]
 #[allow(
     clippy::float_cmp,
@@ -1575,6 +1595,82 @@ end",
                       "max": 2.0
                     }"###
                 );
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_no_exit() {
+        // Plain function returning a value has no early-exit calls. The
+        // `average` is `null` because Elixir's only function space is
+        // the Unit; there is no per-function aggregation to average
+        // over.
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def add(a, b) do\n    a + b\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 0.0);
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                {
+                  "sum": 0.0,
+                  "average": null,
+                  "min": 0.0,
+                  "max": 0.0
+                }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_raise_throw_exit() {
+        // `raise`/`throw`/`exit` are recognised by inspecting the `target`
+        // field text of `Call` nodes — there is no dedicated AST kind.
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def bad(x) do\n    raise \"first\"\n    throw(:second)\n    exit(:third)\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                {
+                  "sum": 3.0,
+                  "average": null,
+                  "min": 3.0,
+                  "max": 3.0
+                }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_reraise_counts() {
+        // `reraise` is the Elixir variant of `raise` that re-throws an
+        // existing exception while preserving the stacktrace; we count
+        // it as an exit alongside `raise`.
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def wrap(stack) do\n    reraise(\"oops\", stack)\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_lookalike_call_is_not_exit() {
+        // Only the exact identifiers `throw`/`raise`/`reraise`/`exit` are
+        // exits; a user-defined `throw_event` or remote-call must NOT
+        // count. This guards against future text-match regressions.
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f do\n    throw_event(:click)\n    Logger.raise_alert()\n    exit_code = 0\n    exit_code\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 0.0);
             },
         );
     }

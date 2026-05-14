@@ -402,7 +402,8 @@ implement_metric_trait!(
     PerlCode,
     BashCode,
     PhpCode,
-    CsharpCode
+    CsharpCode,
+    ElixirCode
 );
 
 #[cfg(test)]
@@ -2640,6 +2641,26 @@ proc g {x y z} { puts $x }",
                       "closures_max": 1.0
                     }"###
                 );
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_default_nargs_is_zero() {
+        // Documents Elixir's current default-impl behaviour. `def` calls
+        // are not recognised as functions (`is_func` returns `false`),
+        // and Elixir anonymous functions hold their parameters inside
+        // a `stab_clause` (not a parameter-list field), so the default
+        // `NArgs::compute` heuristic finds no formal parameters to
+        // count. This anchors the limitation so a future real impl
+        // that wires up `stab_clause`-based argument counting cannot
+        // silently regress to zero.
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def add(a, b), do: a + b\n  def use_anon do\n    add2 = fn x, y -> x + y end\n    add2.(1, 2)\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.nargs.fn_args_sum(), 0.0);
+                assert_eq!(metric.nargs.closure_args_sum(), 0.0);
             },
         );
     }

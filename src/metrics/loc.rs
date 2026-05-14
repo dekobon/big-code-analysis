@@ -1253,6 +1253,66 @@ impl Loc for PhpCode {
 
 implement_metric_trait!(Loc, PreprocCode, CcommentCode);
 
+impl Loc for ElixirCode {
+    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool, is_unit: bool) {
+        use Elixir as E;
+
+        let (start, end) = init(node, stats, is_func_space, is_unit);
+
+        match node.kind_id().into() {
+            // Root of the file — handled by `init` above.
+            E::Source => {}
+
+            // CLOC: every line a comment spans.
+            E::Comment => add_cloc_lines(stats, start, end),
+
+            // The `stab_clause` itself is a control-flow noise node
+            // (case/cond/with arm header). Its `body` child holds the
+            // actual statements executed when the pattern matches, and
+            // those count via the parent-container check below. Skipping
+            // the `stab_clause` keeps the count consistent with C-family
+            // languages where `case:` labels don't count but the body
+            // statements do. A `stab_clause` always has at least the
+            // `->` token plus a `body`, so there is no leaf-PLOC path
+            // to handle here.
+            E::StabClause => {}
+
+            // LLOC: any named node whose parent is a statement container
+            // is one logical line. This catches `def`/`if`/`case`/`cond`
+            // calls (themselves `Call` nodes at the top level),
+            // assignment `binary_operator`s in function bodies, and bare
+            // expressions used as statements. The container kinds are
+            // every grammar node whose direct named children represent
+            // a sequence of executable expressions. The `is_named()`
+            // check runs first so unnamed leaves (`do`, `end`, `,`, …)
+            // skip the parent lookup entirely.
+            _ => {
+                if node.0.is_named()
+                    && node.parent().is_some_and(|p| {
+                        matches!(
+                            p.kind_id().into(),
+                            E::Source
+                                | E::Body
+                                | E::Block
+                                | E::DoBlock
+                                | E::AfterBlock
+                                | E::RescueBlock
+                                | E::CatchBlock
+                                | E::ElseBlock
+                        )
+                    })
+                {
+                    stats.lloc.logical_lines += 1;
+                }
+                if node.child_count() == 0 {
+                    check_comment_ends_on_code_line(stats, start);
+                    stats.ploc.lines.insert(start);
+                }
+            }
+        }
+    }
+}
+
 impl Loc for BashCode {
     fn compute(node: &Node, stats: &mut Stats, is_func_space: bool, is_unit: bool) {
         use Bash::*;
@@ -8023,5 +8083,266 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             assert_eq!(metric.loc.blank(), 0.0);
             insta::assert_json_snapshot!(metric.loc);
         });
+    }
+
+    #[test]
+    fn elixir_blank() {
+        // Two blank lines separate three top-level expressions.
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n\n  def a, do: :a\n\n  def b, do: :b\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 2.0);
+                insta::assert_json_snapshot!(
+                    metric.loc,
+                    @r###"
+                {
+                  "sloc": 6.0,
+                  "ploc": 4.0,
+                  "lloc": 3.0,
+                  "cloc": 0.0,
+                  "blank": 2.0,
+                  "sloc_average": 6.0,
+                  "ploc_average": 4.0,
+                  "lloc_average": 3.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 2.0,
+                  "sloc_min": 6.0,
+                  "sloc_max": 6.0,
+                  "cloc_min": 0.0,
+                  "cloc_max": 0.0,
+                  "ploc_min": 4.0,
+                  "ploc_max": 4.0,
+                  "lloc_min": 3.0,
+                  "lloc_max": 3.0,
+                  "blank_min": 2.0,
+                  "blank_max": 2.0
+                }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_no_zero_blank() {
+        // No blank lines: blank must report 0, never go negative.
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f, do: :ok\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.loc.blank(), 0.0);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_cloc() {
+        // Mix of standalone comments and a comment on the same line as
+        // code. Elixir has no block comment syntax — only `#` lines.
+        check_metrics::<ElixirParser>(
+            "# top\ndefmodule Foo do\n  # body\n  def f, do: :ok # trailing\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.loc.cloc(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_lloc() {
+        // Two statements at the top level of the module body — the
+        // `defmodule` call itself counts as one statement (since its
+        // parent is `Source`), and each `def` inside its `do_block`
+        // counts too: 1 + 2 = 3.
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def a, do: 1\n  def b, do: 2\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.loc.lloc(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_no_nested_call_lloc() {
+        // Calls nested inside another call's arguments are NOT direct
+        // children of a statement container, so they do not bump LLOC.
+        // Three syntactic calls (`defmodule`, `def`, `IO.puts`) → 3.
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f do\n    IO.puts(Enum.join([1, 2, 3], \", \"))\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.loc.lloc(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_no_binary_operator_inside_call_lloc() {
+        // Binary operators inside call arguments are sub-expressions,
+        // not statements. A single `def` body containing `IO.puts(a + b)`
+        // produces 3 LLOC (defmodule, def, IO.puts) — the `a + b`
+        // binary_operator is not a direct child of any statement
+        // container.
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(a, b) do\n    IO.puts(a + b)\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.loc.lloc(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_stab_clause_counts_lloc() {
+        // Each `stab_clause` arm in a `case do ... end` is a direct
+        // child of the inner `do_block`, so each one is its own LLOC.
+        // defmodule + def + case + 3 arms = 6 logical lines.
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(x) do\n    case x do\n      1 -> :a\n      2 -> :b\n      _ -> :c\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.loc.lloc(), 6.0);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_no_comment_lloc() {
+        // Comments are direct children of a statement container but
+        // are routed through the dedicated `Comment` arm in `compute`,
+        // so they MUST NOT bump LLOC. Only `defmodule` and `def`
+        // contribute LLOC here.
+        check_metrics::<ElixirParser>(
+            "# leading\ndefmodule Foo do\n  # inside\n  def f, do: :ok\n  # trailing\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.loc.lloc(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_no_do_token_lloc() {
+        // The `do` and `end` keyword tokens are unnamed leaves inside a
+        // `do_block`; they must not be counted as statements. A body
+        // with one expression produces exactly 2 LLOC (defmodule and
+        // the inner expression).
+        check_metrics::<ElixirParser>("defmodule Foo do\n  :ok\nend\n", "foo.ex", |metric| {
+            // `:ok` is an `Atom` whose parent is the module-call's
+            // `do_block`; that counts. Plus the `defmodule` call.
+            assert_eq!(metric.loc.lloc(), 2.0);
+        });
+    }
+
+    #[test]
+    fn elixir_no_keyword_pair_lloc() {
+        // `key: value` keyword pairs inside an argument list (`def f,
+        // do: :ok`) are children of an `arguments` / `keywords` node,
+        // not a statement container, so they don't bump LLOC.
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def add(a, b), do: a + b\nend\n",
+            "foo.ex",
+            |metric| {
+                // defmodule (1) + def (1) = 2
+                assert_eq!(metric.loc.lloc(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_no_string_content_lloc() {
+        // `quoted_content` chunks inside a heredoc / regular string are
+        // structural and don't represent statements. A `@moduledoc`
+        // attribute call with a multi-line string contributes exactly
+        // one LLOC (the `@moduledoc` call), not one per content line.
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  @moduledoc \"\"\"\n  line one\n  line two\n  \"\"\"\n  def f, do: :ok\nend\n",
+            "foo.ex",
+            |metric| {
+                // defmodule + @moduledoc + def = 3
+                assert_eq!(metric.loc.lloc(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_rescue_arm_counts_lloc() {
+        // Each rescue arm's body has a single expression (e.g. `:bad`)
+        // that counts as one LLOC; the `stab_clause` header itself is
+        // skipped. The rescue_block named node is also a direct child
+        // of try's do_block, so it contributes one LLOC too.
+        // Total: defmodule + def + try + do_it() + rescue_block
+        //        + 2 arm bodies = 7.
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def safe do\n    try do\n      do_it()\n    rescue\n      ArgumentError -> :bad\n      RuntimeError -> :worse\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.loc.lloc(), 7.0);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_no_arg_punctuation_lloc() {
+        // Function-call arguments (`a, b` inside `def add(a, b)`) are
+        // children of an `arguments` node, not of a statement container.
+        // They MUST NOT inflate LLOC.
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def add(a, b, c, d) do\n    a + b + c + d\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                // defmodule + def + (a+b+c+d) = 3
+                assert_eq!(metric.loc.lloc(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_no_list_element_lloc() {
+        // List literal elements live under a `list` node, not a
+        // statement container — they must not bump LLOC.
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f do\n    [:a, :b, :c, :d]\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                // defmodule + def + the list expression = 3
+                assert_eq!(metric.loc.lloc(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_no_map_field_lloc() {
+        // Map `pair`s live under `map`, not a statement container.
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f do\n    %{a: 1, b: 2, c: 3}\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.loc.lloc(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_anonymous_fn_body_lloc() {
+        // `lloc()` on the Unit space returns the aggregate (own +
+        // nested-space) count. Even though the anonymous_function is
+        // its own function space, the merge step pulls its `lloc` back
+        // into the parent. Counts:
+        //   Unit own: defmodule, def, `add = fn ...`, final `add` = 4
+        //   anon-fn:  `x + 1` body expression                       = 1
+        //   aggregated total                                        = 5
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f do\n    add = fn x -> x + 1 end\n    add\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.loc.lloc(), 5.0);
+            },
+        );
     }
 }

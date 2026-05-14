@@ -924,7 +924,7 @@ impl Cognitive for PhpCode {
     }
 }
 
-implement_metric_trait!(Cognitive, PreprocCode, CcommentCode);
+implement_metric_trait!(Cognitive, PreprocCode, CcommentCode, ElixirCode);
 
 #[cfg(test)]
 #[allow(
