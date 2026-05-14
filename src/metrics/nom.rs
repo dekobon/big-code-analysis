@@ -1760,8 +1760,9 @@ outer() {
     // `is_func` returns `false`, so Nom only counts `AnonymousFunction`
     // closures. Two anon functions + zero functions is the load-bearing
     // claim — a future real impl that started counting `def` calls
-    // would flip this. Tracked alongside #179 (same root cause: no
-    // source-byte access in the per-node `compute`).
+    // would flip this. The same call-target text-inspection pattern
+    // that #179 introduced for `Cyclomatic` would apply here once
+    // `Nom::compute` is widened to take the source bytes.
     #[test]
     fn elixir_default_nom_counts_only_anonymous_functions() {
         check_metrics::<ElixirParser>(

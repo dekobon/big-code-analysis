@@ -15,6 +15,19 @@ changes are marked with **(breaking)** in the entries below.
 
 ### Changed
 
+- **(breaking)** `Cyclomatic::compute` now takes the source bytes as
+  a third parameter — `fn compute<'a>(node: &Node<'a>, code: &'a [u8],
+  stats: &mut Stats)` — mirroring `Exit::compute`. Languages whose
+  branching constructs surface as untyped `Call` nodes (Elixir most
+  notably) can identify them by inspecting the call target's text.
+  Per-language impls that do not need the bytes discard them with
+  `_`. The Elixir impl now distinguishes `if`/`unless`/`for`/`while`/
+  `with`/`case`/`cond`/`try` Calls: single-branch keyword Calls
+  contribute to both standard and modified CCN, while multi-arm
+  container Calls (`case`/`cond`/`with`/`try`) contribute to modified
+  only — per-arm `stab_clause`s carry standard CCN, mirroring the
+  C-family case/switch treatment
+  ([#179](https://github.com/dekobon/big-code-analysis/issues/179)).
 - Workspace-wide pedantic clippy + `missing_docs` lint posture is now
   enforced. `[workspace.lints.rust]` adds `missing_docs = "warn"` and
   `[workspace.lints.clippy]` adds `pedantic = "warn"` with explicit
@@ -91,11 +104,11 @@ changes are marked with **(breaking)** in the entries below.
   [`tree-sitter-elixir`](https://crates.io/crates/tree-sitter-elixir)
   `=0.3.5`. Real implementations for `Halstead`, `Loc`, `Cyclomatic`,
   and `Exit`; remaining metric traits use default impls. Branching
-  constructs (`if`/`unless`/`for`/`while`/`with`/`case`/`cond`)
-  surface as `Call` nodes with text-keyed targets, so cyclomatic
-  detects only constructs with grammar-level kinds: short-circuit
-  booleans (`&&`, `||`, `and`, `or`), `stab_clause` arms in
-  `case`/`cond`/`fn`/`with-else`, and `rescue`/`catch` blocks.
+  constructs (`if`/`unless`/`for`/`while`/`with`/`case`/`cond`/`try`)
+  surface as `Call` nodes with text-keyed targets and are identified
+  via source-byte inspection (#179); short-circuit booleans (`&&`,
+  `||`, `and`, `or`) and per-arm `stab_clause`s round out cyclomatic
+  detection.
 - Full binary-release pipeline (`.github/workflows/release.yml`) plus
   packaging skeletons under `packaging/`. Tagging `vX.Y.Z` on `main`
   runs preflight (tag/CHANGELOG/version-parity gates), builds release
