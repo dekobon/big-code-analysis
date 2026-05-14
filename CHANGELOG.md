@@ -256,6 +256,19 @@ changes are marked with **(breaking)** in the entries below.
 
 ### Fixed
 
+- Halstead operand counts for interpolated Elixir strings/sigils and
+  Bash `$var`/`${…}`/`$(…)`/`$((…))`-bearing strings no longer
+  double-count the inner identifiers. Elixir `String` / `Charlist` /
+  `Sigil` and Bash `String` / `RawString` / `AnsiCString` /
+  `TranslatedString` are still classified as one operand when they
+  have no interpolation child, but skip classification when an
+  `interpolation` (Elixir) or `simple_expansion` / `expansion` /
+  `command_substitution` / `arithmetic_expansion` (Bash) child is
+  present — so the inner expression contributes once instead of the
+  wrapping literal contributing in addition to it. `N2`, `n2`,
+  volume, and all derived metrics for code that uses interpolated
+  strings idiomatically are now correspondingly lower
+  ([#180](https://github.com/dekobon/big-code-analysis/issues/180)).
 - Makefile `EXCLUDE_DIRS` no longer glob-expands the `tree-sitter-*`
   entry into absolute paths at recipe-execution time, which had
   silently neutered `make markdown-lint`, `make shellcheck`,
