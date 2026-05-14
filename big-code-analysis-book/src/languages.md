@@ -9,6 +9,7 @@ This is the list of programming languages parsed by
 - [x] Mozcpp
 - [x] Bash
 - [x] Ccomment
+- [x] Elixir
 - [x] Preproc
 - [x] Go
 - [x] Java
