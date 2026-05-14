@@ -83,7 +83,7 @@ intentionally omitted — but the originally-implemented `HeredocBody`
 
 **C# aliased `InvocationExpression` / `ParenthesizedExpression` /
 `PrefixUnaryExpression` / `VariableDeclaration` / `VariableDeclarator`
-not matched** (#94, `866c38a`). The C# tree-sitter grammar emits 2-3
+not matched** (#94, `f042659`). The C# tree-sitter grammar emits 2-3
 numbered variants for each of those rules; the initial language-support
 commit matched only the unsuffixed variant in `checker.rs`,
 `metrics/abc.rs`, `metrics/cognitive.rs`, and `metrics/npa.rs`. Method
@@ -95,7 +95,7 @@ applies just as much to a fresh language addition as it does to a
 grammar bump.
 
 **JS/TS/TSX `String2` (and TSX `String3`) not matched in alterator**
-(#119, `9c43253`). The `MozjsCode` alterator correctly flattened both
+(#119, `fbf047d`). The `MozjsCode` alterator correctly flattened both
 `String | String2`, but the three forked JS-family alterators matched
 only `String`. TSX had a third alias (`String3`) for JSX attribute
 strings that even the issue description missed — discovered only by
@@ -279,7 +279,7 @@ changes." Accepting blindly converts any newly-introduced metric
 bug into a frozen snapshot.
 
 **Human-readable derivation comments drift while the snapshot stays
-correct** (#143, `73b0c30`). The Tcl `tcl_logical_operators` cyclomatic
+correct** (#143, `2799547`). The Tcl `tcl_logical_operators` cyclomatic
 test (a `proc f` with one `if {$x > 0 && $y > 0 || $z > 0}`) carried a
 `// &&=1 and ||=1 inside expr; sum=3` comment, but the accepted snapshot
 value was 5 — the comment counted `&&` and `||` but forgot the outer
@@ -411,7 +411,7 @@ still aggregates `ploc` from the entire file — producing impossible
 values that violate `blank = sloc − ploc − only_comment_lines ≥ 0`.
 
 **`tree-sitter-mozcpp` promotes inner declarations on partially
-unparseable C/C++** (#80, `5514714`). Four DeepSpeech files exhibited
+unparseable C/C++** (#80, `dc09eb3`). Four DeepSpeech files exhibited
 nonsense LOC: `model.hh` (KenLM) reported `kind=namespace, sloc=1,
 ploc=55, blank=−109`, and both Cython-generated `pywrapfst.cc` files
 reported a `struct` or `function` root with `blank` in the tens of
@@ -452,7 +452,7 @@ where the grammar generates multiple kind_ids for the same rule, this
 is a structural divergence: the node relationships themselves differ.
 
 **Java and C# `is_else_if` always returned `false`** (#115,
-`df9b10c`). The C++/JS-family grammars wrap `else if` in an
+`013bff9`). The C++/JS-family grammars wrap `else if` in an
 `ElseClause` parent node, so `is_else_if` checks
 `parent().kind_id() == ElseClause`. Java and C# grammars emit `else`
 as a bare keyword token preceding a nested `if_statement` — no
@@ -600,7 +600,7 @@ thread-pool slot, and a sustained rate of pathological input fills the
 indefinitely.
 
 **Pathological source code DoS in `big-code-analysis-web`** (#110,
-`94c8141`, configurability follow-up `b808180`). `run_parse` in
+`94c8141`). `run_parse` in
 `big-code-analysis-web/src/web/server.rs` acquired a semaphore permit,
 called `web::block(parse_fn)`, and wrapped the join handle in
 `tokio::time::timeout`. When the timeout fired, the handler returned a
@@ -746,7 +746,7 @@ scope of the cleanup.
 **Issue #165 enumerated SC2164 / SC1083 / SC2086 only**, but the
 actual `make shellcheck` failures included SC2006 backticks in
 `generate-grammars/generate-mozcpp.sh` and `…/generate-mozjs.sh`.
-The fix landed all four categories in one commit (`afc2cdf`); the
+The fix landed all four categories in one commit (`532a6d0`); the
 SC2006 conversions were correct and mechanical, but they could
 just as easily have been missed by a fix-agent that took the issue
 body's enumeration as authoritative.
@@ -774,7 +774,7 @@ also rewriting the template is silent until the next
 `recreate-grammars.sh` run, at which point every fix is reverted
 in a single regenerate.
 
-**Issue #158 batch 1 (`f661c1c`)** rewrote ~254 `#[inline(always)]`
+**Issue #158 batch 1 (`a59a0e9`)** rewrote ~254 `#[inline(always)]`
 attributes to `#[inline]` across all language modules. Three of
 those attribute strings live in `enums/templates/rust.rs`
 (`impl From<u16>`, `impl PartialEq<u16>`, etc.) and would have been
@@ -806,7 +806,7 @@ auto-applied fix can satisfy the targeted lint while introducing
 a *different* lint that the project's `-D warnings` gate cares
 about.
 
-**Issue #158 batch 1 (`401ed06`)** ran `cargo clippy --fix -W
+**Issue #158 batch 1 (`a59a0e9`)** ran `cargo clippy --fix -W
 clippy::implicit_clone` over a `path_min.drain(..).map(|p|
 p.to_path_buf()).collect()` site in `guess_file`. The auto-fix
 rewrote `.to_path_buf()` → `.clone()`, satisfying
