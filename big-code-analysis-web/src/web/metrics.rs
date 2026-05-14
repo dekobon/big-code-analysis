@@ -72,9 +72,7 @@ impl Callback for WebMetricsCallback {
         let spaces = metrics_with_options(
             parser,
             &cfg.path,
-            MetricsOptions {
-                exclude_tests: cfg.exclude_tests,
-            },
+            MetricsOptions::default().with_exclude_tests(cfg.exclude_tests),
         );
         let spaces = if cfg.unit {
             if let Some(mut spaces) = spaces {

@@ -399,9 +399,7 @@ impl Config {
     /// every `act_on_file` arm that drives a metric computation.
     #[inline]
     fn metrics_options(&self) -> MetricsOptions {
-        MetricsOptions {
-            exclude_tests: self.exclude_tests,
-        }
+        MetricsOptions::default().with_exclude_tests(self.exclude_tests)
     }
 }
 
@@ -494,10 +492,7 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
                 }
                 Ok(())
             } else {
-                let metrics_cfg = MetricsCfg {
-                    path,
-                    options: cfg.metrics_options(),
-                };
+                let metrics_cfg = MetricsCfg::new(path).with_options(cfg.metrics_options());
                 let path = metrics_cfg.path.clone();
                 action::<Metrics>(&language, source, &path, pr, metrics_cfg)
             }
