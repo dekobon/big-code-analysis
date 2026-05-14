@@ -729,7 +729,9 @@ mod tests {
         }
 
         // `#[tokio::test]` is the most common async-runtime variant
-        // and must be elided too.
+        // and must be elided too. Baseline anchored at 2 so a grammar
+        // regression that stops counting `async fn` cannot make this
+        // test pass without pruning actually doing work.
         #[test]
         fn tokio_test_attribute_is_elided() {
             let source = "\
@@ -738,12 +740,16 @@ fn prod() -> i32 { 1 }
 #[tokio::test]
 async fn async_t() { let _x = 1; }
 ";
+            let baseline = analyse(source, false);
             let pruned = analyse(source, true);
+            assert_eq!(baseline.metrics.nom.functions_sum() as usize, 2);
             assert_eq!(pruned.metrics.nom.functions_sum() as usize, 1);
         }
 
         // `#[cfg(all(test, target_arch = \"x86_64\"))]` — the
         // attribute parser must accept commas inside `all(...)`.
+        // Baseline anchored at 2 to guard against silent grammar
+        // regressions (see `tokio_test_attribute_is_elided`).
         #[test]
         fn cfg_all_test_with_extras_is_elided() {
             let source = "\
@@ -752,13 +758,17 @@ fn prod() -> i32 { 1 }
 #[cfg(all(test, target_arch = \"x86_64\"))]
 fn arch_specific_test() { let _x = 1; }
 ";
+            let baseline = analyse(source, false);
             let pruned = analyse(source, true);
+            assert_eq!(baseline.metrics.nom.functions_sum() as usize, 2);
             assert_eq!(pruned.metrics.nom.functions_sum() as usize, 1);
         }
 
         // Plain prod-only file must be unchanged by either flag
         // value — i.e. the flag is genuinely a no-op when there's
-        // no test code.
+        // no test code. Anchor the absolute count (2) so the
+        // "they're equal" assertion can't be satisfied by both
+        // values being 0.
         #[test]
         fn pure_production_unaffected_by_flag() {
             let source = "\
@@ -767,10 +777,8 @@ fn helper(x: i32) -> i32 { x * 2 }
 ";
             let baseline = analyse(source, false);
             let pruned = analyse(source, true);
-            assert_eq!(
-                baseline.metrics.nom.functions_sum() as usize,
-                pruned.metrics.nom.functions_sum() as usize,
-            );
+            assert_eq!(baseline.metrics.nom.functions_sum() as usize, 2);
+            assert_eq!(pruned.metrics.nom.functions_sum() as usize, 2);
             assert_eq!(
                 baseline.metrics.cyclomatic.cyclomatic_sum(),
                 pruned.metrics.cyclomatic.cyclomatic_sum(),
@@ -792,9 +800,56 @@ fn t() { assert_eq!(1, 1); }
             assert_eq!(baseline_default.metrics.nom.functions_sum() as usize, 2);
         }
 
+        // Stacked attributes: tree-sitter exposes multiple
+        // `#[...]` decorations as a chain of `AttributeItem`
+        // siblings before the decorated item. The matcher must
+        // walk all of them, not just the immediately-preceding
+        // one, so a `#[cfg(target_arch = "x86_64")]` on top of
+        // `#[cfg(test)]` still prunes.
+        #[test]
+        fn stacked_attributes_walk_all_siblings() {
+            let source = "\
+fn prod() -> i32 { 1 }
+
+#[cfg(target_arch = \"x86_64\")]
+#[cfg(test)]
+fn t() { let _x = 1; }
+";
+            let baseline = analyse(source, false);
+            let pruned = analyse(source, true);
+            assert_eq!(baseline.metrics.nom.functions_sum() as usize, 2);
+            assert_eq!(pruned.metrics.nom.functions_sum() as usize, 1);
+        }
+
+        // Negative coverage: attribute shapes that look like "test"
+        // but must NOT trigger pruning. Production code marked with
+        // `#[cfg(not(test))]`, a feature flag named "test", or a
+        // user macro whose path contains "test" must survive
+        // pruning intact.
+        #[test]
+        fn lookalike_attributes_are_not_pruned() {
+            let source = "\
+#[cfg(not(test))]
+fn only_outside_tests() -> i32 { 1 }
+
+#[cfg(feature = \"test\")]
+fn behind_test_feature() -> i32 { 2 }
+
+#[my_crate::test_helper]
+fn decorated_helper() -> i32 { 3 }
+";
+            let pruned = analyse(source, true);
+            // None of the three attributes mark test-only code.
+            // All three functions must survive.
+            assert_eq!(pruned.metrics.nom.functions_sum() as usize, 3);
+        }
+
         // Inner attribute on a module: `mod tests { #![cfg(test)] ... }`
         // is the idiomatic form when you want to put the gate inside
-        // the module body rather than on the declaration.
+        // the module body rather than on the declaration. Baseline
+        // anchored at 3 (prod + helper + t) so a grammar regression
+        // that drops the module body cannot satisfy this test with
+        // pruning disabled.
         #[test]
         fn inner_cfg_test_attribute_elides_module() {
             let source = "\
@@ -806,7 +861,9 @@ mod tests {
     #[test] fn t() { assert_eq!(1, 1); }
 }
 ";
+            let baseline = analyse(source, false);
             let pruned = analyse(source, true);
+            assert_eq!(baseline.metrics.nom.functions_sum() as usize, 3);
             assert_eq!(pruned.metrics.nom.functions_sum() as usize, 1);
         }
     }
@@ -843,10 +900,11 @@ int helper() { return 2; }
                 },
             )
             .expect("pruned must yield a top-level space");
-            assert_eq!(
-                baseline.metrics.nom.functions_sum() as usize,
-                pruned.metrics.nom.functions_sum() as usize,
-            );
+            // Anchor on the absolute count (2) so a regression that
+            // dropped all C++ functions wouldn't satisfy a bare
+            // `baseline == pruned` check.
+            assert_eq!(baseline.metrics.nom.functions_sum() as usize, 2);
+            assert_eq!(pruned.metrics.nom.functions_sum() as usize, 2);
         }
     }
 }
