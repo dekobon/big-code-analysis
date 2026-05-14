@@ -995,10 +995,17 @@ impl Getter for BashCode {
                 }
             }
 
-            // Operands: identifiers, literals, variables
+            // Operands: identifiers, literals, variables. `variable_name`
+            // and `special_variable_name` each surface under multiple
+            // aliased kind_ids (tree-sitter generates one per parse-table
+            // context); every alias must be matched or assignment LHS
+            // identifiers like `name` in `name=value` are silently
+            // unclassified — see lesson 2.
             Bash::Word | Bash::Word2 | Bash::Word3 | Bash::Word4
             | Bash::Number | Bash::Number2 | Bash::NumberToken1 | Bash::NumberToken2
-            | Bash::SimpleExpansion | Bash::SpecialVariableName | Bash::VariableName
+            | Bash::SimpleExpansion
+            | Bash::VariableName | Bash::VariableName2 | Bash::VariableName3
+            | Bash::SpecialVariableName | Bash::SpecialVariableName2
             | Bash::CommandName | Bash::Concat
                 => HalsteadType::Operand,
             _ => HalsteadType::Unknown,

@@ -256,6 +256,18 @@ changes are marked with **(breaking)** in the entries below.
 
 ### Fixed
 
+- Bash `variable_name` and `special_variable_name` are now classified
+  as Halstead operands in every parse-table context. tree-sitter-bash
+  emits these node kinds under three aliased `kind_id`s (`VariableName`
+  / `VariableName2` / `VariableName3`) and two for special variables
+  (`SpecialVariableName` / `SpecialVariableName2`); the original
+  `impl Getter for BashCode::get_op_type` matched only the unsuffixed
+  variant, so assignment LHS identifiers like `name` in `name=value`
+  and the `name` child of `$name` simple expansions were silently
+  unclassified. All five variants are now matched, restoring the
+  intended operand contribution; `bash_operators_and_operands` is
+  anchored with integer assertions and its snapshot refreshed to
+  match. Same lesson-2 bug class as #40 / #36 / #50 / #44 / #94 / #119.
 - Halstead operand counts for interpolated Elixir strings/sigils and
   Bash `$var`/`${…}`/`$(…)`/`$((…))`-bearing strings no longer
   double-count the inner identifiers. Elixir `String` / `Charlist` /

@@ -7,7 +7,7 @@ src/metrics/abc.rs 27
 src/metrics/cognitive.rs 0
 src/metrics/cyclomatic.rs 1
 src/metrics/exit.rs 0
-src/metrics/halstead.rs 4
+src/metrics/halstead.rs 3
 src/metrics/loc.rs 0
 src/metrics/mi.rs 0
 src/metrics/mod.rs 0
