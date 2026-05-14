@@ -53,9 +53,9 @@ tree-sitter-preproc = { path = "./tree-sitter-preproc", version = "=0.20.3" }
 tree-sitter-tcl = { path = "./tree-sitter-tcl", version = "=1.1.0" }
 
 # Workspace-wide lint posture. The allow set is intentionally minimal
-# (host-identity baseline) — additional allows go at file or function
-# level so the carve-out stays visible at the affected site rather
-# than weakening the whole workspace.
+# — additional allows go at file or function level so the carve-out
+# stays visible at the affected site rather than weakening the whole
+# workspace.
 [workspace.lints.rust]
 missing_docs = "warn"
 
