@@ -122,6 +122,18 @@ changes are marked with **(breaking)** in the entries below.
   .with_exclude_tests(true)` and `MetricsCfg::new(path)
   .with_options(...)` (issue [#185](https://github.com/dekobon/big-code-analysis/issues/185))
   ([#182](https://github.com/dekobon/big-code-analysis/issues/182)).
+- Support for Ruby source files (`.rb`, `.rake`, `.gemspec`) via
+  [`tree-sitter-ruby`](https://crates.io/crates/tree-sitter-ruby)
+  `=0.23.1`. Real implementations for `Cyclomatic` (if/unless/while/
+  until/for/case-when/rescue/conditional/`&&`/`||`/`and`/`or`),
+  `Exit` (counting `return` statements only — `yield` does not exit
+  the method), `Halstead` (full keyword-token, punctuation, and
+  operator/operand classification with interpolation-aware string
+  literals), `Loc` (named statement nodes, postfix modifiers, and
+  class/module/method declarations), and `Cognitive`
+  (`is_else_if` keyed on the dedicated `elsif` clause so chains stay
+  below nested-`if` cost). `Abc`, `Mi`, `NArgs`, `Nom`, `Npa`, `Npm`,
+  and `Wmc` use default impls; `Tokens` is wired through.
 - Support for Elixir source files (`.ex`, `.exs`) via
   [`tree-sitter-elixir`](https://crates.io/crates/tree-sitter-elixir)
   `=0.3.5`. Real implementations for `Halstead`, `Loc`, `Cyclomatic`,
