@@ -655,18 +655,24 @@ impl Getter for CsharpCode {
             // Predefined / primitive types
             | PredefinedType
                 => HalsteadType::Operator,
-            // Operands: identifiers and literals. `InterpolatedStringExpression`
-            // is intentionally absent — it is structurally always
-            // interpolated (`$"..."` always wraps one or more
-            // `Interpolation` children whose inner identifiers are
-            // already walked and classified as operands). Counting the
-            // wrapping expression here would double-count the inner
-            // identifiers' contribution to `N2` (issue #183, same
-            // pattern as #180 for Elixir/Bash).
+            // Operands: identifiers and literals.
             Identifier | GenericName | QualifiedName | AliasQualifiedName
             | IntegerLiteral | RealLiteral | BooleanLiteral | NullLiteral | True | False
             | CharacterLiteral | StringLiteral | VerbatimStringLiteral | RawStringLiteral
                 => HalsteadType::Operand,
+            // `$"..."` counts as one operand when inert. When it carries
+            // any `Interpolation` child the inner expressions are
+            // already walked and classified as operands; counting the
+            // wrapping literal too would double-count the inner
+            // identifiers' contribution to `N2` (issue #183, same
+            // pattern as #180 for Elixir/Bash).
+            InterpolatedStringExpression => {
+                if node.is_child(Interpolation as u16) {
+                    HalsteadType::Unknown
+                } else {
+                    HalsteadType::Operand
+                }
+            }
             _ => HalsteadType::Unknown,
         }
     }
