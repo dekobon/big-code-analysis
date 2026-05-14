@@ -1118,6 +1118,46 @@ impl Getter for TclCode {
     get_operator!(Tcl);
 }
 
+/// Returns whether a PHP encapsed-string or heredoc node carries any
+/// interpolation child that would itself be classified as an operand
+/// by [`PhpCode::get_op_type`] — a direct `$var`, a `${name}` /
+/// `$name[…]` variant, or a `{$expr}` complex-interpolation wrapper.
+///
+/// `EncapsedString` ("...") holds interpolation children directly; a
+/// `Heredoc` wraps its contents in a `heredoc_body` child, so this
+/// helper descends one level through `heredoc_body` for that case.
+/// `Nowdoc` (single-quoted heredoc) and single-quoted `String` /
+/// `String2` / `String3` never interpolate and never reach this
+/// helper.
+#[inline]
+fn php_string_has_interpolation(node: &Node) -> bool {
+    fn is_interpolation_kind(kind: u16) -> bool {
+        matches!(
+            kind.into(),
+            // `"$name"` → direct `variable_name` child.
+            Php::VariableName
+            // `"${name}"` → direct `dynamic_variable_name` child.
+            | Php::DynamicVariableName
+            // `"{$obj->p}"` → `{` (LBRACE) opens the complex-
+            // interpolation wrapper whose body is an arbitrary
+            // expression; the brace appears as a direct child.
+            | Php::LBRACE
+        )
+    }
+    node.children().any(|c| {
+        if is_interpolation_kind(c.kind_id()) {
+            return true;
+        }
+        // Heredoc bodies hold interpolation one level down inside
+        // `heredoc_body`; descend exactly one level for that case.
+        let kind: Php = c.kind_id().into();
+        if matches!(kind, Php::HeredocBody) {
+            return c.children().any(|gc| is_interpolation_kind(gc.kind_id()));
+        }
+        false
+    })
+}
+
 impl Getter for PhpCode {
     fn get_space_kind(node: &Node) -> SpaceKind {
         match node.kind_id().into() {
@@ -1198,22 +1238,14 @@ impl Getter for PhpCode {
             | DOT
                 => HalsteadType::Operator,
 
-            // Operands: identifiers and literals. NOTE:
-            // `EncapsedString` (double-quoted) and `Heredoc` carry
-            // the same double-count pattern that #180 fixed for
-            // Elixir/Bash — when they contain variable substitutions
-            // the wrapping literal is counted here and the inner
-            // identifiers are also walked and classified separately.
-            // Fixing it cleanly requires refreshing the
-            // `php/*.php.snap` integration snapshots in the
-            // `big-code-analysis-output` submodule; tracked
-            // separately as #184. `String`/`String2`/`String3`
-            // (single-quoted) and `Nowdoc` never interpolate and are
-            // correctly counted as one operand.
+            // Operands: identifiers and literals.
+            // `String`/`String2`/`String3` (single-quoted) and
+            // `Nowdoc` never interpolate and are always counted as
+            // one operand each.
             Name | Name2 | VariableName | DynamicVariableName
             | Integer | Float | Float2
             | String | String2 | String3
-            | EncapsedString | Heredoc | Nowdoc
+            | Nowdoc
             | Boolean | Null | Null2
             | NamedType | OptionalType | UnionType | IntersectionType
             | DisjunctiveNormalFormType | BottomType
@@ -1221,6 +1253,22 @@ impl Getter for PhpCode {
             | QualifiedName | RelativeName | NamespaceName
             | Int | Bool | Array | Object
                 => HalsteadType::Operand,
+
+            // `EncapsedString` (double-quoted) and `Heredoc` count as
+            // one operand when inert. When they carry a `$var`,
+            // `${name}`, or `{$expr}` interpolation child, those
+            // inner expressions are already walked and classified as
+            // operands in their own right; counting the wrapping
+            // literal too would double-count their contribution to
+            // `N2` (issue #184, same pattern as #180 for Elixir/Bash
+            // and #183 for C#).
+            EncapsedString | Heredoc => {
+                if php_string_has_interpolation(node) {
+                    HalsteadType::Unknown
+                } else {
+                    HalsteadType::Operand
+                }
+            }
 
             _ => HalsteadType::Unknown,
         }

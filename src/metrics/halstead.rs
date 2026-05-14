@@ -1569,6 +1569,103 @@ f() {
     }
 
     #[test]
+    fn php_encapsed_string_interpolation_no_double_count() {
+        // Regression: issue #184. A PHP `"Hello $name!"` used to be
+        // classified as a Halstead operand (the wrapping
+        // `encapsed_string`) AND have its inner `variable_name`
+        // (`$name`) plus the inner `name` token classified as
+        // operands too. With the fix, the wrapping literal drops to
+        // `Unknown` when it carries any `$var` / `${name}` / `{$expr}`
+        // child, so `$name` is counted exactly once at each text
+        // occurrence.
+        //
+        // Source:
+        //   <?php $name = "world"; echo "Hello $name!";
+        //
+        // Inert operand: `"world"` (no interpolation, still operand).
+        // Operands by text key (`get_id` keys by source bytes):
+        //   `$name` × 2 (assignment LHS and `$name` inside the
+        //   interpolated string), `name` × 2 (the `name` token inside
+        //   each `variable_name`), `"world"` × 1.
+        // u_operands = 3, N2 = 5.
+        // Without the fix the wrapping `"Hello $name!"` would also
+        // count → u_operands = 4, N2 = 6.
+        check_metrics::<PhpParser>(
+            "<?php $name = \"world\"; echo \"Hello $name!\";",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.halstead.u_operands(), 3.0);
+                assert_eq!(metric.halstead.operands(), 5.0);
+            },
+        );
+    }
+
+    #[test]
+    fn php_encapsed_string_no_interpolation_still_operand() {
+        // The fix for #184 only drops `EncapsedString`/`Heredoc` from
+        // the operand arm when interpolation is present. An inert
+        // double-quoted string must still count as exactly one
+        // operand, identical to the single-quoted equivalent.
+        //
+        // Source: `<?php echo "Hello world!";`
+        // Operands: `"Hello world!"` × 1 → u_operands = 1, N2 = 1.
+        check_metrics::<PhpParser>("<?php echo \"Hello world!\";", "foo.php", |metric| {
+            assert_eq!(metric.halstead.u_operands(), 1.0);
+            assert_eq!(metric.halstead.operands(), 1.0);
+        });
+    }
+
+    #[test]
+    fn php_heredoc_interpolation_no_double_count() {
+        // Regression: issue #184. A PHP heredoc whose body
+        // interpolates `$name` previously counted both the wrapping
+        // `heredoc` node and the inner `$name` as operands; the fix
+        // drops the wrapper when its `heredoc_body` carries any
+        // interpolation child.
+        //
+        // Source:
+        //   <?php $name = "x"; echo <<<EOT
+        //   hi $name
+        //   EOT;
+        //
+        // Operands by text key: `$name` × 2, `name` × 2, `"x"` × 1
+        // (inert single-interp encapsed string also operand). With
+        // the fix u_operands = 3, N2 = 5. Without the fix the
+        // wrapping heredoc text would add one more unique operand.
+        check_metrics::<PhpParser>(
+            "<?php $name = \"x\"; echo <<<EOT\nhi $name\nEOT;\n",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.halstead.u_operands(), 3.0);
+                assert_eq!(metric.halstead.operands(), 5.0);
+            },
+        );
+    }
+
+    #[test]
+    fn php_nowdoc_unaffected() {
+        // `Nowdoc` (single-quoted heredoc) never interpolates and is
+        // never matched by `php_string_has_interpolation`. It must
+        // continue counting as exactly one operand regardless of the
+        // text inside, mirroring single-quoted `String`.
+        //
+        // Source:
+        //   <?php echo <<<'EOT'
+        //   plain $name not interpolated
+        //   EOT;
+        //
+        // Operands: the nowdoc literal × 1 → u_operands = 1, N2 = 1.
+        check_metrics::<PhpParser>(
+            "<?php echo <<<'EOT'\nplain $name not interpolated\nEOT;\n",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.halstead.u_operands(), 1.0);
+                assert_eq!(metric.halstead.operands(), 1.0);
+            },
+        );
+    }
+
+    #[test]
     fn elixir_operators_and_operands() {
         // Exercises every Halstead family classified in Elixir's
         // `get_op_type`: control-flow keywords (`do`, `end`, `fn`),
