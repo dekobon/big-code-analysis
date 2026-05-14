@@ -339,6 +339,7 @@ fn get_from_interpreter(name: &str) -> Option<LANG> {
         "node" | "nodejs" => Some(LANG::Javascript),
         "tclsh" | "wish" => Some(LANG::Tcl),
         "ruby" => Some(LANG::Ruby),
+        "elixir" | "iex" => Some(LANG::Elixir),
         _ => None,
     }
 }
@@ -854,6 +855,22 @@ mod tests {
         // identified solely by their `#!/usr/bin/env ruby` shebang.
         let buf = b"#!/usr/bin/env ruby\nputs 'hi'\n";
         assert_eq!(guess_language(buf, "run"), (Some(LANG::Ruby), "ruby"));
+    }
+
+    #[test]
+    fn guess_language_shebang_detects_elixir_without_extension() {
+        // Extensionless Elixir scripts (`#!/usr/bin/env elixir`) must be
+        // identified by their shebang alone — regression for #186.
+        let buf = b"#!/usr/bin/env elixir\nIO.puts(\"hi\")\n";
+        assert_eq!(guess_language(buf, "run"), (Some(LANG::Elixir), "elixir"));
+    }
+
+    #[test]
+    fn guess_language_shebang_detects_iex_without_extension() {
+        // `iex` is Elixir's interactive shell; scripts that drive it via
+        // `#!/usr/bin/env iex` should also map to Elixir.
+        let buf = b"#!/usr/bin/env iex\nIO.puts(\"hi\")\n";
+        assert_eq!(guess_language(buf, "run"), (Some(LANG::Elixir), "elixir"));
     }
 
     #[test]
