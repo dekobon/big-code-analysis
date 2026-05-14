@@ -589,7 +589,7 @@ impl Callback for Metrics {
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::{CppParser, ParserTrait, SpaceKind, check_func_space, metrics};
+    use crate::{CppParser, ParserTrait, RubyParser, SpaceKind, check_func_space, metrics};
 
     #[test]
     fn c_scope_resolution_operator() {
@@ -656,6 +656,41 @@ mod tests {
             sloc as usize, line_count,
             "sloc ({sloc}) should match the file's line count ({line_count})"
         );
+    }
+
+    /// Robustness contract for malformed Ruby: tree-sitter-ruby tolerates
+    /// nearly any input and returns a `program` (Unit) root, so the
+    /// synthetic-Unit fallback path is unreachable today. This test pins
+    /// the contract — top-level kind is `Unit`, `sloc >= ploc`, and
+    /// `blank >= 0` — so a future grammar bump that starts promoting an
+    /// inner `Method`/`Class` to root on partial input would fail here
+    /// instead of silently producing a non-Unit top-level FuncSpace.
+    /// Lesson 9 (`docs/development/lessons_learned.md`).
+    #[test]
+    fn ruby_partial_input_yields_unit_top_level_space() {
+        // Truncated method definition (missing `end`) plus a stray
+        // unbalanced sigil — tree-sitter-ruby treats both as ERROR
+        // children of `program`.
+        let source = "class Foo\n  def bar(\n    x\n  ";
+        let path = std::path::PathBuf::from("partial.rb");
+        let parser = RubyParser::new(source.as_bytes().to_vec(), &path, None);
+
+        let space = metrics(&parser, &path).expect("metrics must yield a top-level space");
+
+        assert_eq!(
+            space.kind,
+            SpaceKind::Unit,
+            "top-level FuncSpace must be Unit, not {:?}",
+            space.kind,
+        );
+        let loc = &space.metrics.loc;
+        assert!(
+            loc.sloc() >= loc.ploc(),
+            "sloc ({}) must be >= ploc ({})",
+            loc.sloc(),
+            loc.ploc(),
+        );
+        assert!(loc.blank() >= 0.0, "blank ({}) must be >= 0", loc.blank());
     }
 
     /// Regression for issue #128 — non-UTF-8 paths on Linux (valid on

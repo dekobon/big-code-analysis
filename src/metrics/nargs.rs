@@ -403,7 +403,8 @@ implement_metric_trait!(
     BashCode,
     PhpCode,
     CsharpCode,
-    ElixirCode
+    ElixirCode,
+    RubyCode
 );
 
 #[cfg(test)]
@@ -2660,6 +2661,59 @@ proc g {x y z} { puts $x }",
             "foo.ex",
             |metric| {
                 assert_eq!(metric.nargs.fn_args_sum(), 0.0);
+                assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_no_functions_and_closures() {
+        check_metrics::<RubyParser>("a = 42\n", "foo.rb", |metric| {
+            assert_eq!(metric.nargs.fn_args_sum(), 0.0);
+            assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+        });
+    }
+
+    #[test]
+    fn ruby_single_function() {
+        // Single method with 3 parameters.
+        check_metrics::<RubyParser>("def foo(a, b, c)\n  a + b + c\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.nargs.fn_args_sum(), 3.0);
+            assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+        });
+    }
+
+    #[test]
+    fn ruby_single_closure() {
+        // A bare block `[1,2,3].each { |x| ... }` is the only closure
+        // here; `each` is a method call so the method-args count is 0.
+        check_metrics::<RubyParser>("[1, 2, 3].each { |x| puts x }\n", "foo.rb", |metric| {
+            assert_eq!(metric.nargs.fn_args_sum(), 0.0);
+            assert_eq!(metric.nargs.closure_args_sum(), 1.0);
+        });
+    }
+
+    #[test]
+    fn ruby_functions() {
+        // Two methods, args=2 and args=1; one lambda with args=2.
+        check_metrics::<RubyParser>(
+            "def add(a, b)\n  a + b\nend\n\ndef neg(x)\n  -x\nend\n\nf = ->(a, b) { a * b }\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.nargs.fn_args_sum(), 3.0);
+                assert_eq!(metric.nargs.closure_args_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_nested_functions() {
+        // An outer method with 1 arg containing an inner method with 2.
+        check_metrics::<RubyParser>(
+            "def outer(a)\n  def inner(b, c)\n    b + c\n  end\n  inner(a, a)\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.nargs.fn_args_sum(), 3.0);
                 assert_eq!(metric.nargs.closure_args_sum(), 0.0);
             },
         );

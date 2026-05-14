@@ -1423,6 +1423,98 @@ impl Checker for ElixirCode {
     }
 }
 
+impl Checker for RubyCode {
+    fn is_comment(node: &Node) -> bool {
+        node.kind_id() == Ruby::Comment
+    }
+
+    fn is_useful_comment(_: &Node, _: &[u8]) -> bool {
+        false
+    }
+
+    fn is_func_space(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Ruby::Program
+                | Ruby::Method
+                | Ruby::SingletonMethod
+                | Ruby::Lambda
+                | Ruby::Block
+                | Ruby::DoBlock
+                | Ruby::Class
+                | Ruby::SingletonClass
+                | Ruby::Module
+        )
+    }
+
+    fn is_func(node: &Node) -> bool {
+        matches!(node.kind_id().into(), Ruby::Method | Ruby::SingletonMethod)
+    }
+
+    fn is_closure(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Ruby::Lambda | Ruby::Block | Ruby::DoBlock
+        )
+    }
+
+    // tree-sitter-ruby 0.23.1 emits four aliased visible variants of the
+    // `call` rule (`Call`, `Call2`, `Call3`, `Call4`); `Call5` ("_call")
+    // is the hidden inner production and does not surface.
+    fn is_call(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Ruby::Call | Ruby::Call2 | Ruby::Call3 | Ruby::Call4
+        )
+    }
+
+    fn is_non_arg(node: &Node) -> bool {
+        // `PIPE` is included because block parameter lists are delimited
+        // by `|` rather than parentheses (e.g. `[1,2,3].each { |x| … }`).
+        matches!(
+            node.kind_id().into(),
+            Ruby::LPAREN
+                | Ruby::LPAREN2
+                | Ruby::RPAREN
+                | Ruby::RPAREN2
+                | Ruby::COMMA
+                | Ruby::SEMI
+                | Ruby::PIPE
+        )
+    }
+
+    // Mirrors the string-literal set preserved verbatim by
+    // `Alterator::alterate`. `HeredocBeginning` is the `<<EOF` marker
+    // token rather than a literal body and is intentionally excluded.
+    fn is_string(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Ruby::String
+                | Ruby::ChainedString
+                | Ruby::BareString
+                | Ruby::Subshell
+                | Ruby::Regex
+                | Ruby::HeredocBody
+                | Ruby::DelimitedSymbol
+                | Ruby::SimpleSymbol
+                | Ruby::StringArray
+                | Ruby::SymbolArray
+                | Ruby::Character
+        )
+    }
+
+    // tree-sitter-ruby exposes `elsif` as its own named clause node, so the
+    // dedicated-clause-node strategy applies here (same as Lua/Bash/PHP).
+    #[inline]
+    fn is_else_if(node: &Node) -> bool {
+        node.kind_id() == Ruby::Elsif
+    }
+
+    fn is_primitive(_: u16) -> bool {
+        false
+    }
+}
+
 #[cfg(test)]
 #[allow(
     clippy::float_cmp,

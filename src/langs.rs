@@ -214,6 +214,16 @@ mk_langs!(
         tree_sitter_php,
         [php, phtml, php3, php4, php5, php7, phps],
         ["php"]
+    ),
+    (
+        Ruby,
+        "The `Ruby` language",
+        "ruby",
+        RubyCode,
+        RubyParser,
+        tree_sitter_ruby,
+        [rb, rake, gemspec],
+        ["ruby"]
     )
 );
 

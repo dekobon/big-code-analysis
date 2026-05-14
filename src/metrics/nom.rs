@@ -255,7 +255,8 @@ implement_metric_trait!(
     TclCode,
     PhpCode,
     CsharpCode,
-    ElixirCode
+    ElixirCode,
+    RubyCode
 );
 
 #[cfg(test)]
@@ -1810,5 +1811,23 @@ outer() {
                 "missing fragment {fragment:?} in: {formatted}"
             );
         }
+    }
+
+    #[test]
+    fn ruby_nom() {
+        // expected: total = 4 (2 methods `add`/`mul` + 1 singleton
+        // method `self.factory` + 1 block argument to `each`).
+        // `functions` counts only the named `Method` / `SingletonMethod`
+        // forms (3); `closures` counts `Block` / `DoBlock` / `Lambda`
+        // (1).
+        check_metrics::<RubyParser>(
+            "class C\n  def add(a, b)\n    a + b\n  end\n  def mul(a, b)\n    a * b\n  end\n  def self.factory\n    new\n  end\nend\n\n[1, 2, 3].each { |x| puts x }\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 3.0);
+                assert_eq!(metric.nom.closures_sum(), 1.0);
+                assert_eq!(metric.nom.total(), 4.0);
+            },
+        );
     }
 }

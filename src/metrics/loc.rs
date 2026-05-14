@@ -1253,6 +1253,70 @@ impl Loc for PhpCode {
 
 implement_metric_trait!(Loc, PreprocCode, CcommentCode);
 
+impl Loc for RubyCode {
+    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool, is_unit: bool) {
+        use Ruby as R;
+
+        let (start, end) = init(node, stats, is_func_space, is_unit);
+        match node.kind_id().into() {
+            R::Program => {}
+            R::Comment => {
+                add_cloc_lines(stats, start, end);
+            }
+            // LLOC contributors: control-flow constructs, method/class/module
+            // declarations, postfix statement modifiers, and the dedicated
+            // jump/redo/retry statement nodes. Assignment expressions and
+            // ordinary method calls in expression-statement position are
+            // intentionally NOT counted to avoid double-counting every
+            // sub-expression: a single `a = b + c.d(e)` line would otherwise
+            // contribute multiple LLOC. The Ruby grammar has no
+            // `expression_statement` wrapper to disambiguate.
+            R::If
+            | R::Unless
+            | R::Elsif
+            | R::While
+            | R::Until
+            | R::For
+            | R::Case
+            | R::CaseMatch
+            | R::Begin
+            | R::IfModifier
+            | R::UnlessModifier
+            | R::WhileModifier
+            | R::UntilModifier
+            | R::RescueModifier
+            | R::RescueModifier2
+            | R::RescueModifier3
+            | R::Return
+            | R::Return2
+            | R::Yield
+            | R::Yield2
+            | R::Break
+            | R::Break2
+            | R::Next
+            | R::Next2
+            | R::Redo
+            | R::Retry
+            | R::Method
+            | R::SingletonMethod
+            | R::Class
+            | R::SingletonClass
+            | R::Module
+            | R::BeginBlock
+            | R::EndBlock
+            | R::Undef
+            | R::Alias
+            | R::EmptyStatement => {
+                stats.lloc.logical_lines += 1;
+            }
+            _ => {
+                check_comment_ends_on_code_line(stats, start);
+                stats.ploc.lines.insert(start);
+            }
+        }
+    }
+}
+
 impl Loc for ElixirCode {
     fn compute(node: &Node, stats: &mut Stats, is_func_space: bool, is_unit: bool) {
         use Elixir as E;
@@ -8344,5 +8408,217 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
                 assert_eq!(metric.loc.lloc(), 5.0);
             },
         );
+    }
+
+    #[test]
+    fn ruby_blank() {
+        // The parser's root span starts at the first non-blank line, so
+        // a blank line must sit BETWEEN code lines to be counted.
+        // expected: line 3 is blank → blank = 1.
+        check_metrics::<RubyParser>("def foo\n  a = 1\n\n  a + 1\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.loc.blank(), 1.0);
+        });
+    }
+
+    #[test]
+    fn ruby_no_zero_blank() {
+        // Mirrors `rust_no_zero_blank`: the blank counter must stay
+        // non-zero when blank lines sit between code lines that carry
+        // trailing comments. Catches regressions in the SLOC −
+        // (PLOC ∪ CLOC) union math when PLOC and CLOC line-sets
+        // overlap.
+        check_metrics::<RubyParser>(
+            "def foo  # entry\n  pool = 0\n\n  server = -42  # negative\n\n  ok = false\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.loc.blank(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_cloc() {
+        // 3 comment lines.
+        check_metrics::<RubyParser>(
+            "# one\n# two\n# three\ndef foo\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.loc.cloc(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_lloc() {
+        // expected: 3 logical lines = `def` (Method) + `if` (If) +
+        // `while` (While). Bare expression-statements (assignments,
+        // calls) are intentionally NOT counted.
+        check_metrics::<RubyParser>(
+            "def foo(a)\n  if a\n    a += 1\n  end\n  while a > 0\n    a -= 1\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.loc.lloc(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_no_call_lloc() {
+        // expected: 1 logical line (the surrounding `def`). The bare
+        // method calls `puts 'hello'` and `puts 'world'` are
+        // intentionally NOT counted — there is no expression_statement
+        // wrapper to disambiguate them from sub-expressions.
+        check_metrics::<RubyParser>(
+            "def foo\n  puts 'hello'\n  puts 'world'\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.loc.lloc(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_no_assignment_lloc() {
+        // Same rationale as `ruby_no_call_lloc`. expected: 1 lloc
+        // (the `def`); raw assignments aren't counted.
+        check_metrics::<RubyParser>(
+            "def foo\n  a = 1\n  b = 2\n  c = a + b\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.loc.lloc(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_modifier_lloc() {
+        // Postfix modifier forms each count as one logical line. A
+        // `return … if …` parses as an `IfModifier` wrapping a `Return`;
+        // both fire the LLOC arm so the modifier line contributes +2.
+        // expected: def(1) + if_modifier(1) + inner return(1)
+        // + while_modifier(1) + rescue_modifier(1) = 5.
+        check_metrics::<RubyParser>(
+            "def foo(a)\n  return a if a.nil?\n  a -= 1 while a > 0\n  parse(a) rescue nil\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.loc.lloc(), 5.0);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_class_lloc() {
+        // expected: 1 class + 1 module + 2 methods = 4.
+        check_metrics::<RubyParser>(
+            "module M\n  class C\n    def foo\n    end\n    def bar\n    end\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.loc.lloc(), 4.0);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_begin_rescue_lloc() {
+        // expected: 1 def + 1 begin = 2. Rescue clauses are part of
+        // the begin construct and not separately counted; the bare
+        // expression body lines are not statements.
+        check_metrics::<RubyParser>(
+            "def foo\n  begin\n    risky\n  rescue StandardError\n    nil\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.loc.lloc(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_nested_defs_lloc() {
+        // Each `Method` declaration contributes one logical line.
+        // expected: outer `def` + inner `def` = 2.
+        check_metrics::<RubyParser>(
+            "def outer\n  def inner\n    1\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.loc.lloc(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_no_block_body_lloc() {
+        // A top-level `[1,2,3].each do |x| puts x end` produces zero
+        // logical lines: the surrounding `.each` is a `Call` (not in
+        // the LLOC arm), the `DoBlock` is a closure (also not a
+        // statement), and the `puts x` inside is another call. This
+        // pins the documented expression-statement exclusion.
+        check_metrics::<RubyParser>(
+            "[1, 2, 3].each do |x|\n  puts x\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.loc.lloc(), 0.0);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_no_lambda_body_lloc() {
+        // `add = ->(a, b) { a + b }` produces zero logical lines for
+        // the same reason as `ruby_no_block_body_lloc`: assignments,
+        // calls, and lambda bodies are intentionally not statements
+        // in this impl.
+        check_metrics::<RubyParser>("add = ->(a, b) {\n  a + b\n}\n", "foo.rb", |metric| {
+            assert_eq!(metric.loc.lloc(), 0.0);
+        });
+    }
+
+    #[test]
+    fn ruby_heredoc_lloc_and_blank() {
+        // A `<<~TXT` heredoc contributes: SLOC = every line in the
+        // file (including heredoc body); PLOC = the def header,
+        // assignment, heredoc-end marker, trailing identifier, and
+        // closing `end`; LLOC = just the surrounding `def`. The
+        // heredoc-body lines are counted as `blank` (they have no
+        // grammar-visible non-comment tokens past the literal-content
+        // marker).
+        // expected: sloc = 7, ploc = 5, lloc = 1, blank = 2.
+        check_metrics::<RubyParser>(
+            "def foo\n  msg = <<~TXT\n    one\n    two\n  TXT\n  msg\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 7.0);
+                assert_eq!(metric.loc.ploc(), 5.0);
+                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.blank(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_semicolon_multistatement_lloc_undercount() {
+        // Documented limitation: Ruby has no `expression_statement`
+        // wrapper, so `;`-separated multi-statement lines collapse to
+        // a single LLOC bump (the surrounding `def`). A future
+        // statement-counter that walks BlockBody children would
+        // change this — pin the current behaviour so the regression
+        // is visible.
+        check_metrics::<RubyParser>(
+            "def foo\n  a = 1; b = 2; a + b\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.loc.lloc(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_ploc_skips_comments_and_blanks() {
+        // PLOC counts physical instruction lines: code-bearing lines
+        // only. Comments and blanks are excluded.
+        check_metrics::<RubyParser>("# header\n\ndef foo\n  a = 1\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.loc.ploc(), 3.0);
+            assert_eq!(metric.loc.cloc(), 1.0);
+            assert_eq!(metric.loc.blank(), 1.0);
+        });
     }
 }

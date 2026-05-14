@@ -446,6 +446,12 @@ impl Halstead for PhpCode {
 
 implement_metric_trait!(Halstead, PreprocCode, CcommentCode);
 
+impl Halstead for RubyCode {
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], halstead_maps: &mut HalsteadMaps<'a>) {
+        compute_halstead::<Self>(node, code, halstead_maps);
+    }
+}
+
 impl Halstead for ElixirCode {
     fn compute<'a>(node: &Node<'a>, code: &'a [u8], halstead_maps: &mut HalsteadMaps<'a>) {
         compute_halstead::<Self>(node, code, halstead_maps);
@@ -1764,5 +1770,94 @@ f() {
                 );
             },
         );
+    }
+
+    #[test]
+    fn ruby_operators_and_operands() {
+        // A small Ruby method exercising operators (def/if/end keyword
+        // tokens, `+`, `==`, `<=`, structural punctuation) and operands
+        // (`n`, `1`, `factorial`). Anchors the unique/total counts on
+        // both sides and snapshots the full Halstead derivation.
+        //
+        // Lesson 4 invariants: u_operators / u_operands here equal the
+        // dedupe lengths the `--ops` accessor would emit on the same
+        // source. Any future grammar bump that adds an aliased kind_id
+        // to either side will trip this without snapshot drift.
+        check_metrics::<RubyParser>(
+            "def factorial(n)\n  return 1 if n <= 1\n  n * factorial(n - 1)\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.halstead.u_operators(), 9.0);
+                assert_eq!(metric.halstead.operators(), 11.0);
+                assert_eq!(metric.halstead.u_operands(), 3.0);
+                assert_eq!(metric.halstead.operands(), 9.0);
+                insta::assert_json_snapshot!(metric.halstead);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_halstead_plain_string_operand() {
+        // A bare string literal contributes exactly one operand. The
+        // counterpart to `ruby_halstead_interpolated_string_no_double_count`
+        // — verifies the "no interpolation" branch of the same arm
+        // (see `src/getter.rs::get_op_type`'s `R::String | …` case).
+        // expected: operators = {def, end} = 2; operands = {f, "hello"} = 2.
+        check_metrics::<RubyParser>("def f\n  \"hello\"\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.halstead.u_operators(), 2.0);
+            assert_eq!(metric.halstead.operators(), 2.0);
+            assert_eq!(metric.halstead.u_operands(), 2.0);
+            assert_eq!(metric.halstead.operands(), 2.0);
+        });
+    }
+
+    #[test]
+    fn ruby_halstead_interpolated_string_no_double_count() {
+        // Regression mirror for #180 (Bash) / #183 (C#): when a Ruby
+        // string literal carries an `Interpolation` child, the
+        // wrapping `String` node is intentionally classified as
+        // `Unknown` so the inner expression's identifiers are not
+        // double-counted as operands.
+        //
+        // expected: for `def f(name)\n  "Hi #{name}"\nend\n` —
+        //   operators: def, (, ), #{, }, end → u_operators = 6.
+        //   operands: f, name (param), name (inside `#{name}`). The
+        //   wrapping `"…#{name}"` literal is skipped by the
+        //   `is_child(R::Interpolation)` guard; the operand store
+        //   keys by token text so the two `name` occurrences dedupe
+        //   into one distinct entry → u_operands = 2, operands = 3
+        //   (`f` once, `name` twice).
+        // Without the guard, the wrapping literal would also count,
+        // inflating u_operands to 3 and operands to 4.
+        check_metrics::<RubyParser>("def f(name)\n  \"Hi #{name}\"\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.halstead.u_operands(), 2.0);
+            assert_eq!(metric.halstead.operands(), 3.0);
+        });
+    }
+
+    #[test]
+    fn ruby_halstead_symbol_literal_operand() {
+        // `:foo` is a `SimpleSymbol` leaf — counts as a single
+        // operand, no interpolation guard needed (only
+        // `DelimitedSymbol` (`:"…#{x}…"`) can interpolate).
+        // expected: operators = {def, end} = 2; operands = {f, :ok} = 2.
+        check_metrics::<RubyParser>("def f\n  :ok\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.halstead.u_operators(), 2.0);
+            assert_eq!(metric.halstead.u_operands(), 2.0);
+        });
+    }
+
+    #[test]
+    fn ruby_halstead_regex_operand() {
+        // `/foo/` parses as a `Regex` node — one operand. The slash
+        // delimiters around it are emitted as `SLASH` tokens and
+        // classified as arithmetic-or-divide operators by the shared
+        // arm; they count once toward the distinct-operator set.
+        // expected: u_operators = {def, (, ), =~, /, end} = 6;
+        // u_operands = {f, s, /foo/} = 3.
+        check_metrics::<RubyParser>("def f(s)\n  s =~ /foo/\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.halstead.u_operators(), 6.0);
+            assert_eq!(metric.halstead.u_operands(), 3.0);
+        });
     }
 }

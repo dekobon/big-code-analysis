@@ -705,7 +705,8 @@ implement_metric_trait!(
     BashCode,
     LuaCode,
     TclCode,
-    ElixirCode
+    ElixirCode,
+    RubyCode
 );
 
 #[cfg(test)]

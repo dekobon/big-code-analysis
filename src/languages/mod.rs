@@ -67,6 +67,9 @@ pub use language_php::*;
 pub mod language_python;
 pub use language_python::*;
 
+pub mod language_ruby;
+pub use language_ruby::*;
+
 pub mod language_rust;
 pub use language_rust::*;
 
