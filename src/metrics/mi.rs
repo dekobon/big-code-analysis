@@ -154,7 +154,8 @@ implement_metric_trait!(
     TclCode,
     PhpCode,
     CsharpCode,
-    ElixirCode
+    ElixirCode,
+    RubyCode
 );
 
 #[cfg(test)]

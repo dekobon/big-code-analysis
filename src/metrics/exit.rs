@@ -307,6 +307,21 @@ impl Exit for PhpCode {
 
 implement_metric_trait!(Exit, PreprocCode, CcommentCode);
 
+impl Exit for RubyCode {
+    // Ruby's `return` is the only dedicated grammar node for an
+    // intra-function exit. `yield` passes control to the block but does
+    // not exit the enclosing method; `raise`/`exit` are ordinary method
+    // calls without grammar nodes. tree-sitter-ruby exposes the
+    // `return_statement` rule under two aliased visible kinds
+    // (`Return`, `Return2`); the `Return3` token is the bare `return`
+    // keyword inside those nodes and is not counted on its own.
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+        if matches!(node.kind_id().into(), Ruby::Return | Ruby::Return2) {
+            stats.exit += 1;
+        }
+    }
+}
+
 impl Exit for ElixirCode {
     // Elixir has no `return` statement: the last expression in a function
     // body is the return value. Early-exit happens through `throw`,
@@ -1671,6 +1686,42 @@ end",
             "foo.ex",
             |metric| {
                 assert_eq!(metric.nexits.exit_sum(), 0.0);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_no_exit() {
+        // Function body without any `return` produces zero exits.
+        check_metrics::<RubyParser>("def foo\n  a = 1\n  a + 1\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.nexits.exit_sum(), 0.0);
+        });
+    }
+
+    #[test]
+    fn ruby_multiple_returns() {
+        // Four explicit `return` statements (no modifier sugar) — one
+        // per branch. Anchors the headline sum.
+        check_metrics::<RubyParser>(
+            "def kind(x)\n  return :zero if x == 0\n  if x > 0\n    return :pos\n  elsif x < 0\n    return :neg\n  end\n  return :unknown\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 4.0);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_explicit_returns() {
+        // Each `return` (statement or modifier-wrapped) contributes one
+        // exit. `yield` is intentionally NOT counted (it does not exit
+        // the method).
+        check_metrics::<RubyParser>(
+            "def foo(x)\n  return 0 if x.nil?\n  yield x\n  return x * 2\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.nexits);
             },
         );
     }

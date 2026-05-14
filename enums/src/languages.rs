@@ -21,5 +21,6 @@ mk_langs!(
     (Mozjs, tree_sitter_mozjs),
     (Javascript, tree_sitter_javascript),
     (Perl, tree_sitter_perl),
-    (Php, tree_sitter_php)
+    (Php, tree_sitter_php),
+    (Ruby, tree_sitter_ruby)
 );

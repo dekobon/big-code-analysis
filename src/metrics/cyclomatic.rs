@@ -514,6 +514,47 @@ impl Cyclomatic for PhpCode {
 
 implement_metric_trait!(Cyclomatic, PreprocCode, CcommentCode);
 
+impl Cyclomatic for RubyCode {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+        use Ruby as R;
+
+        match node.kind_id().into() {
+            // Standard-only: individual when/in arms inside a case construct.
+            R::When | R::InClause => {
+                stats.cyclomatic += 1.;
+            }
+            // Modified-only: each case container collapses its arms.
+            R::Case | R::CaseMatch => {
+                stats.cyclomatic_modified += 1.;
+            }
+            // Both standard and modified.
+            R::If
+            | R::Unless
+            | R::Elsif
+            | R::IfModifier
+            | R::UnlessModifier
+            | R::While
+            | R::Until
+            | R::For
+            | R::WhileModifier
+            | R::UntilModifier
+            | R::Rescue
+            | R::RescueModifier
+            | R::RescueModifier2
+            | R::RescueModifier3
+            | R::Conditional
+            | R::AMPAMP
+            | R::PIPEPIPE
+            | R::And
+            | R::Or => {
+                stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
+            }
+            _ => {}
+        }
+    }
+}
+
 impl Cyclomatic for ElixirCode {
     // Elixir's control-flow constructs are not distinct grammar
     // productions: `if`/`unless`/`for`/`while`/`with`/`case`/`cond`/`try`
@@ -4009,6 +4050,126 @@ f() {
                       }
                     }"###
                 );
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_nested_branches() {
+        // expected: unit(1) + method(1 + `if` + `while`) = 1 + 3 = 4
+        // standard CCN.
+        check_metrics::<RubyParser>(
+            "def foo(a)\n  if a > 0\n    while a > 0\n      a -= 1\n    end\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.cyclomatic);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_case_when_arms() {
+        // Each `when` arm adds standard CCN; the `case` container is
+        // counted ONCE in modified CCN.
+        // expected: standard = unit(1) + method(1 + 3 when) = 5;
+        // modified = unit(1) + method(1 + 1 case) = 3.
+        check_metrics::<RubyParser>(
+            "def foo(x)\n  case x\n  when 1 then 'one'\n  when 2 then 'two'\n  when 3 then 'three'\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.cyclomatic);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_ternary_conditional() {
+        // Ruby's `cond ? a : b` parses as `Conditional` and counts as a
+        // branch in both standard and modified CCN.
+        // expected: standard = unit(1) + method(1 + 1) = 3.
+        check_metrics::<RubyParser>(
+            "def foo(x)\n  x.positive? ? :pos : :nonpos\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_and_or_keywords() {
+        // Word-form `and` / `or` are distinct grammar kinds from
+        // `&&` / `||` and must each contribute one decision point.
+        // expected: standard = unit(1) + method(1 + and + or) = 4.
+        check_metrics::<RubyParser>(
+            "def foo(a, b, c)\n  a and b or c\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+            },
+        );
+    }
+
+    /// Cross-language parity for cyclomatic: an `if/else if/else` chain
+    /// of three arms must produce the same per-function (max-space)
+    /// cyclomatic score across Ruby, Rust, and Java. Per-language
+    /// snapshot tests pin each language's history but cannot detect
+    /// drift on the same logical construct — lesson 11
+    /// (`docs/development/lessons_learned.md`) catalogues real
+    /// incidents (#106 Rust-vs-C-family wildcard counting; #107 Bash
+    /// double-counting case containers) that survived per-language
+    /// suites for years. `cyclomatic_max()` is the function-level
+    /// cyclomatic and is independent of unit/class space stacking, so
+    /// the comparison is meaningful across languages with different
+    /// space hierarchies.
+    ///
+    /// Expected per function: 1 (base) + 1 (`if`) + 1 (`else if`) = 3.
+    /// The `else` arm is unconditional and does not contribute. Each
+    /// language asserts the literal 3.0 in its own closure so a future
+    /// drift in any single language fails THIS test (and only this
+    /// test), making cross-language disagreement visible at a glance.
+    #[test]
+    fn cyclomatic_if_elseif_else_chain_cross_language() {
+        check_metrics::<RubyParser>(
+            "def classify(x)\n  if x > 0\n    :pos\n  elsif x < 0\n    :neg\n  else\n    :zero\n  end\nend\n",
+            "foo.rb",
+            |m| {
+                assert_eq!(m.cyclomatic.cyclomatic_max(), 3.0, "ruby");
+            },
+        );
+        check_metrics::<RustParser>(
+            "fn classify(x: i32) -> &'static str {\n    if x > 0 { \"pos\" } else if x < 0 { \"neg\" } else { \"zero\" }\n}\n",
+            "foo.rs",
+            |m| {
+                assert_eq!(m.cyclomatic.cyclomatic_max(), 3.0, "rust");
+            },
+        );
+        check_metrics::<JavaParser>(
+            "class C {\n    String classify(int x) {\n        if (x > 0) return \"pos\";\n        else if (x < 0) return \"neg\";\n        else return \"zero\";\n    }\n}\n",
+            "Foo.java",
+            |m| {
+                assert_eq!(m.cyclomatic.cyclomatic_max(), 3.0, "java");
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_rescue_modifier() {
+        // Postfix `x rescue y` parses as a `RescueModifier` node that
+        // wraps the recovery clause. Both wrapper and clause fire the
+        // cyclomatic branch arm; the method body therefore contributes
+        // +2 to its space.
+        // expected: standard = unit(1) + method(1 + 1) = 3.
+        check_metrics::<RubyParser>(
+            "def foo\n  parse(x) rescue nil\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
     }

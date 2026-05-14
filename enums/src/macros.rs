@@ -38,6 +38,7 @@ macro_rules! mk_get_language {
                 Lang::Mozjs => tree_sitter_mozjs::LANGUAGE.into(),
                 Lang::Perl => tree_sitter_perl::LANGUAGE.into(),
                 Lang::Php => tree_sitter_php::LANGUAGE_PHP.into(),
+                Lang::Ruby => tree_sitter_ruby::LANGUAGE.into(),
             }
         }
     };

@@ -505,7 +505,8 @@ implement_metric_trait!(
     PerlCode,
     LuaCode,
     TclCode,
-    ElixirCode
+    ElixirCode,
+    RubyCode
 );
 
 // TypeScript / TSX share the same expression / statement vocabulary; the

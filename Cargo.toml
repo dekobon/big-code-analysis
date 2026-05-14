@@ -44,6 +44,7 @@ tree-sitter-lua = "=0.5.0"
 tree-sitter-perl = "=1.1.2"
 tree-sitter-php = "=0.24.2"
 tree-sitter-python = "=0.25.0"
+tree-sitter-ruby = "=0.23.1"
 tree-sitter-rust = "=0.24.2"
 tree-sitter-typescript = "=0.23.2"
 tree-sitter-ccomment = { path = "./tree-sitter-ccomment", version = "=0.20.3" }
@@ -105,6 +106,7 @@ tree-sitter-lua.workspace = true
 tree-sitter-perl.workspace = true
 tree-sitter-php.workspace = true
 tree-sitter-python.workspace = true
+tree-sitter-ruby.workspace = true
 tree-sitter-rust.workspace = true
 tree-sitter-typescript.workspace = true
 tree-sitter-ccomment.workspace = true

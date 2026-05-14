@@ -178,6 +178,25 @@ fn compute_booleans<T: PartialEq + From<u16>>(node: &Node, stats: &mut Stats, ty
     }
 }
 
+/// Folds a Ruby `binary`'s short-circuit operator children into the
+/// boolean-sequence counter. `compute_booleans` only takes two operator
+/// kinds; Ruby needs four (`&&`, `||`, word-form `and`, word-form `or`).
+fn compute_ruby_booleans(node: &Node, stats: &mut Stats) {
+    let enclosing_end = node.end_byte();
+    for child in node.children() {
+        let id = child.kind_id();
+        if matches!(
+            id.into(),
+            Ruby::AMPAMP | Ruby::PIPEPIPE | Ruby::And | Ruby::Or
+        ) {
+            stats.structural =
+                stats
+                    .boolean_seq
+                    .eval_based_on_prev(id, enclosing_end, stats.structural);
+        }
+    }
+}
+
 /// Folds a Perl `binary_expression`'s short-circuit operator children into
 /// the boolean-sequence counter. `compute_booleans` only takes two operator
 /// kinds; Perl needs five (`&&`, `||`, `//`, `and`, `or`).
@@ -925,6 +944,87 @@ impl Cognitive for PhpCode {
 }
 
 implement_metric_trait!(Cognitive, PreprocCode, CcommentCode, ElixirCode);
+
+impl Cognitive for RubyCode {
+    fn compute(
+        node: &Node,
+        stats: &mut Stats,
+        nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
+    ) {
+        use Ruby as R;
+
+        let (mut nesting, mut depth, mut lambda) = get_nesting_from_map(node, nesting_map);
+
+        match node.kind_id().into() {
+            // Nesting-increasing constructs. tree-sitter-ruby models
+            // `elsif` as its own `Elsif` clause (handled in the
+            // branch-extension arm below) rather than nesting a second
+            // `If` inside the outer one, so the `is_else_if` guard is
+            // defensive only — mirrors the equivalent pattern in the
+            // Lua impl.
+            R::If if !Self::is_else_if(node) => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
+            }
+            R::Unless
+            | R::While
+            | R::Until
+            | R::For
+            | R::Case
+            | R::CaseMatch
+            | R::Conditional
+            | R::IfModifier
+            | R::UnlessModifier
+            | R::WhileModifier
+            | R::UntilModifier
+            | R::Rescue
+            | R::RescueModifier
+            | R::RescueModifier2
+            | R::RescueModifier3 => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
+            }
+            // `elsif`/`else` extend the parent branch at the same nesting
+            // level. The `Else` clause node also appears for `case/when`
+            // and `begin/rescue` else branches and is treated uniformly.
+            R::Elsif | R::Else => {
+                increment_branch_extension(stats);
+            }
+            // `break`/`next`/`redo`/`retry` are unconditional jumps that
+            // each add cognitive load.
+            R::Break | R::Break2 | R::Next | R::Next2 | R::Redo | R::Retry => {
+                increment_by_one(stats);
+            }
+            // tree-sitter-ruby folds every unary form (`!`, `not`, `-`,
+            // `+`, `~`, `defined?`) into the same `unary` rule (with five
+            // aliased visible kind_ids). Only the logical-not variants
+            // should reset the boolean sequence; arithmetic unaries must
+            // not. Mirrors the explicit BANG gate in Tcl's impl.
+            R::Unary | R::Unary2 | R::Unary3 | R::Unary4 | R::Unary5
+                if node
+                    .child(0)
+                    .is_some_and(|c| matches!(c.kind_id().into(), R::BANG | R::Not)) =>
+            {
+                stats.boolean_seq.not_operator();
+            }
+            R::Binary | R::Binary2 | R::Binary3 => {
+                // Ruby has four short-circuit forms (`&&`, `||`, `and`,
+                // `or`); use the dedicated helper rather than the
+                // two-operator `compute_booleans` so word-form
+                // operators land in the sequence too.
+                compute_ruby_booleans(node, stats);
+            }
+            R::Method | R::SingletonMethod => {
+                nesting = 0;
+                increment_function_depth(&mut depth, node, &[R::Method, R::SingletonMethod]);
+            }
+            // Blocks, do-blocks and lambdas are the closure/lambda forms.
+            R::Block | R::DoBlock | R::Lambda => {
+                lambda += 1;
+            }
+            _ => {}
+        }
+        nesting_map.insert(node.id(), (nesting, depth, lambda));
+    }
+}
 
 #[cfg(test)]
 #[allow(
@@ -5811,6 +5911,130 @@ end",
                 assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
                 assert_eq!(metric.cognitive.cognitive_max(), 1.0);
                 insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_no_cognitive() {
+        check_metrics::<RubyParser>("a = 42\n", "foo.rb", |metric| {
+            assert_eq!(metric.cognitive.cognitive_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.cognitive);
+        });
+    }
+
+    #[test]
+    fn ruby_simple_function() {
+        // A function body with no branching scores zero cognitive.
+        check_metrics::<RubyParser>("def foo\n  a = 1\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.cognitive.cognitive_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.cognitive);
+        });
+    }
+
+    #[test]
+    fn ruby_1_level_nesting() {
+        // Single `if` inside a function: +1.
+        check_metrics::<RubyParser>("def foo\n  if a\n    b\n  end\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+            insta::assert_json_snapshot!(metric.cognitive);
+        });
+    }
+
+    #[test]
+    fn ruby_2_level_nesting() {
+        // expected: outer `if` (+1) + inner `if` (+2, nested) = 3.
+        check_metrics::<RubyParser>(
+            "def foo\n  if a\n    if b\n      c\n    end\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_sequence_same_booleans() {
+        // `a && b && c`: same operator collapses to a single boolean
+        // sequence (+1). Plus the enclosing `if` (+1) → 2.
+        check_metrics::<RubyParser>(
+            "def foo\n  if a && b && c\n    d\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_sequence_different_booleans() {
+        // `a && b || c`: alternating operators add per change.
+        check_metrics::<RubyParser>(
+            "def foo\n  if a && b || c\n    d\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_not_booleans() {
+        // `!a` (Unary) is the not-operator: it doesn't add cognitive
+        // load by itself. Only the enclosing `if` counts.
+        check_metrics::<RubyParser>(
+            "def foo\n  if !a\n    b\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_break_next() {
+        // `break`/`next` are unconditional jumps inside a loop, each +1.
+        // Plus the enclosing `while` (+1) → 3.
+        check_metrics::<RubyParser>(
+            "def foo\n  while a\n    break\n    next\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_else_if_chain() {
+        // `elsif` extends the parent branch (no extra nesting). An
+        // `if/elsif/elsif/else` chain scores strictly LESS than the
+        // same number of nested `if` blocks. tree-sitter-ruby gives
+        // `elsif` its own clause node, so the lesson-10 trap (a buggy
+        // `is_else_if` that returns false makes `elsif` nest like
+        // `if`) doesn't apply directly here — the test still pins the
+        // chain vs nested cost difference so a future refactor that
+        // mis-classifies `Elsif` would regress it.
+        // expected: chain = 1 (`if`) + 2 (two `elsif`) + 1 (`else`) = 4;
+        // nested = 1 + 2 + 3 = 6. The literal `4 < 6` asserts the
+        // intended relationship.
+        check_metrics::<RubyParser>(
+            "def foo\n  if a\n    1\n  elsif b\n    2\n  elsif c\n    3\n  else\n    4\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+        check_metrics::<RubyParser>(
+            "def foo\n  if a\n    if b\n      if c\n        1\n      end\n    end\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 6.0);
             },
         );
     }

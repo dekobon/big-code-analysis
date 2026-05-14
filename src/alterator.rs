@@ -261,6 +261,32 @@ impl Alterator for PhpCode {
     }
 }
 
+impl Alterator for RubyCode {
+    fn alterate(node: &Node, code: &[u8], span: bool, children: Vec<AstNode>) -> AstNode {
+        // Preserve verbatim text for string-like literals (regular strings,
+        // chained strings, heredocs, regexes, subshells, symbol arrays,
+        // delimited/simple symbols, character literals). Interpolation
+        // children are intentionally collapsed into the flat text payload.
+        match Ruby::from(node.kind_id()) {
+            Ruby::String
+            | Ruby::ChainedString
+            | Ruby::BareString
+            | Ruby::Subshell
+            | Ruby::Regex
+            | Ruby::HeredocBody
+            | Ruby::StringArray
+            | Ruby::SymbolArray
+            | Ruby::DelimitedSymbol
+            | Ruby::SimpleSymbol
+            | Ruby::Character => {
+                let (text, span) = Self::get_text_span(node, code, span, true);
+                AstNode::new(node.kind(), text, span, Vec::new())
+            }
+            _ => Self::get_default(node, code, span, children),
+        }
+    }
+}
+
 impl Alterator for ElixirCode {
     fn alterate(node: &Node, code: &[u8], span: bool, children: Vec<AstNode>) -> AstNode {
         // Preserve string-like literal text verbatim. `Charlist` (single-
