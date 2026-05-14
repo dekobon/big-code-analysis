@@ -1251,6 +1251,13 @@ f() {
 }",
             "foo.sh",
             |metric| {
+                // `x` (assignment LHS and inside `$x`) is a `variable_name`
+                // with aliased kind_id 160 — all three aliases must be in
+                // the operand list (see lesson 2).
+                assert_eq!(metric.halstead.u_operators(), 12.0);
+                assert_eq!(metric.halstead.operators(), 12.0);
+                assert_eq!(metric.halstead.u_operands(), 6.0);
+                assert_eq!(metric.halstead.operands(), 9.0);
                 insta::assert_json_snapshot!(metric.halstead);
             },
         );
@@ -1265,18 +1272,22 @@ f() {
         // operands too. We now skip the wrapping literal when it has an
         // expansion child so only the inner expansion contributes.
         //
-        // expected: line 1 `a="plain"` contributes one operand (the
-        // string `"plain"` — no expansion, still operand). Line 2
-        // `b="$x"` skips the wrapping string and contributes one operand
-        // (the `simple_expansion` `$x`). Without the fix, line 2 would
-        // contribute two operands (the wrapping `"$x"` plus `$x`), so
-        // u_operands would be 3 instead of 2. The `=` is the only
-        // operator and appears twice.
+        // expected: operands across `a="plain"\nb="$x"\n` —
+        //   line 1: variable_name `a`, plain string `"plain"` (no
+        //     expansion, still operand) → 2.
+        //   line 2: variable_name `b`, wrapping `"$x"` skipped (has
+        //     expansion), `simple_expansion` `$x`, inner variable_name
+        //     `x` → 3.
+        // Total unique operands: 5 (`a`, `b`, `"plain"`, `$x`, `x`),
+        // each appearing once → N2 = 5. Without the #180 fix, the
+        // wrapping `"$x"` literal would also be counted, making
+        // u_operands = 6 and N2 = 6. The `=` is the only operator;
+        // appears twice (N1 = 2, n1 = 1).
         check_metrics::<BashParser>("a=\"plain\"\nb=\"$x\"\n", "foo.sh", |metric| {
             assert_eq!(metric.halstead.u_operators(), 1.0);
             assert_eq!(metric.halstead.operators(), 2.0);
-            assert_eq!(metric.halstead.u_operands(), 2.0);
-            assert_eq!(metric.halstead.operands(), 2.0);
+            assert_eq!(metric.halstead.u_operands(), 5.0);
+            assert_eq!(metric.halstead.operands(), 5.0);
             insta::assert_json_snapshot!(metric.halstead);
         });
     }
