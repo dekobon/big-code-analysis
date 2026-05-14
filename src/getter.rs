@@ -1118,31 +1118,9 @@ impl Getter for TclCode {
     get_operator!(Tcl);
 }
 
-/// Returns whether a PHP encapsed-string or heredoc node carries any
-/// interpolation child that would itself walk to operand children
-/// counted by [`PhpCode::get_op_type`].
-///
-/// The tree-sitter-php grammar emits these direct children inside
-/// `encapsed_string` and `heredoc_body` for every interpolation
-/// form:
-///
-/// - `"$name"` → `variable_name`
-/// - `"${name}"` → `dynamic_variable_name`
-/// - `"$arr[0]"` → `subscript_expression`
-/// - `"$obj->prop"` → `member_access_expression`
-/// - `"{$expr}"` (and all complex `{ … }` forms) → an anonymous `{`
-///   (`LBRACE`) plus the inner expression
-///
-/// `EncapsedString` (`"…"`) holds these children directly; `Heredoc`
-/// wraps them in a `heredoc_body` child, so this helper descends one
-/// level through `heredoc_body` for that case. An empty heredoc
-/// (`<<<EOT\nEOT;`) emits no `heredoc_body` at all, so it correctly
-/// reports no interpolation. `Nowdoc` (single-quoted heredoc) and
-/// single-quoted `String` / `String2` / `String3` never interpolate
-/// and never reach this helper.
 #[inline]
 fn php_string_has_interpolation(node: &Node) -> bool {
-    fn is_interpolation_kind(kind: u16) -> bool {
+    let is_interp = |kind: u16| {
         matches!(
             kind.into(),
             // `"$name"` → direct `variable_name` child.
@@ -1168,18 +1146,14 @@ fn php_string_has_interpolation(node: &Node) -> bool {
             // child.
             | Php::LBRACE
         )
-    }
+    };
+    let is_heredoc_body = |kind: u16| matches!(kind.into(), Php::HeredocBody);
+    // `EncapsedString` holds interpolation children directly;
+    // `Heredoc` wraps them in a single `heredoc_body` child, so
+    // descend one level for that case.
     node.children().any(|c| {
-        if is_interpolation_kind(c.kind_id()) {
-            return true;
-        }
-        // Heredoc bodies hold interpolation one level down inside
-        // `heredoc_body`; descend exactly one level for that case.
-        let kind: Php = c.kind_id().into();
-        if matches!(kind, Php::HeredocBody) {
-            return c.children().any(|gc| is_interpolation_kind(gc.kind_id()));
-        }
-        false
+        is_interp(c.kind_id())
+            || (is_heredoc_body(c.kind_id()) && c.children().any(|gc| is_interp(gc.kind_id())))
     })
 }
 

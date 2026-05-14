@@ -392,6 +392,17 @@ impl Config {
             exclude_tests: globals.exclude_tests,
         }
     }
+
+    /// Project this `Config` onto the library's `MetricsOptions`
+    /// surface. Centralising the projection here means new metric
+    /// options land in one place instead of being duplicated across
+    /// every `act_on_file` arm that drives a metric computation.
+    #[inline]
+    fn metrics_options(&self) -> MetricsOptions {
+        MetricsOptions {
+            exclude_tests: self.exclude_tests,
+        }
+    }
 }
 
 fn mk_globset(elems: Vec<String>) -> Result<GlobSet, String> {
@@ -466,9 +477,7 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
                     source,
                     &path,
                     pr,
-                    MetricsOptions {
-                        exclude_tests: cfg.exclude_tests,
-                    },
+                    cfg.metrics_options(),
                 ) {
                     match fmt.dispatch() {
                         MetricsDispatch::Generic(g) => {
@@ -487,9 +496,7 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
             } else {
                 let metrics_cfg = MetricsCfg {
                     path,
-                    options: MetricsOptions {
-                        exclude_tests: cfg.exclude_tests,
-                    },
+                    options: cfg.metrics_options(),
                 };
                 let path = metrics_cfg.path.clone();
                 action::<Metrics>(&language, source, &path, pr, metrics_cfg)
@@ -562,9 +569,7 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
                 source,
                 &path,
                 pr,
-                MetricsOptions {
-                    exclude_tests: cfg.exclude_tests,
-                },
+                cfg.metrics_options(),
             ) && let Some(ref tx) = cfg.markdown_tx
                 && !matches!(language, LANG::Preproc | LANG::Ccomment)
             {
@@ -606,9 +611,7 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
                 source,
                 &path,
                 pr,
-                MetricsOptions {
-                    exclude_tests: cfg.exclude_tests,
-                },
+                cfg.metrics_options(),
             ) && let (Some(set), Some(tx)) = (cfg.threshold_set.as_ref(), cfg.check_tx.as_ref())
                 && !matches!(language, LANG::Preproc | LANG::Ccomment)
             {
