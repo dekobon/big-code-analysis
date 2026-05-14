@@ -919,6 +919,22 @@ impl Getter for LuaCode {
     get_operator!(Lua);
 }
 
+/// Returns whether a Bash string node carries any expansion child that
+/// would itself be classified as an operand by [`BashCode::get_op_type`]
+/// (`$var`, `${name[…]}`, `$(cmd)`, `$((expr))`).
+#[inline]
+fn bash_string_has_expansion(node: &Node) -> bool {
+    node.children().any(|c| {
+        matches!(
+            c.kind_id().into(),
+            Bash::SimpleExpansion
+                | Bash::Expansion
+                | Bash::CommandSubstitution
+                | Bash::ArithmeticExpansion
+        )
+    })
+}
+
 impl Getter for BashCode {
     fn get_space_kind(node: &Node) -> SpaceKind {
         match node.kind_id().into() {
@@ -962,10 +978,26 @@ impl Getter for BashCode {
             // Ternary operator
             | Bash::QMARK | Bash::QMARK2
                 => HalsteadType::Operator,
+
+            // Quoted strings count as one operand when they are inert.
+            // When they contain any `$var`/`${...}`/`$(...)`/`$((...))`
+            // expansion child, those expansions are already walked and
+            // classified as operands; counting the wrapping literal too
+            // would double-count the inner identifiers (issue #180).
+            // `RawString` is single-quoted and never interpolates, but
+            // the check is uniform across the four string kinds for
+            // clarity.
+            Bash::String | Bash::RawString | Bash::AnsiCString | Bash::TranslatedString => {
+                if bash_string_has_expansion(node) {
+                    HalsteadType::Unknown
+                } else {
+                    HalsteadType::Operand
+                }
+            }
+
             // Operands: identifiers, literals, variables
             Bash::Word | Bash::Word2 | Bash::Word3 | Bash::Word4
             | Bash::Number | Bash::Number2 | Bash::NumberToken1 | Bash::NumberToken2
-            | Bash::String | Bash::RawString | Bash::AnsiCString | Bash::TranslatedString
             | Bash::SimpleExpansion | Bash::SpecialVariableName | Bash::VariableName
             | Bash::CommandName | Bash::Concat
                 => HalsteadType::Operand,
@@ -1219,13 +1251,27 @@ impl Getter for ElixirCode {
             | E::LTTILDE | E::TILDEGT | E::LTTILDEGT | E::LTLTTILDE | E::TILDEGTGT
                 => HalsteadType::Operator,
 
-            // Operands: identifiers and literals. `String`/`Charlist`/
-            // `Sigil` are classified as a single operand each, matching
-            // how Bash treats `HeredocBody2` and JS treats template
-            // literals. Note: identifiers used inside an
-            // `interpolation` child of these literals are *also* walked
-            // and classified as operands here, which slightly inflates
-            // `N2` for interpolated text — tracked by #180.
+            // String literals contribute exactly one operand each when
+            // they are inert. When they carry an `interpolation` child,
+            // the interpolated expressions are already walked and counted
+            // as operands in their own right; counting the wrapping
+            // literal as well would double-count the inner identifiers'
+            // contribution (issue #180). The interpolation markers
+            // `#{` / `}` are classified as operators via `HASHLBRACE` /
+            // `RBRACE`, so an interpolated literal still adds operator
+            // weight without inflating `N2`.
+            E::String | E::Charlist | E::Sigil => {
+                if node.is_child(E::Interpolation as u16) {
+                    HalsteadType::Unknown
+                } else {
+                    HalsteadType::Operand
+                }
+            }
+
+            // Operands: identifiers and literals. Sigil names/modifiers
+            // (`~r`, the trailing `i`/`u` flags) stay as operands even
+            // for interpolated sigils — they are distinct tokens with
+            // their own text.
             E::Identifier | E::Alias | E::OperatorIdentifier
             | E::SigilName | E::SigilName2 | E::SigilModifiers
             | E::Keyword | E::Keyword2 | E::QuotedKeyword
@@ -1233,7 +1279,6 @@ impl Getter for ElixirCode {
             | E::Atom | E::Atom2 | E::QuotedAtom
             | E::Boolean | E::True | E::False
             | E::Nil | E::Nil2
-            | E::String | E::Charlist | E::Sigil
                 => HalsteadType::Operand,
 
             _ => HalsteadType::Unknown,

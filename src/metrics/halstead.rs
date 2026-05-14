@@ -1257,6 +1257,93 @@ f() {
     }
 
     #[test]
+    fn bash_interpolated_string_no_double_count() {
+        // Regression: issue #180. A double-quoted Bash string containing
+        // `$name`, `${name[…]}`, or `$(cmd)` used to be classified as a
+        // Halstead operand AND have its inner `simple_expansion` /
+        // `expansion` / `command_substitution` children classified as
+        // operands too. We now skip the wrapping literal when it has an
+        // expansion child so only the inner expansion contributes.
+        //
+        // expected: line 1 `a="plain"` contributes one operand (the
+        // string `"plain"` — no expansion, still operand). Line 2
+        // `b="$x"` skips the wrapping string and contributes one operand
+        // (the `simple_expansion` `$x`). Without the fix, line 2 would
+        // contribute two operands (the wrapping `"$x"` plus `$x`), so
+        // u_operands would be 3 instead of 2. The `=` is the only
+        // operator and appears twice.
+        check_metrics::<BashParser>("a=\"plain\"\nb=\"$x\"\n", "foo.sh", |metric| {
+            assert_eq!(metric.halstead.u_operators(), 1.0);
+            assert_eq!(metric.halstead.operators(), 2.0);
+            assert_eq!(metric.halstead.u_operands(), 2.0);
+            assert_eq!(metric.halstead.operands(), 2.0);
+            insta::assert_json_snapshot!(metric.halstead);
+        });
+    }
+
+    #[test]
+    fn elixir_interpolated_string_no_double_count() {
+        // Regression: issue #180. Without the fix, an interpolated
+        // Elixir `String` was classified as a single operand while its
+        // inner `interpolation` identifier was also walked and
+        // classified as its own operand — double-counting the
+        // interpolated identifier's contribution to `N2`.
+        //
+        // expected: operand contributions for
+        //   `def greet(name) do\n  msg = "Hi #{name}"\nend\n` —
+        // `def`, `greet`, `name` (param), `msg`, and the inner `name`
+        // (inside `#{...}`). With the fix, the wrapping
+        // `"Hi #{name}"` literal is skipped (has `Interpolation`
+        // child), so `name` is the only repeated operand:
+        // u_operands = 4 (def, greet, name, msg), N2 = 5. Without the
+        // fix, the wrapping literal would also count → u_operands = 5,
+        // N2 = 6. Operators (`do`, `end`, `(`, `)`, `=`, `#{`, `}`)
+        // are unchanged: u = N = 7 (the `#{`/`}` interpolation
+        // markers stay classified as operators).
+        check_metrics::<ElixirParser>(
+            "def greet(name) do\n  msg = \"Hi #{name}\"\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.halstead.u_operators(), 7.0);
+                assert_eq!(metric.halstead.operators(), 7.0);
+                assert_eq!(metric.halstead.u_operands(), 4.0);
+                assert_eq!(metric.halstead.operands(), 5.0);
+                insta::assert_json_snapshot!(metric.halstead);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_plain_string_still_operand() {
+        // The fix for #180 only skips wrapping literals that contain
+        // interpolation; a plain `"hello"` must still contribute exactly
+        // one operand. expected: `def`, `f`, `"hello"` → 3 unique
+        // operands (n2 = 3), each appearing once (N2 = 3).
+        check_metrics::<ElixirParser>("def f do\n  \"hello\"\nend\n", "foo.ex", |metric| {
+            assert_eq!(metric.halstead.u_operands(), 3.0);
+            assert_eq!(metric.halstead.operands(), 3.0);
+        });
+    }
+
+    #[test]
+    fn elixir_interpolated_sigil_no_double_count() {
+        // Sigils mirror strings under #180. For `~r/foo#{name}/`, the
+        // wrapping `Sigil` is skipped, but `SigilName` (`r`) and the
+        // inner `name` identifier each contribute one operand.
+        // expected: `def`, `f`, `name` (param), `re`, `r` (sigil name),
+        // `name` (inside `#{...}`) → u_operands = 5, N2 = 6 (`name`
+        // twice).
+        check_metrics::<ElixirParser>(
+            "def f(name) do\n  re = ~r/foo#{name}/\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.halstead.u_operands(), 5.0);
+                assert_eq!(metric.halstead.operands(), 6.0);
+            },
+        );
+    }
+
+    #[test]
     fn tcl_operators_and_operands() {
         check_metrics::<TclParser>(
             "proc f {a b} {
