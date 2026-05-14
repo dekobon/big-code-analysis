@@ -294,6 +294,24 @@ changes are marked with **(breaking)** in the entries below.
   `linq.cs` / `strings.cs` integration snapshots refresh with lower
   `n2` / `N2` / volume / effort and slightly higher MI
   ([#183](https://github.com/dekobon/big-code-analysis/issues/183)).
+- Halstead operand counts for PHP `"…$var…"` / `"…{$expr}…"`
+  double-quoted (`EncapsedString`) and `<<<EOT … EOT;` interpolating
+  heredoc literals no longer double-count the inner identifiers.
+  `PhpCode::get_op_type` now routes `EncapsedString` and `Heredoc`
+  through a conditional check (mirroring #180 / #183): when the
+  literal carries a `$var` (`variable_name`), `${name}`
+  (`dynamic_variable_name`), or `{$expr}` (a direct `{` brace child,
+  or — for heredoc — any of the above inside `heredoc_body`)
+  interpolation child, the inner expressions already contribute their
+  identifiers as operands and the wrapper is classified as `Unknown`;
+  when it does not (a plain `"hello world"` or a heredoc whose body
+  is `string_content` only), the wrapper still counts as one
+  operand, matching the single-quoted `String` / `Nowdoc` equivalent.
+  `is_string` (for the LOC comment/code classifier) is unchanged. PHP
+  `classes.php` / `control_flow.php` / `embedded.php` / `strings.php` /
+  `traits_enums.php` integration snapshots refresh with lower
+  `n2` / `N2` / volume and slightly higher MI
+  ([#184](https://github.com/dekobon/big-code-analysis/issues/184)).
 - Makefile `EXCLUDE_DIRS` no longer glob-expands the `tree-sitter-*`
   entry into absolute paths at recipe-execution time, which had
   silently neutered `make markdown-lint`, `make shellcheck`,
