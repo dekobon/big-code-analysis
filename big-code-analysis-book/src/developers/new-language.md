@@ -26,12 +26,13 @@ The following steps add the language support from the language
 crate and generate an enum file that is then used as the grammar in
 this project to evaluate metrics.
 
-1. Add the language specific `tree-sitter` crate to the `enum`
-   crate, making sure to tie it to the `tree-sitter` version used
-   in the `ruse-code-analysis` crate. For example, for the Rust
-   support at time of writing the following line exists in the
+1. Add the language specific `tree-sitter` crate to the `enums`
+   crate, making sure the dependency is pinned with `=X.Y.Z` to the
+   same version used in the root `big-code-analysis` `Cargo.toml`.
+   For example, for the Rust support the following line exists in
+   the
    [/enums/Cargo.toml](https://github.com/dekobon/big-code-analysis/blob/master/enums/Cargo.toml):
-   `tree-sitter-rust = "version number"`.
+   `tree-sitter-rust = "=0.24.2"`.
 1. Append the language to the `enum` crate in
    [/enums/src/languages.rs](https://github.com/dekobon/big-code-analysis/blob/master/enums/src/languages.rs).
    Keeping with Rust as the example, the line would be
@@ -40,8 +41,10 @@ this project to evaluate metrics.
    `tree-sitter` function to call to get the language's grammar.
 1. Add a case to the end of the match in `mk_get_language` macro
    rule in
-   [/enums/src/macros.rs](https://github.com/dekobon/big-code-analysis/blob/master/enums/src/macros.rs)
-   eg. for Rust `Lang::Rust => tree_sitter_rust::language()`.
+   [/enums/src/macros.rs](https://github.com/dekobon/big-code-analysis/blob/master/enums/src/macros.rs).
+   The current convention uses the `LANGUAGE` constant exposed by
+   modern grammar crates: for Rust that line is
+   `Lang::Rust => tree_sitter_rust::LANGUAGE.into()`.
 1. Lastly, we execute the
    [/recreate-grammars.sh](https://github.com/dekobon/big-code-analysis/blob/master/recreate-grammars.sh)
    script that runs the `enums` crate to generate the grammar for
@@ -57,12 +60,11 @@ as an example of the generated enum.
 ## Adding the new grammar to big-code-analysis
 
 1. Add the language specific `tree-sitter` crate to the
-   `big-code-analysis` project, making sure to tie it to the
-   `tree-sitter` version used in this project. For example, for
-   the Rust support at time of writing the following line exists
-   in the
-   [Cargo.toml](https://github.com/dekobon/big-code-analysis/blob/master/Cargo.toml):
-   `tree-sitter-rust = "0.19.0"`.
+   `big-code-analysis` workspace, with the same `=X.Y.Z` pin as the
+   `enums` crate uses. For example, for the Rust support the line in
+   the root
+   [Cargo.toml](https://github.com/dekobon/big-code-analysis/blob/master/Cargo.toml)
+   is `tree-sitter-rust = "=0.24.2"`.
 1. Next we add the new `tree-sitter` language namespace to
    [/src/languages/mod.rs](https://github.com/dekobon/big-code-analysis/blob/master/src/languages/mod.rs)
    eg.
@@ -96,3 +98,64 @@ pub use language_rust::*;
     ["rust"]
 )
 ```
+
+## Implementing traits and tests
+
+Wiring the grammar is only the first step. The new `<Lang>Code` type
+must also implement the AST plumbing and every metric trait the
+workspace defines:
+
+- **`Checker`** in
+  [/src/checker.rs](https://github.com/dekobon/big-code-analysis/blob/master/src/checker.rs)
+  — comment, function, closure, call, string-literal, and `else-if`
+  predicates over the grammar's `kind_id`s.
+- **`Getter`** in
+  [/src/getter.rs](https://github.com/dekobon/big-code-analysis/blob/master/src/getter.rs)
+  — `get_space_kind` plus the Halstead operator/operand classification
+  table.
+- **`Alterator`** in
+  [/src/alterator.rs](https://github.com/dekobon/big-code-analysis/blob/master/src/alterator.rs)
+  — usually only string-literal preservation; the default impl works
+  for most languages.
+- **All twelve metric traits**: `Abc`, `Cognitive`, `Cyclomatic`,
+  `Exit`, `Halstead`, `Loc`, `Mi`, `NArgs`, `Nom`, `Npa`, `Npm`,
+  `Wmc`. Register each via the `implement_metric_trait!` macro
+  invocation in
+  [/src/metrics/](https://github.com/dekobon/big-code-analysis/tree/master/src/metrics)
+  to start with default (no-op) bodies, then replace with real impls
+  for the metrics that have meaningful semantics for the language.
+
+### Audit aliased grammar variants
+
+Tree-sitter grammars frequently emit several distinct `kind_id`s that
+map to the same `node.kind()` string (`Identifier` /
+`Identifier2` / `Identifier3` in Go,
+`InvocationExpression` / `InvocationExpression2` in C#,
+`QuotedContent` ⋯ `QuotedContent20` in Elixir). Every `match
+node.kind_id()` arm that touches an aliasable rule must either list
+every numbered variant or compare on the string `node.kind()`
+instead. Missing an alias silently drops nodes from the metric. See
+the `add-lang` skill for the mechanical audit procedure and
+lessons 2, 4, and 13 in
+[`docs/development/lessons_learned.md`](https://github.com/dekobon/big-code-analysis/blob/master/docs/development/lessons_learned.md)
+for the failure modes.
+
+### Tests
+
+Add per-language tests under each `src/metrics/*.rs` test module —
+aim for parity with the Rust coverage (≥ 34 tests total across the
+metric files). Every `insta::assert_json_snapshot!` call MUST be
+anchored: either with an inline expected block, a positive
+`assert_eq!` on the headline integer accessor above it, or an
+explanatory `// expected:` comment. `make snapshot-anchors` (run as
+part of `make pre-commit`) enforces this against
+[`.snapshot-anchor-baseline.txt`](https://github.com/dekobon/big-code-analysis/blob/master/.snapshot-anchor-baseline.txt).
+
+## End-to-end workflow
+
+For an opinionated, end-to-end recipe — including the alias audit,
+test layout, snapshot anchoring, and code-quality post-passes — see
+the project's
+[`add-lang`](https://github.com/dekobon/big-code-analysis/blob/master/.claude/skills/add-lang/SKILL.md)
+Claude Code skill. It is the canonical workflow used by recent
+language additions (Elixir, PHP, C#, Bash, Go).
