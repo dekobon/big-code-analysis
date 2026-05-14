@@ -1242,6 +1242,68 @@ impl Checker for PhpCode {
     }
 }
 
+impl Checker for ElixirCode {
+    fn is_comment(node: &Node) -> bool {
+        node.kind_id() == Elixir::Comment
+    }
+
+    fn is_useful_comment(_: &Node, _: &[u8]) -> bool {
+        false
+    }
+
+    // Elixir has no syntactic function-definition node: `def`/`defp` are
+    // ordinary `Call` nodes with the macro identifier in the `target`
+    // field. Distinguishing them would require source-text inspection at
+    // every `is_func_space` call, which the trait does not support, so
+    // we treat the file root and explicit anonymous functions as the
+    // only function spaces.
+    fn is_func_space(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Elixir::Source | Elixir::AnonymousFunction
+        )
+    }
+
+    fn is_func(_: &Node) -> bool {
+        false
+    }
+
+    fn is_closure(node: &Node) -> bool {
+        node.kind_id() == Elixir::AnonymousFunction
+    }
+
+    fn is_call(node: &Node) -> bool {
+        node.kind_id() == Elixir::Call
+    }
+
+    fn is_non_arg(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Elixir::LPAREN | Elixir::LPAREN2 | Elixir::RPAREN | Elixir::COMMA
+        )
+    }
+
+    fn is_string(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Elixir::String | Elixir::Charlist | Elixir::Sigil
+        )
+    }
+
+    // Elixir lacks an `else if` chain construct. Multi-way branching uses
+    // `cond do ... end` (a `Call` whose `do_block` holds many
+    // `stab_clause`s, each `+1` nesting in cognitive) or nested
+    // `if/else`. No tail-recursive chain to collapse here.
+    #[inline]
+    fn is_else_if(_: &Node) -> bool {
+        false
+    }
+
+    fn is_primitive(_: u16) -> bool {
+        false
+    }
+}
+
 #[cfg(test)]
 #[allow(
     clippy::float_cmp,

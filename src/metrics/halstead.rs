@@ -446,6 +446,12 @@ impl Halstead for PhpCode {
 
 implement_metric_trait!(Halstead, PreprocCode, CcommentCode);
 
+impl Halstead for ElixirCode {
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], halstead_maps: &mut HalsteadMaps<'a>) {
+        compute_halstead::<Self>(node, code, halstead_maps);
+    }
+}
+
 impl Halstead for BashCode {
     fn compute<'a>(node: &Node<'a>, code: &'a [u8], halstead_maps: &mut HalsteadMaps<'a>) {
         compute_halstead::<Self>(node, code, halstead_maps);
@@ -1333,6 +1339,48 @@ f() {
                 assert_eq!(metric.halstead.u_operands(), 5.0);
                 assert_eq!(metric.halstead.operands(), 10.0);
                 insta::assert_json_snapshot!(metric.halstead);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_operators_and_operands() {
+        // Exercises every Halstead family classified in Elixir's
+        // `get_op_type`: control-flow keywords (`do`, `end`, `fn`),
+        // structural punctuation (`(`, `)`, `[`, `]`, `,`, `.`, `@`),
+        // arithmetic (`+`, `-`, `*`, `/`), comparison (`==`, `>`),
+        // logical (`&&`, `||`, `and`, `or`, `!`), pipe (`|>`), capture
+        // (`&`), assignment/match (`=`), and the stab arrow (`->`).
+        // The body mixes identifiers, integers, atoms, and a string.
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  @doc \"add\"\n  def calc(a, b) do\n    result = a + b * 2\n    flag = result > 0 && a == b\n    out = if flag, do: result, else: -result\n    [out, a, b]\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                // Positive headline assertions on integer counts.
+                assert_eq!(metric.halstead.u_operators(), 15.0);
+                assert_eq!(metric.halstead.operators(), 23.0);
+                assert_eq!(metric.halstead.u_operands(), 16.0);
+                assert_eq!(metric.halstead.operands(), 27.0);
+                insta::assert_json_snapshot!(
+                    metric.halstead,
+                    @r###"
+                {
+                  "n1": 15.0,
+                  "N1": 23.0,
+                  "n2": 16.0,
+                  "N2": 27.0,
+                  "length": 50.0,
+                  "estimated_program_length": 122.60335893412778,
+                  "purity_ratio": 2.452067178682556,
+                  "vocabulary": 31.0,
+                  "volume": 247.70981551934375,
+                  "difficulty": 12.65625,
+                  "level": 0.07901234567901234,
+                  "effort": 3135.0773526666944,
+                  "time": 174.17096403703857,
+                  "bugs": 0.07140208917738183
+                }"###
+                );
             },
         );
     }

@@ -261,6 +261,22 @@ impl Alterator for PhpCode {
     }
 }
 
+impl Alterator for ElixirCode {
+    fn alterate(node: &Node, code: &[u8], span: bool, children: Vec<AstNode>) -> AstNode {
+        // Preserve string-like literal text verbatim. `Charlist` (single-
+        // quoted) and `Sigil` (`~r/.../`, `~w[...]`, etc.) are treated
+        // alongside ordinary strings so report output never trims their
+        // bodies.
+        match Elixir::from(node.kind_id()) {
+            Elixir::String | Elixir::Charlist | Elixir::Sigil => {
+                let (text, span) = Self::get_text_span(node, code, span, true);
+                AstNode::new(node.kind(), text, span, Vec::new())
+            }
+            _ => Self::get_default(node, code, span, children),
+        }
+    }
+}
+
 #[cfg(test)]
 #[allow(
     clippy::float_cmp,

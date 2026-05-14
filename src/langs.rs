@@ -126,6 +126,16 @@ mk_langs!(
         ["csharp"]
     ),
     (
+        Elixir,
+        "The `Elixir` language",
+        "elixir",
+        ElixirCode,
+        ElixirParser,
+        tree_sitter_elixir,
+        [ex, exs],
+        ["elixir"]
+    ),
+    (
         Python,
         "The `Python` language",
         "python",

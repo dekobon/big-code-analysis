@@ -37,6 +37,9 @@ pub use language_cpp::*;
 pub mod language_csharp;
 pub use language_csharp::*;
 
+pub mod language_elixir;
+pub use language_elixir::*;
+
 pub mod language_go;
 pub use language_go::*;
 
