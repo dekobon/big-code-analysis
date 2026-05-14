@@ -1055,7 +1055,7 @@ commits mirroring the Go history:
 
 Before exiting, print a one-screen summary:
 
-```
+```text
 Added <LangName> language support.
 
 Files changed:
