@@ -117,6 +117,19 @@ pub trait Checker {
     fn is_error(node: &Node) -> bool {
         node.has_error()
     }
+
+    /// Return `true` to elide this node and all its descendants from
+    /// every metric. Used by language modules to filter
+    /// test-only / generated / preprocessor-disabled subtrees.
+    ///
+    /// The default returns `false` for every node, preserving the
+    /// pre-#182 behavior. Language overrides drive opt-in skips
+    /// (currently: `RustCode` filters `#[cfg(test)]` items, gated
+    /// by the runtime `MetricsOptions::exclude_tests` flag).
+    #[inline]
+    fn should_skip_subtree(_node: &Node, _code: &[u8]) -> bool {
+        false
+    }
 }
 
 impl Checker for PreprocCode {
@@ -702,6 +715,107 @@ impl Checker for TsxCode {
     }
 }
 
+/// Returns true when an attribute body (text inside `#[...]` or
+/// `#![...]`, e.g. `test`, `cfg(test)`, `tokio::test`) marks an item
+/// as test-only.
+///
+/// Matches:
+/// - exact `test` (covers `#[test]`)
+/// - `cfg(test`-prefixed bodies (covers `cfg(test)`, `cfg(test, …)`,
+///   `cfg(all(test, …))`, `cfg(any(test, …))`)
+/// - common framework test macros suffixed with `::test`
+///   (`tokio::test`, `async_std::test`, `test_log::test`, etc.)
+/// - bare framework attributes: `rstest`, `wasm_bindgen_test`,
+///   `test_case`
+///
+/// The attribute text is whitespace-trimmed before matching so
+/// `# [ test ]` and `#[test]` look identical. A full attribute
+/// parser is overkill — these forms cover the idiomatic Rust test
+/// layout that issue #182 targets.
+fn rust_attribute_marks_test(body: &str) -> bool {
+    let trimmed: String = body.chars().filter(|c| !c.is_whitespace()).collect();
+    if trimmed == "test"
+        || trimmed == "rstest"
+        || trimmed == "wasm_bindgen_test"
+        || trimmed == "test_case"
+    {
+        return true;
+    }
+    if trimmed.starts_with("cfg(test)")
+        || trimmed.starts_with("cfg(test,")
+        || trimmed.starts_with("cfg(all(test,")
+        || trimmed.starts_with("cfg(all(test)")
+        || trimmed.starts_with("cfg(any(test,")
+        || trimmed.starts_with("cfg(any(test)")
+    {
+        return true;
+    }
+    // `tokio::test`, `async_std::test`, `test_log::test`, etc. The
+    // path may also carry an argument list (`tokio::test(flavor =
+    // "multi_thread")`), so match the bare suffix as well as the
+    // call-style prefix.
+    if trimmed.ends_with("::test") || trimmed.contains("::test(") {
+        return true;
+    }
+    false
+}
+
+/// Returns true when `node` is a Rust item whose preceding outer
+/// attributes (or, for `mod` items, inner attributes) mark it as
+/// test-only. See [`rust_attribute_marks_test`] for the recognised
+/// attribute shapes.
+fn rust_item_is_test_only(node: &Node, code: &[u8]) -> bool {
+    // The tree-sitter Rust grammar exposes outer attributes
+    // (`#[...]`) as `AttributeItem` siblings *before* the decorated
+    // item. Walk backward across consecutive attribute siblings; any
+    // match short-circuits.
+    let mut sibling = node.previous_sibling();
+    while let Some(s) = sibling {
+        if s.kind_id() != Rust::AttributeItem {
+            break;
+        }
+        if let Some(text) = s.utf8_text(code) {
+            // `#[...]` -> strip the `#[` prefix and `]` suffix.
+            let inner = text
+                .trim()
+                .strip_prefix('#')
+                .and_then(|t| t.trim_start().strip_prefix('['))
+                .and_then(|t| t.trim().strip_suffix(']'))
+                .unwrap_or(text);
+            if rust_attribute_marks_test(inner) {
+                return true;
+            }
+        }
+        sibling = s.previous_sibling();
+    }
+
+    // `mod_item` additionally accepts inner attributes
+    // (`#![cfg(test)]`). The grammar nests these inside the module's
+    // `declaration_list` body, not as direct `mod_item` children, so
+    // descend one level via the `body` field before scanning.
+    if node.kind_id() == Rust::ModItem
+        && let Some(body) = node.child_by_field_name("body")
+    {
+        for child in body.children() {
+            if child.kind_id() != Rust::InnerAttributeItem {
+                continue;
+            }
+            if let Some(text) = child.utf8_text(code) {
+                let inner = text
+                    .trim()
+                    .strip_prefix("#!")
+                    .and_then(|t| t.trim_start().strip_prefix('['))
+                    .and_then(|t| t.trim().strip_suffix(']'))
+                    .unwrap_or(text);
+                if rust_attribute_marks_test(inner) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 impl Checker for RustCode {
     fn is_comment(node: &Node) -> bool {
         node.kind_id() == Rust::LineComment || node.kind_id() == Rust::BlockComment
@@ -785,6 +899,28 @@ impl Checker for RustCode {
                 | Rust::PrimitiveType16
                 | Rust::PrimitiveType17
         )
+    }
+
+    /// Skip the subtree when `node` is a `mod`, `fn`, `impl`,
+    /// `trait`, `const`, or `static` item marked test-only by an
+    /// outer or inner attribute (`#[test]`, `#[cfg(test)]`,
+    /// `#[tokio::test]`, `#![cfg(test)]`, …). The runtime guard
+    /// in `spaces::metrics_with_options` only consults this hook
+    /// when the caller opts in via `MetricsOptions::exclude_tests`,
+    /// so the default `metrics()` entry point is unaffected.
+    fn should_skip_subtree(node: &Node, code: &[u8]) -> bool {
+        if !matches!(
+            node.kind_id().into(),
+            Rust::ModItem
+                | Rust::FunctionItem
+                | Rust::ImplItem
+                | Rust::TraitItem
+                | Rust::ConstItem
+                | Rust::StaticItem
+        ) {
+            return false;
+        }
+        rust_item_is_test_only(node, code)
     }
 }
 

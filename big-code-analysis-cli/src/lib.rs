@@ -59,12 +59,12 @@ use big_code_analysis::LANG;
 use big_code_analysis::ParserTrait;
 use big_code_analysis::{
     CommentRm, CommentRmCfg, ConcurrentRunner, Count, CountCfg, Dump, DumpCfg, FilesData, Find,
-    FindCfg, Function, FunctionCfg, Metrics, MetricsCfg, OpsCfg, OpsCode, PreprocParser,
-    PreprocResults,
+    FindCfg, Function, FunctionCfg, Metrics, MetricsCfg, MetricsOptions, OpsCfg, OpsCode,
+    PreprocParser, PreprocResults,
 };
 use big_code_analysis::{
-    action, fix_includes, get_from_ext, get_function_spaces, get_ops, guess_language, is_generated,
-    preprocess, read_file, read_file_with_eol, write_file,
+    action, fix_includes, get_from_ext, get_function_spaces_with_options, get_ops, guess_language,
+    is_generated, preprocess, read_file, read_file_with_eol, write_file,
 };
 
 fn die(msg: impl Display) -> ! {
@@ -165,6 +165,15 @@ struct GlobalOpts {
     /// honored regardless of this flag.
     #[clap(long = "no-ignore", global = true)]
     no_ignore: bool,
+    /// Exclude inline test code from metric computation. Currently
+    /// applies to Rust only (skips `#[test]`, `#[cfg(test)]`,
+    /// `#[tokio::test]`, `#[rstest]`, `#![cfg(test)]` items and
+    /// their subtrees). Default is off — every node is counted, so
+    /// numbers match the pre-#182 behaviour byte-for-byte. Languages
+    /// without a `Checker::should_skip_subtree` override ignore this
+    /// flag.
+    #[clap(long = "exclude-tests", global = true)]
+    exclude_tests: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -347,6 +356,13 @@ struct Config {
     /// users who want the generated-skip audit without the rest of the
     /// warning stream.
     report_skipped: bool,
+    /// When true, [`get_function_spaces_with_options`] is used in
+    /// place of [`get_function_spaces`] and [`MetricsOptions::exclude_tests`]
+    /// is set, so language modules that override
+    /// `Checker::should_skip_subtree` (currently only Rust) prune
+    /// their test subtrees before metric computation. See
+    /// `GlobalOpts::exclude_tests` for the user-facing description.
+    exclude_tests: bool,
 }
 
 impl Config {
@@ -373,6 +389,7 @@ impl Config {
             warning: globals.warning,
             skip_generated: !globals.no_skip_generated,
             report_skipped: globals.report_skipped,
+            exclude_tests: globals.exclude_tests,
         }
     }
 }
@@ -444,7 +461,15 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
         }
         Action::Metrics { format, pretty } => {
             if let Some(fmt) = format {
-                if let Some(space) = get_function_spaces(&language, source, &path, pr) {
+                if let Some(space) = get_function_spaces_with_options(
+                    &language,
+                    source,
+                    &path,
+                    pr,
+                    MetricsOptions {
+                        exclude_tests: cfg.exclude_tests,
+                    },
+                ) {
                     match fmt.dispatch() {
                         MetricsDispatch::Generic(g) => {
                             g.dump(space, path, cfg.output.as_ref(), *pretty)?;
@@ -460,7 +485,12 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
                 }
                 Ok(())
             } else {
-                let metrics_cfg = MetricsCfg { path };
+                let metrics_cfg = MetricsCfg {
+                    path,
+                    options: MetricsOptions {
+                        exclude_tests: cfg.exclude_tests,
+                    },
+                };
                 let path = metrics_cfg.path.clone();
                 action::<Metrics>(&language, source, &path, pr, metrics_cfg)
             }
@@ -527,8 +557,15 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
             action::<Count>(&language, source, &path, pr, count_cfg)
         }
         Action::Report => {
-            if let Some(space) = get_function_spaces(&language, source, &path, pr)
-                && let Some(ref tx) = cfg.markdown_tx
+            if let Some(space) = get_function_spaces_with_options(
+                &language,
+                source,
+                &path,
+                pr,
+                MetricsOptions {
+                    exclude_tests: cfg.exclude_tests,
+                },
+            ) && let Some(ref tx) = cfg.markdown_tx
                 && !matches!(language, LANG::Preproc | LANG::Ccomment)
             {
                 let Some(file_str) = path.to_str() else {
@@ -564,8 +601,15 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
             Ok(())
         }
         Action::Check => {
-            if let Some(space) = get_function_spaces(&language, source, &path, pr)
-                && let (Some(set), Some(tx)) = (cfg.threshold_set.as_ref(), cfg.check_tx.as_ref())
+            if let Some(space) = get_function_spaces_with_options(
+                &language,
+                source,
+                &path,
+                pr,
+                MetricsOptions {
+                    exclude_tests: cfg.exclude_tests,
+                },
+            ) && let (Some(set), Some(tx)) = (cfg.threshold_set.as_ref(), cfg.check_tx.as_ref())
                 && !matches!(language, LANG::Preproc | LANG::Ccomment)
             {
                 // Skip non-UTF-8 paths: the offender format is part of a
@@ -1226,6 +1270,7 @@ mod tests {
             warning: false,
             skip_generated: true,
             report_skipped: false,
+            exclude_tests: false,
         }
     }
 

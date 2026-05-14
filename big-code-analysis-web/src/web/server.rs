@@ -214,6 +214,11 @@ async fn metrics_json(
             path,
             unit: payload.unit,
             language: name.to_string(),
+            // The REST surface keeps the pre-#182 default (every node
+            // counted) so existing clients see no numeric change. A
+            // future change can thread an `exclude_tests` query / body
+            // field through.
+            exclude_tests: false,
         };
         let result = run_parse(&config, move || {
             action::<WebMetricsCallback>(&language, buf, Path::new(""), None, cfg)
@@ -247,6 +252,8 @@ async fn metrics_plain(
                     || s.eq_ignore_ascii_case("on")
             }),
             language: name.to_string(),
+            // Same rationale as the JSON variant above.
+            exclude_tests: false,
         };
         let result = run_parse(&config, move || {
             action::<WebMetricsCallback>(&language, buf, Path::new(""), None, cfg)

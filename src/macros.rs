@@ -165,6 +165,7 @@ macro_rules! mk_action {
         /// // Configuration options used by the function which computes the metrics
         /// let cfg = MetricsCfg {
         ///     path,
+        ///     ..Default::default()
         /// };
         ///
         /// action::<Metrics>(&language, source_as_vec, &cfg.path.clone(), None, cfg);
@@ -208,6 +209,40 @@ macro_rules! mk_action {
                     LANG::$camel => {
                         let parser = $parser::new(source, &path, pr);
                         metrics(&parser, &path)
+                    },
+                )*
+            }
+        }
+
+        /// Returns all function spaces data of a code, applying the
+        /// per-traversal flags in `options` (e.g.
+        /// `exclude_tests: true` to elide Rust `#[cfg(test)]` /
+        /// `#[test]` subtrees from every metric). Equivalent to
+        /// [`get_function_spaces`] when `options` is the default.
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// use std::path::PathBuf;
+        ///
+        /// use big_code_analysis::{get_function_spaces_with_options, LANG, MetricsOptions};
+        ///
+        /// let source_code = "fn main() {}\n#[test] fn t() {}";
+        /// let language = LANG::Rust;
+        ///
+        /// let path = PathBuf::from("foo.rs");
+        /// let source_as_vec = source_code.as_bytes().to_vec();
+        /// let options = MetricsOptions { exclude_tests: true };
+        ///
+        /// get_function_spaces_with_options(&language, source_as_vec, &path, None, options).unwrap();
+        /// ```
+        #[inline]
+        pub fn get_function_spaces_with_options(lang: &LANG, source: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>, options: MetricsOptions) -> Option<FuncSpace> {
+            match lang {
+                $(
+                    LANG::$camel => {
+                        let parser = $parser::new(source, &path, pr);
+                        metrics_with_options(&parser, &path, options)
                     },
                 )*
             }

@@ -232,6 +232,33 @@ bca --paths /path/to/your/file/or/directory metrics \
     --pretty -O json
 ```
 
+## Excluding inline test code
+
+```bash
+bca --paths /path/to/your/code --exclude-tests metrics
+```
+
+By default, every node in the AST is counted, including inline test
+items. Rust files following the idiomatic
+`#[cfg(test)] mod tests { ... }` layout therefore have headline
+metrics that mix production and test code together.
+
+Pass `--exclude-tests` to elide test-only subtrees before any metric
+is computed. The flag is recognised by every subcommand that walks
+the AST (`metrics`, `report`, `check`), and currently understands the
+following Rust attribute shapes:
+
+- `#[test]` and `#[rstest]` / `#[test_case]` / `#[wasm_bindgen_test]`
+- `#[cfg(test)]`, `#[cfg(all(test, ...))]`, `#[cfg(any(test, ...))]`
+- `#[tokio::test]`, `#[async_std::test]`, `#[test_log::test]`, …
+  (any path ending in `::test`)
+- `#![cfg(test)]` on `mod` items (inner attribute form)
+
+Languages without a `Checker::should_skip_subtree` override simply
+ignore the flag — only Rust applies the pruning today. The default
+remains off so existing metric numbers stay byte-identical for users
+who do not opt in.
+
 ## Aggregated report
 
 For a comprehensive, human-readable quality report, use
