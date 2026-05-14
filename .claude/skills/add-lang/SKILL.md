@@ -8,11 +8,16 @@ description: End-to-end workflow for adding a new tree-sitter language to big-co
 Add support for a new tree-sitter-backed language to the workspace. The
 language name and grammar crate are provided in `$ARGUMENTS`.
 
-This skill mirrors the historical Go-support work (see commits
-`6ecc582`, `e0701e1`, `ab857ef`, `ecb6299`, `6ebc1e5`, `15826be`) and
-the upstream Mozilla guide
-(<https://mozilla.github.io/rust-code-analysis/developers/new-language.html>),
-adapted to the current API and metric set.
+This skill mirrors the historical Go-support work (commits `6ecc582`,
+`e0701e1`, `ab857ef`, `ecb6299`, `6ebc1e5`, `15826be`) plus the more
+recent Bash (`3a2eaa3`), PHP (`ddae116`), and C# (`08c382c`)
+additions. The C# commit is the freshest single-commit
+language-addition reference and post-dates ~15 of the lessons in
+`docs/development/lessons_learned.md` — read it alongside the Go
+commits when looking for a structural template. The upstream Mozilla
+guide
+(<https://mozilla.github.io/rust-code-analysis/developers/new-language.html>)
+is also useful background, adapted to the current API and metric set.
 
 ## Arguments
 
@@ -120,8 +125,10 @@ order:
 Add a match arm to the `mk_get_language!` macro rule. The project's
 current convention is `tree_sitter_<lang>::LANGUAGE.into()` (the
 upstream `tree_sitter_<lang>::language()` form is the older API and
-should not be used). Most grammar crates expose a single `LANGUAGE`
-constant:
+should not be used). Most modern grammar crates expose a single
+`LANGUAGE` constant. If the crate exports neither — only relevant for
+older 0.20-era crates — bump it to a 0.23.x release in the same
+change; do not paper over with `cfg`-gated wiring:
 
 ```rust
 Lang::<LangName> => tree_sitter_<lang>::LANGUAGE.into(),
@@ -142,6 +149,18 @@ exposes more (e.g. `LANGUAGE_FOO` and `LANGUAGE_BAR`), pick the one
 that matches the dialect you are wiring up — and consider whether
 **both** dialects deserve separate `Lang::` variants (as Typescript
 and Tsx do).
+
+**Dialect identity-collapse trap.** If you do split a grammar into
+two `Lang::` variants, `LANG::get_name()` typically collapses the
+dialect to the canonical name (`Lang::Tsx::get_name() == "typescript"`).
+Any downstream helper that branches on `get_name()` — the HTML
+report's `language_palette_slug` is the canonical example
+(issue #139, `0a9eca1`) — has dead arms for the collapsed variant
+that no string-keyed unit test will exercise. After Step 1, grep for
+`get_name()` call sites and either (a) drive their per-language
+`match`es through the enum itself, not literal strings, or (b)
+confirm the collapsed canonical name is what the helper sees and
+delete the dead arm. See lesson 14 in `lessons_learned.md`.
 
 ### 1d: Verify the empty-kind fallback is present
 
@@ -187,7 +206,11 @@ The new `language_<lang>.rs` should appear as a new file. Existing
 formatting-equivalent diffs). If a sibling language file changes
 substantively, it means the codegen output drifted — investigate
 before continuing; do not commit unintended changes to other
-languages.
+languages. The drift is almost always rooted in
+`enums/templates/rust.rs` (e.g. attribute conventions in the template
+no longer matching what the workspace clippy gate expects); fix the
+template — not the emitted output — and re-run codegen. See lesson
+17 in `lessons_learned.md`.
 
 Confirm the new file exists at `src/languages/language_<lang>.rs` and
 that it begins with `// Code generated; DO NOT EDIT.`.
@@ -262,6 +285,27 @@ first** (Java and Kotlin are usually the closest match for
 imperative-with-classes; Rust for everything else) and mirror its
 structure. Use Serena `find_symbol` / `find_referencing_symbols`.
 
+**No panics on reachable paths.** AGENTS.md bans `unwrap` / `expect` /
+`panic!` / `assert!` in non-test code (it permits `expect("reason")`
+and `assert!()` in production for provably-unreachable invariants
+when the invariant is documented in the `expect` message). Lesson 5
+in `lessons_learned.md` extends the same discipline to
+`unreachable!()`: every `match node.kind_id() { ... }` in
+`checker.rs`, `getter.rs`, and the per-language metric impls must
+terminate in an `Unknown` / `_` arm — never `unreachable!()`. The
+next grammar bump WILL add an aliased kind_id (Step 3.5 / lesson 2)
+that flips an `unreachable!()` arm reachable in production.
+
+**Synthetic `Unit` root.** Tree-sitter can return a non-`Unit` root
+(an `ERROR` node, or an inner `struct` / `function` / `namespace`
+promoted to root) on partially-parseable input. `src/spaces.rs`
+pushes a synthetic `Unit` whenever the parser's root kind is not the
+language's canonical `Unit` kind, anchored to the full input range.
+Confirm this fallback covers the new language — write a regression
+test that parses a deliberately malformed fixture and asserts
+`blank ≥ 0` and `kind == Unit` at the file level. See lesson 9 in
+`lessons_learned.md` (issue #80, `dc09eb3`).
+
 ### 3a: `Checker` impl in `src/checker.rs`
 
 Append an `impl Checker for <LangName>Code` block. Required methods:
@@ -276,15 +320,28 @@ Append an `impl Checker for <LangName>Code` block. Required methods:
 - `is_non_arg` — punctuation kinds inside argument lists
   (`LPAREN`, `COMMA`, `RPAREN`, etc.).
 - `is_string` — string-literal kinds.
-- `is_else_if` — `#[inline(always)]`. The exact predicate is
-  language-specific; for languages that model `else if` as a nested
-  `if` whose parent is also an `if`, mirror the Go form:
+- `is_else_if` — `#[inline(always)]`. **Do not blind-copy the Go
+  form.** Before writing the predicate, parse a representative
+  `if x { … } else if y { … } else { … }` snippet with the new
+  grammar (the `tree-sitter` CLI, or a quick test fixture) and look
+  at the AST shape. Lesson 10 in `lessons_learned.md` catalogues
+  four distinct strategies among current languages:
 
-  ```rust
-  node.kind_id() == <Lang>::IfStatement
-      && node.parent()
-          .is_some_and(|p| p.kind_id() == <Lang>::IfStatement)
-  ```
+  | Grammar model | Languages | Check |
+  | --- | --- | --- |
+  | `else_clause` wrapper | C++, Mozjs, JS, TS, TSX, Rust | `parent().kind_id() == ElseClause` |
+  | `Else` keyword sibling | Java, C#, Kotlin | `prev_sibling().kind_id() == Else` |
+  | Nested `if_statement` | Go | `parent().kind_id() == IfStatement` |
+  | Dedicated clause node | Python, Perl, Lua, Bash, Tcl, PHP | kind match on the `else_if` / `elif` / `elsif` node |
+
+  Pick the strategy whose model matches the grammar; an
+  always-`false` stub is a bug, not a deferral. Issue #115
+  (`013bff9`) caught exactly this in Java and C# after-the-fact —
+  both languages had shipped the stub, and lesson 10 was written in
+  response. Step 5 requires an `<lang>_else_if_chain` cognitive test
+  that asserts the chain produces a *lower* score than the same
+  number of `if` blocks nested inside one another — that test would
+  have caught both #115 stubs the moment they were written.
 
 - `is_primitive` — usually `false` unless the grammar emits a
   primitive-type kind (most don't).
@@ -314,8 +371,26 @@ Append an `impl Getter for <LangName>Code` block. Required methods:
 **Naming-collision gotcha** (from Go): if the language enum's name
 collides with a variant, alias it. Go's `Go::Go` (the `go` keyword)
 clashed with `use Go::*` in pattern position; the fix was
-`use Go as G;`. Apply the same alias if the new language has a
-keyword-named-after-itself.
+`use Go as G;`. Detect the collision proactively after Step 1e:
+
+```bash
+rg "^\s*<LangName>\s*=" src/languages/language_<lang>.rs
+```
+
+If the search returns a hit, alias the import at the top of the
+metric file with `use <LangName> as <ShortAlias>;`.
+
+**No kind_id classified as both operator and operand.** Each
+`get_op_type` arm must route a given kind_id to exactly one of
+`HalsteadType::Operator`, `HalsteadType::Operand`, or
+`HalsteadType::Unknown`. A copy-paste that lands the same kind in
+two arms produces `n1` / `n2` counts that disagree with the `--ops`
+output (TypeScript `String2` shipped this exact bug in `2248bcc`).
+After classifying, the Halstead unit test added in Step 5 must
+assert the load-bearing invariants from lesson 4: run both
+`metrics()` and `operands_and_operators()` on the same input and
+assert that `len(dedupe(ops.operators)) == n1` and
+`len(dedupe(ops.operands)) == n2`.
 
 ### 3c: `Alterator` impl in `src/alterator.rs`
 
@@ -352,6 +427,78 @@ cargo check -p big-code-analysis
 ```
 
 Now the only remaining errors should be missing metric impls.
+
+---
+
+## Step 3.5: Aliased-variant audit (MANDATORY)
+
+Tree-sitter grammars regularly emit several `kind_id` values that all
+map to the same `node.kind()` string — `PrimitiveType` /
+`PrimitiveType2` / … / `PrimitiveType17` in Rust;
+`InvocationExpression` / `InvocationExpression2` / `InvocationExpression3`
+in C#; `Identifier` / `Identifier2` / `Identifier3` in Go;
+`HeredocBody` / `HeredocBody2` in Bash; `String` / `String2` /
+`String3` in JS-family grammars. The generator assigns each
+appearance a distinct `u16`; a `match` arm that lists only the
+unsuffixed variant silently drops the rest. **This bug class shipped
+inside the C# language-support PR itself** (issue #94, fix
+`f042659`) and has been re-discovered in nearly every language ever
+added. The fix is mechanical, but only if done before the snapshots
+freeze the wrong values.
+
+For the new language, enumerate every alias-group base — the
+rule-name root for which both an unsuffixed variant and one or more
+numbered siblings exist in the generated enum:
+
+```bash
+LANG_FILE="src/languages/language_<lang>.rs"
+comm -12 \
+  <(rg -o '^\s+([A-Z][A-Za-z]*)\d+\s*=' -r '$1' "$LANG_FILE" | sort -u) \
+  <(rg -o '^\s+([A-Z][A-Za-z]*)\s*=' -r '$1' "$LANG_FILE" | sort -u)
+```
+
+The naive `rg '^\s+[A-Z][A-Za-z]*\d+\s*=' …` also surfaces
+lexer-token variants like `RawStringLiteralToken1` that are *not*
+part of an alias group; the `comm` form drops them by requiring an
+unsuffixed sibling in the same file. The result is the set of base
+names whose every numbered variant is a potential aliasing risk.
+
+For each printed base, confirm that EVERY numbered variant in its
+group holds one of the following in EVERY file that does a `match`
+on the underlying rule (`src/checker.rs`, `src/getter.rs`,
+`src/alterator.rs`, `src/metrics/*.rs`, `src/spaces.rs`):
+
+1. The variant is explicitly listed in the relevant arm (typically
+   alongside its unsuffixed sibling:
+   `Identifier | Identifier2 | Identifier3 => …`).
+2. The variant is explicitly excluded with a one-line comment
+   explaining why (e.g. "`HeredocBody` id 153 never surfaces in
+   real parse trees per upstream").
+3. The match has been rewritten to compare on `node.kind()` (the
+   string), which sidesteps the entire numeric-variant problem.
+
+Option 3 is the most forward-compatible choice (the *next* grammar
+bump will add a new aliased ID that option 1 misses) and is
+preferred unless the per-call hot path is provably
+allocation-sensitive — see lesson 2.
+
+**Coverage targets for this audit:**
+
+- `checker.rs` — every `is_*` predicate that touches an aliasable
+  kind: identifiers, member/field expressions, string literals,
+  primitive types.
+- `getter.rs` — `get_op_type` (Halstead classification) and any
+  helper that branches on aliasable kinds.
+- `alterator.rs` — string / raw-string / char-literal preservation
+  arms. (Issue #119 was *only* in `alterator.rs` for JS/TS/TSX —
+  `checker.rs` and `getter.rs` were already correct.)
+- `metrics/cognitive.rs`, `metrics/cyclomatic.rs`, `metrics/abc.rs`,
+  `metrics/npa.rs`, `metrics/loc.rs` — anywhere a per-language impl
+  matches on a kind that the grammar aliases.
+
+Re-run this audit after every grammar version bump in the same
+crate's lifetime — lesson 2 explicitly warns the next aliased
+variant appears on the next bump.
 
 ---
 
@@ -401,6 +548,40 @@ Run `cargo check -p big-code-analysis` — it should now succeed.
   `Getter::get_op_type` from step 3b — usually a one-method impl.
 - **Loc** (`src/metrics/loc.rs`): see Step 4b-loc below — this is the
   largest and most subtle of the four primary metrics.
+
+**Branch-construct coverage audit.** A `match node.kind_id()` in a
+metric impl is *coverage*, not a *spec*: a grammar can emit a valid
+construct under a node kind the arm forgot, and the metric silently
+emits zero for it. C/C++ ternaries (#172, `b2ae93f`), C++
+range-based `for` (#173, `7eef01a`), and Java enhanced-for (#178,
+`96b73d6`) all survived years inside already-implemented Cognitive
+impls because the arm list missed the relevant kind. After writing
+each branching-metric impl, grep the generated enum for every kind
+whose name suggests the construct:
+
+```bash
+rg 'For[A-Z]|While[A-Z]|If[A-Z]|Switch[A-Z]|Conditional|Ternary|Try[A-Z]|Catch[A-Z]|Match[A-Z]|Case[A-Z]' \
+   src/languages/language_<lang>.rs
+```
+
+Confirm each hit is either explicitly matched, or explicitly excluded
+with a comment. When a known-wrong-but-unfixed case is identified
+during the audit (e.g. a grammar quirk requiring its own fix issue),
+anchor it with a regression test that asserts the *current wrong*
+value plus an inline `FIXME(#NNN)` pointing at the tracking issue —
+see `4b41187` / `e8b9a4e` for the canonical template. That keeps the
+gap visible in CI; the eventual fix flips a literal value rather
+than re-deriving it. See lesson 19.
+
+**Non-zero smoke check for every real impl.** AGENTS.md and lesson 1
+warn that a metric routed through `implement_metric_trait!` silently
+emits zero on every input — there is no compile-time signal. For
+every metric you replace from default to real impl, add at least one
+test that exercises non-trivial control flow and asserts
+`metric.X > 0.0` (or a positive `assert_eq!` on the headline value).
+This is distinct from the exact-value snapshots in Step 5c and acts
+as a structural smoke check: Bash shipped Cognitive / Exit / ABC as
+silent zeros (#71, `d2be869`) precisely because no such test existed.
 
 Add real impls for the remaining metrics where the grammar exposes
 the necessary nodes:
@@ -596,7 +777,12 @@ only when the grammar has constructs the existing repo has not seen
 - **`cognitive`** — `<lang>_no_cognitive`, `<lang>_simple_function`,
   `<lang>_sequence_same_booleans`, `<lang>_sequence_different_booleans`,
   `<lang>_not_booleans`, `<lang>_1_level_nesting`,
-  `<lang>_2_level_nesting`, `<lang>_break_continue`, and one
+  `<lang>_2_level_nesting`, `<lang>_break_continue`,
+  `<lang>_else_if_chain` (asserts an `if … else if … else if … else`
+  chain produces a *lower* score than the same number of `if` blocks
+  nested inside one another — this is the test that would have
+  caught the #115 `is_else_if` stubs in Java and C# the moment they
+  were written; see Step 3a and lesson 10), and one
   language-specific complex-nesting test. Skip if you left Cognitive
   as a default impl in 4b — but flag this loudly in the summary.
 - **`nargs`** — `<lang>_no_functions_and_closures`,
@@ -614,7 +800,24 @@ only when the grammar has constructs the existing repo has not seen
 This is the lesson from commit `ecb6299` (Go Halstead/Loc tests). A
 test like `assert!(metric.halstead.length > 0.0)` passes for the
 wrong reason — a regression in `Getter::get_op_type` would not flip
-it.
+it. (The non-zero smoke checks from Step 4b are an additional
+defence against the silent-zero failure mode in lesson 1; they are
+not a substitute for exact-value pinning here.)
+
+**AGENTS.md enforces snapshot anchoring.** Every new
+`insta::assert_json_snapshot!(metric.X)` call must carry one of: an
+inline expected block, a positive `assert_eq!` anchor on the
+headline integer value above it, or a `// expected: <derivation>`
+comment. `make snapshot-anchors` (part of `make pre-commit` and
+CI's `lint` job) verifies this against
+`.snapshot-anchor-baseline.txt` and fails on any per-file increase.
+New language tests start at zero — do not introduce unanchored
+snapshots; existing bare snapshots are grandfathered under
+issue #95 and are not a precedent. The Halstead test must also
+assert the lesson-4 invariants
+(`len(dedupe(ops.operators)) == n1`, `len(dedupe(ops.operands)) == n2`)
+on the same input; existing Go and Bash Halstead tests show the
+accessor pattern.
 
 Pin every Halstead and Loc field with `insta::assert_json_snapshot!`:
 
@@ -676,6 +879,38 @@ acceptable shortfalls are:
 2. metrics where Rust has zero tests (`abc`, `mi`, `npa`, `npm`,
    `wmc` at the time of writing).
 
+### 5f: Cross-language metric parity
+
+Per-language snapshot tests pin each language's metric output
+against its own history. They cannot detect that two languages
+disagree about the same construct (lesson 11). Rust counted wildcard
+`_ =>` while C-family did not count `default:` (#106, `a54b073`);
+Bash double-counted `case…esac` container plus arms (#107,
+`e668f14`) — both bugs that survived per-language snapshot suites
+for years.
+
+Before declaring the language done, write a small fixture for each
+of the constructs below in the new language AND in two existing
+languages (Rust + Java is a good baseline), then assert the
+per-metric sums agree:
+
+- 2-arm conditional with a `default` / `else` / wildcard arm:
+  cyclomatic and cognitive must agree across all three impls
+  (modulo documented per-language quirks).
+- An `if … else if … else` chain of length 3: cognitive must agree.
+- A loop body with one early-exit (`return` / `break`): exit must
+  agree.
+- A function with three formal parameters: `nargs` must agree.
+
+A new shared test (`cyclomatic_cross_language_parity_minimal` /
+`cognitive_cross_language_parity_minimal`) is the right home.
+Per-language snapshot tests stay in their respective `mod tests`
+blocks; the parity tests live alongside them and fail the moment a
+language drifts. Any *intentional* per-language divergence (e.g.
+Rust's standard-CCN wildcard-arm exception) is documented in the
+parity test's comment and asserted with `!=` to keep the
+divergence visible.
+
 ---
 
 ## Step 6: Documentation
@@ -689,10 +924,11 @@ language alphabetically:
 - [x] <LangName>
 ```
 
-### 6b: Update CHANGELOG if present
+### 6b: Update CHANGELOG
 
-If `CHANGELOG.md` exists at the repo root, append an entry under
-`Added`:
+`CHANGELOG.md` is present at the repo root and used. A new language
+warrants its own entry — do not consolidate into a batch-fix line.
+Append under `Added`:
 
 ```markdown
 - Support for <LangName> source files (`.<ext>`).
@@ -706,27 +942,65 @@ Do not hardcode "now supports N languages" anywhere — counts rot.
 
 ## Step 7: Final validation gate
 
-Run these from the repo root and fix anything that fails:
+`make pre-commit` is the canonical entry point per AGENTS.md. It
+runs the cargo trio (fmt-check, clippy with `-D warnings` in both
+default-features and `--all-features` flavours, full test suite),
+`cargo +nightly udeps`, `make enums-check` (the workspace-excluded
+`enums` crate's lint gate — a new language modifies it, see
+lesson 15), `make snapshot-anchors` (enforces 5c, see lesson 6),
+and the markdown / TOML / shell / Makefile lint families in one
+parallel pass.
+
+```bash
+make pre-commit
+```
+
+`make ci` runs the same checks without auto-fix (mirrors CI
+behaviour). If GNU Make 4 or any optional tool (`taplo`,
+`markdownlint-cli2`, `shellcheck`, `shfmt`, `checkmake`) is
+unavailable, fall back to the raw equivalents:
 
 ```bash
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --all-features
+RUSTFLAGS="-D warnings" cargo clippy --manifest-path enums/Cargo.toml \
+  --all-targets --locked -- -D warnings
+./check-snapshot-anchors.py
 ```
 
-If `pre-commit` is installed, also:
+If `pre-commit` is installed, also run `pre-commit run --all-files`.
 
-```bash
-pre-commit run --all-files
-```
+**Snapshots.** For any new or changed `insta` snapshot in
+`src/metrics/`, run `cargo insta test --review` and review each
+diff manually. If the new language's Halstead operator/operand
+classification causes cascading metric shifts in existing snapshots,
+verify the diffs are metric-value-only (no structural changes), then
+use `cargo insta test --accept` per test file rather than incremental
+`mv *.snap.new` — incremental acceptance shifts `assertion_line`
+fields, causing further cascading mismatches.
 
-For any new or changed snapshot, `cargo insta test --review` and
-review each diff manually. If the new language's Halstead operator/
-operand classification causes cascading metric shifts in existing
-snapshots, verify the diffs are metric-value-only (no structural
-changes), then use `cargo insta test --accept` per test file rather
-than accepting incrementally — incremental acceptance shifts
-`assertion_line` fields, causing further cascading mismatches.
+**Integration snapshots live in a submodule.** Behaviour-changing
+work on metric computation, AST traversal, or alterator rules
+generates `.snap.new` files inside
+`tests/repositories/big-code-analysis-output/`, which is a separate
+git submodule (`dekobon/big-code-analysis-output`). Per AGENTS.md
+and lesson 8, a language addition is not done until ALL four hold:
+
+1. `cargo test --workspace --all-features` exits clean from a
+   fresh working tree with no `.snap.new` left behind under
+   `tests/repositories/big-code-analysis-output/`.
+2. The accepted snapshots are committed and pushed inside the
+   submodule to `dekobon/big-code-analysis-output`'s `main`
+   branch.
+3. The parent commit records the new submodule SHA
+   (`git add tests/repositories/big-code-analysis-output`) — in
+   the same parent commit as the language-addition code, never as
+   a follow-up.
+4. After any rebase or force-push to the submodule, re-run
+   integration tests before declaring done; submodule history is
+   force-pushed often enough that previously-accepted snapshots
+   cannot be assumed to survive.
 
 If validation fails, fix the root cause — do not paper over with
 `#[allow(...)]` or by loosening assertions.
@@ -805,6 +1079,15 @@ Code-quality skills run: simplify-rust, rust-optimize, audit-tests.
 NOT committed. Review `git status` and `git diff` and commit
 manually.
 ```
+
+**Heads up: mutation testing.** Quarterly mutation testing
+(`.github/workflows/mutation-test.yml`, see
+`docs/development/mutation_testing.md`) runs against
+`src/metrics/`, `src/checker.rs`, and `src/getter.rs`. Within one
+cycle, expect auto-filed issues labelled `mutation-testing` against
+the new language's impls; treat them as standard fix-issue work.
+Escapes mean the per-language test set under-specified the new
+impl — exactly the failure mode lessons 1, 6, and 19 warn about.
 
 ---
 
