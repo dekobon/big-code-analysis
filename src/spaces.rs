@@ -696,9 +696,12 @@ fn t() { assert_eq!(1 + 1, 2); }
             // Pruned: only the production function (1 function).
             assert_eq!(pruned.metrics.nom.functions_sum() as usize, 1);
             // Cyclomatic should also drop: prod has 1, test fn body
-            // adds its own branches via assert_eq!. We only require
-            // strict inequality (pruned < baseline) to stay robust
-            // against grammar tweaks in the assert macro expansion.
+            // adds its own branches via assert_eq!. We use
+            // non-strict inequality (`pruned <= baseline`) here so
+            // grammar tweaks that flatten `assert_eq!` expansion to
+            // zero cyclomatic branches don't make this test brittle;
+            // the load-bearing pruning check is `functions_sum`
+            // above.
             assert!(
                 pruned.metrics.cyclomatic.cyclomatic_sum()
                     <= baseline.metrics.cyclomatic.cyclomatic_sum()
