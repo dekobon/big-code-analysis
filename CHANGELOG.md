@@ -281,6 +281,16 @@ changes are marked with **(breaking)** in the entries below.
   volume, and all derived metrics for code that uses interpolated
   strings idiomatically are now correspondingly lower
   ([#180](https://github.com/dekobon/big-code-analysis/issues/180)).
+- Halstead operand counts for C# `$"..."` interpolated strings no
+  longer double-count the inner identifiers. The
+  `InterpolatedStringExpression` wrapper is removed from
+  `CsharpCode::get_op_type`'s operand arm — it is structurally
+  always interpolated, so the inner `Interpolation` children already
+  contribute their identifiers as operands. `is_string` (for the LOC
+  comment/code classifier) is unchanged. C# `linq.cs` / `strings.cs`
+  integration snapshots refresh with lower `n2` / `N2` / volume /
+  effort and slightly higher MI
+  ([#183](https://github.com/dekobon/big-code-analysis/issues/183)).
 - Makefile `EXCLUDE_DIRS` no longer glob-expands the `tree-sitter-*`
   entry into absolute paths at recipe-execution time, which had
   silently neutered `make markdown-lint`, `make shellcheck`,

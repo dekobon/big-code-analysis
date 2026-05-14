@@ -655,19 +655,17 @@ impl Getter for CsharpCode {
             // Predefined / primitive types
             | PredefinedType
                 => HalsteadType::Operator,
-            // Operands: identifiers and literals. NOTE:
-            // `InterpolatedStringExpression` carries the same
-            // double-count pattern that #180 fixed for Elixir/Bash —
-            // the wrapper is classified here while its `Interpolation`
-            // child is walked separately and contributes inner
-            // identifiers as operands too. Fixing it cleanly requires
-            // refreshing the `csharp/*.cs.snap` integration snapshots
-            // in the `big-code-analysis-output` submodule; tracked
-            // separately as #183.
+            // Operands: identifiers and literals. `InterpolatedStringExpression`
+            // is intentionally absent — it is structurally always
+            // interpolated (`$"..."` always wraps one or more
+            // `Interpolation` children whose inner identifiers are
+            // already walked and classified as operands). Counting the
+            // wrapping expression here would double-count the inner
+            // identifiers' contribution to `N2` (issue #183, same
+            // pattern as #180 for Elixir/Bash).
             Identifier | GenericName | QualifiedName | AliasQualifiedName
             | IntegerLiteral | RealLiteral | BooleanLiteral | NullLiteral | True | False
             | CharacterLiteral | StringLiteral | VerbatimStringLiteral | RawStringLiteral
-            | InterpolatedStringExpression
                 => HalsteadType::Operand,
             _ => HalsteadType::Unknown,
         }
