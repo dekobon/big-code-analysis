@@ -87,6 +87,15 @@ changes are marked with **(breaking)** in the entries below.
 
 ### Added
 
+- Support for Elixir source files (`.ex`, `.exs`) via
+  [`tree-sitter-elixir`](https://crates.io/crates/tree-sitter-elixir)
+  `=0.3.5`. Real implementations for `Halstead`, `Loc`, `Cyclomatic`,
+  and `Exit`; remaining metric traits use default impls. Branching
+  constructs (`if`/`unless`/`for`/`while`/`with`/`case`/`cond`)
+  surface as `Call` nodes with text-keyed targets, so cyclomatic
+  detects only constructs with grammar-level kinds: short-circuit
+  booleans (`&&`, `||`, `and`, `or`), `stab_clause` arms in
+  `case`/`cond`/`fn`/`with-else`, and `rescue`/`catch` blocks.
 - Full binary-release pipeline (`.github/workflows/release.yml`) plus
   packaging skeletons under `packaging/`. Tagging `vX.Y.Z` on `main`
   runs preflight (tag/CHANGELOG/version-parity gates), builds release
