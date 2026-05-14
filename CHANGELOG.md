@@ -100,6 +100,23 @@ changes are marked with **(breaking)** in the entries below.
 
 ### Added
 
+- `--exclude-tests` CLI flag (and `MetricsCfg::options.exclude_tests`
+  library option) elides Rust `#[test]` / `#[cfg(test)]` /
+  `#[cfg(all(test, ...))]` / `#[cfg(any(test, ...))]` and common
+  test-framework attributes (`#[tokio::test]`, `#[async_std::test]`,
+  `#[rstest]`, `#[test_log::test]`, `#[wasm_bindgen_test]`,
+  `#[test_case]`) from metric computation, plus `mod` items carrying
+  outer `#[cfg(test)]` or inner `#![cfg(test)]` attributes. The skip
+  is implemented as a new `Checker::should_skip_subtree(node, code)`
+  trait method (default `false`, backward-compatible — only
+  `RustCode` overrides; non-Rust languages are unaffected) and runs
+  upstream of every per-metric `compute` call so Halstead, Cyclomatic,
+  Cognitive, LOC, NOM, WMC, ABC, NPA, NPM, Exit, NArgs, and the
+  derived Maintainability Index all benefit from the same gate.
+  Default is OFF (tests still counted) to preserve existing numeric
+  output for downstream library consumers; the issue author's
+  recommendation to flip the default is left for a follow-up
+  ([#182](https://github.com/dekobon/big-code-analysis/issues/182)).
 - Support for Elixir source files (`.ex`, `.exs`) via
   [`tree-sitter-elixir`](https://crates.io/crates/tree-sitter-elixir)
   `=0.3.5`. Real implementations for `Halstead`, `Loc`, `Cyclomatic`,
