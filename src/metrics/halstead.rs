@@ -1355,6 +1355,68 @@ f() {
     }
 
     #[test]
+    fn elixir_interpolated_charlist_no_double_count() {
+        // Charlists mirror strings and sigils under #180. The
+        // `E::String | E::Charlist | E::Sigil` arm in `get_op_type`
+        // skips any wrapping literal that has an `Interpolation`
+        // child; this test exercises the `Charlist` branch
+        // specifically.
+        //
+        // expected: for `def f(name) do\n  cl = 'Hi #{name}'\nend\n` —
+        // `def`, `f`, `name` (param), `cl`, and the inner `name`
+        // (inside `#{...}`). With the fix, the wrapping
+        // `'Hi #{name}'` is skipped → u_operands = 4 (def, f, name,
+        // cl), N2 = 5 (`name` twice).
+        check_metrics::<ElixirParser>(
+            "def f(name) do\n  cl = 'Hi #{name}'\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.halstead.u_operands(), 4.0);
+                assert_eq!(metric.halstead.operands(), 5.0);
+            },
+        );
+    }
+
+    #[test]
+    fn bash_all_expansion_kinds_skip_wrapper() {
+        // Exercises every node kind tested by
+        // `bash_string_has_expansion`: `simple_expansion` (`$v`),
+        // `expansion` (`${v[0]}`), `command_substitution` (`$(date)`),
+        // and `arithmetic_expansion` (`$((1+2))`). A typo replacing
+        // one kind with an aliased neighbour in `language_bash.rs`
+        // (e.g., `ExpansionBody` instead of `Expansion`) would leave
+        // the corresponding wrapping string counted as an operand and
+        // shift the totals.
+        //
+        // expected: operands across the four lines —
+        //   line 1 `a="$v"`: var_name `a`, simple_expansion `$v`,
+        //     inner var_name `v` (wrapper skipped) → 3
+        //   line 2 `b="${v[0]}"`: var_name `b`, var_name `v` (inside
+        //     subscript), number `0` (wrapper skipped, `expansion`
+        //     itself is not in the operand list) → 3
+        //   line 3 `c="$(date)"`: var_name `c`, command_name `date`
+        //     (wrapper skipped, `command_substitution` not in operand
+        //     list) → 2
+        //   line 4 `d="$((1+2))"`: var_name `d`, numbers `1` and `2`
+        //     (wrapper skipped, `arithmetic_expansion` not in operand
+        //     list) → 3
+        // Unique operands (`v` shared across lines 1 and 2): a, b, c,
+        // d, $v, v, 0, date, 1, 2 → 10. Total occurrences: 12 (`v`
+        // appears twice). Operators include `=` four times plus the
+        // `${`, `}`, `$(`, `)`, `$((`, `))`, `[`, `]`, `+` punctuation.
+        check_metrics::<BashParser>(
+            "a=\"$v\"\nb=\"${v[0]}\"\nc=\"$(date)\"\nd=\"$((1+2))\"\n",
+            "foo.sh",
+            |metric| {
+                assert_eq!(metric.halstead.u_operators(), 6.0);
+                assert_eq!(metric.halstead.operators(), 9.0);
+                assert_eq!(metric.halstead.u_operands(), 10.0);
+                assert_eq!(metric.halstead.operands(), 12.0);
+            },
+        );
+    }
+
+    #[test]
     fn tcl_operators_and_operands() {
         check_metrics::<TclParser>(
             "proc f {a b} {
