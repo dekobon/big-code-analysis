@@ -38,12 +38,22 @@ macro_rules! implement_metric_trait {
            }
         )+
     );
-    (Exit, $($code:ident),+) => (
+    // Internal helper: shared no-op body for traits whose `compute`
+    // signature is `<'a>(&Node<'a>, &'a [u8], &mut Stats)` (Exit,
+    // Cyclomatic). Public arms below delegate here so the body is
+    // written once.
+    (@code_taking $trait:ident, $($code:ident),+) => (
         $(
-           impl Exit for $code {
+           impl $trait for $code {
                fn compute<'a>(_node: &Node<'a>, _code: &'a [u8], _stats: &mut Stats) {}
            }
         )+
+    );
+    (Exit, $($code:ident),+) => (
+        implement_metric_trait!(@code_taking Exit, $($code),+);
+    );
+    (Cyclomatic, $($code:ident),+) => (
+        implement_metric_trait!(@code_taking Cyclomatic, $($code),+);
     );
     (Loc, $($code:ident),+) => (
         $(

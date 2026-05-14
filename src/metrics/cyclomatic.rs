@@ -209,11 +209,17 @@ where
 {
     /// Walk `node` and update `stats` with this metric for the language
     /// implementing the trait.
-    fn compute(node: &Node, stats: &mut Stats);
+    ///
+    /// `code` is the source bytes the node spans, so that languages
+    /// whose branching constructs surface as untyped `Call` nodes
+    /// (Elixir's `if`/`unless`/`for`/`while`/`with`/`case`/`cond`,
+    /// for example) can identify them by inspecting the call target's
+    /// text. Most languages discard the parameter with `_`.
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats);
 }
 
 impl Cyclomatic for PythonCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Python::*;
 
         // Python's `match`/`case` (3.10+) is intentionally not counted in
@@ -244,7 +250,7 @@ impl Cyclomatic for PythonCode {
 macro_rules! impl_cyclomatic_c_family {
     ($code:ty, $lang:ident, $ternary:ident) => {
         impl Cyclomatic for $code {
-            fn compute(node: &Node, stats: &mut Stats) {
+            fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
                 use $lang::*;
                 match node.kind_id().into() {
                     Case => stats.cyclomatic += 1.,
@@ -266,7 +272,7 @@ impl_cyclomatic_c_family!(TypescriptCode, Typescript, TernaryExpression);
 impl_cyclomatic_c_family!(TsxCode, Tsx, TernaryExpression);
 
 impl Cyclomatic for RustCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Rust::*;
 
         match node.kind_id().into() {
@@ -311,7 +317,7 @@ impl Cyclomatic for RustCode {
 impl_cyclomatic_c_family!(CppCode, Cpp, ConditionalExpression);
 
 impl Cyclomatic for JavaCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Java::*;
 
         match node.kind_id().into() {
@@ -334,7 +340,7 @@ impl Cyclomatic for JavaCode {
 }
 
 impl Cyclomatic for CsharpCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Csharp::*;
 
         match node.kind_id().into() {
@@ -369,7 +375,7 @@ impl Cyclomatic for CsharpCode {
 }
 
 impl Cyclomatic for GoCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         // Aliased because `Go::Go` (the `go` keyword variant) collides with
         // the bare enum name in pattern position under `use Go::*;`.
         use Go as G;
@@ -395,7 +401,7 @@ impl Cyclomatic for GoCode {
 }
 
 impl Cyclomatic for PerlCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Perl as P;
 
         match node.kind_id().into() {
@@ -427,7 +433,7 @@ impl Cyclomatic for PerlCode {
 }
 
 impl Cyclomatic for KotlinCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Kotlin::*;
 
         match node.kind_id().into() {
@@ -451,7 +457,7 @@ impl Cyclomatic for KotlinCode {
 }
 
 impl Cyclomatic for LuaCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         match node.kind_id().into() {
             Lua::IfStatement
             | Lua::ElseifStatement
@@ -469,7 +475,7 @@ impl Cyclomatic for LuaCode {
 }
 
 impl Cyclomatic for PhpCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Php::*;
 
         match node.kind_id().into() {
@@ -509,40 +515,68 @@ impl Cyclomatic for PhpCode {
 implement_metric_trait!(Cyclomatic, PreprocCode, CcommentCode);
 
 impl Cyclomatic for ElixirCode {
-    // Elixir's `if`/`unless`/`for`/`while`/`with`/`case`/`cond` constructs
-    // are ordinary `Call` nodes whose target is an `Identifier`; the
-    // trait does not get the source bytes, so we cannot inspect the
-    // identifier text here. We count what surfaces as a distinct
-    // `kind_id`:
-    //   - short-circuit booleans (`&&`, `||`, `and`, `or`)
-    //   - `stab_clause` arms (case/cond/with arms, multi-clause
-    //     anonymous functions)
-    //   - `rescue`/`catch` exception handlers (try/rescue/catch)
-    // The headline under-count is plain `if`/`unless` (which add no
-    // arms): they will report 0 cyclomatic. FIXME(#179): once
-    // `Cyclomatic::compute` accepts the source bytes, distinguish
-    // those Call targets and add `+1` per occurrence.
-    fn compute(node: &Node, stats: &mut Stats) {
+    // Elixir's control-flow constructs are not distinct grammar
+    // productions: `if`/`unless`/`for`/`while`/`with`/`case`/`cond`/`try`
+    // all surface as `Call` nodes whose `target` field is an
+    // `Identifier` whose text spells the keyword. We must consult the
+    // source bytes (mirroring `impl Exit for ElixirCode`) to identify
+    // them.
+    //
+    // The split between standard and modified CCN mirrors the C-family
+    // case/switch treatment: per-arm `stab_clause` nodes contribute
+    // standard, while the multi-arm container Calls (`case`/`cond`/
+    // `with`/`try`) contribute modified. Single-branch keyword Calls
+    // (`if`/`unless`/`for`/`while`) contribute to both. Short-circuit
+    // booleans (`&&`, `||`, `and`, `or`) contribute to both.
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
         use Elixir as E;
 
-        if matches!(
-            node.kind_id().into(),
-            E::AMPAMP
-                | E::PIPEPIPE
-                | E::And
-                | E::Or
-                | E::StabClause
-                | E::RescueBlock
-                | E::CatchBlock
-        ) {
-            stats.cyclomatic += 1.;
-            stats.cyclomatic_modified += 1.;
+        match node.kind_id().into() {
+            // Per-arm decisions: each `stab_clause` is one arm of a
+            // `case`/`cond`/`with`/anonymous-fn body or a `rescue`/
+            // `catch` handler. Standard-only — modified counts the
+            // container Call once.
+            E::StabClause => {
+                stats.cyclomatic += 1.;
+            }
+            // Short-circuit booleans add a decision point in both
+            // metrics.
+            E::AMPAMP | E::PIPEPIPE | E::And | E::Or => {
+                stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
+            }
+            E::Call => {
+                if let Some(target) = node.child_by_field_name("target")
+                    && target.kind_id() == E::Identifier
+                    && let Some(name) = target.utf8_text(code)
+                {
+                    match name {
+                        // Single-branch constructs: count for both.
+                        // There are no per-arm `stab_clause`s exposing
+                        // themselves separately, so the Call itself
+                        // must carry the decision point.
+                        "if" | "unless" | "for" | "while" => {
+                            stats.cyclomatic += 1.;
+                            stats.cyclomatic_modified += 1.;
+                        }
+                        // Multi-arm containers: count once for modified
+                        // (the container collapses to a single decision).
+                        // Per-arm `stab_clause`s already contribute to
+                        // standard above.
+                        "case" | "cond" | "with" | "try" => {
+                            stats.cyclomatic_modified += 1.;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
         }
     }
 }
 
 impl Cyclomatic for BashCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         match node.kind_id().into() {
             // Standard-only: individual case arms (matches C-family `case:`
             // treatment — only arms contribute, not the container).
@@ -571,7 +605,7 @@ impl Cyclomatic for BashCode {
 }
 
 impl Cyclomatic for TclCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         match node.kind_id().into() {
             Tcl::If
             | Tcl::Elseif
@@ -3031,18 +3065,22 @@ f() {
         );
     }
 
-    // Elixir's `case`/`cond`/`with`/`fn` arms surface as `stab_clause`
-    // nodes, which are the *only* branching construct we can detect
-    // without inspecting source-text identifiers. A three-arm `case`
-    // yields three stab clauses; +1 entry path gives cyc=4.
+    // `case`/`cond`/`with` arms surface as `stab_clause` nodes and
+    // contribute to standard CCN, mirroring the C-family `case:` arm
+    // treatment. The container Call (`case`) contributes once to
+    // modified CCN, collapsing arms back to a single decision point.
+    // A three-arm `case`: 3 stabs + 1 entry = standard 4, 1 case-Call
+    // + 1 entry = modified 2.
     #[test]
     fn elixir_case_arms() {
         check_metrics::<ElixirParser>(
             "defmodule Foo do\n  def classify(x) do\n    case x do\n      1 -> :one\n      2 -> :two\n      _ -> :other\n    end\n  end\nend\n",
             "foo.ex",
             |metric| {
-                // 3 stab clauses + 1 (entry path) = cyc 4
+                // standard: 3 stab clauses + 1 (entry path) = 4
+                // modified: 1 case Call + 1 (entry path) = 2
                 assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 2.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r###"
@@ -3052,10 +3090,10 @@ f() {
                   "min": 4.0,
                   "max": 4.0,
                   "modified": {
-                    "sum": 4.0,
-                    "average": 4.0,
-                    "min": 4.0,
-                    "max": 4.0
+                    "sum": 2.0,
+                    "average": 2.0,
+                    "min": 2.0,
+                    "max": 2.0
                   }
                 }"###
                 );
@@ -3095,31 +3133,33 @@ f() {
         );
     }
 
-    // `rescue`/`catch` clauses inside `try/rescue/catch/end` count as
-    // branches. Inside each clause, the matched pattern is its own
-    // `stab_clause` — so a single-arm rescue adds `+2` (the block
-    // wrapper and its single stab arm).
+    // `try`/`rescue`/`catch` is a multi-arm container Call: the `try`
+    // Call contributes once to modified CCN, while each rescue/catch
+    // arm's matched pattern (a `stab_clause`) contributes once to
+    // standard CCN. This mirrors C-family `try`/`catch` semantics.
     #[test]
     fn elixir_try_rescue() {
         check_metrics::<ElixirParser>(
             "defmodule Foo do\n  def safe do\n    try do\n      do_it()\n    rescue\n      ArgumentError -> :bad\n    end\n  end\nend\n",
             "foo.ex",
             |metric| {
-                // rescue block (+1) + its stab clause (+1) + 1 entry = cyc 3
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
+                // standard: 1 rescue stab clause + 1 entry = 2
+                // modified: 1 try Call + 1 entry = 2
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 2.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r###"
                 {
-                  "sum": 3.0,
-                  "average": 3.0,
-                  "min": 3.0,
-                  "max": 3.0,
+                  "sum": 2.0,
+                  "average": 2.0,
+                  "min": 2.0,
+                  "max": 2.0,
                   "modified": {
-                    "sum": 3.0,
-                    "average": 3.0,
-                    "min": 3.0,
-                    "max": 3.0
+                    "sum": 2.0,
+                    "average": 2.0,
+                    "min": 2.0,
+                    "max": 2.0
                   }
                 }"###
                 );
@@ -3127,31 +3167,76 @@ f() {
         );
     }
 
-    // A function with no branching has the entry path alone → cyc=1.
-    // This pins the headline-wrong but documented behaviour for `if`
-    // calls: because `if x do ... end` surfaces as a `Call` we cannot
-    // distinguish from any other call without source-text inspection,
-    // it adds 0 here. FIXME(#179): once `Cyclomatic::compute` can
-    // read source bytes, count `if`/`unless`/`for`/`while`/`with`
-    // call targets.
+    // `if x do ... else ... end` surfaces as a `Call(target=if)`; the
+    // metric inspects the source text of the call's target field to
+    // identify it. Single-branch keyword Calls (`if`/`unless`/`for`/
+    // `while`) contribute to both standard and modified CCN.
     #[test]
-    fn elixir_if_call_not_counted_yet() {
+    fn elixir_if_else_counts() {
         check_metrics::<ElixirParser>(
             "defmodule Foo do\n  def f(x) do\n    if x > 0 do\n      :pos\n    else\n      :neg\n    end\n  end\nend\n",
             "foo.ex",
             |metric| {
-                // No branch detected; entry path only.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 1.0);
+                // 1 if Call + 1 entry = both standard and modified 2
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 2.0);
+            },
+        );
+    }
+
+    // `if x do ... end` without an `else` clause still surfaces as
+    // `Call(target=if)` and is counted identically to the if/else
+    // form — the `else` keyword is a do-block keyword argument, not
+    // an extra `stab_clause`, so its presence does not change the
+    // cyclomatic count.
+    #[test]
+    fn elixir_if_without_else_counts() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(x) do\n    if x > 0 do\n      :pos\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 2.0);
+            },
+        );
+    }
+
+    // `unless x do ... end` is the negated `if`; it surfaces as
+    // `Call(target=unless)` and is treated identically to `if`.
+    #[test]
+    fn elixir_unless_counts() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(x) do\n    unless x > 0 do\n      :nonpos\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 2.0);
+            },
+        );
+    }
+
+    // `for x <- list, do: ...` is Elixir's comprehension generator —
+    // a `Call(target=for)`. Counts once for both standard and
+    // modified, mirroring `if`/`unless`.
+    #[test]
+    fn elixir_for_comprehension_counts() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(xs) do\n    for x <- xs do\n      x * 2\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 2.0);
             },
         );
     }
 
     // `fn ... end` is its own function space (`get_space_kind` →
     // `Function`), so its cyclomatic gets its own `+1` entry path
-    // alongside the Unit's `+1`. Stab clauses inside count `+1` each
-    // because we cannot distinguish a 1-arm fn from a 1-arm case
-    // without source-text inspection. A two-arm `fn` therefore yields:
-    // 1 (Unit entry) + 1 (anon-fn entry) + 2 (stab clauses) = 4.
+    // alongside the Unit's `+1`. Each `stab_clause` arm contributes
+    // to standard CCN; the anon-fn itself is not a `Call`, so it
+    // does not add a modified-CCN container decision. A two-arm
+    // `fn` therefore yields: standard = 1 (Unit) + 1 (anon-fn) + 2
+    // stabs = 4; modified = 1 (Unit) + 1 (anon-fn) = 2.
     #[test]
     fn elixir_anonymous_fn_arms_count() {
         check_metrics::<ElixirParser>(
@@ -3159,37 +3244,44 @@ f() {
             "foo.ex",
             |metric| {
                 assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 2.0);
             },
         );
     }
 
-    // `cond do ... end` is the standard Elixir multi-way conditional;
-    // each clause is a `stab_clause`, so a three-clause `cond` adds
-    // three branches. Plus the unit's `+1` entry path → cyc=4.
+    // `cond do ... end` is the standard Elixir multi-way conditional.
+    // Each clause is a `stab_clause` (standard CCN), and the `cond`
+    // Call is a multi-arm container (modified CCN, once).
     #[test]
     fn elixir_cond_arms() {
         check_metrics::<ElixirParser>(
             "defmodule Foo do\n  def f(x) do\n    cond do\n      x < 0 -> :neg\n      x == 0 -> :zero\n      true -> :pos\n    end\n  end\nend\n",
             "foo.ex",
             |metric| {
+                // standard: 3 stabs + 1 entry = 4
+                // modified: 1 cond Call + 1 entry = 2
                 assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 2.0);
             },
         );
     }
 
     // `with` chains use `<-` arrows, which parse as `binary_operator`
-    // nodes — NOT `stab_clause`s — so they currently add 0 cyclomatic.
-    // The fallthrough `else` branch, when present, contains
-    // `stab_clause`s that DO count. This pins the documented gap.
+    // nodes — NOT `stab_clause`s — so the `with`-head clauses do not
+    // contribute to standard CCN per-arm. The fallthrough `else`
+    // branch, when present, contains `stab_clause`s that count for
+    // standard. The `with` Call itself is a multi-arm container Call
+    // that contributes once to modified CCN.
     #[test]
     fn elixir_with_else_only_counts_else_arms() {
         check_metrics::<ElixirParser>(
             "defmodule Foo do\n  def f(x) do\n    with {:ok, v} <- fetch(x),\n         {:ok, w} <- fetch(v) do\n      {:ok, w}\n    else\n      :error -> :nope\n      other -> {:bad, other}\n    end\n  end\nend\n",
             "foo.ex",
             |metric| {
-                // 2 else-block stab clauses + 1 entry path = cyc 3.
-                // The `<-` arrows in the `with` head are not counted.
+                // standard: 2 else-block stab clauses + 1 entry = 3
+                // modified: 1 with Call + 1 entry = 2
                 assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 2.0);
             },
         );
     }

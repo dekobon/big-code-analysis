@@ -398,7 +398,7 @@ pub fn metrics<'a, T: ParserTrait>(parser: &'a T, path: &'a Path) -> Option<Func
         if let Some(state) = state_stack.last_mut() {
             let last = &mut state.space;
             T::Cognitive::compute(&node, &mut last.metrics.cognitive, &mut nesting_map);
-            T::Cyclomatic::compute(&node, &mut last.metrics.cyclomatic);
+            T::Cyclomatic::compute(&node, code, &mut last.metrics.cyclomatic);
             T::Halstead::compute(&node, code, &mut state.halstead_maps);
             T::Loc::compute(&node, &mut last.metrics.loc, func_space, unit);
             T::Nom::compute(&node, &mut last.metrics.nom);
