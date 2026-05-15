@@ -6945,64 +6945,6 @@ EOF
 
     #[test]
     fn kotlin_loc_no_zero_blank() {
-        // Checks that the blank metric is not equal to 0 when there are some
-        // comments next to code lines. Mirrors rust_no_zero_blank.
-        check_metrics::<KotlinParser>(
-            "fun connectToUpdateServer() {
-              val pool = 0
-
-              val updateServer = -42
-              val isConnected = false
-              val currTry = 0
-              val numRetries = 10  // Number of IPC connection retries before
-                                    // giving up.
-              val numTries = 20    // Number of IPC connection tries before
-                                    // giving up.
-            }",
-            "foo.kt",
-            |metric| {
-                // Anchor the headline integer values; in particular
-                // `blank() > 0` is the contract this test's name advertises.
-                assert_eq!(metric.loc.sloc(), 11.0);
-                assert_eq!(metric.loc.ploc(), 8.0);
-                assert_eq!(metric.loc.cloc(), 4.0);
-                assert_eq!(metric.loc.blank(), 1.0);
-                insta::assert_json_snapshot!(
-                    metric.loc,
-                    @r###"
-                    {
-                      "sloc": 11.0,
-                      "ploc": 8.0,
-                      "lloc": 6.0,
-                      "cloc": 4.0,
-                      "blank": 1.0,
-                      "sloc_average": 5.5,
-                      "ploc_average": 4.0,
-                      "lloc_average": 3.0,
-                      "cloc_average": 2.0,
-                      "blank_average": 0.5,
-                      "sloc_min": 11.0,
-                      "sloc_max": 11.0,
-                      "cloc_min": 4.0,
-                      "cloc_max": 4.0,
-                      "ploc_min": 8.0,
-                      "ploc_max": 8.0,
-                      "lloc_min": 6.0,
-                      "lloc_max": 6.0,
-                      "blank_min": 1.0,
-                      "blank_max": 1.0
-                    }"###
-                );
-            },
-        );
-    }
-
-    #[test]
-    fn kotlin_loc_blank_zero_sanity() {
-        // Sanity: when the source has no blank lines, blank() must be 0.
-        // Preserves the no-blank coverage previously held by
-        // kotlin_loc_no_zero_blank before it was rewritten to assert the
-        // positive case its name advertises.
         check_metrics::<KotlinParser>(
             "fun f(): Int {
             val x = 1 // x
@@ -7016,6 +6958,7 @@ EOF
                 assert_eq!(metric.loc.lloc(), 3.0);
                 assert_eq!(metric.loc.cloc(), 2.0);
                 assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
             },
         );
     }
@@ -8264,80 +8207,6 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
     }
 
     #[test]
-    fn php_heredoc_loc() {
-        // Heredoc string literals (`<<<EOT … EOT;`) are syntactically a
-        // single PHP expression: the body lines between the start marker
-        // and end marker are data, not code. Only the surrounding
-        // assignment and `return` statements should contribute LLOC.
-        check_metrics::<PhpParser>(
-            "<?php
-function build_sql(): string {
-    $q = <<<SQL
-        SELECT *
-        FROM users
-        WHERE id = 1
-    SQL;
-    return $q;
-}",
-            "foo.php",
-            |metric| {
-                // expected: 9 source lines (no trailing newline = 9 sloc),
-                // all non-blank (ploc = 9). Two top-level statements in
-                // the function body — `$q = <<<SQL ... SQL;` and
-                // `return $q;` — give lloc = 2; the four heredoc body
-                // lines (header `<<<SQL`, three SQL rows, and the
-                // closing `SQL;` marker) are part of the surrounding
-                // expression statement and must not bump lloc.
-                assert_eq!(metric.loc.sloc(), 9.0);
-                assert_eq!(metric.loc.ploc(), 9.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
-                insta::assert_json_snapshot!(metric.loc);
-            },
-        );
-    }
-
-    #[test]
-    fn php_nowdoc_loc() {
-        // Nowdoc (single-quoted marker `<<<'SQL' … SQL;`) is the
-        // non-interpolating sibling of heredoc; the LLOC accounting
-        // must be identical (body content is data, not code).
-        //
-        // Note the PLOC / blank skew vs `php_heredoc_loc`: the
-        // tree-sitter-php grammar emits a different inner span for
-        // nowdoc bodies (no `string_value` covers the first body
-        // line), so one body line is counted as blank by the default
-        // PLOC pass even though the source is visually identical to
-        // the heredoc fixture. The headline LLOC = 2 — which is what
-        // this test was added to pin — is unchanged.
-        check_metrics::<PhpParser>(
-            "<?php
-function build_sql(): string {
-    $q = <<<'SQL'
-        SELECT *
-        FROM users
-        WHERE id = 1
-    SQL;
-    return $q;
-}",
-            "foo.php",
-            |metric| {
-                // expected: 9 source lines; lloc = 2 (the two top-level
-                // statements `$q = <<<'SQL' ... SQL;` and `return $q;`),
-                // ploc = 8 and blank = 1 reflect the nowdoc-vs-heredoc
-                // grammar span difference described above.
-                assert_eq!(metric.loc.sloc(), 9.0);
-                assert_eq!(metric.loc.ploc(), 8.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 1.0);
-                insta::assert_json_snapshot!(metric.loc);
-            },
-        );
-    }
-
-    #[test]
     fn elixir_blank() {
         // Two blank lines separate three top-level expressions.
         check_metrics::<ElixirParser>(
@@ -8825,5 +8694,411 @@ function build_sql(): string {
             assert_eq!(metric.loc.cloc(), 1.0);
             assert_eq!(metric.loc.blank(), 1.0);
         });
+    }
+
+    // -----------------------------------------------------------------
+    // Issue #195: nested-function/closure LLOC tests for 11 languages.
+    // Mirrors the prior art for Rust (`rust_function_in_loop_lloc`,
+    // `rust_closure_expression_lloc`), Mozjs (`mozjs_nested_function_loc`),
+    // Bash (`bash_nested_function_loc`), and TypeScript
+    // (`typescript_nested_functions_loc`, `tsx_nested_functions_loc`).
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn python_nested_def_lloc() {
+        // Nested `def`: the inner function declaration plus the outer
+        // body's `return inner()` are both LLOC; the outer `def` header
+        // and the inner `return 1` belong to their own function spaces.
+        check_metrics::<PythonParser>(
+            "def outer():\n    def inner():\n        return 1\n    return inner()\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn python_lambda_in_def_lloc() {
+        // `lambda x: x + 1` is an expression, not a Python `function_definition`,
+        // so it does not start a new function space. The two LLOC come from
+        // the assignment `f = lambda ...` and the `return f(2)` statement.
+        check_metrics::<PythonParser>(
+            "def outer():\n    f = lambda x: x + 1\n    return f(2)\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 3.0);
+                assert_eq!(metric.loc.ploc(), 3.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn java_local_class_in_method_lloc() {
+        // A `class` declared inside a method body produces its own function
+        // space, so the outer method's LLOC only sees `return new Local().v();`
+        // and the body of `v()` contributes the second LLOC.
+        check_metrics::<JavaParser>(
+            "class Foo {\n    int bar() {\n        class Local {\n            int v() { return 1; }\n        }\n        return new Local().v();\n    }\n}\n",
+            "foo.java",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 8.0);
+                assert_eq!(metric.loc.ploc(), 8.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn java_lambda_in_method_lloc() {
+        // Java lambdas are expressions; the two LLOC come from the
+        // `IntUnaryOperator f = x -> x + 1;` declaration and the
+        // `f.applyAsInt(3);` expression statement.
+        check_metrics::<JavaParser>(
+            "class Foo {\n    void bar() {\n        java.util.function.IntUnaryOperator f = x -> x + 1;\n        f.applyAsInt(3);\n    }\n}\n",
+            "foo.java",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 6.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_local_function_in_method_lloc() {
+        // C# local functions (`int Inner(int x) { ... }` inside `Bar()`)
+        // open their own function space, so the outer method sees only
+        // `return Inner(2);` plus the inner body's `return x + 1;`.
+        check_metrics::<CsharpParser>(
+            "class Foo {\n    int Bar() {\n        int Inner(int x) { return x + 1; }\n        return Inner(2);\n    }\n}\n",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 6.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_lambda_in_method_lloc() {
+        // C# lambdas are expressions: the two LLOC come from the
+        // `Func<int,int> f = x => x + 1;` declaration and the `f(3);` call.
+        check_metrics::<CsharpParser>(
+            "class Foo {\n    void Bar() {\n        System.Func<int, int> f = x => x + 1;\n        f(3);\n    }\n}\n",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 6.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_nested_function_lloc() {
+        // Nested function_declaration: 4 LLOC = outer's `return inner();`,
+        // inner's `return 1;`, plus the two function declarations
+        // themselves (the JS Checker counts function declarations as LLOC).
+        check_metrics::<JavascriptParser>(
+            "function outer() {\n    function inner() {\n        return 1;\n    }\n    return inner();\n}\n",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 6.0);
+                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_arrow_function_lloc() {
+        // The arrow function `(x) => x + 1` is an expression: the LLOC
+        // come from `const inner = ...;` and `return inner(2);`.
+        check_metrics::<JavascriptParser>(
+            "function outer() {\n    const inner = (x) => x + 1;\n    return inner(2);\n}\n",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_lambda_literal_in_fun_lloc() {
+        // A lambda literal (`{ x -> x + 1 }`) assigned to a `val` plus the
+        // following call yields two LLOC at the outer function.
+        check_metrics::<KotlinParser>(
+            "fun outer() {\n    val f: (Int) -> Int = { x -> x + 1 }\n    f(3)\n}\n",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_local_fun_in_fun_lloc() {
+        // Kotlin's local `fun inner(...)` is also a function_declaration,
+        // so it opens its own space; the outer LLOC reduces to `inner(3)`,
+        // and the inner body contributes the second LLOC.
+        check_metrics::<KotlinParser>(
+            "fun outer() {\n    fun inner(x: Int): Int { return x + 1 }\n    inner(3)\n}\n",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_object_expression_in_fun_lloc() {
+        // An `object : Runnable { ... }` expression with an overridden
+        // method whose body invokes `println("hi")`. LLOC: `val r = ...`,
+        // the override's body call, and the outer `r.run()` call = 3.
+        check_metrics::<KotlinParser>(
+            "fun outer() {\n    val r = object : Runnable { override fun run() { println(\"hi\") } }\n    r.run()\n}\n",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn go_function_literal_initializer_lloc() {
+        // `inner := func(x int) int { return x + 1 }` — the function
+        // literal opens its own space; LLOC visible on the outer space:
+        // the assignment + `return inner(2)` = 2, plus the literal's
+        // `return x + 1` body = 3 aggregated.
+        check_metrics::<GoParser>(
+            "package main\nfunc outer() int {\n    inner := func(x int) int { return x + 1 }\n    return inner(2)\n}\n",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 5.0);
+                assert_eq!(metric.loc.ploc(), 5.0);
+                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn php_anonymous_function_in_function_lloc() {
+        // Anonymous function `function ($x) { return $x + 1; }`: outer
+        // sees the assignment + `return $f(2);`, the closure body adds
+        // `return $x + 1;` for 3 LLOC aggregated.
+        check_metrics::<PhpParser>(
+            "<?php\nfunction outer() {\n    $f = function ($x) { return $x + 1; };\n    return $f(2);\n}\n",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 5.0);
+                assert_eq!(metric.loc.ploc(), 5.0);
+                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn php_arrow_function_in_function_lloc() {
+        // The `fn ($x) => $x + 1` arrow function is an expression; the
+        // outer function sees only its assignment and the `return $f(2);`.
+        check_metrics::<PhpParser>(
+            "<?php\nfunction outer() {\n    $f = fn ($x) => $x + 1;\n    return $f(2);\n}\n",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 5.0);
+                assert_eq!(metric.loc.ploc(), 5.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_nested_local_function_lloc() {
+        // Two nested `local function` declarations: outer + inner both
+        // count as `function_declaration` LLOC, plus the two `return`
+        // statements = 4 aggregated.
+        check_metrics::<LuaParser>(
+            "local function outer()\n    local function inner()\n        return 1\n    end\n    return inner()\nend\n",
+            "foo.lua",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 6.0);
+                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_function_expression_in_local_decl_lloc() {
+        // `local f = function (x) return x + 1 end` — the function
+        // expression is its own space; aggregated LLOC: outer
+        // declaration, the inner expression's declaration, the inner
+        // `return x + 1`, and the outer `return f(2)` = 4.
+        check_metrics::<LuaParser>(
+            "local function outer()\n    local f = function (x) return x + 1 end\n    return f(2)\nend\n",
+            "foo.lua",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_apply_closure_lloc() {
+        // `apply $f 2` is a regular Tcl command, not a separate function
+        // space — tree-sitter-tcl does not model `apply { ... }` as a
+        // closure construct distinct from any other command. We assert
+        // the observed LLOC (proc, set, apply, plus the nested `expr`
+        // command substitution inside the lambda body) so any future
+        // change to lambda-body counting is caught here.
+        check_metrics::<TclParser>(
+            "proc outer {} {\n    set f [list x {return [expr {$x + 1}]}]\n    apply $f 2\n}\n",
+            "foo.tcl",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_anonymous_sub_in_sub_lloc() {
+        // Anonymous sub `sub { ... }` opens its own function space; the
+        // outer LLOC counts the `my $f = ...;` declaration plus
+        // `return $f->(2);`, and the anonymous sub contributes
+        // `return $_[0] + 1;` for 2 LLOC.
+        //
+        // NOTE: a prior LLOC for this construct exists as
+        // `perl_lloc_anonymous_function` (top-level form) — this test
+        // asserts the same shape *inside* another sub, exercising space
+        // nesting.
+        check_metrics::<PerlParser>(
+            "sub outer {\n    my $f = sub { return $_[0] + 1 };\n    return $f->(2);\n}\n",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_named_sub_in_sub_lloc() {
+        // Perl `sub` declarations are not LLOC (see
+        // `perl_lloc_function_definition_not_counted`); inside `outer`,
+        // only `return inner();` is LLOC, and `inner`'s `return 1` is in
+        // its own space contributing one more aggregated LLOC.
+        // Total aggregated LLOC: 1.
+        //
+        // Observation: lloc=1, not 2. Perl LLOC is anchored on `;`
+        // tokens whose parent is `SourceFile` or `Block` (see
+        // `PerlCode::compute` in this file). The bare `return 1` inside
+        // `sub inner { ... }` has no trailing `;`, so it does not bump
+        // LLOC. The outer `return inner();` carries the only SEMI.
+        // This is intentional Perl behaviour and not a bug — Perl
+        // requires `;` between statements; a single trailing statement
+        // before `}` is syntactically optional. Asserted as-is.
+        check_metrics::<PerlParser>(
+            "sub outer {\n    sub inner { return 1 }\n    return inner();\n}\n",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_fn_inside_def_lloc() {
+        // `fn x -> x + 1 end` inside a `def`: defmodule + def +
+        // `f = fn ...` + `f.(2)` = 4 own LLOC for the Unit space, plus
+        // the anonymous fn body `x + 1` = 1 nested, aggregated 5.
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def outer do\n    f = fn x -> x + 1 end\n    f.(2)\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 6.0);
+                assert_eq!(metric.loc.lloc(), 5.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
     }
 }
