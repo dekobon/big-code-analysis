@@ -472,3 +472,118 @@ f() {
     let offsets = BTreeMap::from([("java", JAVA_CLASS_OFFSET)]);
     assert_parity("single_if_no_else", &sums, &offsets);
 }
+
+// --- Family 5: 2-arm switch / match with wildcard / default ---------------
+//
+// One explicit arm plus a fallback (`default:` in C-family, `_ =>` in
+// Rust). This is the canonical lesson-11 trigger: bug #106 had Rust
+// counting the bare `_ =>` while C-family `default:` was correctly
+// skipped, and the divergence was invisible until a parity test
+// existed. Family 1 already covers the 3-arm variant; this family
+// adds the minimal 2-arm form so the test catches both an
+// over-count of the wildcard *and* an under-count of the explicit
+// arm.
+//
+// **Excluded — Python**: Python's `match` statement (PEP 634)
+// currently contributes `0` decision points in `impl Cyclomatic for
+// PythonCode`. See #212.
+//
+// **Excluded — Bash**: Bash `case … esac` with two arms reports
+// `cyclomatic_sum` consistent with the post-#107 fix but
+// `cyclomatic_max` retains a residual asymmetry tracked in #211.
+//
+// Per-language post-offset expectation: unit(1) + fn(1) + 1 arm = 3.
+
+#[test]
+fn two_arm_switch_with_wildcard_parity() {
+    let mut sums = BTreeMap::new();
+    sums.insert(
+        "rust",
+        ccn_sum(
+            LANG::Rust,
+            r#"fn f(x: u8) -> &'static str {
+    match x {
+        1 => "one",
+        _ => "other",
+    }
+}
+"#,
+            "rs",
+        ),
+    );
+    sums.insert(
+        "c",
+        ccn_sum(
+            LANG::Cpp,
+            r"void f(int x) {
+    switch (x) {
+        case 1: break;
+        default: break;
+    }
+}
+",
+            "c",
+        ),
+    );
+    sums.insert(
+        "java",
+        ccn_sum(
+            LANG::Java,
+            r"class Parity {
+    static void f(int x) {
+        switch (x) {
+            case 1: break;
+            default: break;
+        }
+    }
+}
+",
+            "java",
+        ),
+    );
+    sums.insert(
+        "javascript",
+        ccn_sum(
+            LANG::Javascript,
+            r"function f(x) {
+    switch (x) {
+        case 1: break;
+        default: break;
+    }
+}
+",
+            "js",
+        ),
+    );
+    sums.insert(
+        "typescript",
+        ccn_sum(
+            LANG::Typescript,
+            r"function f(x: number) {
+    switch (x) {
+        case 1: break;
+        default: break;
+    }
+}
+",
+            "ts",
+        ),
+    );
+    sums.insert(
+        "php",
+        ccn_sum(
+            LANG::Php,
+            r"<?php
+function f($x) {
+    switch ($x) {
+        case 1: break;
+        default: break;
+    }
+}
+",
+            "php",
+        ),
+    );
+    let offsets = BTreeMap::from([("java", JAVA_CLASS_OFFSET)]);
+    assert_parity("two_arm_switch_with_wildcard", &sums, &offsets);
+}
