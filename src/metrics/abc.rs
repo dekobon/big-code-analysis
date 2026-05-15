@@ -509,13 +509,7 @@ fn java_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 // metric is genuinely 0):
 //   - PreprocCode, CcommentCode: no executable code (comments /
 //     preprocessor lines only).
-//
-// Placeholders (the language HAS branches / conditions / assignments
-// but no impl exists yet). A smoke test under `mod tests` pins the
-// current 0 value with a TODO pointing at the follow-up issue; when
-// the real impl lands the test author must update it.
-//   - PerlCode, LuaCode, TclCode — see #208.
-implement_metric_trait!(Abc, PreprocCode, CcommentCode, PerlCode, LuaCode, TclCode);
+implement_metric_trait!(Abc, PreprocCode, CcommentCode);
 
 // TypeScript / TSX share the same expression / statement vocabulary; the
 // `ts_abc_compute!` macro expands the same token-level Fitzpatrick rules
@@ -1560,6 +1554,240 @@ impl Abc for ElixirCode {
             _ => {}
         }
     }
+}
+
+// Fitzpatrick's ABC rules adapted for Perl.
+//
+// - Assignments: every assignment operator token — plain `=` plus the
+//   compound forms `+=`, `-=`, `*=`, `/=`, `%=`, `**=`, `.=`, `x=`,
+//   `&=`, `|=`, `^=`, `<<=`, `>>=`, `&&=`, `||=`, `//=`, and the
+//   bitstring forms `&.=`, `|.=`, `^.=`. Each token fires exactly
+//   once per textual occurrence inside a `binary_expression`.
+// - Branches: every call expression dispatch — `call_expression_with_*`
+//   (bareword / spaced args / args-with-brackets / sub / variable /
+//   recursive) plus `method_invocation`. The grammar nests an inner
+//   `call_expression_with_bareword` (just the function name)
+//   underneath the wrapper kinds carrying argument lists, so we only
+//   count `CallExpressionWithBareword` when it stands on its own;
+//   when its parent is another call form, the outer wrapper has
+//   already contributed the branch.
+// - Conditions: numeric and string comparison operators (`==`, `!=`,
+//   `<`, `>`, `<=`, `>=`, `<=>`, `eq`, `ne`, `lt`, `gt`, `le`, `ge`,
+//   `cmp`, `=~`, `!~`), short-circuit / logical operators (`&&`,
+//   `||`, `//`, `and`, `or`, `xor`), the ternary operator
+//   (`TernaryExpression`), and each `elsif` / `else` clause of an
+//   `if` / `unless` statement. Bare predicates that have no
+//   comparison (e.g. `if ($x)`) are not separately counted; we let
+//   the comparison tokens carry the metric, mirroring the Bash /
+//   Python token-level approach.
+impl Abc for PerlCode {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+        use Perl as P;
+
+        match node.kind_id().into() {
+            // Plain `=` and every compound assignment operator. The
+            // grammar tokenises each operator separately, so one
+            // textual `+=` produces exactly one token and there is no
+            // double-counting via a wrapper.
+            P::EQ
+            | P::PLUSEQ
+            | P::DASHEQ
+            | P::STAREQ
+            | P::SLASHEQ
+            | P::PERCENTEQ
+            | P::STARSTAREQ
+            | P::DOTEQ
+            | P::XEQ
+            | P::AMPEQ
+            | P::PIPEEQ
+            | P::CARETEQ
+            | P::LTLTEQ
+            | P::GTGTEQ
+            | P::AMPAMPEQ
+            | P::PIPEPIPEEQ
+            | P::SLASHSLASHEQ
+            | P::AMPDOTEQ
+            | P::PIPEDOTEQ
+            | P::CARETDOTEQ => {
+                stats.assignments += 1.;
+            }
+            // Argument-bearing call wrappers always count.
+            P::CallExpressionWithSpacedArgs
+            | P::CallExpressionWithSub
+            | P::CallExpressionWithArgsWithBrackets
+            | P::CallExpressionWithVariable
+            | P::CallExpressionRecursive
+            | P::MethodInvocation => {
+                stats.branches += 1.;
+            }
+            // Bareword-only call (`shift`, `time`, …) — count only
+            // when this node is the outermost dispatch site. When the
+            // bareword sits inside one of the wrappers above, the
+            // outer node has already been counted and this child
+            // would double the branch tally.
+            P::CallExpressionWithBareword
+                if !node.parent().is_some_and(|p| {
+                    matches!(
+                        p.kind_id().into(),
+                        P::CallExpressionWithSpacedArgs
+                            | P::CallExpressionWithSub
+                            | P::CallExpressionWithArgsWithBrackets
+                            | P::CallExpressionWithVariable
+                            | P::CallExpressionRecursive
+                    )
+                }) =>
+            {
+                stats.branches += 1.;
+            }
+            // Numeric, string, and pattern-match comparison operators
+            // plus the spaceship / `cmp` three-way comparisons.
+            P::EQEQ | P::BANGEQ | P::LT | P::GT | P::LTEQ | P::GTEQ | P::LTEQGT
+            | P::Eq | P::Ne | P::Lt | P::Gt | P::Le | P::Ge | P::Cmp
+            | P::EQTILDE | P::BANGTILDE
+            // Short-circuit / logical operators (high- and low-
+            // precedence forms).
+            | P::AMPAMP | P::PIPEPIPE | P::SLASHSLASH
+            | P::And | P::Or | P::Xor
+            // Ternary `a ? b : c` and each `elsif` / `else` clause of
+            // an `if` / `unless` chain.
+            | P::TernaryExpression
+            | P::ElsifClause
+            | P::ElseClause => {
+                stats.conditions += 1.;
+            }
+            _ => {}
+        }
+    }
+}
+
+// Fitzpatrick's ABC rules adapted for Lua.
+//
+// - Assignments: every `assignment_statement` node. Lua has no
+//   compound assignment operators (`+=` and friends do not exist in
+//   the grammar), so the wrapper kind is the sole assignment node
+//   and there is no per-operator alternative to track. `local x = 1`
+//   wraps an `assignment_statement` under a `variable_declaration`,
+//   so initialisers count the same as later mutations.
+// - Branches: every `function_call`. The Lua grammar collapses
+//   `obj.method(args)`, `obj:method(args)`, and `f(args)` into the
+//   same `function_call` node, so one arm covers all dispatch forms.
+// - Conditions: comparison operators (`==`, `~=`, `<`, `>`, `<=`,
+//   `>=`), short-circuit operators (`and`, `or`), each elseif / else
+//   arm of an `if`. Lua has no ternary operator (`cond and a or b`
+//   is the idiom, captured by the `and` / `or` tokens above).
+impl Abc for LuaCode {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+        match node.kind_id().into() {
+            Lua::AssignmentStatement | Lua::AssignmentStatement2 => {
+                stats.assignments += 1.;
+            }
+            Lua::FunctionCall => {
+                stats.branches += 1.;
+            }
+            Lua::EQEQ
+            | Lua::TILDEEQ
+            | Lua::LT
+            | Lua::GT
+            | Lua::LTEQ
+            | Lua::GTEQ
+            | Lua::And
+            | Lua::Or
+            | Lua::ElseifStatement
+            | Lua::ElseStatement => {
+                stats.conditions += 1.;
+            }
+            _ => {}
+        }
+    }
+}
+
+// Names of Tcl commands that mutate a variable. Each invocation of
+// one of these commands counts as an assignment, not a branch — the
+// command is acting as an assignment operator, not as a generic
+// dispatch. The list is intentionally narrow: only commands that
+// every Tcl programmer recognises as primary mutators. Less-common
+// mutators (`dict set`, `array set`, `lset`, `regsub … name`) are
+// left as branches; treating them as assignments would require
+// inspecting the command's second word, and the additional
+// fidelity is not worth the complexity for the ABC magnitude.
+const TCL_ASSIGNMENT_COMMANDS: &[&[u8]] = &[b"incr", b"append", b"lappend"];
+
+// Fitzpatrick's ABC rules adapted for Tcl.
+//
+// - Assignments: every `set` production (`set name value`) plus
+//   every `command` whose first word is one of the recognised
+//   mutator commands in `TCL_ASSIGNMENT_COMMANDS`. Tcl has no
+//   assignment operators — variable mutation is always a command
+//   invocation, so we filter on the command name. The `set` form
+//   has its own grammar production (`Tcl::Set`) and counts directly
+//   without any source-text inspection.
+// - Branches: every other `command` node. Like Bash, `return` and
+//   `error` builtins parse as plain `command` nodes and count here
+//   too — Tcl treats every dispatch the same regardless of whether
+//   the command is a procedure call, a control-flow primitive, or a
+//   builtin. The grammar productions for `if`, `while`, `foreach`,
+//   etc. live separately from `command` and do not double-count.
+// - Conditions: numeric (`==`, `!=`, `<`, `>`, `<=`, `>=`) and
+//   string (`eq`, `ne`, `in`, `ni`) comparison tokens, short-circuit
+//   operators (`&&`, `||`), the ternary expression production, and
+//   each `elseif` / `else` clause of an `if`.
+impl Abc for TclCode {
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+        match node.kind_id().into() {
+            // The `set` production wraps `set name value` as a
+            // first-class node distinct from generic commands.
+            Tcl::Set => {
+                stats.assignments += 1.;
+            }
+            // Generic command: branch by default, assignment when
+            // the first word names a known mutator. The first word
+            // can be either a `simple_word` or a wrapped form; both
+            // surface their literal text via `utf8_text`.
+            Tcl::Command => {
+                if tcl_command_is_assignment(node, code) {
+                    stats.assignments += 1.;
+                } else {
+                    stats.branches += 1.;
+                }
+            }
+            Tcl::EQEQ
+            | Tcl::BANGEQ
+            | Tcl::LT
+            | Tcl::GT
+            | Tcl::LTEQ
+            | Tcl::GTEQ
+            | Tcl::Eq
+            | Tcl::Ne
+            | Tcl::In
+            | Tcl::Ni
+            | Tcl::AMPAMP
+            | Tcl::PIPEPIPE
+            | Tcl::TernaryExpr
+            | Tcl::Elseif
+            | Tcl::Else => {
+                stats.conditions += 1.;
+            }
+            _ => {}
+        }
+    }
+}
+
+// Returns true when the `command` node's first word is one of the
+// recognised Tcl assignment commands. The first word is the leftmost
+// non-comment child; we slice the source bytes directly using the
+// child node's byte range, which is robust to `simple_word` wrappers
+// and avoids depending on a particular grammar shape.
+fn tcl_command_is_assignment(node: &Node, code: &[u8]) -> bool {
+    let Some(first) = node.child(0) else {
+        return false;
+    };
+    let start = first.start_byte();
+    let end = first.end_byte();
+    if end > code.len() || start >= end {
+        return false;
+    }
+    let word = &code[start..end];
+    TCL_ASSIGNMENT_COMMANDS.contains(&word)
 }
 
 // Shared helper: if `node.child(idx)` is a parenthesised or `!`-prefixed
@@ -3886,12 +4114,6 @@ function f(int $a, int $b): int {
     // gate. Tag the follow-up issue in each test.
     // ---------------------------------------------------------------
 
-    fn assert_abc_default_zero(metric: &crate::CodeMetrics) {
-        assert_eq!(metric.abc.assignments_sum(), 0.0);
-        assert_eq!(metric.abc.branches_sum(), 0.0);
-        assert_eq!(metric.abc.conditions_sum(), 0.0);
-    }
-
 
 
 
@@ -3900,35 +4122,8 @@ function f(int $a, int $b): int {
 
 
 
-    // PLACEHOLDER #208: Perl `Abc` is unimplemented.
-    #[test]
-    fn perl_abc_placeholder_returns_zero() {
-        check_metrics::<PerlParser>(
-            "sub f { my ($a, $b) = @_; my $s = $a + $b; if ($s > 0) { foo($s); } }",
-            "foo.pl",
-            |metric| assert_abc_default_zero(&metric),
-        );
-    }
 
-    // PLACEHOLDER #208: Lua `Abc` is unimplemented.
-    #[test]
-    fn lua_abc_placeholder_returns_zero() {
-        check_metrics::<LuaParser>(
-            "function f(a, b) local s = a + b; if s > 0 then foo(s) end end",
-            "foo.lua",
-            |metric| assert_abc_default_zero(&metric),
-        );
-    }
 
-    // PLACEHOLDER #208: Tcl `Abc` is unimplemented.
-    #[test]
-    fn tcl_abc_placeholder_returns_zero() {
-        check_metrics::<TclParser>(
-            "proc f {a b} { set s [expr {$a + $b}]; if {$s > 0} { foo $s } }",
-            "foo.tcl",
-            |metric| assert_abc_default_zero(&metric),
-        );
-    }
 
     // --- Python ABC ---------------------------------------------------
 
@@ -5104,6 +5299,575 @@ function f(int $a, int $b): int {
                 assert_eq!(metric.abc.assignments_sum(), 7.0);
                 assert_eq!(metric.abc.branches_sum(), 2.0);
                 assert_eq!(metric.abc.conditions_sum(), 8.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    // ---------- Perl ABC tests ----------
+
+    #[test]
+    fn perl_empty_unit_zero() {
+        // Empty source produces zero ABC magnitude — pins the trait
+        // wiring without exercising any compute branch.
+        check_metrics::<PerlParser>("", "empty.pl", |metric| {
+            assert_eq!(metric.abc.assignments_sum(), 0.0);
+            assert_eq!(metric.abc.branches_sum(), 0.0);
+            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.abc);
+        });
+    }
+
+    #[test]
+    fn perl_plain_and_compound_assignments_count() {
+        // `my $x = 0` parses as a `binary_expression` with an `=`
+        // token, so the initialiser counts (Perl has no equivalent of
+        // the JS `const` initialiser-suppression rule). Each
+        // assignment operator token contributes one assignment:
+        // `=`, `=`, `+=`, `.=`, `**=` → A = 5. Two of those `=` come
+        // from the `my $x = 0` initialiser and the later `$x = 5`
+        // reassignment.
+        check_metrics::<PerlParser>(
+            "sub f { my $x = 0; $x = 5; $x += 2; $x .= \"a\"; $x **= 3; }",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 5.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_calls_are_branches() {
+        // `foo()` parses as `call_expression_with_args_with_brackets`
+        // wrapping an inner `call_expression_with_bareword(foo)`;
+        // `bar 1, 2` wraps `bar` likewise under spaced-args; `shift`
+        // appears as a standalone bareword. The bareword-inside-
+        // wrapper case must NOT double-count — only the outer wrapper
+        // contributes a branch. So B = 3 (foo, bar, shift), not 5.
+        check_metrics::<PerlParser>(
+            "sub f { foo(); bar 1, 2; my $a = shift; }",
+            "foo.pl",
+            |metric| {
+                // shift's `my $a = shift` initialiser contributes one
+                // assignment via the `=` token.
+                assert_eq!(metric.abc.assignments_sum(), 1.0);
+                assert_eq!(metric.abc.branches_sum(), 3.0);
+                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_method_invocation_counts_as_branch() {
+        // `$obj->method(...)` parses as `method_invocation`. Any
+        // arrow-dispatch counts as one branch regardless of how the
+        // arguments are passed.
+        check_metrics::<PerlParser>(
+            "sub f { my $obj = shift; $obj->run($x); $obj->ping; }",
+            "foo.pl",
+            |metric| {
+                // `my $obj = shift` → A=1, B=1 (shift bareword).
+                // `$obj->run($x)` and `$obj->ping` → 2 more branches.
+                assert_eq!(metric.abc.assignments_sum(), 1.0);
+                assert_eq!(metric.abc.branches_sum(), 3.0);
+                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_numeric_and_string_comparisons_count_conditions() {
+        // Numeric ops `==`, `!=`, `<`, `>`, `<=`, `>=`, `<=>` and
+        // string ops `eq`, `ne`, `lt`, `gt`, `le`, `ge`, `cmp` each
+        // fire once per token. The sample below uses one of each →
+        // C = 14. No assignments, no branches.
+        check_metrics::<PerlParser>(
+            "sub f {\n\
+                 my $r;\n\
+                 $r = $a == $b;\n\
+                 $r = $a != $b;\n\
+                 $r = $a <  $b;\n\
+                 $r = $a >  $b;\n\
+                 $r = $a <= $b;\n\
+                 $r = $a >= $b;\n\
+                 $r = $a <=> $b;\n\
+                 $r = $a eq $b;\n\
+                 $r = $a ne $b;\n\
+                 $r = $a lt $b;\n\
+                 $r = $a gt $b;\n\
+                 $r = $a le $b;\n\
+                 $r = $a ge $b;\n\
+                 $r = $a cmp $b;\n\
+             }",
+            "foo.pl",
+            |metric| {
+                // 15 `=` tokens: one declaration `my $r` (no `=`),
+                // then 14 `$r = …` plus there's no `=` in `my $r;`.
+                // Actually: `my $r;` has no `=`; the 14 `$r = …` are
+                // 14 `=` tokens. So A=14, C=14.
+                assert_eq!(metric.abc.assignments_sum(), 14.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 14.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_short_circuit_and_ternary_count_conditions() {
+        // `&&`, `||`, `//`, low-precedence `and`, `or`, `xor`, plus
+        // ternary `? :` each contribute one condition.
+        check_metrics::<PerlParser>(
+            "sub f {\n\
+                 my $r;\n\
+                 $r = $a && $b;\n\
+                 $r = $a || $b;\n\
+                 $r = $a // $b;\n\
+                 $r = $a and $b;\n\
+                 $r = $a or  $b;\n\
+                 $r = $a xor $b;\n\
+                 $r = $a ? 1 : 2;\n\
+             }",
+            "foo.pl",
+            |metric| {
+                // 7 `=` tokens (one per reassignment line).
+                assert_eq!(metric.abc.assignments_sum(), 7.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 7.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_elsif_and_else_count_conditions() {
+        // `if (… == …) { … } elsif (… < …) { … } else { … }` →
+        // 2 comparison tokens (`==`, `<`), plus `elsif_clause` and
+        // `else_clause` each + 1 → C = 4. Branches: 0 (only
+        // assignments). Assignments: just the `=` initialisers /
+        // reassignments — there are 4 here (`$x` init plus three
+        // `$x = …` reassigns).
+        check_metrics::<PerlParser>(
+            "sub f {\n\
+                 my $x = 0;\n\
+                 if ($a == $b) {\n\
+                     $x = 1;\n\
+                 } elsif ($a < $b) {\n\
+                     $x = 2;\n\
+                 } else {\n\
+                     $x = 3;\n\
+                 }\n\
+             }",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 4.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_regex_match_operators_count_conditions() {
+        // `=~` and `!~` are pattern-match operators; we count both
+        // as conditions because they evaluate the regex match in a
+        // boolean context.
+        check_metrics::<PerlParser>(
+            "sub f { my $s = shift; my $m = $s =~ /foo/; my $n = $s !~ /bar/; }",
+            "foo.pl",
+            |metric| {
+                // 3 `=` tokens, 0 branches except `shift` bareword.
+                assert_eq!(metric.abc.assignments_sum(), 3.0);
+                assert_eq!(metric.abc.branches_sum(), 1.0);
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_complex_function_abc() {
+        // Mixed program exercising every category. Computed
+        // expected:
+        //   Assignments: `my $i = 0` (1), `$i++` is a unary
+        //     increment — Perl's grammar emits `PLUSPLUS` not an `=`
+        //     operator, so it does NOT count under the operator-
+        //     token rule. The for-loop's `$i++` is similarly
+        //     uncounted.
+        //     Total A: 1 from `my $i = 0`, 1 from `$total += $i`
+        //     (the `+=` token) → A = 2.
+        //   Branches: `do_work($i)` → 1; `print "done\n"` is a
+        //     call_expression_with_spaced_args → 1; `return $total`
+        //     uses the `return` keyword not a call → 0. B = 2.
+        //   Conditions: `$i < 10` (`<`) → 1; `$i % 2 == 0` (`==`) →
+        //     1; `else_clause` → 1. C = 3.
+        check_metrics::<PerlParser>(
+            "sub run {\n\
+                 my $total = 0;\n\
+                 for (my $i = 0; $i < 10; $i++) {\n\
+                     if ($i % 2 == 0) {\n\
+                         do_work($i);\n\
+                     } else {\n\
+                         $total += $i;\n\
+                     }\n\
+                 }\n\
+                 print \"done\\n\";\n\
+                 return $total;\n\
+             }",
+            "foo.pl",
+            |metric| {
+                // `my $total = 0` is one `=`; `my $i = 0` is another
+                // `=`; `$total += $i` is one `+=`. Total = 3.
+                assert_eq!(metric.abc.assignments_sum(), 3.0);
+                assert_eq!(metric.abc.branches_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    // ---------- Lua ABC tests ----------
+
+    #[test]
+    fn lua_empty_unit_zero() {
+        check_metrics::<LuaParser>("", "empty.lua", |metric| {
+            assert_eq!(metric.abc.assignments_sum(), 0.0);
+            assert_eq!(metric.abc.branches_sum(), 0.0);
+            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.abc);
+        });
+    }
+
+    #[test]
+    fn lua_assignments_count_locals_and_plain() {
+        // `local x = 0` wraps an `assignment_statement` under a
+        // `variable_declaration`; the inner wrapper still counts.
+        // Multi-target assignment `a, b = 1, 2` is a single
+        // `assignment_statement` and contributes 1, NOT 2 — the
+        // wrapper is the unit of counting (matches the Python rule:
+        // one `Assignment` node, one assignment).
+        check_metrics::<LuaParser>(
+            "function f()\n\
+                 local x = 0\n\
+                 x = 1\n\
+                 local a, b = 1, 2\n\
+                 a, b = b, a\n\
+             end",
+            "foo.lua",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 4.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_calls_are_branches() {
+        // `print(x)`, `obj.m(x)`, `obj:m(x)`, `f(g(1))` — every
+        // call form is a `function_call` node. The nested
+        // `f(g(1))` counts as 2 branches (one per dispatch).
+        check_metrics::<LuaParser>(
+            "function r(x)\n\
+                 print(x)\n\
+                 obj.m(x)\n\
+                 obj:m(x)\n\
+                 return f(g(1))\n\
+             end",
+            "foo.lua",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                assert_eq!(metric.abc.branches_sum(), 5.0);
+                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_comparisons_and_boolean_ops_count_conditions() {
+        // Each comparison / logical operator token contributes one
+        // condition.
+        check_metrics::<LuaParser>(
+            "function f(a, b)\n\
+                 local r\n\
+                 r = a == b\n\
+                 r = a ~= b\n\
+                 r = a <  b\n\
+                 r = a >  b\n\
+                 r = a <= b\n\
+                 r = a >= b\n\
+                 r = a and b\n\
+                 r = a or  b\n\
+             end",
+            "foo.lua",
+            |metric| {
+                // 8 `r = …` reassignments, plus `local r` (no `=`).
+                assert_eq!(metric.abc.assignments_sum(), 8.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 8.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_elseif_and_else_count_conditions() {
+        // Each elseif / else arm of the if contributes one
+        // condition, mirroring the Python rule.
+        check_metrics::<LuaParser>(
+            "function f(x)\n\
+                 if x > 0 then\n\
+                     return 1\n\
+                 elseif x < 0 then\n\
+                     return -1\n\
+                 else\n\
+                     return 0\n\
+                 end\n\
+             end",
+            "foo.lua",
+            |metric| {
+                // Comparisons: `>`, `<` → 2; elseif_statement → 1;
+                // else_statement → 1. C = 4. No branches (no calls).
+                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_complex_function_abc() {
+        // Combines every category to pin the metric.
+        check_metrics::<LuaParser>(
+            "function run(n)\n\
+                 local total = 0\n\
+                 for i = 1, n do\n\
+                     if i % 2 == 0 then\n\
+                         do_work(i)\n\
+                     else\n\
+                         total = total + i\n\
+                     end\n\
+                 end\n\
+                 print(\"done\")\n\
+                 return total\n\
+             end",
+            "foo.lua",
+            |metric| {
+                // Assignments: `local total = 0` (1), `total = total + i` (1) → 2.
+                // Branches: `do_work(i)` (1), `print(\"done\")` (1) → 2.
+                // Conditions: `==` (1), `else_statement` (1) → 2.
+                assert_eq!(metric.abc.assignments_sum(), 2.0);
+                assert_eq!(metric.abc.branches_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    // ---------- Tcl ABC tests ----------
+
+    #[test]
+    fn tcl_empty_unit_zero() {
+        check_metrics::<TclParser>("", "empty.tcl", |metric| {
+            assert_eq!(metric.abc.assignments_sum(), 0.0);
+            assert_eq!(metric.abc.branches_sum(), 0.0);
+            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.abc);
+        });
+    }
+
+    #[test]
+    fn tcl_set_command_counts_assignment() {
+        // `set` has its own grammar production; each invocation is
+        // one assignment.
+        check_metrics::<TclParser>(
+            "proc f {} {\n\
+                 set x 1\n\
+                 set y 2\n\
+                 set x [expr {$x + $y}]\n\
+             }",
+            "foo.tcl",
+            |metric| {
+                // 3 `set` invocations → A=3. The inner `expr` is a
+                // sub-command (`command_substitution` + `expr_cmd`),
+                // not a `command` node, so it doesn't add a branch.
+                assert_eq!(metric.abc.assignments_sum(), 3.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_incr_append_lappend_count_assignment() {
+        // Variable-mutation commands (`incr`, `append`, `lappend`)
+        // are recognised by name and count as assignments, not
+        // branches.
+        check_metrics::<TclParser>(
+            "proc f {} {\n\
+                 set x 0\n\
+                 incr x\n\
+                 append s \"hi\"\n\
+                 lappend lst 1\n\
+             }",
+            "foo.tcl",
+            |metric| {
+                // `set` (1) + `incr` (1) + `append` (1) + `lappend`
+                // (1) → A=4. No branches, no conditions.
+                assert_eq!(metric.abc.assignments_sum(), 4.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_generic_commands_are_branches() {
+        // Anything that isn't `set` or a known mutator command
+        // counts as a branch — including builtins like `puts` and
+        // `return`.
+        check_metrics::<TclParser>(
+            "proc f {} {\n\
+                 puts \"hello\"\n\
+                 do_work 1 2\n\
+                 return 0\n\
+             }",
+            "foo.tcl",
+            |metric| {
+                // 3 commands, all branches.
+                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                assert_eq!(metric.abc.branches_sum(), 3.0);
+                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_comparisons_and_boolean_ops_count_conditions() {
+        // `expr` predicates expose comparison / logical tokens at
+        // the leaf level; each token contributes one condition.
+        check_metrics::<TclParser>(
+            "proc f {a b} {\n\
+                 set r [expr {$a == $b}]\n\
+                 set r [expr {$a != $b}]\n\
+                 set r [expr {$a <  $b}]\n\
+                 set r [expr {$a >  $b}]\n\
+                 set r [expr {$a <= $b}]\n\
+                 set r [expr {$a >= $b}]\n\
+                 set r [expr {$a eq $b}]\n\
+                 set r [expr {$a ne $b}]\n\
+                 set r [expr {$a && $b}]\n\
+                 set r [expr {$a || $b}]\n\
+             }",
+            "foo.tcl",
+            |metric| {
+                // 10 `set` assignments. Each `expr` predicate
+                // produces exactly one comparison/logical token.
+                assert_eq!(metric.abc.assignments_sum(), 10.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 10.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_ternary_counts_condition() {
+        // `$a ? $b : $c` inside an `expr` is one `ternary_expr`
+        // node → 1 condition.
+        check_metrics::<TclParser>(
+            "proc f {a b c} {\n\
+                 set r [expr {$a ? $b : $c}]\n\
+             }",
+            "foo.tcl",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 1.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_elseif_and_else_count_conditions() {
+        // `if` / `elseif` / `else` clause productions each
+        // contribute one condition. The leaf comparison inside the
+        // predicate is counted independently.
+        check_metrics::<TclParser>(
+            "proc f {x} {\n\
+                 if {$x > 0} {\n\
+                     return 1\n\
+                 } elseif {$x < 0} {\n\
+                     return -1\n\
+                 } else {\n\
+                     return 0\n\
+                 }\n\
+             }",
+            "foo.tcl",
+            |metric| {
+                // Branches: three `return` commands → 3.
+                // Conditions: `>` (1), `<` (1), `elseif` (1), `else`
+                // (1) → 4.
+                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                assert_eq!(metric.abc.branches_sum(), 3.0);
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_complex_function_abc() {
+        // Mixed program covering every category. Tcl's grammar
+        // re-parses braced content that looks command-shaped as a
+        // nested `command` node, which inflates the branch count
+        // relative to a naive read of the source — see breakdown.
+        check_metrics::<TclParser>(
+            "proc run {n} {\n\
+                 set total 0\n\
+                 for {set i 0} {$i < $n} {incr i} {\n\
+                     if {$i % 2 == 0} {\n\
+                         do_work $i\n\
+                     } else {\n\
+                         incr total $i\n\
+                     }\n\
+                 }\n\
+                 puts \"done\"\n\
+                 return $total\n\
+             }",
+            "foo.tcl",
+            |metric| {
+                // Assignments: `set total 0` (1), `set i 0` (1),
+                // `incr i` (1), `incr total $i` (1) → A = 4.
+                // Branches: the outer `for …` is one `command` node;
+                // the `{$i < $n}` predicate ALSO re-parses as a
+                // `command` node (tree-sitter-tcl treats braced
+                // predicates as nested commands at the pinned
+                // grammar version); plus `do_work $i`, `puts
+                // "done"`, and `return $total`. The for-loop body's
+                // `incr` and `incr total $i` are assignment commands
+                // and don't add branches. Total B = 5.
+                // Conditions: `==` (1) and `else` (1) → C = 2. The
+                // `<` inside `{$i < $n}` is NOT `Tcl::LT`: because
+                // that predicate re-parses as a `command`, the `<`
+                // is emitted as `simple_word`. Only `<` inside a
+                // real `expr` production becomes `Tcl::LT`.
+                assert_eq!(metric.abc.assignments_sum(), 4.0);
+                assert_eq!(metric.abc.branches_sum(), 5.0);
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );

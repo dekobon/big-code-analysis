@@ -3292,11 +3292,6 @@ mod tests {
     // fire and force a test update, which is the gate.
     // ---------------------------------------------------------------
 
-    fn assert_npa_default_zero(metric: &crate::CodeMetrics) {
-        assert_eq!(metric.npa.class_npa_sum(), 0.0);
-        assert_eq!(metric.npa.class_na_sum(), 0.0);
-    }
-
 
 
 
