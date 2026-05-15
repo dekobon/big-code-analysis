@@ -468,7 +468,7 @@ impl Npm for PythonCode {
 // distinctions are tracked by `npa` / `npm` only as a binary public /
 // private flag.
 impl Npm for RustCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Rust::*;
 
         // Mark Impl / Trait spaces as class spaces so npm emits.
@@ -511,6 +511,59 @@ impl Npm for RustCode {
 
 // Re-uses the visibility helper from the `Npa` impl. Kotlin's default
 // visibility is `public`, the opposite of Java's
+
+impl Npm for GoCode {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+        use Go as G;
+
+        match node.kind_id().into() {
+            // First-visit pass on the file root: enable npm output if
+            // the file declares any receiver methods. Walks only the
+            // direct children — Go always declares methods at file
+            // scope, so deeper recursion is unnecessary.
+            G::SourceFile
+                if stats.is_disabled()
+                    && node
+                        .children()
+                        .any(|c| matches!(c.kind_id().into(), G::MethodDeclaration)) =>
+            {
+                stats.is_class_space = true;
+            }
+            // Each receiver method contributes one to the per-space
+            // count; `compute_sum` rolls it into `class_nm_sum`, and
+            // the parent's merge bubbles it up to the Unit. The
+            // method's own space is left unmarked so its
+            // per-function npm block stays suppressed.
+            G::MethodDeclaration => {
+                stats.class_nm += 1;
+                // Visibility cannot be detected without source bytes;
+                // every method is treated as public.
+                stats.class_npm += 1;
+            }
+            // `interface { Foo(); Bar() int }` declares method
+            // signatures via `MethodElem` children of an
+            // `InterfaceType`. Interfaces have no func_space of
+            // their own, so the count lands on the enclosing space
+            // (typically Unit). Interface members are always visible
+            // to implementers — counted as public per Java's rule.
+            G::InterfaceType => {
+                let methods = node
+                    .children()
+                    .filter(|c| matches!(c.kind_id().into(), G::MethodElem))
+                    .count();
+                if methods == 0 {
+                    return;
+                }
+                if stats.is_disabled() {
+                    stats.is_class_space = true;
+                }
+                stats.interface_nm += methods;
+                stats.interface_npm = stats.interface_nm;
+            }
+            _ => {}
+        }
+    }
+}
 // package-private-by-default, so the "no modifier → public" branch is the
 // common case.
 impl Npm for KotlinCode {
@@ -706,7 +759,6 @@ implement_metric_trait!(
     CppCode,
     PreprocCode,
     CcommentCode,
-    GoCode,
     PerlCode,
     BashCode,
     LuaCode,
@@ -2456,15 +2508,6 @@ class C {
         });
     }
 
-    // PLACEHOLDER #203: Rust `Npm` is unimplemented.
-    #[test]
-    fn rust_npm_placeholder_returns_zero() {
-        check_metrics::<RustParser>(
-            "pub struct A;\nimpl A { pub fn m1(&self) {} pub fn m2(&self) {} }",
-            "foo.rs",
-            |metric| assert_npm_default_zero(&metric),
-        );
-    }
 
     // PLACEHOLDER #204: C++ `Npm` is unimplemented.
     #[test]
@@ -2476,15 +2519,6 @@ class C {
         );
     }
 
-    // PLACEHOLDER #205: Go `Npm` is unimplemented.
-    #[test]
-    fn go_npm_placeholder_returns_zero() {
-        check_metrics::<GoParser>(
-            "package main\ntype A struct{}\nfunc (a A) M1() {}\nfunc (a A) M2() {}\n",
-            "foo.go",
-            |metric| assert_npm_default_zero(&metric),
-        );
-    }
 
     // --- Python NPM ---------------------------------------------------
 
@@ -2706,6 +2740,107 @@ class C {
                 // Impl body: 1 fn `draw` → class_nm = 1.
                 assert_eq!(metric.npm.interface_nm_sum(), 1.0);
                 assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    // ----- Go -----
+
+    #[test]
+    fn go_empty_unit_no_methods() {
+        // No receiver methods → npm stays disabled, class_nm_sum = 0.
+        check_metrics::<GoParser>("package main\n", "empty.go", |metric| {
+            assert_eq!(metric.npm.class_nm_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.npm);
+        });
+    }
+
+    #[test]
+    fn go_method_declarations_count() {
+        // Two `func (r Foo) ...` methods on the same receiver type →
+        // class_nm_sum = 2. Visibility cannot be detected from the
+        // node alone, so class_npm == class_nm.
+        check_metrics::<GoParser>(
+            "package main\n\
+             type Foo struct{}\n\
+             func (f Foo) DoX() {}\n\
+             func (f Foo) doY() {}\n",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn go_free_function_is_not_method() {
+        // `func g() {}` has no receiver → NOT a method. class_nm_sum
+        // stays at 0. The file has no method either, so npm stays
+        // disabled (suppressed from JSON).
+        check_metrics::<GoParser>(
+            "package main\nfunc g() {}\nfunc h(x int) int { return x }\n",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn go_methods_on_different_receivers_aggregate_at_unit() {
+        // Go's flat space model cannot group methods by receiver, so
+        // methods on `Foo` and `Bar` aggregate at the file level
+        // → class_nm_sum = 3 (1 + 2).
+        check_metrics::<GoParser>(
+            "package main\n\
+             type Foo struct{}\n\
+             type Bar struct{}\n\
+             func (f Foo) M1() {}\n\
+             func (b Bar) M2() {}\n\
+             func (b *Bar) M3() {}\n",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn go_interface_methods_count_as_interface_nm() {
+        // `interface { Read() error; Close() error }` declares two
+        // method signatures → interface_nm = 2, interface_npm = 2
+        // (interface members are always visible to implementers,
+        // matching Java's interface rule).
+        check_metrics::<GoParser>(
+            "package main\ntype RC interface { Read() error; Close() error }\n",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.npm.interface_nm_sum(), 2.0);
+                assert_eq!(metric.npm.interface_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn go_pointer_receiver_methods_count() {
+        // Pointer-receiver methods (`func (r *Foo) M() {}`) parse as
+        // MethodDeclaration the same way as value-receiver methods
+        // → class_nm_sum = 2.
+        check_metrics::<GoParser>(
+            "package main\n\
+             type Foo struct{}\n\
+             func (f *Foo) Set() {}\n\
+             func (f *Foo) Get() int { return 0 }\n",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );

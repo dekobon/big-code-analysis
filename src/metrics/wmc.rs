@@ -279,6 +279,20 @@ impl Wmc for RubyCode {
     }
 }
 
+// Go WMC is intentionally a no-op. Go has no `class` syntactic
+// construct; methods are declared as `MethodDeclaration` nodes
+// attached to a receiver type that lives elsewhere as a `StructType`.
+// The Wmc trait signature receives only the per-space `SpaceKind` and
+// cyclomatic stats — it cannot tell which `Function` space corresponds
+// to a `MethodDeclaration` (receiver method) versus a free-standing
+// `FunctionDeclaration`, and the FuncSpace tree exposes no
+// per-receiver "class" space to attribute methods to. Implementing
+// Wmc correctly per the issue's "methods grouped by receiver = class"
+// rule would require either a new `SpaceKind::Struct` variant for Go
+// receiver methods or a richer trait signature, both of which are
+// out of scope. See the issue body's explicit option (a): "keep
+// scoring zero with a documented reason".
+
 // Default no-op `Wmc` impls. Audited in #188. See the rationale block
 // on `implement_metric_trait!(Npa, …)` in `src/metrics/npa.rs` — Wmc
 // classification mirrors Npa one-for-one (Wmc = sum-of-cyclomatic-
@@ -2282,15 +2296,6 @@ mod tests {
         );
     }
 
-    // PLACEHOLDER #203: Rust `Wmc` is unimplemented.
-    #[test]
-    fn rust_wmc_placeholder_returns_zero() {
-        check_metrics::<RustParser>(
-            "pub struct A;\nimpl A { pub fn m1(&self, x: i32) -> i32 { if x > 0 { x } else { 0 } } pub fn m2(&self, y: i32) -> i32 { y } }",
-            "foo.rs",
-            |metric| assert_wmc_default_zero(&metric),
-        );
-    }
 
     // PLACEHOLDER #204: C++ `Wmc` is unimplemented.
     #[test]
@@ -2302,15 +2307,6 @@ mod tests {
         );
     }
 
-    // PLACEHOLDER #205: Go `Wmc` is unimplemented.
-    #[test]
-    fn go_wmc_placeholder_returns_zero() {
-        check_metrics::<GoParser>(
-            "package main\ntype A struct{}\nfunc (a A) M1(x int) int { if x > 0 { return x }; return 0 }\nfunc (a A) M2(y int) int { return y }\n",
-            "foo.go",
-            |metric| assert_wmc_default_zero(&metric),
-        );
-    }
 
     // --- Python WMC ---------------------------------------------------
 
@@ -2513,6 +2509,33 @@ mod tests {
         check_metrics::<RustParser>(
             "fn f(x: i32) -> i32 { if x > 0 { 1 } else { 0 } }",
             "foo.rs",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    // ----- Go -----
+
+    #[test]
+    fn go_wmc_is_zero_documented_limitation() {
+        // Go's flat space model does not expose per-receiver class
+        // spaces, and the Wmc trait signature receives only a
+        // `SpaceKind` (Function for both `MethodDeclaration` and
+        // free `FunctionDeclaration`). Implementing receiver-grouped
+        // WMC would require space-model changes that are out of
+        // scope for this fix; per the issue's option (a), the metric
+        // stays at zero with a documented reason. This test pins
+        // that behaviour so any future Wmc work for Go has to update
+        // it deliberately.
+        check_metrics::<GoParser>(
+            "package main\n\
+             type Foo struct{}\n\
+             func (f Foo) M(x int) int { if x > 0 { return 1 } else { return 0 } }\n\
+             func (f Foo) N() {}\n",
+            "foo.go",
             |metric| {
                 assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
                 assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
