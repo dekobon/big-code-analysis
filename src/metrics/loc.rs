@@ -1251,6 +1251,9 @@ impl Loc for PhpCode {
     }
 }
 
+// Real defaults — Loc counts on these "languages" would conflate
+// comments / preproc directives with executable code; treating them
+// as 0 is the documented behaviour. Audited in #188.
 implement_metric_trait!(Loc, PreprocCode, CcommentCode);
 
 impl Loc for RubyCode {

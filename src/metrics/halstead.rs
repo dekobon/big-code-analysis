@@ -444,6 +444,7 @@ impl Halstead for PhpCode {
     }
 }
 
+// Real defaults — no operators / operands to count. Audited in #188.
 implement_metric_trait!(Halstead, PreprocCode, CcommentCode);
 
 impl Halstead for RubyCode {

@@ -231,6 +231,11 @@ impl Wmc for RubyCode {
     }
 }
 
+// Default no-op `Wmc` impls. Audited in #188. See the rationale block
+// on `implement_metric_trait!(Npa, …)` in `src/metrics/npa.rs` — Wmc
+// classification mirrors Npa one-for-one (Wmc = sum-of-cyclomatic-
+// per-method, so it requires the same per-language class / method
+// detection plumbing).
 implement_metric_trait!(
     Wmc,
     PythonCode,
@@ -2194,6 +2199,79 @@ mod tests {
                 assert_eq!(metric.wmc.class_wmc_sum(), 6.0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
+        );
+    }
+
+    // ---------------------------------------------------------------
+    // Default-impl placeholder smoke tests (audited in #188).
+    //
+    // Each test feeds a class / struct with multiple branchy methods
+    // to a language whose `Wmc` is currently the default no-op. The
+    // assertion pins the current 0 value; when the real impl lands
+    // the assertion will fire and force a test update.
+    // ---------------------------------------------------------------
+
+    fn assert_wmc_default_zero(metric: &crate::CodeMetrics) {
+        assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+    }
+
+    // PLACEHOLDER #201: Python `Wmc` is unimplemented.
+    #[test]
+    fn python_wmc_placeholder_returns_zero() {
+        check_metrics::<PythonParser>(
+            "class A:\n    def m1(self, x):\n        if x > 0:\n            return x\n        return 0\n    def m2(self, y):\n        return y\n",
+            "foo.py",
+            |metric| assert_wmc_default_zero(&metric),
+        );
+    }
+
+    // PLACEHOLDER #202: Mozjs `Wmc` is unimplemented.
+    #[test]
+    fn mozjs_wmc_placeholder_returns_zero() {
+        check_metrics::<MozjsParser>(
+            "class A { m1(x) { if (x > 0) return x; return 0; } m2(y) { return y; } }",
+            "foo.js",
+            |metric| assert_wmc_default_zero(&metric),
+        );
+    }
+
+    // PLACEHOLDER #202: JavaScript `Wmc` is unimplemented.
+    #[test]
+    fn javascript_wmc_placeholder_returns_zero() {
+        check_metrics::<JavascriptParser>(
+            "class A { m1(x) { if (x > 0) return x; return 0; } m2(y) { return y; } }",
+            "foo.js",
+            |metric| assert_wmc_default_zero(&metric),
+        );
+    }
+
+    // PLACEHOLDER #203: Rust `Wmc` is unimplemented.
+    #[test]
+    fn rust_wmc_placeholder_returns_zero() {
+        check_metrics::<RustParser>(
+            "pub struct A;\nimpl A { pub fn m1(&self, x: i32) -> i32 { if x > 0 { x } else { 0 } } pub fn m2(&self, y: i32) -> i32 { y } }",
+            "foo.rs",
+            |metric| assert_wmc_default_zero(&metric),
+        );
+    }
+
+    // PLACEHOLDER #204: C++ `Wmc` is unimplemented.
+    #[test]
+    fn cpp_wmc_placeholder_returns_zero() {
+        check_metrics::<CppParser>(
+            "class A { public: int m1(int x) { if (x > 0) return x; return 0; } int m2(int y) { return y; } };",
+            "foo.cpp",
+            |metric| assert_wmc_default_zero(&metric),
+        );
+    }
+
+    // PLACEHOLDER #205: Go `Wmc` is unimplemented.
+    #[test]
+    fn go_wmc_placeholder_returns_zero() {
+        check_metrics::<GoParser>(
+            "package main\ntype A struct{}\nfunc (a A) M1(x int) int { if x > 0 { return x }; return 0 }\nfunc (a A) M2(y int) int { return y }\n",
+            "foo.go",
+            |metric| assert_wmc_default_zero(&metric),
         );
     }
 }

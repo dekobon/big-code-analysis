@@ -492,6 +492,26 @@ fn java_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
     }
 }
 
+// Default no-op `Abc` impls. Audited in #188; the matrix below
+// records the rationale for every entry so the no-op default is a
+// deliberate choice, not scaffolding leftover.
+//
+// Real defaults (the language has no construct ABC measures, so the
+// metric is genuinely 0):
+//   - PreprocCode, CcommentCode: no executable code (comments /
+//     preprocessor lines only).
+//
+// Placeholders (the language HAS branches / conditions / assignments
+// but no impl exists yet). A smoke test under `mod tests` pins the
+// current 0 value with a TODO pointing at the follow-up issue; when
+// the real impl lands the test author must update it.
+//   - PythonCode   — see #201.
+//   - MozjsCode / JavascriptCode — see #202.
+//   - RustCode     — see #203.
+//   - CppCode      — see #204.
+//   - GoCode       — see #205.
+//   - ElixirCode   — see #206.
+//   - PerlCode, LuaCode, TclCode — see #208.
 implement_metric_trait!(
     Abc,
     PythonCode,
@@ -3457,6 +3477,123 @@ function f(int $a, int $b): int {
                 assert_eq!(metric.abc.conditions_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
+        );
+    }
+
+    // ---------------------------------------------------------------
+    // Default-impl placeholder smoke tests (audited in #188).
+    //
+    // These tests assert that the *current* default-impl languages
+    // return ABC = 0/0/0 for source that DOES contain branches,
+    // conditions, and assignments. When the real impl lands for any
+    // of these languages, the corresponding assertion below will fire
+    // — the implementer must update the expected values, which is the
+    // gate. Tag the follow-up issue in each test.
+    // ---------------------------------------------------------------
+
+    fn assert_abc_default_zero(metric: &crate::CodeMetrics) {
+        assert_eq!(metric.abc.assignments_sum(), 0.0);
+        assert_eq!(metric.abc.branches_sum(), 0.0);
+        assert_eq!(metric.abc.conditions_sum(), 0.0);
+    }
+
+    // PLACEHOLDER #201: Python `Abc` is unimplemented.
+    #[test]
+    fn python_abc_placeholder_returns_zero() {
+        check_metrics::<PythonParser>(
+            "def f(a, b):\n    s = a + b\n    if s > 0:\n        foo(s)\n",
+            "foo.py",
+            |metric| assert_abc_default_zero(&metric),
+        );
+    }
+
+    // PLACEHOLDER #202: Mozjs `Abc` is unimplemented.
+    #[test]
+    fn mozjs_abc_placeholder_returns_zero() {
+        check_metrics::<MozjsParser>(
+            "function f(a, b) { var s = a + b; if (s > 0) { foo(s); } }",
+            "foo.js",
+            |metric| assert_abc_default_zero(&metric),
+        );
+    }
+
+    // PLACEHOLDER #202: JavaScript `Abc` is unimplemented.
+    #[test]
+    fn javascript_abc_placeholder_returns_zero() {
+        check_metrics::<JavascriptParser>(
+            "function f(a, b) { var s = a + b; if (s > 0) { foo(s); } }",
+            "foo.js",
+            |metric| assert_abc_default_zero(&metric),
+        );
+    }
+
+    // PLACEHOLDER #203: Rust `Abc` is unimplemented.
+    #[test]
+    fn rust_abc_placeholder_returns_zero() {
+        check_metrics::<RustParser>(
+            "fn f(a: i32, b: i32) { let s = a + b; if s > 0 { foo(s); } }",
+            "foo.rs",
+            |metric| assert_abc_default_zero(&metric),
+        );
+    }
+
+    // PLACEHOLDER #204: C++ `Abc` is unimplemented.
+    #[test]
+    fn cpp_abc_placeholder_returns_zero() {
+        check_metrics::<CppParser>(
+            "void f(int a, int b) { int s = a + b; if (s > 0) { foo(s); } }",
+            "foo.cpp",
+            |metric| assert_abc_default_zero(&metric),
+        );
+    }
+
+    // PLACEHOLDER #205: Go `Abc` is unimplemented.
+    #[test]
+    fn go_abc_placeholder_returns_zero() {
+        check_metrics::<GoParser>(
+            "package main\nfunc f(a, b int) { s := a + b; if s > 0 { foo(s) } }\n",
+            "foo.go",
+            |metric| assert_abc_default_zero(&metric),
+        );
+    }
+
+    // PLACEHOLDER #206: Elixir `Abc` is unimplemented.
+    #[test]
+    fn elixir_abc_placeholder_returns_zero() {
+        check_metrics::<ElixirParser>(
+            "defmodule M do\n  def f(a, b) do\n    s = a + b\n    if s > 0, do: foo(s)\n  end\nend\n",
+            "foo.ex",
+            |metric| assert_abc_default_zero(&metric),
+        );
+    }
+
+    // PLACEHOLDER #208: Perl `Abc` is unimplemented.
+    #[test]
+    fn perl_abc_placeholder_returns_zero() {
+        check_metrics::<PerlParser>(
+            "sub f { my ($a, $b) = @_; my $s = $a + $b; if ($s > 0) { foo($s); } }",
+            "foo.pl",
+            |metric| assert_abc_default_zero(&metric),
+        );
+    }
+
+    // PLACEHOLDER #208: Lua `Abc` is unimplemented.
+    #[test]
+    fn lua_abc_placeholder_returns_zero() {
+        check_metrics::<LuaParser>(
+            "function f(a, b) local s = a + b; if s > 0 then foo(s) end end",
+            "foo.lua",
+            |metric| assert_abc_default_zero(&metric),
+        );
+    }
+
+    // PLACEHOLDER #208: Tcl `Abc` is unimplemented.
+    #[test]
+    fn tcl_abc_placeholder_returns_zero() {
+        check_metrics::<TclParser>(
+            "proc f {a b} { set s [expr {$a + $b}]; if {$s > 0} { foo $s } }",
+            "foo.tcl",
+            |metric| assert_abc_default_zero(&metric),
         );
     }
 }
