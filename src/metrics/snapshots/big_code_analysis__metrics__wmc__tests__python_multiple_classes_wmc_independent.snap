@@ -1,0 +1,10 @@
+---
+source: src/metrics/wmc.rs
+assertion_line: 2131
+expression: metric.wmc
+---
+{
+  "classes": 3.0,
+  "interfaces": 0.0,
+  "total": 3.0
+}

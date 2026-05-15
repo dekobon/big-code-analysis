@@ -1,0 +1,16 @@
+---
+source: src/metrics/npa.rs
+assertion_line: 2634
+expression: metric.npa
+---
+{
+  "classes": 2.0,
+  "interfaces": 0.0,
+  "class_attributes": 2.0,
+  "interface_attributes": 0.0,
+  "classes_average": 1.0,
+  "interfaces_average": null,
+  "total": 2.0,
+  "total_attributes": 2.0,
+  "average": 1.0
+}
