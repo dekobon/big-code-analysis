@@ -235,11 +235,18 @@ where
 {
     /// Walk `node` and update `stats` with this metric for the language
     /// implementing the trait.
-    fn compute(node: &Node, stats: &mut Stats);
+    ///
+    /// `code` is the raw source-bytes buffer; languages whose visibility
+    /// rules are encoded in identifier text (Ruby's keyword-style
+    /// `private` / `public` / `protected`) read identifier text from
+    /// it. Languages whose visibility rules are encoded purely in
+    /// distinct token kinds (Java's `Public` / `Private`, PHP's
+    /// `VisibilityModifier`) ignore the parameter.
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats);
 }
 
 impl Npa for JavaCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Java::*;
 
         // Enables the `Npa` metric if computing stats of a class space
@@ -301,7 +308,7 @@ pub(crate) fn csharp_is_explicit_public(declaration: &Node) -> bool {
 }
 
 impl Npa for CsharpCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Csharp::*;
 
         if Self::is_func_space(node) && stats.is_disabled() {
@@ -377,8 +384,137 @@ pub(crate) fn php_is_explicit_public(declaration: &Node) -> bool {
     })
 }
 
+// Counts the number of symbol arguments passed to an `attr_accessor` /
+// `attr_reader` / `attr_writer` macro `Call` node. `attr_accessor :a,
+// :b, :c` exposes three attributes; an `attr_*` call with no arguments
+// is ill-formed Ruby but defensively returns zero rather than one.
+pub(crate) fn ruby_attr_macro_symbol_count(call: &Node) -> usize {
+    use Ruby::*;
+
+    call.children()
+        .find(|c| matches!(c.kind_id().into(), ArgumentList | ArgumentList2))
+        .map_or(0, |args| {
+            args.children()
+                .filter(|c| {
+                    matches!(
+                        c.kind_id().into(),
+                        SimpleSymbol | DelimitedSymbol | HashKeySymbol | BareSymbol
+                    )
+                })
+                .count()
+        })
+}
+
+// Recognises a bare visibility-keyword `identifier` child of a Ruby
+// class body (`private` / `public` / `protected` with no arguments).
+// These flip the default visibility for every subsequent declaration in
+// the same body until another marker overrides them. tree-sitter-ruby
+// emits the keyword-form as a literal `identifier` token; the
+// argument-form (`private :foo`, `private def bar`) is a `Call` node
+// instead and does NOT flip the body-wide flag.
+pub(crate) fn ruby_visibility_marker(node: &Node, source: &[u8]) -> Option<&'static str> {
+    if !matches!(node.kind_id().into(), Ruby::Identifier) {
+        return None;
+    }
+    match node.utf8_text(source)? {
+        "private" => Some("private"),
+        "public" => Some("public"),
+        "protected" => Some("protected"),
+        _ => None,
+    }
+}
+
+// Identifies the `attr_*` macro family on a Ruby `Call` node. Each
+// macro takes a list of attribute symbols and synthesises the matching
+// reader / writer / accessor methods on the enclosing class.
+pub(crate) fn ruby_attr_macro_name(call: &Node, source: &[u8]) -> Option<&'static str> {
+    let ident = call
+        .children()
+        .find(|c| matches!(c.kind_id().into(), Ruby::Identifier))?;
+    match ident.utf8_text(source)? {
+        "attr_accessor" => Some("attr_accessor"),
+        "attr_reader" => Some("attr_reader"),
+        "attr_writer" => Some("attr_writer"),
+        _ => None,
+    }
+}
+
+// Walks the direct children of a Ruby class / singleton-class body
+// (`BodyStatement` under `Class` / `SingletonClass`) tallying:
+// - class-scope assignments to `@var` (`InstanceVariable`) and
+//   `@@var` (`ClassVariable`) — one attribute per assignment, regardless
+//   of whether the RHS is a constant or another expression.
+// - `attr_accessor` / `attr_reader` / `attr_writer` macros — one
+//   attribute per symbol argument.
+//
+// Visibility flags follow Ruby's keyword-marker convention: a bare
+// `private` / `public` / `protected` identifier flips the default for
+// every subsequent declaration in the body. The default visibility at
+// the top of every class body is `public`. The argument-form of those
+// keywords (`private :foo`, `private def x`) does not flip the body-
+// wide flag — matching Ruby's runtime behaviour.
+//
+// Attribute assignments to instance/class variables are visible only
+// via the methods that wrap them, so the visibility flag at the point
+// of declaration is what `npa` should reflect.
+pub(crate) fn ruby_walk_class_body(body: &Node, source: &[u8], stats: &mut Stats) {
+    use Ruby::*;
+
+    let mut visibility = "public";
+    for child in body.children() {
+        if let Some(marker) = ruby_visibility_marker(&child, source) {
+            visibility = marker;
+            continue;
+        }
+        match child.kind_id().into() {
+            Assignment | Assignment2 => {
+                let Some(lhs) = child.children().next() else {
+                    continue;
+                };
+                if matches!(lhs.kind_id().into(), InstanceVariable | ClassVariable) {
+                    stats.class_na += 1;
+                    if visibility == "public" {
+                        stats.class_npa += 1;
+                    }
+                }
+            }
+            Call | Call2 | Call3 | Call4 => {
+                if ruby_attr_macro_name(&child, source).is_some() {
+                    let count = ruby_attr_macro_symbol_count(&child);
+                    stats.class_na += count;
+                    if visibility == "public" {
+                        stats.class_npa += count;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Npa for RubyCode {
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+        use Ruby::*;
+
+        if Self::is_func_space(node) && stats.is_disabled() {
+            stats.is_class_space = true;
+        }
+
+        if !matches!(node.kind_id().into(), BodyStatement | BodyStatement2) {
+            return;
+        }
+        let Some(parent_kind) = node.parent().map(|p| p.kind_id().into()) else {
+            return;
+        };
+        if !matches!(parent_kind, Class | SingletonClass) {
+            return;
+        }
+        ruby_walk_class_body(node, code, stats);
+    }
+}
+
 impl Npa for PhpCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Php::*;
 
         // Enables the `Npa` metric if computing stats of a class-like space.
@@ -502,7 +638,7 @@ pub(crate) fn kotlin_is_public(decl: &Node) -> bool {
 }
 
 impl Npa for KotlinCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Kotlin::*;
 
         // Enables the `Npa` metric for both class and interface spaces
@@ -591,7 +727,7 @@ impl Npa for KotlinCode {
 // belong to `npm`.
 macro_rules! ts_npa_compute {
     ($lang:ident) => {
-        fn compute(node: &Node, stats: &mut Stats) {
+        fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
             use $lang::*;
 
             if Self::is_func_space(node) && stats.is_disabled() {
@@ -705,8 +841,7 @@ implement_metric_trait!(
     BashCode,
     LuaCode,
     TclCode,
-    ElixirCode,
-    RubyCode
+    ElixirCode
 );
 
 #[cfg(test)]
@@ -2334,6 +2469,192 @@ mod tests {
                 assert_eq!(metric.npa.class_na_sum(), 2.0);
                 assert_eq!(metric.npa.interface_npa_sum(), 1.0);
                 assert_eq!(metric.npa.interface_na_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    // --- Ruby NPA tests ---------------------------------------------------
+    //
+    // Ruby has no field-declaration syntax; class-scope instance and
+    // class variables are introduced by direct assignment in the class
+    // body (`@var = …`, `@@var = …`). `attr_accessor` / `attr_reader`
+    // / `attr_writer` macros synthesise reader/writer pairs and also
+    // introduce attributes. Visibility flows from keyword markers as
+    // in `Npm`.
+
+    #[test]
+    fn ruby_no_class_attributes() {
+        check_metrics::<RubyParser>(
+            "class A\n  def f\n    1\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 0.0);
+                assert_eq!(metric.npa.class_na_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_instance_variable_attribute() {
+        // Bare `@x = …` at class scope is one public attribute.
+        check_metrics::<RubyParser>("class A\n  @x = 1\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.npa.class_npa_sum(), 1.0);
+            assert_eq!(metric.npa.class_na_sum(), 1.0);
+            insta::assert_json_snapshot!(metric.npa);
+        });
+    }
+
+    #[test]
+    fn ruby_class_variable_attribute() {
+        // `@@y = …` at class scope is one attribute.
+        check_metrics::<RubyParser>("class A\n  @@y = 1\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.npa.class_npa_sum(), 1.0);
+            assert_eq!(metric.npa.class_na_sum(), 1.0);
+            insta::assert_json_snapshot!(metric.npa);
+        });
+    }
+
+    #[test]
+    fn ruby_attr_accessor_counts_symbols() {
+        // `attr_accessor :x, :y, :z` declares three attributes.
+        check_metrics::<RubyParser>(
+            "class A\n  attr_accessor :x, :y, :z\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_attr_reader_and_writer() {
+        check_metrics::<RubyParser>(
+            "class A\n  attr_reader :r1, :r2\n  attr_writer :w\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_mixed_attributes_and_assignments() {
+        check_metrics::<RubyParser>(
+            "class A\n  attr_accessor :x, :y\n  @z = 1\n  @@w = 2\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 4.0);
+                assert_eq!(metric.npa.class_na_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_private_attributes() {
+        // Bare `private` flips visibility for the subsequent attr.
+        check_metrics::<RubyParser>(
+            "class A\n  attr_accessor :pub\n  private\n  attr_accessor :hidden\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_visibility_public_resets_private() {
+        // `private` then `public` returns to default-public.
+        check_metrics::<RubyParser>(
+            "class A\n  attr_reader :a\n  private\n  attr_reader :b\n  public\n  attr_reader :c\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_method_scope_assignments_excluded() {
+        // `@x = 1` inside a method does NOT count — it's a method-local
+        // instance-variable write, not a class-scope attribute
+        // declaration.
+        check_metrics::<RubyParser>(
+            "class A\n  def init\n    @x = 1\n    @@y = 2\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 0.0);
+                assert_eq!(metric.npa.class_na_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_module_attributes_not_counted() {
+        // `module M` is a `Namespace` space — its attr_* macros and
+        // class-variable assignments do NOT contribute to NPA.
+        check_metrics::<RubyParser>(
+            "module M\n  attr_accessor :x\n  @@m = 1\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 0.0);
+                assert_eq!(metric.npa.class_na_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_inheritance_attributes() {
+        // Inheritance does not change the attribute count for this class.
+        check_metrics::<RubyParser>(
+            "class A < B\n  attr_accessor :x\n  @y = 0\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_constant_assignments_excluded() {
+        // `CONST = …` at class scope binds a constant, not an
+        // attribute; the LHS is a `Constant`, not an
+        // `InstanceVariable` / `ClassVariable`.
+        check_metrics::<RubyParser>(
+            "class A\n  PI = 3.14\n  E = 2.71\n  attr_reader :x\nend\n",
+            "foo.rb",
+            |metric| {
+                // Only `attr_reader :x` counts.
+                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_multiple_classes_attribute_rollup() {
+        check_metrics::<RubyParser>(
+            "class A\n  attr_accessor :x\nend\nclass B\n  private\n  attr_accessor :y\nend\n",
+            "foo.rb",
+            |metric| {
+                // A: 1 public attr. B: 0 public, 1 total.
+                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                assert_eq!(metric.npa.class_na_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );

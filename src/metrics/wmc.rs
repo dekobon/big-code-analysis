@@ -218,6 +218,19 @@ impl Wmc for TsxCode {
     }
 }
 
+// Ruby's `Class` and `SingletonClass` map to `SpaceKind::Class` via
+// `Getter::get_space_kind`; `Module` maps to `SpaceKind::Namespace`
+// and so does not contribute a `Wmc` bucket of its own. Every Ruby
+// `Method` / `SingletonMethod` is a `SpaceKind::Function` whose
+// cyclomatic sum rolls into the enclosing class via
+// `class_interface_compute`. Ruby has no interface construct, so the
+// `Interface` arm is unreachable but harmless.
+impl Wmc for RubyCode {
+    fn compute(space_kind: SpaceKind, cyclomatic: &cyclomatic::Stats, stats: &mut Stats) {
+        class_interface_compute(space_kind, cyclomatic, stats);
+    }
+}
+
 implement_metric_trait!(
     Wmc,
     PythonCode,
@@ -232,8 +245,7 @@ implement_metric_trait!(
     BashCode,
     LuaCode,
     TclCode,
-    ElixirCode,
-    RubyCode
+    ElixirCode
 );
 
 #[cfg(test)]
@@ -2013,6 +2025,173 @@ mod tests {
             "foo.tsx",
             |metric| {
                 assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    // --- Ruby WMC tests ---------------------------------------------------
+    //
+    // Reference: Ruby `Class` and `SingletonClass` map to `SpaceKind::Class`
+    // via `Getter::get_space_kind`; `Module` is a `SpaceKind::Namespace`
+    // and does not contribute to WMC. Method cyclomatic complexities
+    // accumulate into the enclosing class via `class_interface_compute`.
+
+    #[test]
+    fn ruby_no_classes() {
+        // File with only a top-level method — no class space, WMC = 0.
+        check_metrics::<RubyParser>("def foo\n  1\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+            assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.wmc);
+        });
+    }
+
+    #[test]
+    fn ruby_empty_class() {
+        // Class with no methods → wmc = 0.
+        check_metrics::<RubyParser>("class Foo\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.wmc);
+        });
+    }
+
+    #[test]
+    fn ruby_one_class_simple() {
+        // Two methods, each with cyclomatic = 1 (the method base) → wmc = 2.
+        check_metrics::<RubyParser>(
+            "class A\n  def a\n    1\n  end\n  def b\n    2\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_one_class_with_branch() {
+        // One method with cyclomatic 1 (base) + 1 (if) = 2.
+        check_metrics::<RubyParser>(
+            "class A\n  def f(x)\n    if x > 0\n      1\n    else\n      0\n    end\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_one_class_with_loop() {
+        // One method with cyclomatic 1 (base) + 1 (while) = 2.
+        check_metrics::<RubyParser>(
+            "class A\n  def f(n)\n    while n > 0\n      n -= 1\n    end\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_singleton_method_included() {
+        // Mix of regular and singleton (`def self.x`) methods, both
+        // contribute to the class WMC.
+        check_metrics::<RubyParser>(
+            "class A\n  def f\n    1\n  end\n  def self.g\n    2\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_singleton_class_methods_included() {
+        // Methods inside `class << self` belong to the enclosing class
+        // (singleton class is a `SpaceKind::Class` of its own).
+        check_metrics::<RubyParser>(
+            "class A\n  class << self\n    def s\n      1\n    end\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                // Two class spaces: outer A (wmc 0, no methods) and the
+                // singleton class with its single method (wmc 1).
+                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_multiple_classes() {
+        // Each class contributes its method-cyclomatic sum to the rollup.
+        check_metrics::<RubyParser>(
+            "class A\n  def f(x)\n    if x > 0\n      1\n    end\n  end\nend\nclass B\n  def g\n    1\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                // A: 2 (base + if). B: 1 (base only). Sum = 3.
+                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_module_only() {
+        // Module is a `Namespace` space — does NOT contribute to WMC even
+        // though the body has methods.
+        check_metrics::<RubyParser>(
+            "module M\n  def f\n    1\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_class_with_inheritance() {
+        // `class A < B` inherits — irrelevant to WMC, which depends only on
+        // the method bodies inside this class.
+        check_metrics::<RubyParser>(
+            "class A < B\n  def f\n    1\n  end\n  def g\n    2\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_class_with_visibility_keywords() {
+        // Visibility keywords do NOT affect WMC — every method body
+        // contributes regardless of `private` / `protected`.
+        check_metrics::<RubyParser>(
+            "class A\n  def a\n    1\n  end\n  private\n  def b\n    1\n  end\n  protected\n  def c\n    1\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_class_complex() {
+        // Class with two methods whose cyclomatic sums combine.
+        // `add`: base(1) + `if`(1) + `&&`(1) = 3.
+        // `loop`: base(1) + `while`(1) + `if`(1) = 3.
+        // Class WMC = 6.
+        check_metrics::<RubyParser>(
+            "class Calc\n  def add(a, b)\n    if a > 0 && b > 0\n      a + b\n    end\n  end\n  def loop(n)\n    s = 0\n    while n > 0\n      if n.even?\n        s += n\n      end\n      n -= 1\n    end\n    s\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 6.0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );

@@ -438,8 +438,8 @@ pub fn metrics_with_options<'a, T: ParserTrait>(
             T::NArgs::compute(&node, &mut last.metrics.nargs);
             T::Exit::compute(&node, code, &mut last.metrics.nexits);
             T::Abc::compute(&node, &mut last.metrics.abc);
-            T::Npm::compute(&node, &mut last.metrics.npm);
-            T::Npa::compute(&node, &mut last.metrics.npa);
+            T::Npm::compute(&node, code, &mut last.metrics.npm);
+            T::Npa::compute(&node, code, &mut last.metrics.npa);
         }
 
         cursor.reset(&node);

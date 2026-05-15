@@ -505,8 +505,7 @@ implement_metric_trait!(
     PerlCode,
     LuaCode,
     TclCode,
-    ElixirCode,
-    RubyCode
+    ElixirCode
 );
 
 // TypeScript / TSX share the same expression / statement vocabulary; the
@@ -749,6 +748,47 @@ impl Abc for PhpCode {
             | MatchConditionalExpression
             | MatchDefaultExpression
             | CatchClause => {
+                stats.conditions += 1.;
+            }
+            _ => {}
+        }
+    }
+}
+
+// Ruby ABC rules follow the Fitzpatrick paper's spirit, adapted to
+// tree-sitter-ruby:
+// - Assignments: `assignment` (plain `=`) and `operator_assignment`
+//   (`+=`, `-=`, `||=`, `&&=`, …). Tree-sitter wraps both forms in a
+//   dedicated node, so we count one assignment per node and avoid
+//   double-counting the inner `=` / augmented token.
+// - Branches: every Ruby method invocation kind (`Call` / `Call2` /
+//   `Call3` / `Call4`) plus `super` and `yield`. `yield` is grammar-
+//   level a "block invocation" but ABC's branch bucket is "message
+//   pass / function call", so it belongs here. `attr_*` macros are
+//   `Call3` nodes and are counted as branches like any other call.
+// - Conditions: comparison and equality operator tokens emitted inside
+//   `binary` (`==`, `!=`, `===`, `<`, `>`, `<=`, `>=`, `<=>`,
+//   `=~`, `!~`), plus the control-flow arms that the Fitzpatrick rules
+//   list — the named clause nodes `Else` / `Elsif` / `When` and the
+//   `?` ternary marker, plus `Rescue` (the rescue clause) and rescue
+//   modifiers. `if` / `unless` themselves are not counted (the head
+//   condition appears as the inner comparison); the `Then` clause is
+//   an implicit grammar wrapper around every `if` / `elsif` body and
+//   is NOT counted as a separate arm.
+impl Abc for RubyCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        use Ruby::*;
+
+        match node.kind_id().into() {
+            Assignment | Assignment2 | OperatorAssignment | OperatorAssignment2 => {
+                stats.assignments += 1.;
+            }
+            Call | Call2 | Call3 | Call4 | Super | Yield | Yield2 => {
+                stats.branches += 1.;
+            }
+            EQEQ | BANGEQ | EQEQEQ | LT | GT | LTEQ | GTEQ | LTEQGT | EQTILDE | BANGTILDE
+            | Else | Elsif | When | QMARK | Rescue | RescueModifier | RescueModifier2
+            | RescueModifier3 => {
                 stats.conditions += 1.;
             }
             _ => {}
@@ -3224,6 +3264,197 @@ function f(int $a, int $b): int {
             "foo.tsx",
             |metric| {
                 assert_eq!(metric.abc.assignments_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    // --- Ruby ABC tests ---------------------------------------------------
+    //
+    // Each Ruby `assignment` / `operator_assignment` is one assignment
+    // regardless of whether the LHS is a local, instance, or class
+    // variable. Every `call` / `super` / `yield` is one branch. Every
+    // comparison-operator token inside a `binary` node plus each
+    // `else` / `elsif` / `when` / `then` / `?` / `rescue` clause is
+    // one condition.
+
+    #[test]
+    fn ruby_zero_abc() {
+        check_metrics::<RubyParser>("\n", "foo.rb", |metric| {
+            assert_eq!(metric.abc.assignments_sum(), 0.0);
+            assert_eq!(metric.abc.branches_sum(), 0.0);
+            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.abc);
+        });
+    }
+
+    #[test]
+    fn ruby_simple_assignment() {
+        check_metrics::<RubyParser>("def f\n  a = 1\n  b = 2\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.abc.assignments_sum(), 2.0);
+            assert_eq!(metric.abc.branches_sum(), 0.0);
+            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.abc);
+        });
+    }
+
+    #[test]
+    fn ruby_augmented_assignment() {
+        // `+=`, `-=`, `*=` are `operator_assignment` nodes — each is
+        // one assignment. Plain `=` to set the initial value adds one
+        // more.
+        check_metrics::<RubyParser>(
+            "def f(x)\n  a = 0\n  a += x\n  a -= 1\n  a *= 2\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_logical_augmented_assignment() {
+        // `||=` and `&&=` are also `operator_assignment` nodes.
+        check_metrics::<RubyParser>("def f\n  @x ||= 0\n  @x &&= 1\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.abc.assignments_sum(), 2.0);
+            insta::assert_json_snapshot!(metric.abc);
+        });
+    }
+
+    #[test]
+    fn ruby_method_call_branch() {
+        // Each method invocation is one branch.
+        check_metrics::<RubyParser>(
+            "def f(obj)\n  foo()\n  obj.bar(1)\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_super_and_yield_branches() {
+        // `super` and `yield` both count as branches (control-pass).
+        check_metrics::<RubyParser>("def f\n  super\n  yield\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.abc.branches_sum(), 2.0);
+            assert_eq!(metric.abc.assignments_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.abc);
+        });
+    }
+
+    #[test]
+    fn ruby_attr_macro_is_branch() {
+        // `attr_accessor` is a `Call3` node and registers as a branch
+        // like any method invocation.
+        check_metrics::<RubyParser>("class A\n  attr_accessor :x\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.abc.branches_sum(), 1.0);
+            insta::assert_json_snapshot!(metric.abc);
+        });
+    }
+
+    #[test]
+    fn ruby_comparison_conditions() {
+        // Each comparison operator is one condition.
+        check_metrics::<RubyParser>(
+            "def f(a, b)\n  a == b\n  a != b\n  a < b\n  a > b\n  a <= b\n  a >= b\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 6.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_spaceship_and_case_equality() {
+        // `<=>` and `===` are comparison operators (conditions).
+        check_metrics::<RubyParser>(
+            "def f(a, b)\n  a <=> b\n  a === b\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_ternary_condition() {
+        // The `?` ternary marker is one condition; the inner `==` is
+        // another.
+        check_metrics::<RubyParser>("def f(x)\n  x == 0 ? :z : :nz\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.abc.conditions_sum(), 2.0);
+            insta::assert_json_snapshot!(metric.abc);
+        });
+    }
+
+    #[test]
+    fn ruby_case_when_arms() {
+        // Each `when` named clause and the `else` clause count as one
+        // condition each; the `case` head and the implicit `then`
+        // wrappers do not.
+        check_metrics::<RubyParser>(
+            "def f(x)\n  case x\n  when 1 then 'one'\n  when 2 then 'two'\n  else 'other'\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                // 2 `when` + 1 `else` = 3 conditions.
+                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_elsif_and_else() {
+        // `elsif` and `else` named clauses are conditions; their inner
+        // `then` wrappers are not.
+        check_metrics::<RubyParser>(
+            "def f(x)\n  if x > 0\n    1\n  elsif x < 0\n    -1\n  else\n    0\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                // `>`(1) + `elsif`(1) + `<`(1) + `else`(1) = 4.
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_rescue_clause_condition() {
+        // The `rescue` named clause is one condition; the `rescue`
+        // keyword token (`Rescue2`) is not counted on its own.
+        // `do_it` without parens is an `identifier`, not a `call`, so
+        // it contributes no branch. `handle(e)` is a `call` (1 branch).
+        check_metrics::<RubyParser>(
+            "def f\n  begin\n    do_it\n  rescue StandardError => e\n    handle(e)\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.branches_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_class_complex_function() {
+        // Mixed: assignment(=), branch(call), conditions(`>` and `==`).
+        check_metrics::<RubyParser>(
+            "class A\n  def f(a, b)\n    sum = a + b\n    if sum > 0 && b == 0\n      foo(sum)\n    end\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 1.0);
+                assert_eq!(metric.abc.branches_sum(), 1.0);
+                // `>`(1) + `==`(1) = 2 conditions. `if` is not a token;
+                // `&&` is `AMPAMP` which is NOT a Fitzpatrick condition
+                // in our Ruby impl (it's a logical operator, not a
+                // comparison). The Fitzpatrick paper allows either
+                // choice; we follow the comparison-only rule like
+                // Java/PHP.
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );

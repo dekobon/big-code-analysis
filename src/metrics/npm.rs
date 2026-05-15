@@ -236,11 +236,18 @@ where
 {
     /// Walk `node` and update `stats` with this metric for the language
     /// implementing the trait.
-    fn compute(node: &Node, stats: &mut Stats);
+    ///
+    /// `code` is the raw source-bytes buffer; languages whose visibility
+    /// rules are encoded in identifier text (Ruby's keyword-style
+    /// `private` / `public` / `protected`) read identifier text from
+    /// it. Languages whose visibility rules are encoded purely in
+    /// distinct token kinds (Java's `Public` / `Private`, PHP's
+    /// `VisibilityModifier`) ignore the parameter.
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats);
 }
 
 impl Npm for JavaCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Java::*;
 
         // Enables the `Npm` metric if computing stats of a class space
@@ -306,7 +313,7 @@ fn csharp_count_member(member: &Node) -> usize {
 }
 
 impl Npm for CsharpCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Csharp::*;
 
         if Self::is_func_space(node) && stats.is_disabled() {
@@ -344,7 +351,7 @@ impl Npm for CsharpCode {
 }
 
 impl Npm for PhpCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Php::*;
 
         if Self::is_func_space(node) && stats.is_disabled() {
@@ -393,7 +400,7 @@ impl Npm for PhpCode {
 // package-private-by-default, so the "no modifier → public" branch is the
 // common case.
 impl Npm for KotlinCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Kotlin::*;
 
         // Enables the `Npm` metric for any class-like func_space.
@@ -466,7 +473,7 @@ impl Npm for KotlinCode {
 // they precede. Counting them would double-count overloaded methods.
 macro_rules! ts_npm_compute {
     ($lang:ident) => {
-        fn compute(node: &Node, stats: &mut Stats) {
+        fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
             use $lang::*;
 
             if Self::is_func_space(node) && stats.is_disabled() {
@@ -529,6 +536,51 @@ impl Npm for TsxCode {
     ts_npm_compute!(Tsx);
 }
 
+// Ruby `Method` and `SingletonMethod` declared directly inside a
+// `Class` or `SingletonClass` body count as methods. Visibility flips
+// follow the same keyword-marker rule as `Npa`: a bare `private`
+// `public` `protected` `Identifier` child of the body changes the
+// running visibility for every subsequent declaration. The
+// argument-form (`private :foo`, `private def x`) does NOT flip the
+// body-wide flag — matching Ruby's runtime semantics.
+//
+// `Module` bodies are not classes (the getter routes them to
+// `SpaceKind::Namespace`); they do not contribute to `Npm` so a
+// module-only file reports zero methods.
+impl Npm for RubyCode {
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+        use Ruby::*;
+
+        if Self::is_func_space(node) && stats.is_disabled() {
+            stats.is_class_space = true;
+        }
+
+        if !matches!(node.kind_id().into(), BodyStatement | BodyStatement2) {
+            return;
+        }
+        let Some(parent_kind) = node.parent().map(|p| p.kind_id().into()) else {
+            return;
+        };
+        if !matches!(parent_kind, Class | SingletonClass) {
+            return;
+        }
+
+        let mut visibility = "public";
+        for child in node.children() {
+            if let Some(marker) = super::npa::ruby_visibility_marker(&child, code) {
+                visibility = marker;
+                continue;
+            }
+            if matches!(child.kind_id().into(), Method | SingletonMethod) {
+                stats.class_nm += 1;
+                if visibility == "public" {
+                    stats.class_npm += 1;
+                }
+            }
+        }
+    }
+}
+
 implement_metric_trait!(
     Npm,
     PythonCode,
@@ -543,8 +595,7 @@ implement_metric_trait!(
     BashCode,
     LuaCode,
     TclCode,
-    ElixirCode,
-    RubyCode
+    ElixirCode
 );
 
 #[cfg(test)]
@@ -2068,5 +2119,192 @@ class C {
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
+    }
+
+    // --- Ruby NPM tests ---------------------------------------------------
+    //
+    // Ruby methods default to public. Visibility keywords (`private`,
+    // `public`, `protected`) appear as bare `identifier` nodes in the
+    // class body and flip the default for every subsequent declaration.
+    // The argument-form (`private :foo`, `private def x`) is a `call`
+    // node and does NOT change the body-wide flag.
+
+    #[test]
+    fn ruby_no_class_methods() {
+        check_metrics::<RubyParser>("def foo\n  1\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.npm.class_npm_sum(), 0.0);
+            assert_eq!(metric.npm.class_nm_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.npm);
+        });
+    }
+
+    #[test]
+    fn ruby_one_public_method() {
+        // No visibility keyword → default public.
+        check_metrics::<RubyParser>(
+            "class A\n  def f\n    1\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_one_private_method() {
+        // Bare `private` flips visibility for `f`.
+        check_metrics::<RubyParser>(
+            "class A\n  private\n  def f\n    1\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 0.0);
+                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_one_protected_method() {
+        check_metrics::<RubyParser>(
+            "class A\n  protected\n  def f\n    1\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 0.0);
+                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_mixed_visibility_methods() {
+        // `a` is public (default). `b` is private. `c` is public again
+        // because the explicit `public` keyword resets the flag. `d` is
+        // protected.
+        check_metrics::<RubyParser>(
+            "class A\n  def a\n    1\n  end\n  private\n  def b\n    1\n  end\n  public\n  def c\n    1\n  end\n  protected\n  def d\n    1\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_singleton_method_is_counted() {
+        // `def self.x` and plain `def x` both count; default is public.
+        check_metrics::<RubyParser>(
+            "class A\n  def self.f\n    1\n  end\n  def g\n    1\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_singleton_class_methods() {
+        // `class << self` opens a separate class space whose methods
+        // count there. Outer class A has 0 methods.
+        check_metrics::<RubyParser>(
+            "class A\n  class << self\n    def s\n      1\n    end\n    def t\n      2\n    end\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_argument_form_visibility_does_not_flip() {
+        // `private :y` is a `call` node (argument form). It does NOT
+        // change the body-wide visibility, so `z` declared after it
+        // remains public.
+        check_metrics::<RubyParser>(
+            "class A\n  def y\n    1\n  end\n  private :y\n  def z\n    1\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_multiple_classes() {
+        check_metrics::<RubyParser>(
+            "class A\n  def a\n    1\n  end\nend\nclass B\n  private\n  def b\n    1\n  end\n  def c\n    1\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                // A: 1 public method. B: 0 public, 2 total. Sum = 1/3.
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_module_methods_not_counted() {
+        // `Module` is `Namespace`, not `Class` — its methods do not
+        // contribute to NPM.
+        check_metrics::<RubyParser>(
+            "module M\n  def f\n    1\n  end\n  def g\n    1\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 0.0);
+                assert_eq!(metric.npm.class_nm_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_class_with_inheritance() {
+        // Inheritance does not change method counts.
+        check_metrics::<RubyParser>(
+            "class A < B\n  def f\n    1\n  end\n  def g\n    1\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_visibility_resets_between_classes() {
+        // Each class body starts in default-public state regardless of
+        // the previous body's trailing visibility.
+        check_metrics::<RubyParser>(
+            "class A\n  private\n  def a\n    1\n  end\nend\nclass B\n  def b\n    1\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                // A: 0 public, B: 1 public.
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_empty_class_no_methods() {
+        check_metrics::<RubyParser>("class Empty\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.npm.class_npm_sum(), 0.0);
+            assert_eq!(metric.npm.class_nm_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.npm);
+        });
     }
 }

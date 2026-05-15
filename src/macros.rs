@@ -55,6 +55,12 @@ macro_rules! implement_metric_trait {
     (Cyclomatic, $($code:ident),+) => (
         implement_metric_trait!(@code_taking Cyclomatic, $($code),+);
     );
+    (Npa, $($code:ident),+) => (
+        implement_metric_trait!(@code_taking Npa, $($code),+);
+    );
+    (Npm, $($code:ident),+) => (
+        implement_metric_trait!(@code_taking Npm, $($code),+);
+    );
     (Loc, $($code:ident),+) => (
         $(
            impl Loc for $code {
