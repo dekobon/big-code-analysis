@@ -696,7 +696,7 @@ impl Npa for PythonCode {
 //   tags, not data fields), mirroring Kotlin's `enum_class_body`
 //   treatment.
 impl Npa for RustCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Rust::*;
 
         // Mark Impl / Trait spaces as class spaces so the metric is
@@ -796,6 +796,74 @@ impl Npa for RustCode {
             }
             _ => {}
         }
+    }
+}
+
+// Go attribute counting.
+//
+// Go has no `class` concept; struct types declared at file scope
+// (`type Foo struct { … }`) play that role. Methods live separately
+// as `MethodDeclaration` nodes attached to a receiver type. Because
+// `StructType` is NOT a func_space (per `Checker::is_func_space`),
+// the iterator visits it with the enclosing func_space's stats
+// (typically the file-level `Unit`). Each direct `FieldDeclaration`
+// child of the struct's `FieldDeclarationList` counts as one
+// attribute, including embedded types (an embedded type parses as a
+// `FieldDeclaration` with no name field, just a type — still one
+// attribute per the issue spec).
+//
+// Visibility note: Go exports identifiers whose first character is
+// uppercase. The `Npa::compute` trait signature does not include the
+// source byte slice, so reading the identifier text from the node
+// alone is not possible. We therefore treat every counted attribute
+// as public (`class_npa == class_na`), matching the choice Python's
+// Npm makes when no visibility token is present in the AST. The
+// alternative — adding a `code: &[u8]` parameter to the trait — is a
+// cross-language API change out of scope for this fix.
+//
+// Limitations:
+// - Struct fields are attributed to the enclosing func_space (the
+//   file's `Unit`, or a local function space for `type T struct{…}`
+//   declared inside a function body). Multiple structs at the same
+//   level contribute to the same `class_na` bucket. This mirrors the
+//   Rust impl's "fields land on the enclosing space" approach.
+// - Interface methods (`interface { Foo() }`) are not attributes —
+//   they are method signatures, counted by Npm under
+//   `interface_nm`, not by Npa.
+impl Npa for GoCode {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+        use Go as G;
+
+        if !matches!(node.kind_id().into(), G::StructType) {
+            return;
+        }
+
+        // The struct body is the `field_declaration_list` direct
+        // child. An empty struct (`struct{}`) has the list with no
+        // FieldDeclaration children → 0 attributes.
+        let Some(body) = node
+            .children()
+            .find(|c| matches!(c.kind_id().into(), G::FieldDeclarationList))
+        else {
+            return;
+        };
+
+        let attrs = body
+            .children()
+            .filter(|c| matches!(c.kind_id().into(), G::FieldDeclaration))
+            .count();
+
+        if attrs == 0 {
+            return;
+        }
+
+        if stats.is_disabled() {
+            stats.is_class_space = true;
+        }
+        stats.class_na += attrs;
+        // Visibility cannot be detected without the source bytes;
+        // every field is treated as public (see module-level note).
+        stats.class_npa += attrs;
     }
 }
 
@@ -1248,7 +1316,6 @@ implement_metric_trait!(
     CppCode,
     PreprocCode,
     CcommentCode,
-    GoCode,
     PerlCode,
     BashCode,
     LuaCode,
@@ -3108,15 +3175,6 @@ mod tests {
         );
     }
 
-    // PLACEHOLDER #203: Rust `Npa` is unimplemented.
-    #[test]
-    fn rust_npa_placeholder_returns_zero() {
-        check_metrics::<RustParser>(
-            "pub struct A { pub x: i32, pub y: i32 }\nimpl A { pub const K: i32 = 1; }\n",
-            "foo.rs",
-            |metric| assert_npa_default_zero(&metric),
-        );
-    }
 
     // PLACEHOLDER #204: C++ `Npa` is unimplemented.
     #[test]
@@ -3126,15 +3184,6 @@ mod tests {
         });
     }
 
-    // PLACEHOLDER #205: Go `Npa` is unimplemented.
-    #[test]
-    fn go_npa_placeholder_returns_zero() {
-        check_metrics::<GoParser>(
-            "package main\ntype A struct { X int; Y int }\n",
-            "foo.go",
-            |metric| assert_npa_default_zero(&metric),
-        );
-    }
 
     // --- Python NPA ---------------------------------------------------
 
@@ -3391,6 +3440,110 @@ mod tests {
             |metric| {
                 assert_eq!(metric.npa.class_na_sum(), 0.0);
                 assert_eq!(metric.npa.interface_na_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    // ----- Go -----
+
+    #[test]
+    fn go_empty_unit_no_attributes() {
+        // Package-only file declares no struct → npa stays disabled,
+        // class_na_sum = 0.
+        check_metrics::<GoParser>("package main\n", "empty.go", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.npa);
+        });
+    }
+
+    #[test]
+    fn go_empty_struct_has_no_attributes() {
+        // `type Empty struct{}` has an empty FieldDeclarationList →
+        // 0 fields → npa stays disabled.
+        check_metrics::<GoParser>("package main\ntype Empty struct{}\n", "foo.go", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.npa);
+        });
+    }
+
+    #[test]
+    fn go_struct_fields_are_attributes() {
+        // Three named fields: `X int`, `y string`, `Z float64` → 3
+        // attributes. Visibility is by identifier case in Go, but the
+        // trait signature does not give us source bytes, so every
+        // field is counted as public: class_npa == class_na.
+        check_metrics::<GoParser>(
+            "package main\ntype Foo struct { X int; y string; Z float64 }\n",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn go_grouped_struct_fields_each_count() {
+        // `X, Y int` parses as ONE field_declaration with two name
+        // identifiers — counted as 1 attribute per the
+        // "FieldDeclaration is the unit" rule. The trailing `Z` is a
+        // separate field_declaration → 2 attributes total. This
+        // mirrors Rust's per-FieldDeclaration counting.
+        check_metrics::<GoParser>(
+            "package main\ntype Point struct { X, Y int; Z float64 }\n",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn go_embedded_type_counts_as_attribute() {
+        // `io.Reader` and `*Foo` are embedded types — field
+        // declarations with no name, just a type. Each is one
+        // attribute per the issue spec ("Embedded types: a field
+        // with no name, just a type — count as one field"). Plus
+        // `n int` → 3 attributes total.
+        check_metrics::<GoParser>(
+            "package main\nimport \"io\"\ntype Bar struct { io.Reader; *Foo; n int }\ntype Foo struct {}\n",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn go_multiple_structs_aggregate_at_unit() {
+        // Two structs declared at file scope each contribute their
+        // fields to the same Unit space (no per-receiver class
+        // grouping in Go). `Foo` has 1 field, `Bar` has 2 → total
+        // class_na_sum = 3.
+        check_metrics::<GoParser>(
+            "package main\ntype Foo struct { x int }\ntype Bar struct { a int; b string }\n",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn go_top_level_var_const_not_attributes() {
+        // Package-level `var` and `const` declarations are NOT
+        // struct fields — they are free-standing identifiers.
+        // Expected class_na_sum = 0.
+        check_metrics::<GoParser>(
+            "package main\nvar Counter int\nconst Pi = 3.14\n",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );

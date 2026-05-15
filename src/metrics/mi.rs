@@ -232,4 +232,21 @@ mod tests {
             assert!(mi.mi_visual_studio() > 0.0);
         });
     }
+
+    #[test]
+    fn go_mi_smoke() {
+        // Go uses the default `Mi::compute`; once Loc / Cyclomatic /
+        // Halstead are populated (they are for Go), MI is derived
+        // automatically. Pin the cascade against drift.
+        check_metrics::<GoParser>(
+            "package main\nfunc f() int { return 1 }\n",
+            "foo.go",
+            |metric| {
+                let mi = &metric.mi;
+                assert!(mi.mi_original() > 0.0);
+                assert!(mi.mi_sei() > 0.0);
+                assert!(mi.mi_visual_studio() > 0.0);
+            },
+        );
+    }
 }
