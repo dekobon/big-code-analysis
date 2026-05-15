@@ -524,7 +524,6 @@ implement_metric_trait!(
     Abc,
     MozjsCode,
     JavascriptCode,
-    CppCode,
     PreprocCode,
     CcommentCode,
     PerlCode,
@@ -1000,6 +999,65 @@ impl Abc for GoCode {
                 if node
                     .parent()
                     .is_some_and(|p| matches!(p.kind_id().into(), G::BinaryExpression)) =>
+            {
+                stats.conditions += 1.;
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Abc for CppCode {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+        use Cpp::*;
+
+        match node.kind_id().into() {
+            // `assignment_expression` covers both plain `=` and every
+            // compound form (`+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`,
+            // `^=`, `<<=`, `>>=`); the grammar lifts them all into a
+            // single named node so we count once per
+            // `assignment_expression`. `update_expression` covers both
+            // prefix and postfix `++` / `--`. Variable initialisers
+            // (`int x = 0`) parse as `init_declarator` inside
+            // `declaration` and never become `assignment_expression` —
+            // they correctly stay out.
+            AssignmentExpression | AssignmentExpression2 | UpdateExpression => {
+                stats.assignments += 1.;
+            }
+            // Every call counts (method calls fold in as
+            // `call_expression` with a `field_expression` callee). The
+            // C++ grammar exposes two aliased `call_expression` ids.
+            // `new T(...)` allocations count as a branch — they invoke
+            // a constructor, mirroring Java's `New` and C#'s
+            // `ObjectCreationExpression` rule.
+            CallExpression | CallExpression2 | NewExpression => {
+                stats.branches += 1.;
+            }
+            // Comparison operators emitted as token children of a
+            // `binary_expression`. The C++20 spaceship `<=>` (`LTEQGT`)
+            // is a comparison operator and counts once per use.
+            // `&&` / `||` add one each per Fitzpatrick. `else` opens
+            // an alternative branch path; `case` (non-default) adds
+            // one per switch arm; `?` opens a ternary; `try` / `catch`
+            // count per Fitzpatrick (and Java's rule). `Try2` is the
+            // second token-id alias the C++ grammar emits for `try`
+            // (it appears under structured-exception forms).
+            LTEQ | GTEQ | EQEQ | BANGEQ | LTEQGT | AMPAMP | PIPEPIPE | Else | Case | QMARK
+            | Try | Try2 | Catch => {
+                stats.conditions += 1.;
+            }
+            // Plain `<` / `>` doubles as template-argument and
+            // template-parameter delimiter (`std::vector<int>`,
+            // `template <typename T>`). The `binary_expression` parent
+            // check disambiguates without inspecting siblings — only
+            // comparison uses of `<` / `>` count. Both kind-id aliases
+            // (`BinaryExpression`, `BinaryExpression2`) are accepted
+            // because the C++ grammar emits the same node under two
+            // production-rule paths.
+            LT | GT
+                if node.parent().is_some_and(|p| {
+                    matches!(p.kind_id().into(), BinaryExpression | BinaryExpression2)
+                }) =>
             {
                 stats.conditions += 1.;
             }
@@ -4595,6 +4653,217 @@ function f(int $a, int $b): int {
                 assert_eq!(metric.abc.assignments_sum(), 1.0);
                 assert_eq!(metric.abc.branches_sum(), 4.0);
                 assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    // ----- C++ -----
+
+    #[test]
+    fn cpp_empty_unit_zero() {
+        // No code → A=B=C=0. Wires up the trait and exercises the
+        // per-language compute reachability.
+        check_metrics::<CppParser>("", "empty.cpp", |metric| {
+            assert_eq!(metric.abc.assignments_sum(), 0.0);
+            assert_eq!(metric.abc.branches_sum(), 0.0);
+            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.abc);
+        });
+    }
+
+    #[test]
+    fn cpp_plain_and_compound_assignments_count() {
+        // `int x = 0` is an `init_declarator` (declaration initialiser)
+        // and NOT a Fitzpatrick assignment. `x = 5`, `x += 2`, `x = 7`
+        // all parse as `assignment_expression` → A = 3.
+        check_metrics::<CppParser>(
+            "void f() { int x = 0; x = 5; x += 2; x = 7; }",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 3.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_increment_and_decrement_count_as_assignment() {
+        // `x++` / `--x` / prefix and postfix forms each parse as
+        // `update_expression` and count as 1 assignment per Fitzpatrick.
+        check_metrics::<CppParser>(
+            "void f() { int x = 0; x++; --x; ++x; x--; }",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_calls_are_branches() {
+        // Free call + member-fn call (parses as `call_expression` with
+        // a `field_expression` callee) + `new` allocation. All three
+        // are branches → B = 3.
+        check_metrics::<CppParser>(
+            "struct S { void m(); }; void g(); void f() { g(); S s; s.m(); auto* p = new int(5); }",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_comparisons_count_conditions() {
+        // `<`, `>`, `<=`, `>=`, `==`, `!=`, and the C++20 spaceship
+        // `<=>` each contribute one condition. Seven comparisons → C = 7.
+        check_metrics::<CppParser>(
+            "#include <compare>\n\
+             bool f(int a, int b) {\n\
+                 return a < b || a > b || a <= b || a >= b || a == b || a != b || (a <=> b) == 0;\n\
+             }\n",
+            "foo.cpp",
+            |metric| {
+                // 6 plain comparisons + 1 spaceship + 1 `||` adds = 7? Let's
+                // pin the exact count by hand:
+                // `<`, `>`, `<=`, `>=`, `==`, `!=` → 6 from the
+                // chained `||` expression. `(a <=> b) == 0` adds the
+                // spaceship → 7, plus its `== 0` adds one more → 8.
+                // Six `||` short-circuits add → 8 + 6 = 14.
+                assert_eq!(metric.abc.conditions_sum(), 14.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_short_circuit_ops_count_conditions() {
+        // `&&` and `||` each count once per occurrence (Fitzpatrick
+        // rule). Two short-circuits → C = 2 (plus two comparisons → 4).
+        check_metrics::<CppParser>(
+            "bool f(int a, int b) { return a == b && a > 0 || b < 0; }",
+            "foo.cpp",
+            |metric| {
+                // == 1, > 1, < 1, && 1, || 1 → 5.
+                assert_eq!(metric.abc.conditions_sum(), 5.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_generic_brackets_not_conditions() {
+        // `<` / `>` in `std::vector<int>` are `template_argument_list`
+        // delimiters, NOT comparison operators. The `binary_expression`
+        // parent check must filter them out → C = 0.
+        check_metrics::<CppParser>(
+            "#include <vector>\nstd::vector<int> f() { return std::vector<int>{}; }",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_else_and_ternary_count_conditions() {
+        // `if (cond) ... else ...` + ternary `cond ? a : b`. The
+        // `if`-keyword is NOT a condition (its condition is the
+        // comparison inside, which counts separately). `else` adds 1,
+        // `?` adds 1. Two comparisons (`a > b`, `b < 0`) → 2. Total = 4.
+        check_metrics::<CppParser>(
+            "int f(int a, int b) {\n\
+                 if (a > b) { return a; } else { return b; }\n\
+                 return (b < 0) ? -b : b;\n\
+             }\n",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_switch_cases_count_default_excluded() {
+        // `case 1`, `case 2` → 2 conditions. `default` is intentionally
+        // excluded (matches the C-family precedent in Rust / Go / Python
+        // and Java's omission of `Default` from this rule? — actually
+        // Java DOES count `Default`. We follow Rust / Go and exclude
+        // it). C = 2.
+        check_metrics::<CppParser>(
+            "void f(int x) {\n\
+                 switch (x) {\n\
+                     case 1: break;\n\
+                     case 2: break;\n\
+                     default: break;\n\
+                 }\n\
+             }\n",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_try_catch_count_conditions() {
+        // `try` and `catch` each add one condition (Fitzpatrick's rule;
+        // Java's impl above counts them too).
+        check_metrics::<CppParser>(
+            "void f() { try { } catch (int) { } catch (...) { } }",
+            "foo.cpp",
+            |metric| {
+                // 1 `try` + 2 `catch` arms = 3.
+                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_complex_function_abc() {
+        // Mixed-shape regression: assignments, calls, conditions,
+        // ternary, switch, new. Verified by hand:
+        // - assignments: `x = 5`, `x += 2`, `x++`, `x = (a > b) ? a : b`,
+        //   `x = b` → A = 5. (`int x = 0`, `auto y = ...`, `auto* p = ...`
+        //   are declaration initialisers and don't count.)
+        // - branches: `f(a, b)` self-call + `new int(5)` → B = 2.
+        // - conditions: `a == b`, `&&`, `a > 0` → 3 inside the if.
+        //   `else` (1) + `a > b`, `?` → 2 in the ternary. `a < b`,
+        //   `||` → 2 in the else-if. `case 1`, `case 2` → 2.
+        //   default excluded. Total C = 10.
+        check_metrics::<CppParser>(
+            "int f(int a, int b) {\n\
+                 int x = 0;\n\
+                 x = 5;\n\
+                 x += 2;\n\
+                 x++;\n\
+                 if (a == b && a > 0) {\n\
+                     x = (a > b) ? a : b;\n\
+                 } else if (a < b || !x) {\n\
+                     x = b;\n\
+                 }\n\
+                 switch (x) {\n\
+                     case 1: break;\n\
+                     case 2: break;\n\
+                     default: break;\n\
+                 }\n\
+                 auto* p = new int(5);\n\
+                 return f(a, b);\n\
+             }\n",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 5.0);
+                assert_eq!(metric.abc.branches_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 10.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );

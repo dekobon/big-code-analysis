@@ -246,6 +246,27 @@ impl Wmc for RustCode {
     }
 }
 
+// C++ WMC. C++'s `class_specifier` and `struct_specifier` both map to
+// classes from the OO-metric perspective — `struct` and `class` differ
+// only in default visibility, not in their ability to hold methods.
+// The `Getter::get_space_kind` impl emits `SpaceKind::Struct` for
+// `struct_specifier`, so we collapse it onto `Class` before delegating
+// to `class_interface_compute`.
+//
+// `SpaceKind::Namespace` is intentionally dropped — namespaces are not
+// classes; their member functions are free functions and do not
+// contribute to a per-class WMC. The Unit space still accumulates the
+// per-class sums for file-level reporting.
+impl Wmc for CppCode {
+    fn compute(space_kind: SpaceKind, cyclomatic: &cyclomatic::Stats, stats: &mut Stats) {
+        let mapped = match space_kind {
+            SpaceKind::Struct => SpaceKind::Class,
+            other => other,
+        };
+        class_interface_compute(mapped, cyclomatic, stats);
+    }
+}
+
 // TypeScript / TSX both expose `class_declaration`,
 // `abstract_class_declaration` (mapped to `SpaceKind::Class` in
 // `getter.rs`) and `interface_declaration` (`SpaceKind::Interface`).
@@ -302,7 +323,6 @@ implement_metric_trait!(
     Wmc,
     MozjsCode,
     JavascriptCode,
-    CppCode,
     PreprocCode,
     CcommentCode,
     GoCode,
@@ -2570,6 +2590,117 @@ mod tests {
             |metric| {
                 assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
                 assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    // ----- C++ -----
+
+    #[test]
+    fn cpp_empty_unit_zero_wmc() {
+        // No code → no class spaces → wmc = 0. Wires up the trait.
+        check_metrics::<CppParser>("", "empty.cpp", |metric| {
+            assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+            assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.wmc);
+        });
+    }
+
+    #[test]
+    fn cpp_single_method_wmc_one() {
+        // One method with no control flow → cyclomatic = 1 → wmc = 1.
+        check_metrics::<CppParser>("class Foo { public: void m() {} };", "foo.cpp", |metric| {
+            assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+            insta::assert_json_snapshot!(metric.wmc);
+        });
+    }
+
+    #[test]
+    fn cpp_method_with_if_adds_to_wmc() {
+        // One method with one `if` → cyclomatic = 2 → wmc = 2.
+        check_metrics::<CppParser>(
+            "class Foo {\n\
+                 public:\n\
+                     int m(int x) {\n\
+                         if (x > 0) { return 1; }\n\
+                         return 0;\n\
+                     }\n\
+             };",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_struct_wmc_maps_to_class() {
+        // `struct` opens a `SpaceKind::Struct` space — the C++ Wmc
+        // impl maps it to `Class` so the same `class_wmc_sum`
+        // accumulator receives the cyclomatic of struct methods.
+        check_metrics::<CppParser>(
+            "struct Foo {\n\
+                 int m(int x) {\n\
+                     if (x > 0) { return 1; }\n\
+                     return 0;\n\
+                 }\n\
+             };",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_free_function_does_not_contribute_to_class_wmc() {
+        // A top-level function is not inside any class — its
+        // cyclomatic complexity must NOT contribute to class_wmc_sum.
+        // The `Unit` space is mapped through `class_interface_compute`
+        // unchanged; only `Function` spaces inside a `Class` /
+        // `Struct` propagate up.
+        check_metrics::<CppParser>(
+            "int free_fn(int x) { if (x > 0) { return 1; } return 0; }",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_multiple_methods_wmc_sums() {
+        // Two methods, one with `if` (cyclomatic 2), one without
+        // (cyclomatic 1). class_wmc_sum = 3.
+        check_metrics::<CppParser>(
+            "class Foo {\n\
+                 public:\n\
+                     int a(int x) { if (x > 0) { return 1; } return 0; }\n\
+                     int b() { return 42; }\n\
+             };",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_multiple_classes_wmc_aggregate() {
+        // File-level rollup: Foo has wmc 1, Bar has wmc 1. Unit
+        // class_wmc_sum = 2.
+        check_metrics::<CppParser>(
+            "class Foo { public: void a() {} };\nstruct Bar { void b() {} };",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
