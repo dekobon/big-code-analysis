@@ -1341,6 +1341,71 @@ mod tests {
     }
 
     #[test]
+    fn perl_interpolated_string_no_double_count() {
+        // Regression: issue #199. A `string_double_quoted` (and
+        // `string_qq_quoted` / `backtick_quoted` / `command_qx_quoted`)
+        // wrapping an `interpolation` child used to be counted as a
+        // Halstead operand while the inner scalar/array/hash variable
+        // was also walked and counted — double-counting the inner
+        // variable's contribution to `N2`. Mirrors #180 (Bash/Elixir),
+        // #183 (C#), #184 (PHP), #191 (Kotlin).
+        //
+        // expected: for
+        //   sub greet { my $name = shift; my $msg = "Hi $name"; return $msg; }
+        // — operands are `greet`, `$name`, `shift`, `$msg`. With the
+        // fix the wrapping `"Hi $name"` is skipped (has `Interpolation`
+        // child), so u_operands = 4 and N2 = 6 (`$name` x2 from the
+        // `my` binding and the interpolation; `$msg` x2 from the `my`
+        // binding and `return`; `greet`, `shift` once each). Without
+        // the fix the wrapping literal would also be counted, lifting
+        // u_operands to 5 and N2 to 7.
+        check_metrics::<PerlParser>(
+            "sub greet { my $name = shift; my $msg = \"Hi $name\"; return $msg; }",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.halstead.u_operands(), 4.0);
+                assert_eq!(metric.halstead.operands(), 6.0);
+                insta::assert_json_snapshot!(metric.halstead);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_plain_string_still_operand() {
+        // The fix for #199 only skips wrapping literals that carry an
+        // `Interpolation` child; a plain `"hello"` (no `$…` inside)
+        // must still contribute exactly one operand. expected: operands
+        // `greet`, `$msg`, `"hello"` → u_operands = 3, N2 = 4 (`$msg`
+        // appears in the `my` binding and the `return`).
+        check_metrics::<PerlParser>(
+            "sub greet { my $msg = \"hello\"; return $msg; }",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.halstead.u_operands(), 3.0);
+                assert_eq!(metric.halstead.operands(), 4.0);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_single_quoted_string_never_interpolates() {
+        // Single-quoted (`'…'`) and `q{…}` literals are not subject to
+        // interpolation in Perl, so even when their text contains a
+        // `$name`-shaped sequence the wrapper is still counted as one
+        // operand and the inner text is not parsed as a variable.
+        // expected: operands `greet`, `$msg`, `'Hi $name'` →
+        // u_operands = 3, N2 = 4 (`$msg` x2).
+        check_metrics::<PerlParser>(
+            "sub greet { my $msg = 'Hi $name'; return $msg; }",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.halstead.u_operands(), 3.0);
+                assert_eq!(metric.halstead.operands(), 4.0);
+            },
+        );
+    }
+
+    #[test]
     fn lua_operators_and_operands() {
         check_metrics::<LuaParser>(
             "local function add(a, b)

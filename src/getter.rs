@@ -853,16 +853,34 @@ impl Getter for PerlCode {
             | P::PIPEPIPEEQ | P::SLASHSLASHEQ | P::DOTEQ | P::XEQ
             | P::LTEQGT | P::AMPDOTEQ | P::PIPEDOTEQ | P::CARETDOTEQ | P::Isa
                 => HalsteadType::Operator,
-            // Operands: identifiers and literals
+            // Operands: identifiers and literals. Non-interpolating
+            // string literals (`'…'`, `q{…}`) are leaf operands; the
+            // interpolating kinds (`"…"`, `qq{…}`, `` `…` ``, `qx{…}`)
+            // are handled separately below so their inner
+            // scalar/array/hash variables are not double-counted.
             P::Identifier | P::ScalarVariable | P::ArrayVariable | P::HashVariable
             | P::PackageVariable | P::SpecialScalarVariable | P::PackageName | P::ModuleName
             | P::BarewordImport | P::Typeglob | P::FileHandle
             | P::Integer | P::FloatingPoint | P::ScientificNotation | P::Hexadecimal | P::Octal
             | P::True | P::False | P::SpecialLiteral
-            | P::StringSingleQuoted | P::StringDoubleQuoted | P::StringQQuoted
-            | P::StringQqQuoted | P::BacktickQuoted | P::CommandQxQuoted
+            | P::StringSingleQuoted | P::StringQQuoted
             | P::FILE | P::LINE | P::SUB | P::PACKAGE
                 => HalsteadType::Operand,
+            // Perl's interpolating string-like literals count as one
+            // operand when inert. When they carry an `Interpolation`
+            // child the inner scalar / array / hash variables are
+            // already walked and classified as operands; counting the
+            // wrapping literal too would double-count the inner
+            // variables' contribution to `N2` (issue #199, same
+            // pattern as #180 for Elixir/Bash, #183 for C#, #184 for
+            // PHP, #191 for Kotlin).
+            P::StringDoubleQuoted | P::StringQqQuoted | P::BacktickQuoted | P::CommandQxQuoted => {
+                if node.is_child(P::Interpolation as u16) {
+                    HalsteadType::Unknown
+                } else {
+                    HalsteadType::Operand
+                }
+            }
             _ => HalsteadType::Unknown,
         }
     }
