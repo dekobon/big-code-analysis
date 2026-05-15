@@ -1294,6 +1294,122 @@ end",
     }
 
     #[test]
+    fn kotlin_string_template_no_double_count() {
+        // Regression: issue #191. A Kotlin string template (`"Hi $name!"`)
+        // wraps an `Interpolation` child whose inner expression is
+        // walked and counted separately. Without the
+        // `is_child(Interpolation)` guard the wrapping `StringLiteral`
+        // would also count as an operand, inflating N2. Same pattern as
+        // #180 (Bash/Elixir) and #184 (PHP).
+        //
+        // Source: `fun greet(name: String): String {\n    return "Hi $name!"\n}\n`
+        // Operands (by source-byte key):
+        //   Function signature (no body): `greet` × 1, `name` × 1,
+        //   `String` × 2 (param type + return type) = 3 unique, 4 total.
+        //   Body adds the short-form interpolation `$name`: tree-sitter
+        //   kotlin-ng 1.1.0 produces an `identifier` node whose source
+        //   range includes the leading `$`, so its bytes are `$name` —
+        //   distinct from the bare `name` operand in the signature.
+        //   The wrapping `StringLiteral` is skipped (fix working) →
+        //   u_operands = 4 (`greet`, `name`, `String`, `$name`), N2 = 5.
+        //   Without the fix the `StringLiteral` text (`"Hi $name!"`)
+        //   would also be counted → N2 = 6, u_operands = 5.
+        check_metrics::<KotlinParser>(
+            "fun greet(name: String): String {\n    return \"Hi $name!\"\n}\n",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.halstead.u_operands(), 4.0);
+                assert_eq!(metric.halstead.operands(), 5.0);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_string_template_long_form_no_double_count() {
+        // The `${expr}` long form of a Kotlin string template also
+        // produces an `Interpolation` child. The fix must apply to it
+        // identically.
+        //
+        // Source: `fun f(x: Int): String { return "v=${x}" }\n`
+        // Operands by source-byte key:
+        //   `f` × 1, `x` × 2 (param + inside `${x}`),
+        //   `Int` × 1, `String` × 1.
+        // With the fix u_operands = 4 (`f`, `x`, `Int`, `String`),
+        // N2 = 5. Without the fix the wrapping `"v=${x}"` would also
+        // count → u_operands = 5, N2 = 6.
+        check_metrics::<KotlinParser>(
+            "fun f(x: Int): String { return \"v=${x}\" }\n",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.halstead.u_operands(), 4.0);
+                assert_eq!(metric.halstead.operands(), 5.0);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_plain_string_still_operand() {
+        // The fix for #191 only skips wrapping templates that contain
+        // an `Interpolation` child; a plain `"hello"` (no `$` interp)
+        // must still contribute exactly one operand.
+        //
+        // Source: `fun f(): String { return "hello" }\n`
+        // Operands: `f` × 1, `String` × 1, `"hello"` × 1 →
+        // u_operands = 3, N2 = 3.
+        check_metrics::<KotlinParser>(
+            "fun f(): String { return \"hello\" }\n",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.halstead.u_operands(), 3.0);
+                assert_eq!(metric.halstead.operands(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn python_fstring_no_double_count() {
+        // Regression: issue #191. A Python f-string (`f"Hi {name}!"`)
+        // wraps an `Interpolation` child whose inner identifier
+        // `name` is walked and counted as its own operand. Without
+        // the `is_child(Interpolation)` guard the wrapping `String`
+        // would also count, double-counting `name`'s contribution to
+        // `N2`. Same pattern as #180 (Bash/Elixir) and #184 (PHP).
+        //
+        // Source: `def greet(name):\n    return f"Hi {name}!"\n`
+        // Operands by source-byte key:
+        //   `greet` × 1, `name` × 2 (param + inside `{name}`).
+        // With the fix the wrapping `f"Hi {name}!"` is skipped →
+        // u_operands = 2 (`greet`, `name`), N2 = 3. Without the fix
+        // the wrapping literal would also count → u_operands = 3,
+        // N2 = 4.
+        check_metrics::<PythonParser>(
+            "def greet(name):\n    return f\"Hi {name}!\"\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.halstead.u_operands(), 2.0);
+                assert_eq!(metric.halstead.operands(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn python_plain_string_still_operand() {
+        // The fix for #191 only skips wrapping `String` nodes that
+        // contain an `Interpolation` child; a plain `"hi"` must still
+        // contribute exactly one operand.
+        //
+        // Source: `def f():\n    return "hi"\n`
+        // Operands: `f` × 1, `"hi"` × 1 → u_operands = 2, N2 = 2.
+        // (The previous documentation-string filter is preserved:
+        // a bare `"hi"` as a top-level `expression_statement` would
+        // be skipped, but here it appears as `return "hi"`.)
+        check_metrics::<PythonParser>("def f():\n    return \"hi\"\n", "foo.py", |metric| {
+            assert_eq!(metric.halstead.u_operands(), 2.0);
+            assert_eq!(metric.halstead.operands(), 2.0);
+        });
+    }
+
+    #[test]
     fn python_empty_file_halstead() {
         check_metrics::<PythonParser>("", "empty.py", |metric| {
             let h = &metric.halstead;

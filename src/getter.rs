@@ -81,14 +81,23 @@ impl Getter for PythonCode {
             }
             Identifier | Integer | Float | True | False | None => HalsteadType::Operand,
             String => {
-                let mut operator = HalsteadType::Unknown;
-                // check if we've a documentation string or a multiline comment
-                if let Some(parent) = node.parent()
-                    && (parent.kind_id() != ExpressionStatement || parent.child_count() != 1)
-                {
-                    operator = HalsteadType::Operand;
+                // Docstring / module-level string statement: an `ExpressionStatement`
+                // whose only child is the string. Skip those.
+                let Some(parent) = node.parent() else {
+                    return HalsteadType::Unknown;
+                };
+                if parent.kind_id() == ExpressionStatement && parent.child_count() == 1 {
+                    return HalsteadType::Unknown;
                 }
-                operator
+                // Regression #191: an f-string wraps `Interpolation` children
+                // whose inner expressions are walked and counted separately.
+                // Skip the wrapping literal to avoid double-counting (same
+                // pattern as #180 for Bash/Elixir and #184 for PHP).
+                if node.is_child(Interpolation as u16) {
+                    HalsteadType::Unknown
+                } else {
+                    HalsteadType::Operand
+                }
             }
             _ => HalsteadType::Unknown,
         }
@@ -733,8 +742,23 @@ impl Getter for KotlinCode {
             | QMARK | QMARKCOLON | QMARKDOT
             | DOTDOT | DOTDOTLT | DASHGT | COLON => HalsteadType::Operator,
             // Operands: identifiers and literals
-            Identifier | NumberLiteral | FloatLiteral | StringLiteral
-            | MultilineStringLiteral | CharacterLiteral | Label => HalsteadType::Operand,
+            Identifier | NumberLiteral | FloatLiteral | CharacterLiteral | Label => {
+                HalsteadType::Operand
+            }
+            // Regression #191: a Kotlin string template (`"Hi $name"` or
+            // `"${expr}"`) wraps `Interpolation` children whose inner
+            // expressions are walked and counted separately. Skip the
+            // wrapping literal to avoid double-counting (same pattern as
+            // #180 for Bash/Elixir and #184 for PHP). Both single-line and
+            // multi-line (triple-quoted) string literals support
+            // interpolation in Kotlin.
+            StringLiteral | MultilineStringLiteral => {
+                if node.is_child(Interpolation as u16) {
+                    HalsteadType::Unknown
+                } else {
+                    HalsteadType::Operand
+                }
+            }
             _ => HalsteadType::Unknown,
         }
     }
