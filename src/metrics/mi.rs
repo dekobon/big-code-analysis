@@ -266,4 +266,22 @@ mod tests {
             },
         );
     }
+
+    #[test]
+    fn cpp_mi_smoke() {
+        // C++ uses the default `Mi::compute`; Loc / Cyclomatic /
+        // Halstead all already populated for C++, and Abc / Npa / Npm
+        // / Wmc now contribute too. MI derives from Loc + Cyclomatic
+        // + Halstead via the default. Pin the cascade against drift.
+        check_metrics::<CppParser>(
+            "int f(int x) { if (x > 0) return 1; return 0; }",
+            "foo.cpp",
+            |metric| {
+                let mi = &metric.mi;
+                assert!(mi.mi_original() > 0.0);
+                assert!(mi.mi_sei() > 0.0);
+                assert!(mi.mi_visual_studio() > 0.0);
+            },
+        );
+    }
 }

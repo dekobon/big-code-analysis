@@ -867,6 +867,102 @@ impl Npa for GoCode {
     }
 }
 
+impl Npa for CppCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        use Cpp::*;
+
+        // Mark class / struct spaces as class spaces so the metric is
+        // emitted on them.
+        if matches!(node.kind_id().into(), ClassSpecifier | StructSpecifier) && stats.is_disabled()
+        {
+            stats.is_class_space = true;
+        }
+
+        if !matches!(node.kind_id().into(), FieldDeclarationList) {
+            return;
+        }
+        let Some(parent) = node.parent() else {
+            return;
+        };
+        // C++ `class` defaults to private; `struct` defaults to public.
+        let mut current_is_public = match parent.kind_id().into() {
+            ClassSpecifier => false,
+            StructSpecifier => true,
+            _ => return,
+        };
+
+        for child in node.children() {
+            match child.kind_id().into() {
+                AccessSpecifier => {
+                    // Update the current visibility to the access
+                    // specifier's keyword. `protected` is bucketed with
+                    // `private` for `npa` purposes (matches Java's
+                    // "non-public" treatment), so any keyword other
+                    // than `public` flips us back to private.
+                    current_is_public = child
+                        .first_child(|id| {
+                            id == Cpp::Public || id == Cpp::Protected || id == Cpp::Private
+                        })
+                        .is_some_and(|tok| tok.kind_id() == Cpp::Public);
+                }
+                FieldDeclaration => {
+                    // Member functions surface as `field_declaration`
+                    // when declared without a body. They are counted
+                    // by `Npm`, not as attributes — detect them by
+                    // their `function_declarator` and skip.
+                    if cpp_has_function_declarator(&child) {
+                        continue;
+                    }
+                    // Data field — count every `field_identifier` in
+                    // the declarator subtree. Pointer (`int* p`),
+                    // array (`int a[N]`), and plain (`int x`) forms
+                    // all reduce to one or more `field_identifier`
+                    // leaves; the comma-separated form `int b, c`
+                    // adds them as siblings.
+                    let count = cpp_count_field_identifiers(&child);
+                    stats.class_na += count;
+                    if current_is_public {
+                        stats.class_npa += count;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+pub(crate) fn cpp_has_function_declarator(node: &Node) -> bool {
+    use Cpp::*;
+    node.children().any(|child| match child.kind_id().into() {
+        FunctionDeclarator | FunctionDeclarator2 | FunctionDeclarator3 => true,
+        // Recurse through declarator wrappers that can sit above the
+        // function_declarator (`Foo* operator->()`,
+        // `template<...> T fn();`, constructor / destructor
+        // `declaration`s inside a class body).
+        PointerDeclarator | PointerDeclarator2 | ReferenceDeclarator | ReferenceDeclarator2
+        | ReferenceDeclarator3 | ReferenceDeclarator4 | Declaration | Declaration2
+        | Declaration3 | Declaration4 => cpp_has_function_declarator(&child),
+        _ => false,
+    })
+}
+
+pub(crate) fn cpp_count_field_identifiers(node: &Node) -> usize {
+    use Cpp::*;
+    let mut count = 0;
+    for child in node.children() {
+        match child.kind_id().into() {
+            FieldIdentifier => count += 1,
+            PointerDeclarator | PointerDeclarator2 | ArrayDeclarator | ArrayDeclarator2
+            | ArrayDeclarator3 | InitDeclarator | ReferenceDeclarator | ReferenceDeclarator2
+            | ReferenceDeclarator3 | ReferenceDeclarator4 => {
+                count += cpp_count_field_identifiers(&child);
+            }
+            _ => {}
+        }
+    }
+    count
+}
+
 // Counts positional fields inside an `ordered_field_declaration_list`
 // (tuple struct). Each non-token child that is a type node represents
 // one field. A leading `visibility_modifier` may decorate the field;
@@ -1313,7 +1409,6 @@ implement_metric_trait!(
     Npa,
     MozjsCode,
     JavascriptCode,
-    CppCode,
     PreprocCode,
     CcommentCode,
     PerlCode,
@@ -3572,6 +3667,153 @@ mod tests {
             |metric| {
                 assert_eq!(metric.npa.class_na_sum(), 0.0);
                 assert_eq!(metric.npa.class_npa_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    // ----- C++ -----
+
+    #[test]
+    fn cpp_empty_unit_no_attributes() {
+        // No code → no class spaces → npa = 0. Establishes the trait
+        // is wired and the per-language compute is reachable.
+        check_metrics::<CppParser>("", "empty.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 0.0);
+            assert_eq!(metric.npa.class_npa_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.npa);
+        });
+    }
+
+    #[test]
+    fn cpp_empty_class_no_attributes() {
+        // `class Foo {};` has no fields. Marked as class space (npa
+        // becomes visible) but counts stay at 0.
+        check_metrics::<CppParser>("class Foo {};", "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 0.0);
+            assert_eq!(metric.npa.class_npa_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.npa);
+        });
+    }
+
+    #[test]
+    fn cpp_class_public_attributes() {
+        // `class` defaults to private. `public:` flips visibility →
+        // `int a; int b, c;` becomes 3 public attributes (multi-
+        // declarator declaration emits one `field_identifier` per
+        // name). Total: class_na = 3, class_npa = 3.
+        check_metrics::<CppParser>(
+            "class Foo { public: int a; int b, c; };",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_class_private_default_visibility() {
+        // No access specifier → `class` keeps its default private
+        // visibility → `int value_;` counts as 1 attribute but 0 are
+        // public. class_na = 1, class_npa = 0.
+        check_metrics::<CppParser>("class Foo { int value_; };", "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 1.0);
+            assert_eq!(metric.npa.class_npa_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.npa);
+        });
+    }
+
+    #[test]
+    fn cpp_struct_default_public_visibility() {
+        // `struct` defaults to public — opposite of `class`. The same
+        // field counts once and is public.
+        check_metrics::<CppParser>("struct Bar { int value_; };", "foo.cpp", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 1.0);
+            assert_eq!(metric.npa.class_npa_sum(), 1.0);
+            insta::assert_json_snapshot!(metric.npa);
+        });
+    }
+
+    #[test]
+    fn cpp_mixed_visibility_sections() {
+        // Public section: 1 field. Protected section (bucketed with
+        // private for npa): 1 field. Private section: 1 field.
+        // class_na = 3, class_npa = 1.
+        check_metrics::<CppParser>(
+            "class Foo {\n\
+                 public: int a;\n\
+                 protected: int b;\n\
+                 private: int c;\n\
+             };",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_methods_not_counted_as_attributes() {
+        // Inline-defined methods (`function_definition`) and
+        // declaration-only methods (`field_declaration` containing
+        // `function_declarator`) must NOT be counted as attributes.
+        // Only the data field `value_` adds to `class_na`.
+        check_metrics::<CppParser>(
+            "class Foo {\n\
+                 public:\n\
+                     void method1() {}\n\
+                     void method2();\n\
+                 private:\n\
+                     int value_;\n\
+             };",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 1.0);
+                assert_eq!(metric.npa.class_npa_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_pointer_array_fields_count() {
+        // `int* p;` wraps the `field_identifier` inside
+        // `pointer_declarator`. `int a[10];` wraps it inside
+        // `array_declarator`. Both must be reached by the recursive
+        // helper. Plus a plain `int x;` → 3 attributes total.
+        check_metrics::<CppParser>(
+            "struct S {\n\
+                 int* p;\n\
+                 int a[10];\n\
+                 int x;\n\
+             };",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                // Struct → all public.
+                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_multiple_classes_aggregate_at_unit() {
+        // Two classes in one file. Each contributes to its own
+        // class space; the file-level (Unit) class_na_sum aggregates
+        // both. Foo has 2 attrs (1 public, 1 private). Bar has 1.
+        // Total class_na_sum at Unit = 3.
+        check_metrics::<CppParser>(
+            "class Foo { public: int a; private: int b; };\nstruct Bar { int c; };",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                // Public: Foo::a (1) + Bar::c (1) = 2.
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );

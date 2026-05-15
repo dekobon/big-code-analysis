@@ -564,7 +564,84 @@ impl Npm for GoCode {
         }
     }
 }
-// package-private-by-default, so the "no modifier → public" branch is the
+
+impl Npm for CppCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        use Cpp::*;
+
+        // Mark class / struct spaces as class spaces so the metric is
+        // emitted on them.
+        if matches!(node.kind_id().into(), ClassSpecifier | StructSpecifier) && stats.is_disabled()
+        {
+            stats.is_class_space = true;
+        }
+
+        if !matches!(node.kind_id().into(), FieldDeclarationList) {
+            return;
+        }
+        let Some(parent) = node.parent() else {
+            return;
+        };
+        // C++ `class` defaults to private; `struct` defaults to public.
+        let mut current_is_public = match parent.kind_id().into() {
+            ClassSpecifier => false,
+            StructSpecifier => true,
+            _ => return,
+        };
+
+        for child in node.children() {
+            match child.kind_id().into() {
+                AccessSpecifier => {
+                    current_is_public = child
+                        .first_child(|id| {
+                            id == Cpp::Public || id == Cpp::Protected || id == Cpp::Private
+                        })
+                        .is_some_and(|tok| tok.kind_id() == Cpp::Public);
+                }
+                // Inline-defined member function (with a body): regular
+                // methods, constructors, destructors, operator overloads,
+                // and conversion operators all share these aliased
+                // `function_definition` kind-ids.
+                FunctionDefinition | FunctionDefinition2 | FunctionDefinition3
+                | FunctionDefinition4 => {
+                    stats.class_nm += 1;
+                    if current_is_public {
+                        stats.class_npm += 1;
+                    }
+                }
+                // Declaration-only member function. The wrapping node
+                // varies by shape:
+                // - `field_declaration > function_declarator` for
+                //   ordinary forward-declared methods (incl. pure
+                //   virtual `= 0` and `Foo* operator->()` wrapped in
+                //   `pointer_declarator`).
+                // - `declaration > function_declarator` for
+                //   constructors / destructors (no return type).
+                // - `template_declaration > declaration >
+                //   function_declarator` for templated member fns.
+                //
+                // The shared `cpp_has_function_declarator` helper walks
+                // the declarator subtree (including `declaration`
+                // wrappers) so all three shapes collapse into one arm;
+                // the guard avoids counting non-method declarations
+                // (e.g. nested type aliases) under the same parent.
+                FieldDeclaration | Declaration | Declaration2 | Declaration3 | Declaration4
+                | TemplateDeclaration
+                    if super::npa::cpp_has_function_declarator(&child) =>
+                {
+                    stats.class_nm += 1;
+                    if current_is_public {
+                        stats.class_npm += 1;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+// Kotlin's default visibility is `public` (unlike Java, which is
+// package-private-by-default), so the "no modifier → public" branch is the
 // common case.
 impl Npm for KotlinCode {
     fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
@@ -756,7 +833,6 @@ implement_metric_trait!(
     Npm,
     MozjsCode,
     JavascriptCode,
-    CppCode,
     PreprocCode,
     CcommentCode,
     PerlCode,
@@ -2870,6 +2946,143 @@ class C {
             |metric| {
                 assert_eq!(metric.npm.class_nm_sum(), 0.0);
                 assert_eq!(metric.npm.class_npm_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    // ----- C++ -----
+
+    #[test]
+    fn cpp_empty_unit_no_methods() {
+        // No code → no class spaces → npm = 0.
+        check_metrics::<CppParser>("", "empty.cpp", |metric| {
+            assert_eq!(metric.npm.class_nm_sum(), 0.0);
+            assert_eq!(metric.npm.class_npm_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.npm);
+        });
+    }
+
+    #[test]
+    fn cpp_class_methods_count() {
+        // Two member functions (one defined inline, one declared only).
+        // Both count. Defaults to private → class_npm = 0.
+        check_metrics::<CppParser>(
+            "class Foo {\n\
+                 void method1() {}\n\
+                 void method2();\n\
+             };",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_npm_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_constructors_and_destructors_count() {
+        // Constructors and destructors are parsed as `declaration`
+        // (not `field_declaration`) inside the class body because they
+        // have no return type. Both still count as methods.
+        check_metrics::<CppParser>(
+            "class Foo {\n\
+                 public:\n\
+                     Foo();\n\
+                     ~Foo();\n\
+                     void method();\n\
+             };",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                assert_eq!(metric.npm.class_npm_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_template_methods_count() {
+        // `template<typename T> T foo(T x);` parses as
+        // `template_declaration` wrapping a `declaration` whose
+        // `function_declarator` is reached recursively.
+        check_metrics::<CppParser>(
+            "class Foo {\n\
+                 public:\n\
+                     template<typename T> T fn(T x);\n\
+             };",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_struct_methods_default_public() {
+        // `struct` defaults to public visibility. All three methods
+        // count as public.
+        check_metrics::<CppParser>(
+            "struct Foo {\n\
+                 void a();\n\
+                 void b() {}\n\
+                 Foo() {}\n\
+             };",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                assert_eq!(metric.npm.class_npm_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_free_function_is_not_method() {
+        // Top-level function — not inside any class — does not count
+        // toward npm. The Unit space is not marked as a class space,
+        // so npm stays at zero.
+        check_metrics::<CppParser>("void free_fn() {}\n", "foo.cpp", |metric| {
+            assert_eq!(metric.npm.class_nm_sum(), 0.0);
+            assert_eq!(metric.npm.class_npm_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.npm);
+        });
+    }
+
+    #[test]
+    fn cpp_mixed_visibility_methods() {
+        // `class` defaults to private. Public section gets 1 method,
+        // protected gets 1 (bucketed as non-public for npm), private
+        // gets 1. Total: class_nm = 3, class_npm = 1.
+        check_metrics::<CppParser>(
+            "class Foo {\n\
+                 public: void a();\n\
+                 protected: void b();\n\
+                 private: void c();\n\
+             };",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_multiple_classes_aggregate_at_unit() {
+        // File-level rollup: Foo has 2 methods, Bar has 1. Unit
+        // class_nm_sum = 3.
+        check_metrics::<CppParser>(
+            "class Foo { public: void a(); void b() {} };\n\
+             struct Bar { void c(); };",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                assert_eq!(metric.npm.class_npm_sum(), 3.0);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
