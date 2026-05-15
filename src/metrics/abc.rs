@@ -514,22 +514,8 @@ fn java_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 // but no impl exists yet). A smoke test under `mod tests` pins the
 // current 0 value with a TODO pointing at the follow-up issue; when
 // the real impl lands the test author must update it.
-//   - MozjsCode / JavascriptCode — see #202.
-//   - RustCode     — see #203.
-//   - CppCode      — see #204.
-//   - GoCode       — see #205.
-//   - ElixirCode   — see #206.
 //   - PerlCode, LuaCode, TclCode — see #208.
-implement_metric_trait!(
-    Abc,
-    MozjsCode,
-    JavascriptCode,
-    PreprocCode,
-    CcommentCode,
-    PerlCode,
-    LuaCode,
-    TclCode
-);
+implement_metric_trait!(Abc, PreprocCode, CcommentCode, PerlCode, LuaCode, TclCode);
 
 // TypeScript / TSX share the same expression / statement vocabulary; the
 // `ts_abc_compute!` macro expands the same token-level Fitzpatrick rules
@@ -614,6 +600,67 @@ impl Abc for TypescriptCode {
 
 impl Abc for TsxCode {
     ts_abc_compute!(Tsx);
+}
+
+// JavaScript / Mozjs share TypeScript's expression / statement
+// vocabulary. The `js_abc_compute!` macro expands the same
+// token-level Fitzpatrick rules as `ts_abc_compute!`, with two
+// adjustments:
+//
+//   1. `LT` / `GT` are always comparison operators in plain JS — there
+//      are no `TypeArguments` / `TypeParameters` nodes to gate against.
+//   2. JS retains the same `LexicalDeclaration` / `VariableDeclaration`
+//      sentinel handling so `const x = 5` does not double-count the
+//      initializer `=` as an assignment, while `let` / `var`
+//      declarations also suppress the initializer `=` (matching
+//      Fitzpatrick's "declaration initialiser is not an assignment"
+//      rule and the TS impl above).
+macro_rules! js_abc_compute {
+    ($lang:ident) => {
+        fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+            use $lang::*;
+
+            match node.kind_id().into() {
+                PLUSEQ | DASHEQ | STAREQ | SLASHEQ | PERCENTEQ | STARSTAREQ | AMPEQ | PIPEEQ
+                | CARETEQ | LTLTEQ | GTGTEQ | GTGTGTEQ | AMPAMPEQ | PIPEPIPEEQ | QMARKQMARKEQ
+                | PLUSPLUS | DASHDASH => {
+                    stats.assignments += 1.;
+                }
+                LexicalDeclaration | VariableDeclaration => {
+                    stats.declaration.push(DeclKind::Var);
+                }
+                Const => {
+                    if let Some(DeclKind::Var) = stats.declaration.last() {
+                        stats.declaration.push(DeclKind::Const);
+                    }
+                }
+                SEMI => {
+                    if let Some(DeclKind::Const | DeclKind::Var) = stats.declaration.last() {
+                        stats.declaration.clear();
+                    }
+                }
+                EQ if !matches!(stats.declaration.last(), Some(DeclKind::Const)) => {
+                    stats.assignments += 1.;
+                }
+                CallExpression | NewExpression => {
+                    stats.branches += 1.;
+                }
+                EQEQ | EQEQEQ | BANGEQ | BANGEQEQ | LTEQ | GTEQ | LT | GT | QMARK | QMARKQMARK
+                | Instanceof | Else | Case | Default | Try | Catch => {
+                    stats.conditions += 1.;
+                }
+                _ => {}
+            }
+        }
+    };
+}
+
+impl Abc for JavascriptCode {
+    js_abc_compute!(Javascript);
+}
+
+impl Abc for MozjsCode {
+    js_abc_compute!(Mozjs);
 }
 
 // Fitzpatrick's ABC rules adapted for Kotlin syntax. Kotlin shares the
@@ -3846,36 +3893,10 @@ function f(int $a, int $b): int {
     }
 
 
-    // PLACEHOLDER #202: Mozjs `Abc` is unimplemented.
-    #[test]
-    fn mozjs_abc_placeholder_returns_zero() {
-        check_metrics::<MozjsParser>(
-            "function f(a, b) { var s = a + b; if (s > 0) { foo(s); } }",
-            "foo.js",
-            |metric| assert_abc_default_zero(&metric),
-        );
-    }
 
-    // PLACEHOLDER #202: JavaScript `Abc` is unimplemented.
-    #[test]
-    fn javascript_abc_placeholder_returns_zero() {
-        check_metrics::<JavascriptParser>(
-            "function f(a, b) { var s = a + b; if (s > 0) { foo(s); } }",
-            "foo.js",
-            |metric| assert_abc_default_zero(&metric),
-        );
-    }
 
 
     // PLACEHOLDER #204: C++ `Abc` is unimplemented.
-    #[test]
-    fn cpp_abc_placeholder_returns_zero() {
-        check_metrics::<CppParser>(
-            "void f(int a, int b) { int s = a + b; if (s > 0) { foo(s); } }",
-            "foo.cpp",
-            |metric| assert_abc_default_zero(&metric),
-        );
-    }
 
 
 
@@ -4864,6 +4885,225 @@ function f(int $a, int $b): int {
                 assert_eq!(metric.abc.assignments_sum(), 5.0);
                 assert_eq!(metric.abc.branches_sum(), 2.0);
                 assert_eq!(metric.abc.conditions_sum(), 10.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_empty_unit_zero() {
+        // No code → A=B=C=0. Wires up the trait and exercises the
+        // per-language compute reachability.
+        check_metrics::<JavascriptParser>("", "empty.js", |metric| {
+            assert_eq!(metric.abc.assignments_sum(), 0.0);
+            assert_eq!(metric.abc.branches_sum(), 0.0);
+            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.abc);
+        });
+    }
+
+    #[test]
+    fn javascript_plain_and_compound_assignments_count() {
+        // `let` / `var` declarations behave like TypeScript: the `Var`
+        // sentinel is pushed but only `const` suppresses the
+        // initializer `=`. So `let x = 0` does count as A=+1; only
+        // `const PI = 3.14` would be elided. Plain `x = 5`, `x += 2`,
+        // `x = 7` all count → A = 4 total here.
+        check_metrics::<JavascriptParser>(
+            "function f() { let x = 0; x = 5; x += 2; x = 7; }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 4.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_const_initializer_not_assignment() {
+        // `const PI = 3.14` must NOT count as an assignment — the
+        // `Const` sentinel suppresses the initializer `=`. `let x = 1`
+        // and `var y = 2` still count (matches the TS impl: only
+        // `const` suppresses).
+        check_metrics::<JavascriptParser>(
+            "function f() { const PI = 3.14; let x = 1; var y = 2; x = 9; }",
+            "foo.js",
+            |metric| {
+                // `const PI` suppressed; `let x = 1`, `var y = 2`,
+                // `x = 9` all count → A = 3.
+                assert_eq!(metric.abc.assignments_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_increment_and_decrement_count_as_assignment() {
+        // `x++` (post) and `--x` (pre) both update an lvalue and so
+        // count as assignments. Combined with the `let x = 0`
+        // initializer (which counts under the JS/TS sentinel rule —
+        // only `const` suppresses), A = 3.
+        check_metrics::<JavascriptParser>(
+            "function f() { let x = 0; x++; --x; }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_calls_are_branches() {
+        // `g(1)` is a `call_expression` → B = 1. `new Foo(2)` is a
+        // `new_expression` → B = 1. Total B = 2.
+        check_metrics::<JavascriptParser>(
+            "function f() { g(1); new Foo(2); }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_comparisons_count_conditions() {
+        // `==`, `===`, `!=`, `!==`, `<`, `>`, `<=`, `>=` each count
+        // once. The `&&` / `||` short-circuit operators are NOT
+        // counted as conditions in this impl (matches the TS
+        // precedent — short-circuit ops are folded into the
+        // surrounding `if` / control-flow arm, not separately).
+        // Total C = 8.
+        check_metrics::<JavascriptParser>(
+            "function f(a, b) { return a == b && a === b && a != b && a !== b && a < b && a > b && a <= b && a >= b; }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 8.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_nullish_coalescing_counts_condition() {
+        // `a ?? b` is one nullish-coalescing operator → C = 1.
+        check_metrics::<JavascriptParser>(
+            "function f(a, b) { return a ?? b; }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_else_ternary_case_default_try_catch() {
+        // `else`, `?` (ternary), `case`, `default`, `try`, `catch`
+        // all count. With the comparisons:
+        //   - `a > 0` → 1
+        //   - `else` opens an else_clause → 1
+        //   - `?` ternary → 1
+        //   - `case 1` → 1
+        //   - `default` → 1
+        //   - `try` + `catch` → 2
+        // Total C = 7.
+        check_metrics::<JavascriptParser>(
+            "function f(a) { if (a > 0) {} else {} let x = a ? 1 : 2; switch (x) { case 1: break; default: break; } try { } catch (e) { } }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 7.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_instanceof_counts_condition() {
+        // `x instanceof Foo` is a binary expression whose operator is
+        // the `instanceof` keyword token → C = 1.
+        check_metrics::<JavascriptParser>(
+            "function f(x) { return x instanceof Foo; }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_complex_function_abc() {
+        // Mixed-shape regression. Verified by hand:
+        // - assignments: `let x = 0` (Var sentinel does not suppress)
+        //   + `x = 5`, `x += 2`, `x++`, `x = (a>b)?a:b`, `x = b`,
+        //   `let p = ...` (Var sentinel) → A = 7.
+        // - branches: `f(a, b)` self-call + `new Bar()` → B = 2.
+        // - conditions: `a == b`, `a > 0` → 2 inside the if header
+        //   (`&&` is not counted). `else` (1) + `a > b`, `?` → 2 in
+        //   the ternary. `a < b` → 1 in the else-if (`||` not
+        //   counted). `case 1`, `default` → 2 in the switch. Total
+        //   C = 8.
+        check_metrics::<JavascriptParser>(
+            "function f(a, b) {\n\
+                 let x = 0;\n\
+                 x = 5;\n\
+                 x += 2;\n\
+                 x++;\n\
+                 if (a == b && a > 0) {\n\
+                     x = (a > b) ? a : b;\n\
+                 } else if (a < b || !x) {\n\
+                     x = b;\n\
+                 }\n\
+                 switch (x) {\n\
+                     case 1: break;\n\
+                     default: break;\n\
+                 }\n\
+                 let p = new Bar();\n\
+                 return f(a, b);\n\
+             }\n",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 7.0);
+                assert_eq!(metric.abc.branches_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 8.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_complex_function_abc() {
+        // Mozjs shares JavaScript's expression / statement vocabulary;
+        // the `js_abc_compute!` macro expands identical token-level
+        // rules for both. This test pins parity against the JS impl.
+        check_metrics::<MozjsParser>(
+            "function f(a, b) {\n\
+                 let x = 0;\n\
+                 x = 5;\n\
+                 x += 2;\n\
+                 x++;\n\
+                 if (a == b && a > 0) {\n\
+                     x = (a > b) ? a : b;\n\
+                 } else if (a < b || !x) {\n\
+                     x = b;\n\
+                 }\n\
+                 switch (x) {\n\
+                     case 1: break;\n\
+                     default: break;\n\
+                 }\n\
+                 let p = new Bar();\n\
+                 return f(a, b);\n\
+             }\n",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 7.0);
+                assert_eq!(metric.abc.branches_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 8.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );

@@ -284,4 +284,36 @@ mod tests {
             },
         );
     }
+
+    #[test]
+    fn javascript_mi_smoke() {
+        // JavaScript uses the default `Mi::compute`; Loc / Cyclomatic
+        // / Halstead were already populated, and Abc / Npa / Npm /
+        // Wmc now contribute too. Pin the cascade against drift.
+        check_metrics::<JavascriptParser>(
+            "function f(x) { if (x > 0) return 1; return 0; }",
+            "foo.js",
+            |metric| {
+                let mi = &metric.mi;
+                assert!(mi.mi_original() > 0.0);
+                assert!(mi.mi_sei() > 0.0);
+                assert!(mi.mi_visual_studio() > 0.0);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_mi_smoke() {
+        // Mozjs shares JavaScript's MI cascade; this is a parity pin.
+        check_metrics::<MozjsParser>(
+            "function f(x) { if (x > 0) return 1; return 0; }",
+            "foo.js",
+            |metric| {
+                let mi = &metric.mi;
+                assert!(mi.mi_original() > 0.0);
+                assert!(mi.mi_sei() > 0.0);
+                assert!(mi.mi_visual_studio() > 0.0);
+            },
+        );
+    }
 }

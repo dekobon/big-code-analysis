@@ -1,0 +1,9 @@
+---
+source: src/metrics/wmc.rs
+expression: metric.wmc
+---
+{
+  "classes": 2.0,
+  "interfaces": 0.0,
+  "total": 2.0
+}

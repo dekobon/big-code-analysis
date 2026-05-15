@@ -300,6 +300,23 @@ impl Wmc for RubyCode {
     }
 }
 
+// JavaScript / Mozjs WMC. JS classes (`class_declaration`,
+// `class_expression`) both map to `SpaceKind::Class` in `getter.rs`,
+// and method bodies are `method_definition` / `arrow_function`
+// function spaces — the same shape as TS/Java. `class_interface_compute`
+// rolls per-function cyclomatic sums into the enclosing class.
+impl Wmc for JavascriptCode {
+    fn compute(space_kind: SpaceKind, cyclomatic: &cyclomatic::Stats, stats: &mut Stats) {
+        class_interface_compute(space_kind, cyclomatic, stats);
+    }
+}
+
+impl Wmc for MozjsCode {
+    fn compute(space_kind: SpaceKind, cyclomatic: &cyclomatic::Stats, stats: &mut Stats) {
+        class_interface_compute(space_kind, cyclomatic, stats);
+    }
+}
+
 // Go WMC is intentionally a no-op. Go has no `class` syntactic
 // construct; methods are declared as `MethodDeclaration` nodes
 // attached to a receiver type that lives elsewhere as a `StructType`.
@@ -321,8 +338,6 @@ impl Wmc for RubyCode {
 // detection plumbing).
 implement_metric_trait!(
     Wmc,
-    MozjsCode,
-    JavascriptCode,
     PreprocCode,
     CcommentCode,
     GoCode,
@@ -2296,36 +2311,10 @@ mod tests {
     }
 
 
-    // PLACEHOLDER #202: Mozjs `Wmc` is unimplemented.
-    #[test]
-    fn mozjs_wmc_placeholder_returns_zero() {
-        check_metrics::<MozjsParser>(
-            "class A { m1(x) { if (x > 0) return x; return 0; } m2(y) { return y; } }",
-            "foo.js",
-            |metric| assert_wmc_default_zero(&metric),
-        );
-    }
 
-    // PLACEHOLDER #202: JavaScript `Wmc` is unimplemented.
-    #[test]
-    fn javascript_wmc_placeholder_returns_zero() {
-        check_metrics::<JavascriptParser>(
-            "class A { m1(x) { if (x > 0) return x; return 0; } m2(y) { return y; } }",
-            "foo.js",
-            |metric| assert_wmc_default_zero(&metric),
-        );
-    }
 
 
     // PLACEHOLDER #204: C++ `Wmc` is unimplemented.
-    #[test]
-    fn cpp_wmc_placeholder_returns_zero() {
-        check_metrics::<CppParser>(
-            "class A { public: int m1(int x) { if (x > 0) return x; return 0; } int m2(int y) { return y; } };",
-            "foo.cpp",
-            |metric| assert_wmc_default_zero(&metric),
-        );
-    }
 
 
     // --- Python WMC ---------------------------------------------------
@@ -2704,5 +2693,73 @@ mod tests {
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );
+    }
+
+    #[test]
+    fn javascript_empty_unit_zero_wmc() {
+        check_metrics::<JavascriptParser>("", "empty.js", |metric| {
+            assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.wmc);
+        });
+    }
+
+    #[test]
+    fn javascript_single_method_wmc_one() {
+        // Class with a single straight-line method has wmc = 1 (the
+        // method's cyclomatic) rolling into the class space.
+        check_metrics::<JavascriptParser>("class Foo { a() { return 1; } }", "foo.js", |metric| {
+            assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+            insta::assert_json_snapshot!(metric.wmc);
+        });
+    }
+
+    #[test]
+    fn javascript_method_with_if_adds_to_wmc() {
+        // Method body with an `if` has cyclomatic = 2 → class_wmc = 2.
+        check_metrics::<JavascriptParser>(
+            "class Foo { a(x) { if (x > 0) return 1; return 0; } }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_free_function_does_not_contribute_to_class_wmc() {
+        // Top-level functions are not class methods; their
+        // cyclomatic does not roll into a class.
+        check_metrics::<JavascriptParser>(
+            "function f(x) { if (x > 0) return 1; return 0; }\nclass Foo { a() { return 1; } }",
+            "foo.js",
+            |metric| {
+                // Only the class method contributes.
+                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_multiple_classes_wmc_aggregate() {
+        // File-level rollup: Foo has wmc 1, Bar has wmc 1. Unit
+        // class_wmc_sum = 2.
+        check_metrics::<JavascriptParser>(
+            "class Foo { a() { return 1; } }\nclass Bar { b() { return 1; } }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_single_method_wmc_one() {
+        check_metrics::<MozjsParser>("class Foo { a() { return 1; } }", "foo.js", |metric| {
+            assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+            insta::assert_json_snapshot!(metric.wmc);
+        });
     }
 }
