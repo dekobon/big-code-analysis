@@ -565,7 +565,7 @@ impl Npm for RubyCode {
             return;
         }
 
-        let mut visibility = "public";
+        let mut visibility = super::npa::RubyVisibility::Public;
         for child in node.children() {
             if let Some(marker) = super::npa::ruby_visibility_marker(&child, code) {
                 visibility = marker;
@@ -573,7 +573,7 @@ impl Npm for RubyCode {
             }
             if matches!(child.kind_id().into(), Method | SingletonMethod) {
                 stats.class_nm += 1;
-                if visibility == "public" {
+                if visibility == super::npa::RubyVisibility::Public {
                     stats.class_npm += 1;
                 }
             }
