@@ -281,21 +281,18 @@ impl Cyclomatic for RustCode {
             // each arm, so the modified metric collapses them back to the
             // container.
             // Bare wildcard `_ =>` arms are skipped to match C-family
-            // `default:` treatment.  Patterns like `Some(_)`, `(_, x)`,
+            // `default:` treatment. Patterns like `Some(_)`, `(_, x)`,
             // or `_ if guard` are not bare wildcards and still count.
-            // NOTE: assumes tree-sitter-rust =0.24 grammar structure where
-            // (a) bare `_` is a single UNDERSCORE token inside `match_pattern`,
-            // and (b) the `if`-guard is a child of the same `match_pattern`
-            // node (so `_ if guard` has `child_count > 1`).  A grammar bump
-            // that introduces a `wildcard_pattern` named node, hoists the
-            // guard onto `match_arm` directly, or otherwise restructures
-            // `match_pattern` will require this check to be updated.
+            // The check scans NAMED children of `match_pattern`, so
+            // anonymous tokens like a leading `|` (legal in or-patterns:
+            // `| _ => ...`) don't throw off detection, and a guard
+            // (`_ if g`) adds a second named child so it correctly
+            // escapes the filter. Shared helper with the `Abc` impl
+            // (`super::npa::rust_pattern_is_bare_underscore`).
             MatchArm | MatchArm2 => {
-                let is_bare_wildcard = node
-                    .child_by_field_name("pattern")
-                    .filter(|pat| pat.child_count() == 1)
-                    .and_then(|pat| pat.child(0))
-                    .is_some_and(|c| c.kind_id() == UNDERSCORE);
+                let is_bare_wildcard = node.child_by_field_name("pattern").is_some_and(|pat| {
+                    crate::metrics::npa::rust_pattern_is_bare_underscore(&pat, UNDERSCORE as u16)
+                });
                 if !is_bare_wildcard {
                     stats.cyclomatic += 1.;
                 }

@@ -4,16 +4,16 @@ expression: metric.abc
 ---
 {
   "assignments": 0.0,
-  "branches": 3.0,
+  "branches": 1.0,
   "conditions": 6.0,
-  "magnitude": 6.708203932499369,
+  "magnitude": 6.082762530298219,
   "assignments_average": 0.0,
-  "branches_average": 3.0,
+  "branches_average": 1.0,
   "conditions_average": 6.0,
   "assignments_min": 0.0,
   "assignments_max": 0.0,
-  "branches_min": 3.0,
-  "branches_max": 3.0,
+  "branches_min": 1.0,
+  "branches_max": 1.0,
   "conditions_min": 6.0,
   "conditions_max": 6.0
 }
