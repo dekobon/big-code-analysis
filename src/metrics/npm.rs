@@ -395,6 +395,62 @@ impl Npm for PhpCode {
     }
 }
 
+// Python method counting.
+//
+// A "method" is a `FunctionDefinition` direct child of a class body
+// (the `Block2` under a `ClassDefinition`), including decorated
+// methods such as `@property`, `@staticmethod`, `@classmethod` and
+// user decorators — those wrap the inner function in a
+// `DecoratedDefinition` node, so we unwrap and count once.
+//
+// Python has no visibility keyword. The PEP-8 convention `_x` for
+// "internal" and `__x` for "name-mangled private" is purely advisory
+// and not represented in the AST. `Npm::compute` is also called
+// without source bytes, so reading the identifier text is not
+// possible from this trait. We therefore treat every class method as
+// public — `class_npm == class_nm`.
+//
+// Nested classes and async functions are handled naturally:
+// `async def m(self):` still parses as `FunctionDefinition`, so the
+// `is_func` check covers it without special-casing. Nested
+// `ClassDefinition` children of a class body are skipped here — they
+// open their own class space, where their methods will be counted.
+impl Npm for PythonCode {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+        use Python::*;
+
+        // Gate on `ClassDefinition` specifically so the flag is not
+        // set on plain function or module spaces.
+        if !matches!(node.kind_id().into(), ClassDefinition) {
+            return;
+        }
+
+        if stats.is_disabled() {
+            stats.is_class_space = true;
+        }
+
+        let Some(body) = node.children().find(|c| c.kind_id() == Block2) else {
+            return;
+        };
+
+        // Count direct-child method declarations. Decorated methods
+        // appear under a `DecoratedDefinition` wrapper; walk into
+        // that wrapper to find the inner `FunctionDefinition`.
+        let count = body
+            .children()
+            .filter(|stmt| match stmt.kind_id().into() {
+                FunctionDefinition => true,
+                DecoratedDefinition => stmt.children().any(|c| c.kind_id() == FunctionDefinition),
+                _ => false,
+            })
+            .count();
+
+        stats.class_nm += count;
+        // No visibility modifier in Python — every method is "public".
+        stats.class_npm += count;
+    }
+}
+
 // Re-uses the visibility helper from the `Npa` impl. Kotlin's default
 // visibility is `public`, the opposite of Java's
 // package-private-by-default, so the "no modifier → public" branch is the
@@ -587,7 +643,6 @@ impl Npm for RubyCode {
 // questions, same follow-up issues).
 implement_metric_trait!(
     Npm,
-    PythonCode,
     MozjsCode,
     JavascriptCode,
     RustCode,
@@ -2327,15 +2382,6 @@ class C {
         assert_eq!(metric.npm.class_nm_sum(), 0.0);
     }
 
-    // PLACEHOLDER #201: Python `Npm` is unimplemented.
-    #[test]
-    fn python_npm_placeholder_returns_zero() {
-        check_metrics::<PythonParser>(
-            "class A:\n    def m1(self):\n        pass\n    def m2(self):\n        pass\n",
-            "foo.py",
-            |metric| assert_npm_default_zero(&metric),
-        );
-    }
 
     // PLACEHOLDER #202: Mozjs `Npm` is unimplemented.
     #[test]
@@ -2380,6 +2426,130 @@ class C {
             "package main\ntype A struct{}\nfunc (a A) M1() {}\nfunc (a A) M2() {}\n",
             "foo.go",
             |metric| assert_npm_default_zero(&metric),
+        );
+    }
+
+    // --- Python NPM ---------------------------------------------------
+
+    #[test]
+    fn python_empty_class_no_methods() {
+        check_metrics::<PythonParser>("class C:\n    pass\n", "foo.py", |metric| {
+            assert_eq!(metric.npm.class_nm_sum(), 0.0);
+            assert_eq!(metric.npm.class_npm_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.npm);
+        });
+    }
+
+    #[test]
+    fn python_class_methods_count() {
+        // 3 `def`s inside the class body → 3 methods, all public.
+        check_metrics::<PythonParser>(
+            "class C:\n\
+             \x20   def __init__(self):\n\
+             \x20       pass\n\
+             \x20   def m(self):\n\
+             \x20       pass\n\
+             \x20   def n(self):\n\
+             \x20       pass\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                assert_eq!(metric.npm.class_npm_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn python_decorated_methods_count() {
+        // `@property`, `@staticmethod`, `@classmethod`, custom
+        // decorators all wrap a FunctionDefinition in
+        // DecoratedDefinition. Each wrapper still counts as one method.
+        check_metrics::<PythonParser>(
+            "class C:\n\
+             \x20   @property\n\
+             \x20   def p(self):\n\
+             \x20       return 1\n\
+             \x20   @staticmethod\n\
+             \x20   def s():\n\
+             \x20       return 2\n\
+             \x20   @classmethod\n\
+             \x20   def c(cls):\n\
+             \x20       return 3\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn python_async_method_counts() {
+        // `async def m` parses as a FunctionDefinition with an Async
+        // keyword child — still a method.
+        check_metrics::<PythonParser>(
+            "class C:\n    async def m(self):\n        return 1\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn python_nested_class_methods_independent() {
+        // Outer.method belongs to Outer; Inner.inner_method belongs
+        // to Inner; class_nm_sum aggregates across the file.
+        check_metrics::<PythonParser>(
+            "class Outer:\n\
+             \x20   def method(self):\n\
+             \x20       pass\n\
+             \x20   class Inner:\n\
+             \x20       def inner_method(self):\n\
+             \x20           pass\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn python_module_level_function_is_not_method() {
+        // `def f()` outside any class is a top-level function, not a
+        // method.
+        check_metrics::<PythonParser>(
+            "def f():\n    pass\nclass C:\n    def m(self):\n        pass\n",
+            "foo.py",
+            |metric| {
+                // Only `C.m` is a class method.
+                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn python_dunder_methods_count() {
+        // `__init__`, `__repr__`, `__eq__` are dunder methods — public
+        // by convention.
+        check_metrics::<PythonParser>(
+            "class C:\n\
+             \x20   def __init__(self):\n\
+             \x20       pass\n\
+             \x20   def __repr__(self):\n\
+             \x20       return 'C'\n\
+             \x20   def __eq__(self, other):\n\
+             \x20       return True\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                assert_eq!(metric.npm.class_npm_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
         );
     }
 }

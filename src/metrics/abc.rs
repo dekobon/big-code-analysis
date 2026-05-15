@@ -505,7 +505,6 @@ fn java_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 // but no impl exists yet). A smoke test under `mod tests` pins the
 // current 0 value with a TODO pointing at the follow-up issue; when
 // the real impl lands the test author must update it.
-//   - PythonCode   — see #201.
 //   - MozjsCode / JavascriptCode — see #202.
 //   - RustCode     — see #203.
 //   - CppCode      — see #204.
@@ -514,7 +513,6 @@ fn java_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 //   - PerlCode, LuaCode, TclCode — see #208.
 implement_metric_trait!(
     Abc,
-    PythonCode,
     MozjsCode,
     JavascriptCode,
     RustCode,
@@ -809,6 +807,72 @@ impl Abc for RubyCode {
             EQEQ | BANGEQ | EQEQEQ | LT | GT | LTEQ | GTEQ | LTEQGT | EQTILDE | BANGTILDE
             | Else | Elsif | When | QMARK | Rescue | RescueModifier | RescueModifier2
             | RescueModifier3 => {
+                stats.conditions += 1.;
+            }
+            _ => {}
+        }
+    }
+}
+
+// Fitzpatrick's ABC rules adapted for Python.
+//
+// - Assignments: every `Assignment` node that contains an explicit `=`
+//   token (plain assignment, walrus `:=` lives in `NamedExpression`,
+//   handled separately), plus every `AugmentedAssignment` (`+=`,
+//   `-=`, …) and every `NamedExpression` (walrus). Bare type-only
+//   annotations like `x: int` also parse as `Assignment` but have no
+//   `=` child — these are excluded so a class-level type annotation
+//   does not inflate the assignment count.
+// - Branches: every `Call` node. Python's "object construction" is
+//   syntactically a `Call` (`Foo()` parses as `call`), so the same
+//   arm covers it without a separate `New`-style case.
+// - Conditions: comparison operators (`ComparisonOperator` wraps
+//   `<`, `>`, `==`, `!=`, `is`, `is not`, `in`, `not in`, etc. as a
+//   single node), `BooleanOperator` (`and`/`or`), `ConditionalExpression`
+//   (ternary `a if c else b`), and the explicit arms of control flow:
+//   `ElifClause`, `ElseClause`, `ExceptClause`, `FinallyClause`,
+//   `CaseClause`. We do not separately count the `if` / `while`
+//   keyword: the condition expression itself is already covered by
+//   `ComparisonOperator` or `BooleanOperator`. This matches the
+//   token-level approach used for PHP / Bash.
+impl Abc for PythonCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        use Python::*;
+
+        match node.kind_id().into() {
+            // Plain `=` assignment. tree-sitter-python emits an
+            // `Assignment` node for both `x = 1` (LHS, `=`, RHS) and
+            // bare annotations `x: int` (LHS, `:`, type, *no* `=`).
+            // Filtering on the presence of an `EQ` child keeps the
+            // annotation-only case out of the count.
+            Assignment if node.first_child(|id| id == EQ).is_some() => {
+                stats.assignments += 1.;
+            }
+            // Augmented assignment (`+=`, `-=`, `*=`, …) always counts;
+            // walrus `name := expr` is a PEP-572 `NamedExpression` and
+            // also binds a value, so it counts as one assignment under
+            // Fitzpatrick's rule.
+            AugmentedAssignment | NamedExpression => {
+                stats.assignments += 1.;
+            }
+            // Every call — function call, method call, type
+            // construction — is one branch. Python parses `Foo()` as
+            // `Call`, so object construction folds into this arm.
+            Call => {
+                stats.branches += 1.;
+            }
+            // `x < y`, `a == b`, `c is None`, `n in xs`, `m not in xs`
+            // all parse as a single `ComparisonOperator` node — one
+            // node, one condition, regardless of how many comparison
+            // operators are chained.
+            ComparisonOperator
+            | BooleanOperator
+            | ConditionalExpression
+            | ElifClause
+            | ElseClause
+            | ExceptClause
+            | FinallyClause
+            | CaseClause => {
                 stats.conditions += 1.;
             }
             _ => {}
@@ -3497,15 +3561,6 @@ function f(int $a, int $b): int {
         assert_eq!(metric.abc.conditions_sum(), 0.0);
     }
 
-    // PLACEHOLDER #201: Python `Abc` is unimplemented.
-    #[test]
-    fn python_abc_placeholder_returns_zero() {
-        check_metrics::<PythonParser>(
-            "def f(a, b):\n    s = a + b\n    if s > 0:\n        foo(s)\n",
-            "foo.py",
-            |metric| assert_abc_default_zero(&metric),
-        );
-    }
 
     // PLACEHOLDER #202: Mozjs `Abc` is unimplemented.
     #[test]
@@ -3594,6 +3649,205 @@ function f(int $a, int $b): int {
             "proc f {a b} { set s [expr {$a + $b}]; if {$s > 0} { foo $s } }",
             "foo.tcl",
             |metric| assert_abc_default_zero(&metric),
+        );
+    }
+
+    // --- Python ABC ---------------------------------------------------
+
+    #[test]
+    fn python_empty_module_zero() {
+        check_metrics::<PythonParser>("", "empty.py", |metric| {
+            assert_eq!(metric.abc.assignments_sum(), 0.0);
+            assert_eq!(metric.abc.branches_sum(), 0.0);
+            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.abc);
+        });
+    }
+
+    #[test]
+    fn python_plain_assignments_count() {
+        // Three plain `=` assignments → A=3. No branches, no conditions.
+        check_metrics::<PythonParser>("x = 1\ny = 2\nz = x\n", "foo.py", |metric| {
+            assert_eq!(metric.abc.assignments_sum(), 3.0);
+            assert_eq!(metric.abc.branches_sum(), 0.0);
+            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.abc);
+        });
+    }
+
+    #[test]
+    fn python_typed_assignment_counts_bare_annotation_does_not() {
+        // `x: int = 1` carries an `=`, so it counts.
+        // `y: int` is a bare annotation (no `=`) — declares a type but
+        // binds nothing; it must NOT inflate the assignment count.
+        check_metrics::<PythonParser>("x: int = 1\ny: int\n", "foo.py", |metric| {
+            assert_eq!(metric.abc.assignments_sum(), 1.0);
+            insta::assert_json_snapshot!(metric.abc);
+        });
+    }
+
+    #[test]
+    fn python_augmented_assignments_count() {
+        // Each augmented op counts once.
+        check_metrics::<PythonParser>("x = 0\nx += 1\nx -= 1\nx *= 2\n", "foo.py", |metric| {
+            // 1 plain `=` + 3 augmented = 4 assignments.
+            assert_eq!(metric.abc.assignments_sum(), 4.0);
+            insta::assert_json_snapshot!(metric.abc);
+        });
+    }
+
+    #[test]
+    fn python_walrus_counts_as_assignment() {
+        // `x := 10` is a `NamedExpression` (PEP 572). It binds a value
+        // → one assignment under Fitzpatrick's rule.
+        check_metrics::<PythonParser>("if (n := 10) > 5:\n    pass\n", "foo.py", |metric| {
+            // 1 assignment (walrus) + 1 condition (`> 5` is a
+            // ComparisonOperator).
+            assert_eq!(metric.abc.assignments_sum(), 1.0);
+            assert_eq!(metric.abc.conditions_sum(), 1.0);
+            insta::assert_json_snapshot!(metric.abc);
+        });
+    }
+
+    #[test]
+    fn python_calls_are_branches() {
+        // `foo()`, `bar()`, `Baz()` (constructor) all parse as `Call`
+        // → three branches.
+        check_metrics::<PythonParser>(
+            "def foo():\n    pass\ndef bar():\n    pass\nclass Baz:\n    pass\nfoo()\nbar()\nBaz()\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 3.0);
+                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn python_comparisons_count_conditions() {
+        // `x > 0`, `x == y`, `x is None` are each a single
+        // `ComparisonOperator` node — three conditions.
+        check_metrics::<PythonParser>(
+            "def f(x, y):\n    a = x > 0\n    b = x == y\n    c = x is None\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                // 3 plain assignments; the comparisons are operands.
+                assert_eq!(metric.abc.assignments_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn python_chained_comparison_counts_once() {
+        // tree-sitter-python collapses `0 < x < 10` into a single
+        // `ComparisonOperator` — one condition, not two.
+        check_metrics::<PythonParser>("def f(x):\n    return 0 < x < 10\n", "foo.py", |metric| {
+            assert_eq!(metric.abc.conditions_sum(), 1.0);
+            insta::assert_json_snapshot!(metric.abc);
+        });
+    }
+
+    #[test]
+    fn python_boolean_operators_count_conditions() {
+        // `and` / `or` are each a `BooleanOperator` node → one condition
+        // per logical-binop instance.
+        check_metrics::<PythonParser>(
+            "def f(a, b, c):\n    if a and b or c:\n        pass\n",
+            "foo.py",
+            |metric| {
+                // `a and b or c` parses as `BooleanOperator(or,
+                // BooleanOperator(and, a, b), c)` → 2 BooleanOperator
+                // nodes → 2 conditions.
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn python_control_flow_arms_count_conditions() {
+        // `elif`, `else`, `except`, `finally`, `case` each contribute
+        // one condition. The comparisons in the `if`/`elif`/`while`
+        // headers contribute their own ComparisonOperator counts.
+        check_metrics::<PythonParser>(
+            "def f(x):\n    if x > 0:\n        a = 1\n    elif x > -1:\n        a = 2\n    else:\n        a = 3\n",
+            "foo.py",
+            |metric| {
+                // 2 ComparisonOperator (`x > 0`, `x > -1`) + 1
+                // ElifClause + 1 ElseClause = 4 conditions.
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn python_ternary_counts_as_condition() {
+        // `a if c else b` is `ConditionalExpression` → 1 condition.
+        // `c > 0` adds 1 more (ComparisonOperator).
+        check_metrics::<PythonParser>(
+            "def f(c):\n    return 1 if c > 0 else 0\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn python_try_except_finally_count_conditions() {
+        // ExceptClause + FinallyClause → 2 conditions.
+        check_metrics::<PythonParser>(
+            "def f():\n    try:\n        pass\n    except ValueError:\n        pass\n    finally:\n        pass\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn python_match_case_counts_conditions() {
+        // Each `CaseClause` → 1 condition. `match` itself isn't a
+        // condition arm by Fitzpatrick's rule — the comparison
+        // happens inside each `case`.
+        check_metrics::<PythonParser>(
+            "def f(x):\n    match x:\n        case 1:\n            pass\n        case _:\n            pass\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn python_complex_function_abc() {
+        // Mixed-shape regression: assignments, calls, conditions all in
+        // a single function.
+        check_metrics::<PythonParser>(
+            "def f(items, threshold):\n\
+             \x20   result = []\n\
+             \x20   for item in items:\n\
+             \x20       if item > threshold:\n\
+             \x20           result.append(item)\n\
+             \x20   return result\n",
+            "foo.py",
+            |metric| {
+                // assignments: `result = []` → 1
+                // branches: `result.append(item)` is one call → 1
+                // conditions: `item > threshold` is one
+                // ComparisonOperator → 1
+                assert_eq!(metric.abc.assignments_sum(), 1.0);
+                assert_eq!(metric.abc.branches_sum(), 1.0);
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
         );
     }
 }

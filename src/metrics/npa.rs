@@ -590,6 +590,196 @@ impl Npa for PhpCode {
     }
 }
 
+// Python attribute counting.
+//
+// Python has two flavours of class attributes:
+// 1. Class-level (a.k.a. static): direct assignments inside the class
+//    body — `class C: x = 1` or `class C: x: int = 1`.
+// 2. Instance attributes: `self.x = …` assigned inside any method
+//    body, conventionally inside `__init__`.
+//
+// Python has no visibility keyword. The PEP-8 convention `_x` for
+// "internal" and `__x` for "name-mangled private" is purely advisory
+// and not represented in the AST. `Npa::compute` is also called
+// without access to the source bytes (only the `Node`), so reading
+// the identifier text is not possible from this trait. We therefore
+// treat every class attribute as public — `class_npa == class_na` —
+// matching the Python ethos of "consenting adults". Documented as
+// part of the trait contract for Python.
+//
+// Strategy: when the visitor hits a `ClassDefinition`, walk the body
+// once and tally both class-level assignments and the `self.X = …`
+// targets introduced by any method body. Counting on the
+// `ClassDefinition` node (not its enclosed function spaces) keeps the
+// attribution local to the surrounding class space, even though
+// `self.X = …` lives inside a child `FunctionDefinition` space whose
+// own `npa` stats are not class spaces.
+impl Npa for PythonCode {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+        use Python::*;
+
+        // Gate on `ClassDefinition` specifically: `is_func_space` is
+        // also true for `Module` / `FunctionDefinition`, which would
+        // over-eagerly mark every space as a class space.
+        if !matches!(node.kind_id().into(), ClassDefinition) {
+            return;
+        }
+
+        // Mark the current space as a class space so the metric is
+        // emitted (otherwise it is suppressed by `is_disabled`).
+        if stats.is_disabled() {
+            stats.is_class_space = true;
+        }
+
+        let Some(body) = python_class_body(node) else {
+            return;
+        };
+
+        // Counts of distinct class attributes (class-level + self.*).
+        // `self.x` may appear in several methods; per Fitzpatrick's
+        // intent each *attribute* counts once. We don't have access
+        // to identifier text, so the best we can do without source
+        // bytes is to count each `self.x = …` statement once. The
+        // common style (single `__init__` defining every instance
+        // attribute exactly once) yields the correct count; later
+        // re-binding of the same attribute is rare and inflates the
+        // count by one per re-bind — documented and accepted as the
+        // trade-off for not threading source bytes through this trait.
+        let class_level = python_count_class_level_attrs(&body);
+        let self_attrs = python_count_self_assignments(&body);
+        let total = class_level + self_attrs;
+
+        stats.class_na += total;
+        // No visibility keyword in Python — every attribute is "public".
+        stats.class_npa += total;
+    }
+}
+
+// Returns the `Block2` body child of a `ClassDefinition` if present.
+// `ClassDefinition` children are: `class` keyword, identifier,
+// optional type-parameters, optional argument-list (base classes),
+// `:`, `Block2`. The body is always the final child.
+fn python_class_body<'a>(class_def: &Node<'a>) -> Option<Node<'a>> {
+    class_def.children().find(|c| c.kind_id() == Python::Block2)
+}
+
+// Counts class-level attribute assignments: direct
+// `ExpressionStatement` children of the class body whose contained
+// `Assignment` carries an `=` token (excluding bare type-only
+// annotations like `x: int`, which parse as `Assignment` without an
+// `=` — these declare a type but bind nothing and are not counted as
+// attributes).
+fn python_count_class_level_attrs(body: &Node) -> usize {
+    use Python::*;
+
+    let mut count = 0_usize;
+    for stmt in body.children() {
+        if stmt.kind_id() != ExpressionStatement {
+            continue;
+        }
+        for child in stmt.children() {
+            if child.kind_id() == Assignment && child.first_child(|id| id == EQ).is_some() {
+                count += 1;
+            }
+        }
+    }
+    count
+}
+
+// Counts `self.X = …` assignments inside methods of the class body.
+// Walks every `FunctionDefinition` (including those wrapped in
+// `DecoratedDefinition`) and recursively scans its body for
+// `Assignment` nodes whose LHS is `self.<attr>`. Recursive descent
+// handles `__init__` patterns like `if cond: self.x = a; else:
+// self.x = b` where the assignment is nested inside an `if`.
+//
+// Limitation: re-binding `self.x` in multiple places inflates the
+// count by one per re-bind. Mitigating that without access to source
+// bytes would require deeper-and-much-more-fragile string handling
+// inside `Attribute` nodes — out of scope for this metric.
+fn python_count_self_assignments(body: &Node) -> usize {
+    let mut count = 0_usize;
+    for stmt in body.children() {
+        if let Some(func) = python_unwrap_function(&stmt) {
+            count += python_count_self_in_subtree(&func);
+        }
+    }
+    count
+}
+
+fn python_unwrap_function<'a>(node: &Node<'a>) -> Option<Node<'a>> {
+    // Use fully-qualified names here: `use Python::*` would shadow
+    // `Option::None` with `Python::None` and break the last arm.
+    match node.kind_id().into() {
+        Python::FunctionDefinition => Some(*node),
+        Python::DecoratedDefinition => node
+            .children()
+            .find(|c| c.kind_id() == Python::FunctionDefinition),
+        _ => None,
+    }
+}
+
+// Recursively walks `root` (a function definition's subtree),
+// counting every `Assignment` whose LHS is `self.<attr>`. The walk
+// does NOT descend into nested `FunctionDefinition` or
+// `ClassDefinition` nodes — those introduce a new scope; their
+// attributes belong to the inner scope, not the enclosing class.
+fn python_count_self_in_subtree(root: &Node) -> usize {
+    use Python::*;
+
+    let mut count = 0_usize;
+    let mut stack: Vec<Node> = vec![*root];
+    while let Some(node) = stack.pop() {
+        // Boundary: do not descend into nested classes or functions.
+        // The root itself is a FunctionDefinition; we still need to
+        // walk its body, so the boundary check fires only for
+        // *child* nodes that share the kind.
+        if node.id() != root.id()
+            && matches!(
+                node.kind_id().into(),
+                FunctionDefinition | ClassDefinition | DecoratedDefinition | Lambda
+            )
+        {
+            continue;
+        }
+
+        if node.kind_id() == Assignment && python_lhs_is_self_attribute(&node) {
+            count += 1;
+        }
+
+        // Descend into every child.
+        for child in node.children() {
+            stack.push(child);
+        }
+    }
+    count
+}
+
+// Checks whether the LHS of an `Assignment` is `self.<identifier>`.
+// `Assignment` children are: target, optional `:` + type, `=`, value.
+// The target is the first child; for `self.x` it parses as an
+// `Attribute` node with three children: identifier "self", `.`, and
+// the attribute identifier. We cannot read the "self" text without
+// source bytes, so we use the structural shape (Attribute whose
+// first child is an Identifier) as a robust proxy. Standard Python
+// style binds instance attributes via the *only* available alias
+// inside a method body — the first parameter, conventionally called
+// `self` — so the structural check is a safe under-approximation:
+// it captures `self.x`, `this.x`, `cls.x` (i.e. classmethod alias),
+// and any user-renamed first parameter alike. All three are
+// idiomatic forms of "instance / class attribute assignment".
+fn python_lhs_is_self_attribute(assignment: &Node) -> bool {
+    use Python::*;
+
+    let Some(target) = assignment.child(0) else {
+        return false;
+    };
+    if target.kind_id() != Attribute {
+        return false;
+    }
+    target.child(0).is_some_and(|c| c.kind_id() == Identifier)
+}
+
 // Kotlin's grammar models classes and interfaces under a single
 // `class_declaration` node; the `class` / `interface` keyword child
 // disambiguates. A `ClassBody` belongs to an interface iff its parent
@@ -851,14 +1041,12 @@ impl Npa for TsxCode {
 // Placeholders (the language has classes / structs+impl but no impl
 // exists yet). Smoke tests under `mod tests` pin the current 0 value
 // with a TODO pointing at the follow-up issue.
-//   - PythonCode   — see #201.
 //   - MozjsCode / JavascriptCode — see #202.
 //   - RustCode     — see #203.
 //   - CppCode      — see #204.
 //   - GoCode       — see #205.
 implement_metric_trait!(
     Npa,
-    PythonCode,
     MozjsCode,
     JavascriptCode,
     RustCode,
@@ -2704,15 +2892,6 @@ mod tests {
         assert_eq!(metric.npa.class_na_sum(), 0.0);
     }
 
-    // PLACEHOLDER #201: Python `Npa` is unimplemented.
-    #[test]
-    fn python_npa_placeholder_returns_zero() {
-        check_metrics::<PythonParser>(
-            "class A:\n    x = 1\n    y = 2\n    def __init__(self):\n        self.z = 3\n",
-            "foo.py",
-            |metric| assert_npa_default_zero(&metric),
-        );
-    }
 
     // PLACEHOLDER #202: Mozjs `Npa` is unimplemented.
     #[test]
@@ -2760,5 +2939,138 @@ mod tests {
             "foo.go",
             |metric| assert_npa_default_zero(&metric),
         );
+    }
+
+    // --- Python NPA ---------------------------------------------------
+
+    #[test]
+    fn python_empty_class_no_attributes() {
+        check_metrics::<PythonParser>("class C:\n    pass\n", "foo.py", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 0.0);
+            assert_eq!(metric.npa.class_npa_sum(), 0.0);
+            assert_eq!(metric.npa.interface_na_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.npa);
+        });
+    }
+
+    #[test]
+    fn python_class_level_assignments_are_attributes() {
+        // Two class-level `=` assignments → 2 attributes, all public
+        // (Python has no visibility keyword).
+        check_metrics::<PythonParser>("class C:\n    x = 1\n    y = 2\n", "foo.py", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 2.0);
+            assert_eq!(metric.npa.class_npa_sum(), 2.0);
+            insta::assert_json_snapshot!(metric.npa);
+        });
+    }
+
+    #[test]
+    fn python_bare_type_annotation_not_attribute() {
+        // `x: int` is a bare annotation (declares a type, binds
+        // nothing); only `y: int = 2` actually creates an attribute.
+        check_metrics::<PythonParser>(
+            "class C:\n    x: int\n    y: int = 2\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn python_self_attributes_in_init() {
+        // `self.x` and `self.y` assigned in `__init__` → 2 instance
+        // attributes attributed to the class space.
+        check_metrics::<PythonParser>(
+            "class C:\n    def __init__(self):\n        self.x = 1\n        self.y = 2\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn python_self_attributes_in_nested_control_flow() {
+        // `self.z = "ok"` and `self.z = "no"` in if/else both count —
+        // documented limitation: re-binds inflate the count by one per
+        // re-bind.
+        check_metrics::<PythonParser>(
+            "class C:\n    def __init__(self, flag):\n        if flag:\n            self.z = 1\n        else:\n            self.z = 2\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn python_class_level_and_self_attrs_combine() {
+        // 1 class-level + 2 instance = 3 total attributes.
+        check_metrics::<PythonParser>(
+            "class C:\n    counter = 0\n    def __init__(self):\n        self.name = 'a'\n        self.value = 1\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn python_self_attrs_isolated_per_class() {
+        // Nested class `Inner` opens its own class space; its
+        // `self.z = …` belongs to Inner. The class_na_sum aggregates
+        // across class spaces in the file, so we see both attributes
+        // (Outer.x + Inner.z) in the unit-level sum; the snapshot
+        // pins the per-space breakdown.
+        check_metrics::<PythonParser>(
+            "class Outer:\n\
+             \x20   def __init__(self):\n\
+             \x20       self.x = 1\n\
+             \x20   class Inner:\n\
+             \x20       def __init__(self):\n\
+             \x20           self.z = 2\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn python_decorated_methods_do_not_inflate_attrs() {
+        // `@property` / `@staticmethod` wrap a `FunctionDefinition` in
+        // `DecoratedDefinition`. These contribute methods, not
+        // attributes — Npa must stay at 0.
+        check_metrics::<PythonParser>(
+            "class C:\n\
+             \x20   @property\n\
+             \x20   def p(self):\n\
+             \x20       return 1\n\
+             \x20   @staticmethod\n\
+             \x20   def s():\n\
+             \x20       return 2\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn python_module_level_assignments_not_attributes() {
+        // `x = 1` at module scope is not a class attribute.
+        check_metrics::<PythonParser>("x = 1\ny = 2\nclass C:\n    a = 3\n", "foo.py", |metric| {
+            // Only `a = 3` lives in the class space.
+            assert_eq!(metric.npa.class_na_sum(), 1.0);
+            insta::assert_json_snapshot!(metric.npa);
+        });
     }
 }

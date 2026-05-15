@@ -1,0 +1,16 @@
+---
+source: src/metrics/npm.rs
+assertion_line: 2217
+expression: metric.npm
+---
+{
+  "classes": 2.0,
+  "interfaces": 0.0,
+  "class_methods": 2.0,
+  "interface_methods": 0.0,
+  "classes_average": 1.0,
+  "interfaces_average": null,
+  "total": 2.0,
+  "total_methods": 2.0,
+  "average": 1.0
+}
