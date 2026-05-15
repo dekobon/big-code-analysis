@@ -157,8 +157,19 @@ where
 {
     /// Walk `node` and update `stats` with this metric for the language
     /// implementing the trait.
-    fn compute(
-        node: &Node,
+    ///
+    /// `code` is the source bytes underlying the parsed tree. Most
+    /// languages ignore it: their control-flow constructs surface as
+    /// distinct grammar productions (`IfStatement`, `WhileStatement`,
+    /// …) and a `kind_id()` match is enough. Elixir is the exception
+    /// — `if` / `unless` / `case` / `cond` / `for` / `while` / `with`
+    /// all surface as `Call` nodes whose keyword target lives only in
+    /// the source text (the `target` field is an `Identifier`). This
+    /// matches the `Cyclomatic` / `Halstead` / `Exit` pattern of
+    /// taking `code` so the same source-text dispatch can run here.
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
         stats: &mut Stats,
         nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
     );
@@ -299,8 +310,9 @@ fn increase_nesting(stats: &mut Stats, nesting: &mut usize, depth: usize, lambda
 }
 
 impl Cognitive for PythonCode {
-    fn compute(
-        node: &Node,
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
         stats: &mut Stats,
         nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
     ) {
@@ -367,8 +379,9 @@ impl Cognitive for PythonCode {
 }
 
 impl Cognitive for RustCode {
-    fn compute(
-        node: &Node,
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
         stats: &mut Stats,
         nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
     ) {
@@ -414,8 +427,9 @@ impl Cognitive for RustCode {
 }
 
 impl Cognitive for CppCode {
-    fn compute(
-        node: &Node,
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
         stats: &mut Stats,
         nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
     ) {
@@ -457,7 +471,12 @@ impl Cognitive for CppCode {
 
 macro_rules! js_cognitive {
     ($lang:ident) => {
-        fn compute(node: &Node, stats: &mut Stats, nesting_map: &mut HashMap<usize, (usize, usize, usize)>) {
+        fn compute<'a>(
+            node: &Node<'a>,
+            _code: &'a [u8],
+            stats: &mut Stats,
+            nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
+        ) {
             use $lang::*;
             let (mut nesting, mut depth, mut lambda) = get_nesting_from_map(node, nesting_map);
 
@@ -515,8 +534,9 @@ impl Cognitive for TsxCode {
 }
 
 impl Cognitive for JavaCode {
-    fn compute(
-        node: &Node,
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
         stats: &mut Stats,
         nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
     ) {
@@ -555,8 +575,9 @@ impl Cognitive for JavaCode {
 }
 
 impl Cognitive for CsharpCode {
-    fn compute(
-        node: &Node,
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
         stats: &mut Stats,
         nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
     ) {
@@ -597,8 +618,9 @@ impl Cognitive for CsharpCode {
 }
 
 impl Cognitive for PerlCode {
-    fn compute(
-        node: &Node,
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
         stats: &mut Stats,
         nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
     ) {
@@ -666,8 +688,9 @@ impl Cognitive for PerlCode {
 }
 
 impl Cognitive for KotlinCode {
-    fn compute(
-        node: &Node,
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
         stats: &mut Stats,
         nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
     ) {
@@ -715,8 +738,9 @@ impl Cognitive for KotlinCode {
 }
 
 impl Cognitive for GoCode {
-    fn compute(
-        node: &Node,
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
         stats: &mut Stats,
         nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
     ) {
@@ -766,8 +790,9 @@ impl Cognitive for GoCode {
 }
 
 impl Cognitive for BashCode {
-    fn compute(
-        node: &Node,
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
         stats: &mut Stats,
         nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
     ) {
@@ -807,8 +832,9 @@ impl Cognitive for BashCode {
 }
 
 impl Cognitive for TclCode {
-    fn compute(
-        node: &Node,
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
         stats: &mut Stats,
         nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
     ) {
@@ -854,8 +880,9 @@ impl Cognitive for TclCode {
 }
 
 impl Cognitive for LuaCode {
-    fn compute(
-        node: &Node,
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
         stats: &mut Stats,
         nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
     ) {
@@ -911,8 +938,9 @@ impl Cognitive for LuaCode {
 }
 
 impl Cognitive for PhpCode {
-    fn compute(
-        node: &Node,
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
         stats: &mut Stats,
         nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
     ) {
@@ -943,20 +971,148 @@ impl Cognitive for PhpCode {
     }
 }
 
-// Default no-op `Cognitive` impls. Audited in #188.
+
+// Reads the text of the `target` field of an Elixir `Call` node.
 //
-// Real defaults (no control flow → cognitive complexity is always 0):
-//   - PreprocCode, CcommentCode: comments / preprocessor lines only.
+// Most of Elixir's control-flow constructs (`if`, `unless`, `for`,
+// `while`, `case`, `cond`, `with`, `try`) and method-defining macros
+// (`def`, `defp`, `defmacro`, …) parse as `Call` nodes whose `target`
+// is an `Identifier` whose source text spells the keyword. The
+// `Cyclomatic` and `Exit` impls already follow this pattern; this
+// helper centralises the byte-text lookup so `Cognitive` (and `Abc`
+// via the parallel helper in `abc.rs`) can share it.
 //
-// Placeholder (the language has every control-flow construct
-// cognitive complexity measures but no impl exists yet):
-//   - ElixirCode — see #206. Placeholder smoke test under `mod tests`
-//     pins the current 0 value; update when the real impl lands.
-implement_metric_trait!(Cognitive, PreprocCode, CcommentCode, ElixirCode);
+// Returns `None` for Calls whose target is not a simple identifier
+// (e.g. `Module.func(…)` parses as `RemoteCallWithParentheses` with
+// the dotted name as target) or when the bytes are not valid UTF-8.
+fn elixir_call_keyword<'a>(node: &'a Node<'a>, code: &'a [u8]) -> Option<&'a str> {
+    if node.kind_id() != Elixir::Call as u16 {
+        return None;
+    }
+    let target = node.child_by_field_name("target")?;
+    if target.kind_id() != Elixir::Identifier as u16 {
+        return None;
+    }
+    target.utf8_text(code)
+}
+
+impl Cognitive for ElixirCode {
+    // Elixir control flow is macro-shaped: `if`, `unless`, `case`,
+    // `cond`, `with`, `for`, `while`, and `try` each surface as a
+    // `Call` node whose `target` Identifier text spells the keyword.
+    // We classify the Call once on entry (raising nesting), then let
+    // the structural `Else` token and `Rescue` / `Catch` blocks inside
+    // the do_block contribute their own cost without double-counting.
+    //
+    // Mapping (mirrors the Java/Kotlin SonarSource interpretation for
+    // switch-like constructs):
+    // - `if` / `unless` / `for` / `while`: single-branch control flow,
+    //   `+nesting`. Their `else` (token `Elixir::Else` inside an
+    //   `ElseBlock`) adds `+1` without nesting, matching Java.
+    // - `case` / `cond` / `with` / `try`: switch-/multi-arm, `+nesting`
+    //   once on the container. Individual `stab_clause` arms do NOT
+    //   add extra cost (matches Java `SwitchBlock` / `case:` rule).
+    //   `try`'s `rescue` / `catch` arms surface as `RescueBlock` /
+    //   `CatchBlock` and each one adds `+nesting`, matching Java's
+    //   `CatchClause` treatment.
+    // - `def` / `defp` / `defmacro` / `defmacrop`: method-defining
+    //   macros. Treated like Bash's `FunctionDefinition` — nesting
+    //   resets, function depth bumps so nested functions amplify cost.
+    // - `AnonymousFunction` (`fn x -> y end`): lambda nesting bumps.
+    // - `&&` / `||` / `and` / `or`: boolean sequence cost.
+    //
+    // Limitations:
+    // - `Enum.reduce` / `Enum.map` and friends are higher-order function
+    //   calls (`RemoteCallWithParentheses`), not syntactic control flow.
+    //   Cognitive complexity per the SonarSource spec does NOT count
+    //   function calls; we follow suit.
+    // - Recursion detection is intentionally omitted. The SonarSource
+    //   spec scores recursion at +1, but reliably detecting recursion
+    //   needs symbol-table awareness (the body of `def foo do foo() end`
+    //   must compare names) which is out of scope for this fix. See
+    //   the issue body's explicit "skip if too complex" guidance.
+    fn compute<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        stats: &mut Stats,
+        nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
+    ) {
+        use Elixir as E;
+
+        let (mut nesting, depth, mut lambda) = get_nesting_from_map(node, nesting_map);
+
+        match node.kind_id().into() {
+            E::Call => match elixir_call_keyword(node, code) {
+                Some("if" | "unless" | "for" | "while" | "case" | "cond" | "with") => {
+                    increase_nesting(stats, &mut nesting, depth, lambda);
+                }
+                // `try` is intentionally absent: it is a wrapper for
+                // `rescue` / `catch` arms (each of which earns its own
+                // +nesting via `RescueBlock` / `CatchBlock`). Adding the
+                // `try` itself would double-count, matching Java /
+                // C#'s "try is a wrapper, only catch counts" rule.
+                Some("def" | "defp" | "defmacro" | "defmacrop") => {
+                    // Method-defining macros reset nesting at the
+                    // function boundary, mirroring Bash's
+                    // `FunctionDefinition` rule. We deliberately do
+                    // NOT call `increment_function_depth` here: that
+                    // helper matches `Call` ancestors by `kind_id`
+                    // alone, and EVERY `def` inside a `defmodule` has
+                    // a `Call` ancestor (the defmodule Call) which
+                    // would falsely raise the function depth. Elixir
+                    // does not allow `def` nested inside another
+                    // `def` (defs only live at module top level), so
+                    // truly nested method definitions are not a
+                    // concern — the lambda channel via
+                    // `AnonymousFunction` handles the analogous
+                    // higher-order case.
+                    nesting = 0;
+                }
+                _ => {}
+            },
+            // `else` keyword inside an `else_block` (else arm of `if`
+            // / `unless` / `with` / `try`). Matches Java/Kotlin's
+            // `Else` rule: +1 without raising nesting.
+            E::Else => {
+                increment_by_one(stats);
+            }
+            // `rescue` / `catch` arms of a `try` Call each add +nesting,
+            // matching Java's `CatchClause` treatment.
+            E::RescueBlock | E::CatchBlock => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
+            }
+            // Anonymous functions are Elixir's lambdas. Increment the
+            // lambda depth so the cost of control flow inside them is
+            // amplified, matching Kotlin's `LambdaLiteral` rule.
+            E::AnonymousFunction => {
+                lambda += 1;
+            }
+            // Short-circuit booleans (token-form `&&` / `||` and word-
+            // form `and` / `or`) contribute one structural cost per
+            // operator sequence. The BinaryOperator parent walks its
+            // own children to collapse runs of the same operator.
+            E::BinaryOperator | E::BinaryOperator2 | E::BinaryOperator3 => {
+                compute_booleans(node, stats, E::AMPAMP, E::PIPEPIPE);
+                compute_booleans(node, stats, E::And, E::Or);
+            }
+            // Unary `!` / `not` resets the boolean sequence so the next
+            // `&&` / `||` always scores +1 (matches Java's
+            // `UnaryExpression` rule).
+            E::UnaryOperator => {
+                stats.boolean_seq.not_operator();
+            }
+            _ => {}
+        }
+        nesting_map.insert(node.id(), (nesting, depth, lambda));
+    }
+}
+
+implement_metric_trait!(Cognitive, PreprocCode, CcommentCode);
 
 impl Cognitive for RubyCode {
-    fn compute(
-        node: &Node,
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
         stats: &mut Stats,
         nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
     ) {
@@ -5901,6 +6057,174 @@ end",
         );
     }
 
+    // ----- Elixir -----
+
+    // No control flow → cognitive complexity is 0.
+    #[test]
+    fn elixir_empty_function() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(x) do\n    x\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 0.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                {
+                  "sum": 0.0,
+                  "average": null,
+                  "min": 0.0,
+                  "max": 0.0
+                }"###
+                );
+            },
+        );
+    }
+
+    // `if cond do … end`: single-branch construct → +1 nesting at depth
+    // 0 inside `def` body → cognitive 1.
+    #[test]
+    fn elixir_simple_if() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(x) do\n    if x > 0 do\n      :pos\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    // `if cond do … else … end`: +1 nesting for `if`, +1 for `else` token
+    // (matches Java/Kotlin) → cognitive 2.
+    #[test]
+    fn elixir_if_else() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(x) do\n    if x > 0 do\n      :pos\n    else\n      :neg\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                // expected: if (+1) + else (+1) = 2
+                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    // `case x do … end` with three arms: only the container Call earns
+    // a nesting bump (matches Java's `SwitchBlock` rule). Individual
+    // `stab_clause` arms add no extra cost. Expected cognitive 1.
+    #[test]
+    fn elixir_case_arms_count_once() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(x) do\n    case x do\n      1 -> :one\n      2 -> :two\n      _ -> :other\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                // expected: case +1 (one nesting bump on the container)
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    // `cond do … end` is structurally identical to `case` for our
+    // purposes: container Call earns +1 nesting; arms add nothing.
+    #[test]
+    fn elixir_cond_counts_once() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(x) do\n    cond do\n      x > 0 -> :pos\n      x < 0 -> :neg\n      true -> :zero\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                // expected: cond +1
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    // Nested `if` inside another `if`: outer +1, inner +2 (nested
+    // depth 1) → cognitive 3.
+    #[test]
+    fn elixir_nested_if_amplifies() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(x, y) do\n    if x > 0 do\n      if y > 0 do\n        :both\n      end\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                // expected: outer if (+1) + nested if (+2 because nesting=1)
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    // `try` with `rescue` and `catch`: the `try` wrapper itself does
+    // NOT bump nesting (matches Java / C#'s "try is a wrapper" rule);
+    // each `rescue` / `catch` block bumps +1 nesting at depth 0. The
+    // single `stab_clause` inside each block adds no extra cost.
+    #[test]
+    fn elixir_try_rescue_catch() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f do\n    try do\n      :ok\n    rescue\n      _ -> :err\n    catch\n      _ -> :thrown\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                // expected: rescue (+1) + catch (+1) = 2
+                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    // Short-circuit booleans: `x && y || z` is two operator types in
+    // sequence — `&&` once, `||` once → +2. The `if` container that
+    // surrounds them adds +1 → total cognitive 3.
+    #[test]
+    fn elixir_boolean_sequence() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(x, y, z) do\n    if x && y || z do\n      :hit\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                // expected: if (+1) + && (+1) + || (+1) = 3
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    // `Enum.reduce` (and friends) are higher-order calls, NOT control
+    // flow per the SonarSource spec. They contribute nothing to
+    // cognitive complexity. The anonymous function body inside
+    // contributes +1 lambda nesting, but its only operation is a
+    // function call (no control flow) → cognitive 0.
+    #[test]
+    fn elixir_enum_reduce_is_zero() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def sum(xs) do\n    Enum.reduce(xs, 0, fn x, acc -> acc + x end)\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                // expected: 0 — Enum.reduce is a function call, not
+                // syntactic control flow; the `fn` body has no decisions.
+                assert_eq!(metric.cognitive.cognitive_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    // Recursion: a `def` whose body calls itself by name. Per the
+    // SonarSource spec recursion is +1, but our impl skips it for
+    // scope reasons (documented). The body's lone Call earns nothing,
+    // so cognitive stays at 0. This test pins the documented omission
+    // so any future recursion work has to update it deliberately.
+    #[test]
+    fn elixir_recursion_is_zero_documented_limitation() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def fact(0), do: 1\n  def fact(n), do: n * fact(n - 1)\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
     #[test]
     fn php_match_cognitive() {
         // `match` is treated like `switch`: a single nesting bump for the
@@ -6053,14 +6377,4 @@ end",
     // constructs (`case` + nested `if`/`else`), which any real impl
     // would score above 0. When the real impl lands, the assertion
     // here will fire and force a test update.
-    #[test]
-    fn elixir_cognitive_placeholder_returns_zero() {
-        check_metrics::<ElixirParser>(
-            "defmodule M do\n  def f(x) do\n    case x do\n      :a -> if x == :a, do: 1, else: 2\n      _ -> 0\n    end\n  end\nend\n",
-            "foo.ex",
-            |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 0.0);
-            },
-        );
-    }
 }

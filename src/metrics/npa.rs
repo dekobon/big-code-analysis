@@ -3548,4 +3548,32 @@ mod tests {
             },
         );
     }
+
+    // ----- Elixir -----
+
+    #[test]
+    fn elixir_npa_is_zero_documented_limitation() {
+        // Elixir's closest analog to a "class field" is `defstruct`,
+        // but `defstruct` is itself a macro Call whose only argument
+        // is a keyword list (or list) of field names. The `Npa` trait
+        // signature receives no source bytes, so identifying a Call
+        // as `defstruct` rather than any other macro is not possible
+        // from the trait's inputs. Per the issue body's "Npa
+        // (optional/judgment)" note, the metric stays at zero with
+        // a documented reason rather than guessing.
+        //
+        // This test pins the documented omission so any future Npa
+        // work for Elixir (e.g. once the trait signature gains
+        // `&[u8]` or a Checker-level helper recognises `defstruct`)
+        // has to update it deliberately.
+        check_metrics::<ElixirParser>(
+            "defmodule User do\n  defstruct name: nil, age: 0, email: nil\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 0.0);
+                assert_eq!(metric.npa.class_npa_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
 }

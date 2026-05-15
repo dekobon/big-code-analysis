@@ -295,7 +295,16 @@ where
 {
     /// Walk `node` and update `stats` with this metric for the language
     /// implementing the trait.
-    fn compute(node: &Node, stats: &mut Stats);
+    ///
+    /// `code` is the source bytes underlying the parsed tree. Most
+    /// languages ignore it: assignments, branches, and conditions all
+    /// surface as distinct grammar productions and a `kind_id()` match
+    /// is enough. Elixir is the exception — `case` / `cond` / `if` /
+    /// `with` / guard `when` arms surface as `Call` nodes whose keyword
+    /// target lives only in the source text. Matching the `Cyclomatic`
+    /// / `Halstead` / `Exit` / `Cognitive` pattern keeps the signature
+    /// uniform.
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats);
 }
 
 // Inspects the content of Java parenthesized expressions
@@ -520,8 +529,7 @@ implement_metric_trait!(
     CcommentCode,
     PerlCode,
     LuaCode,
-    TclCode,
-    ElixirCode
+    TclCode
 );
 
 // TypeScript / TSX share the same expression / statement vocabulary; the
@@ -541,7 +549,7 @@ implement_metric_trait!(
 // expressions (`++`, `--`) always count.
 macro_rules! ts_abc_compute {
     ($lang:ident) => {
-        fn compute(node: &Node, stats: &mut Stats) {
+        fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
             use $lang::*;
 
             match node.kind_id().into() {
@@ -619,7 +627,7 @@ impl Abc for TsxCode {
 // operators directly as token nodes inside `binary_expression`,
 // `assignment`, `prefix_expression`, and `postfix_expression`.
 impl Abc for KotlinCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Kotlin::*;
 
         match node.kind_id().into() {
@@ -715,7 +723,7 @@ impl Abc for KotlinCode {
 }
 
 impl Abc for PhpCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Php::*;
 
         match node.kind_id().into() {
@@ -792,7 +800,7 @@ impl Abc for PhpCode {
 //   an implicit grammar wrapper around every `if` / `elsif` body and
 //   is NOT counted as a separate arm.
 impl Abc for RubyCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Ruby::*;
 
         match node.kind_id().into() {
@@ -834,7 +842,7 @@ impl Abc for RubyCode {
 //   `ComparisonOperator` or `BooleanOperator`. This matches the
 //   token-level approach used for PHP / Bash.
 impl Abc for PythonCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Python::*;
 
         match node.kind_id().into() {
@@ -879,7 +887,7 @@ impl Abc for PythonCode {
 }
 
 impl Abc for RustCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Rust::*;
 
         match node.kind_id().into() {
@@ -949,7 +957,7 @@ impl Abc for RustCode {
 }
 
 impl Abc for GoCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         // Aliased because `Go::Go` (the `go` keyword variant) collides
         // with the bare enum name in pattern position under
         // `use Go::*;` (same workaround as in cyclomatic / cognitive).
@@ -1001,7 +1009,7 @@ impl Abc for GoCode {
 }
 
 impl Abc for BashCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         match node.kind_id().into() {
             // Each `variable_assignment` is one assignment regardless of
             // operator (`=`, `+=`, `-=`, …) — counting the parent node
@@ -1039,7 +1047,7 @@ impl Abc for BashCode {
 // ABC Java rules: (page 8, figure 4)
 // ABC Java example: (page 15, listing 4)
 impl Abc for JavaCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Java::*;
 
         match node.kind_id().into() {
@@ -1219,7 +1227,7 @@ impl Abc for JavaCode {
 }
 
 impl Abc for CsharpCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Csharp::*;
 
         match node.kind_id().into() {
@@ -1346,6 +1354,104 @@ impl Abc for CsharpCode {
             // grammar inspection. Conditions using comparison operators
             // (`<`, `==`, etc.) are still counted by the standard
             // `GT | LT | ...` arms. See issue tracker for the gap.
+            _ => {}
+        }
+    }
+}
+
+// Reads the text of the `target` field of an Elixir `Call` node.
+// Parallel to the helper in `cognitive.rs`; duplicated to avoid a
+// cross-module dependency between metric impls. See that file for
+// the full rationale.
+fn elixir_call_keyword<'a>(node: &'a Node<'a>, code: &'a [u8]) -> Option<&'a str> {
+    if node.kind_id() != Elixir::Call as u16 {
+        return None;
+    }
+    let target = node.child_by_field_name("target")?;
+    if target.kind_id() != Elixir::Identifier as u16 {
+        return None;
+    }
+    target.utf8_text(code)
+}
+
+impl Abc for ElixirCode {
+    // Elixir's pattern-match `=` is a `BinaryOperator` whose middle
+    // child is an `EQ` token. The same wrapper node also hosts `+=`-
+    // style augmented assignments, but Elixir is purely functional —
+    // augmented assignment does not exist in the grammar; `EQ` is the
+    // only assignment-shaped operator. `|>` (`PIPEGT`) is a
+    // BinaryOperator too but its operator token differs, so the EQ
+    // child check is what filters assignments from pipelines and from
+    // comparison operators that share the wrapper.
+    //
+    // Branches cover `|>` (the pipe operator dispatches one call per
+    // step) and every `Call` node (function / method / macro
+    // invocation). `RemoteCallWithParentheses` and `LocalCallWith*`
+    // variants are subordinate nodes to `Call`, so the single `Call`
+    // match captures every dispatch site.
+    //
+    // Conditions cover `when` (guard token `Elixir::When`), the six
+    // comparison operator tokens (`==`, `===`, `!=`, `!==`, `<`, `>`,
+    // `<=`, `>=`), and the keyword-shaped `Call`s that introduce a
+    // decision point (`if`, `unless`, `case`, `cond`, `with`).
+    // `for` / `while` are looping forms — not condition-shaped per
+    // the issue body's literal list — so we omit them.
+    //
+    // Limitations:
+    // - `case` is counted once on the container, not once per arm
+    //   (`stab_clause`). The issue body says "conditions = case,
+    //   cond, if, with, guard when" — i.e. one condition per
+    //   construct, not per arm. Matches the Rust impl's "MatchExpression
+    //   once" rule.
+    // - Higher-order calls like `Enum.reduce` are `RemoteCallWithParentheses`
+    //   nodes; they are still `Call` nodes and so contribute one branch
+    //   each, matching the issue's "branches = `|>`, function calls"
+    //   instruction.
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+        use Elixir as E;
+
+        match node.kind_id().into() {
+            // A `BinaryOperator` whose operator token is `EQ` is a
+            // pattern-match assignment. The grammar puts the operator
+            // token between the two operand children, so we look for
+            // any `EQ` child.
+            E::BinaryOperator | E::BinaryOperator2 | E::BinaryOperator3
+                if node
+                    .children()
+                    .any(|c| c.kind_id() == E::EQ as u16) =>
+            {
+                stats.assignments += 1.;
+            }
+            // `|>` pipeline operator: every step in `foo |> bar |> baz`
+            // is one branch (the pipe dispatches one call per step).
+            E::PIPEGT => {
+                stats.branches += 1.;
+            }
+            // Every Call (function, method, macro, sigil-call) is one
+            // branch — `RemoteCallWith*`, `LocalCallWith*`,
+            // `AnonymousCall`, and `DoubleCall` are all subordinate
+            // node kinds underneath the top-level `Call` wrapper, so
+            // matching `Call` alone captures every dispatch site.
+            E::Call => {
+                stats.branches += 1.;
+                // Keyword-shaped Calls also contribute one condition.
+                if let Some(name) = elixir_call_keyword(node, code)
+                    && matches!(name, "if" | "unless" | "case" | "cond" | "with")
+                {
+                    stats.conditions += 1.;
+                }
+            }
+            // Comparison operator tokens. `Elixir::LT` / `Elixir::GT`
+            // are unambiguously comparison ops here — unlike Go's
+            // generic-instantiation `<` / `>`, Elixir has no type
+            // parameter brackets that share the token.
+            E::EQEQ | E::EQEQEQ | E::BANGEQ | E::BANGEQEQ
+            | E::LT | E::GT | E::LTEQ | E::GTEQ
+            // Guard `when` token: introduces the guard clause of a
+            // function head or `case` arm.
+            | E::When => {
+                stats.conditions += 1.;
+            }
             _ => {}
         }
     }
@@ -3714,15 +3820,6 @@ function f(int $a, int $b): int {
     }
 
 
-    // PLACEHOLDER #206: Elixir `Abc` is unimplemented.
-    #[test]
-    fn elixir_abc_placeholder_returns_zero() {
-        check_metrics::<ElixirParser>(
-            "defmodule M do\n  def f(a, b) do\n    s = a + b\n    if s > 0, do: foo(s)\n  end\nend\n",
-            "foo.ex",
-            |metric| assert_abc_default_zero(&metric),
-        );
-    }
 
     // PLACEHOLDER #208: Perl `Abc` is unimplemented.
     #[test]
@@ -4321,6 +4418,183 @@ function f(int $a, int $b): int {
                 assert_eq!(metric.abc.assignments_sum(), 6.0);
                 assert_eq!(metric.abc.branches_sum(), 1.0);
                 assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    // ----- Elixir -----
+
+    // No top-level Calls and no operators → all three vectors are
+    // zero. Uses a bare expression rather than a `defmodule` wrapper
+    // (which would itself be a Call → 1 branch). Confirms the
+    // ElixirCode Abc trait is wired up and the metric emits.
+    #[test]
+    fn elixir_empty_unit_zero() {
+        check_metrics::<ElixirParser>(":ok\n", "foo.ex", |metric| {
+            assert_eq!(metric.abc.assignments_sum(), 0.0);
+            assert_eq!(metric.abc.branches_sum(), 0.0);
+            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.abc);
+        });
+    }
+
+    // An empty `defmodule Foo do ... end` is itself ONE `Call` →
+    // B = 1 branch. Documents the design choice that
+    // module-/function-defining macros (`defmodule`, `def`, `defp`,
+    // `defmacro`) are counted as Calls just like any other invocation
+    // (the AST does not distinguish them, and the issue body says
+    // "branches = `|>`, function calls").
+    #[test]
+    fn elixir_defmodule_is_one_branch() {
+        check_metrics::<ElixirParser>("defmodule Foo do\nend\n", "foo.ex", |metric| {
+            assert_eq!(metric.abc.branches_sum(), 1.0);
+            assert_eq!(metric.abc.assignments_sum(), 0.0);
+            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.abc);
+        });
+    }
+
+    // Pattern-match `=` counts as an assignment. Two bindings → A = 2.
+    // `defmodule` and `def` are Calls and contribute one branch each;
+    // the assertion focuses on assignments so we only pin that vector.
+    #[test]
+    fn elixir_pattern_match_is_assignment() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f do\n    x = 1\n    y = x + 1\n    y\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    // `|>` pipeline operator: each `|>` token contributes one branch.
+    // Two `|>` ops → +2 from the pipe operator itself. Each pipeline
+    // step also dispatches a Call (`String.upcase(...)`,
+    // `String.trim(...)`) — these are wrapped inside the outer
+    // pipeline Call tree, contributing additional Call branches.
+    // The headline assertion confirms (a) `|>` is detected and (b)
+    // pipeline steps are not silently dropped.
+    #[test]
+    fn elixir_pipeline_each_step_is_branch() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def normalize(s) do\n    s |> String.trim() |> String.upcase()\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                // Pipeline yields 2 `|>` branches plus Calls for
+                // String.trim, String.upcase, the outer pipeline (which
+                // surfaces as a Call wrapping the binary operator),
+                // `def`, and `defmodule`. Empirical total: B = 7.
+                assert_eq!(metric.abc.branches_sum(), 7.0);
+                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    // Comparison operators all count as conditions. Six comparisons
+    // (`==`, `!=`, `<`, `>`, `<=`, `>=`) → C = 6.
+    #[test]
+    fn elixir_comparisons_are_conditions() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(a, b) do\n    a == b or a != b or a < b or a > b or a <= b or a >= b\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 6.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    // Strict-equality operators `===` / `!==` count as conditions too.
+    #[test]
+    fn elixir_strict_equality_is_condition() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(a, b) do\n    a === b or a !== b\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    // Guard `when` clause counts as a condition. One `when` → +1.
+    // `def f(x) when x > 0` also has `>` → +1, totalling 2.
+    #[test]
+    fn elixir_guard_when_is_condition() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(x) when x > 0 do\n    :pos\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                // when (+1) + > (+1) = 2
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    // Keyword-shaped Calls (`case`, `cond`, `if`, `with`) each count
+    // as one condition AND one branch. `case` here adds 1 condition
+    // (the keyword Call) + 1 branch (the Call itself).
+    #[test]
+    fn elixir_case_is_condition_and_branch() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(x) do\n    case x do\n      1 -> :one\n      _ -> :other\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                // conditions: case → 1
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    // `cond` is structurally identical to `case` for Abc.
+    #[test]
+    fn elixir_cond_is_condition() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(x) do\n    cond do\n      x > 0 -> :pos\n      true -> :other\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                // conditions: cond (+1) + > (+1) = 2
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    // `for` is a comprehension/loop, NOT in the issue's condition
+    // list. It is still a Call so it contributes one branch, but no
+    // condition.
+    #[test]
+    fn elixir_for_is_branch_not_condition() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(xs) do\n    for x <- xs, do: x * 2\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    // Mixed shape, verified by hand: defmodule Call + def Call + if Call
+    // + Call to side_effect/0 + assignment `x = 1` + comparison `x > 0`.
+    // - Assignments: `x = 1` → A = 1.
+    // - Branches: defmodule + def + if + side_effect → 4 Calls, plus 0 `|>` → B = 4.
+    // - Conditions: `if` keyword → 1, `x > 0` → 1 → C = 2.
+    #[test]
+    fn elixir_mixed_abc() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f do\n    x = 1\n    if x > 0 do\n      side_effect()\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 1.0);
+                assert_eq!(metric.abc.branches_sum(), 4.0);
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
