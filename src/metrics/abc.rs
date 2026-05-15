@@ -518,7 +518,6 @@ implement_metric_trait!(
     CppCode,
     PreprocCode,
     CcommentCode,
-    GoCode,
     PerlCode,
     LuaCode,
     TclCode,
@@ -943,6 +942,58 @@ impl Abc for RustCode {
                 if !is_bare_wildcard {
                     stats.conditions += 1.;
                 }
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Abc for GoCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        // Aliased because `Go::Go` (the `go` keyword variant) collides
+        // with the bare enum name in pattern position under
+        // `use Go::*;` (same workaround as in cyclomatic / cognitive).
+        use Go as G;
+
+        match node.kind_id().into() {
+            // Plain `=`, augmented `+=`, `-=`, … all parse as
+            // `assignment_statement`. `:=` is a short variable
+            // declaration. `x++` / `x--` rebind too.
+            G::AssignmentStatement | G::ShortVarDeclaration | G::IncStatement | G::DecStatement => {
+                stats.assignments += 1.;
+            }
+            // Every call expression — including method calls
+            // (`r.Method()` parses as `call_expression` whose callee is
+            // a `selector_expression`) — contributes one branch.
+            // Composite literals (`Point{X: 1}`) are NOT calls.
+            G::CallExpression => {
+                stats.branches += 1.;
+            }
+            // Comparison operators emitted as token children of a
+            // `binary_expression`, `else`, and each non-default switch
+            // / type-switch / select arm all contribute one condition.
+            // `<` / `>` double as type-argument delimiters in generic
+            // instantiations (`f[T any]`, `List[int]`); the
+            // `BinaryExpression` parent guard filters those out
+            // without inspecting siblings. `default_case` is
+            // intentionally excluded — like Java / C# `default:`, it
+            // does not introduce a new decision point.
+            G::EQEQ
+            | G::BANGEQ
+            | G::LTEQ
+            | G::GTEQ
+            | G::Else
+            | G::ExpressionCase
+            | G::TypeCase
+            | G::CommunicationCase => {
+                stats.conditions += 1.;
+            }
+            G::LT | G::GT
+                if node
+                    .parent()
+                    .is_some_and(|p| matches!(p.kind_id().into(), G::BinaryExpression)) =>
+            {
+                stats.conditions += 1.;
             }
             _ => {}
         }
@@ -3651,15 +3702,6 @@ function f(int $a, int $b): int {
         );
     }
 
-    // PLACEHOLDER #203: Rust `Abc` is unimplemented.
-    #[test]
-    fn rust_abc_placeholder_returns_zero() {
-        check_metrics::<RustParser>(
-            "fn f(a: i32, b: i32) { let s = a + b; if s > 0 { foo(s); } }",
-            "foo.rs",
-            |metric| assert_abc_default_zero(&metric),
-        );
-    }
 
     // PLACEHOLDER #204: C++ `Abc` is unimplemented.
     #[test]
@@ -3671,15 +3713,6 @@ function f(int $a, int $b): int {
         );
     }
 
-    // PLACEHOLDER #205: Go `Abc` is unimplemented.
-    #[test]
-    fn go_abc_placeholder_returns_zero() {
-        check_metrics::<GoParser>(
-            "package main\nfunc f(a, b int) { s := a + b; if s > 0 { foo(s) } }\n",
-            "foo.go",
-            |metric| assert_abc_default_zero(&metric),
-        );
-    }
 
     // PLACEHOLDER #206: Elixir `Abc` is unimplemented.
     #[test]
@@ -4111,6 +4144,182 @@ function f(int $a, int $b): int {
                 assert_eq!(metric.abc.branches_sum(), 5.0);
                 // 1 let_condition + 2 non-wildcard match_arms + 1
                 // comparison (`n > 0`) → 4.
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    // ----- Go -----
+
+    #[test]
+    fn go_empty_unit_zero() {
+        // Package declaration only — no Fitzpatrick events. Confirms the
+        // GoCode Abc trait is wired up and emits zero counts.
+        check_metrics::<GoParser>("package main\n", "empty.go", |metric| {
+            assert_eq!(metric.abc.assignments_sum(), 0.0);
+            assert_eq!(metric.abc.branches_sum(), 0.0);
+            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.abc);
+        });
+    }
+
+    #[test]
+    fn go_assignments_count_plain_compound_short_var_and_incdec() {
+        // `x := 0` (short var decl), `x = 5` and `x = 7` (plain `=`),
+        // `x += 2` (compound), `x++` (inc) → A = 5. `var y = 1` is a
+        // declaration — its `=` is not counted (matches the Rust/Java
+        // rule for `let` / `int y = 1`).
+        check_metrics::<GoParser>(
+            "package main\nfunc f() { var y = 1; _ = y; x := 0; x = 5; x += 2; x = 7; x++ }\n",
+            "foo.go",
+            |metric| {
+                // `_ = y` is itself an assignment_statement → +1.
+                // x:= + x=5 + x+=2 + x=7 + x++ + _=y → 6
+                assert_eq!(metric.abc.assignments_sum(), 6.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn go_calls_are_branches() {
+        // Three calls: free function `g()`, method call `r.Inc()`, and
+        // builtin call `len(s)`. All parse as `call_expression` → B = 3.
+        // Composite literal `Foo{}` is NOT a call.
+        check_metrics::<GoParser>(
+            "package main\n\
+             type R struct{}\n\
+             func (r R) Inc() {}\n\
+             func g() {}\n\
+             func f(s string) { g(); var r R = R{}; r.Inc(); _ = len(s) }\n",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn go_comparisons_count_conditions() {
+        // `<`, `>`, `<=`, `>=`, `==`, `!=` each count once. Six
+        // comparisons → C = 6.
+        check_metrics::<GoParser>(
+            "package main\nfunc f(a, b int) bool { return a < b || a > b || a <= b || a >= b || a == b || a != b }\n",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 6.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn go_generic_brackets_not_conditions() {
+        // Generic instantiation `Min[int](a, b)` puts `int` inside
+        // `TypeArguments`, not `BinaryExpression`. The parent guard on
+        // `<` / `>` must not count these. Expected C = 0; B = 1 (one call).
+        check_metrics::<GoParser>(
+            "package main\nfunc Min[T int | float64](a, b T) T { return a }\nfunc f() { _ = Min[int](1, 2) }\n",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.branches_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn go_switch_arms_count_conditions_default_excluded() {
+        // Four arms: `case 1:`, `case 2:`, `case 3:`, `default:`. The
+        // bare `default` is the C/Java `default:` equivalent and is
+        // excluded — 3 conditions from ExpressionCase. The switch
+        // expression `x` is bare (no comparison), so no extra
+        // condition from `==`-style operators.
+        check_metrics::<GoParser>(
+            "package main\nfunc f(x int) int { switch x { case 1: return 1; case 2: return 2; case 3: return 3; default: return 0 } }\n",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn go_type_switch_arms_count_conditions() {
+        // Type switch: `case int:`, `case string:`, `default:`. Two
+        // non-default type-case arms → C = 2.
+        check_metrics::<GoParser>(
+            "package main\nfunc f(v interface{}) { switch v.(type) { case int: return; case string: return; default: return } }\n",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn go_select_arms_count_conditions() {
+        // `select { case <-ch: ...; case ch <- 1: ...; default: ... }`.
+        // Two non-default communication cases → C = 2.
+        check_metrics::<GoParser>(
+            "package main\nfunc f(ch chan int) { select { case <-ch: return; case ch <- 1: return; default: return } }\n",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn go_else_counts_as_condition() {
+        // `if a > b { ... } else { ... }` → `a > b` is one condition,
+        // `else` is one condition → C = 2.
+        check_metrics::<GoParser>(
+            "package main\nfunc f(a, b int) int { if a > b { return a } else { return b } }\n",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn go_complex_function_abc() {
+        // Mixed shape, verified by hand:
+        // - Assignments: `_ = x` (after `var`), `n := 0`,
+        //   `n = n + 1`, `n += 2`, `n++`, `_ = len(s)` → A = 6.
+        //   `var x = 10` is a declaration, not counted. Every `_ = ...`
+        //   IS counted as an assignment_statement.
+        // - Branches: `len(s)` → B = 1.
+        // - Conditions: `n < 10` → 1, `else` → 1, switch arms `case 0:`
+        //   and `case 1:` (default excluded) → 2 → total C = 4.
+        check_metrics::<GoParser>(
+            "package main\nfunc f(s string) int {\n\
+             \x20   var x = 10\n\
+             \x20   _ = x\n\
+             \x20   n := 0\n\
+             \x20   if n < 10 { n = n + 1 } else { n += 2 }\n\
+             \x20   n++\n\
+             \x20   _ = len(s)\n\
+             \x20   switch n {\n\
+             \x20   case 0: return 0\n\
+             \x20   case 1: return 1\n\
+             \x20   default: return n\n\
+             \x20   }\n\
+             }\n",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 6.0);
+                assert_eq!(metric.abc.branches_sum(), 1.0);
                 assert_eq!(metric.abc.conditions_sum(), 4.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
