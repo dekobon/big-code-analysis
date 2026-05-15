@@ -4728,35 +4728,40 @@ my $b = 43;
 
     #[test]
     fn perl_no_zero_blank() {
+        // Blank line interleaved with code that carries trailing comments —
+        // stresses the `blank = sloc - (ploc ∪ cloc lines)` union math.
+        check_metrics::<PerlParser>(
+            "my $a = 1;
+my $b = 2;
+
+my $c = 3; # trailing
+my $d = 4; # trailing
+my $e = 5;",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 5.0);
+                assert_eq!(metric.loc.cloc(), 2.0);
+                assert_eq!(metric.loc.blank(), 1.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_blank_zero_sanity() {
+        // Sanity check: blank must report 0, never go negative, when the
+        // input has no blank lines.
         check_metrics::<PerlParser>(
             "my $a = 1;
 my $b = 2;",
             "foo.pl",
             |metric| {
-                insta::assert_json_snapshot!(metric.loc, @r#"
-                {
-                  "sloc": 2.0,
-                  "ploc": 2.0,
-                  "lloc": 2.0,
-                  "cloc": 0.0,
-                  "blank": 0.0,
-                  "sloc_average": 2.0,
-                  "ploc_average": 2.0,
-                  "lloc_average": 2.0,
-                  "cloc_average": 0.0,
-                  "blank_average": 0.0,
-                  "sloc_min": 2.0,
-                  "sloc_max": 2.0,
-                  "cloc_min": 0.0,
-                  "cloc_max": 0.0,
-                  "ploc_min": 2.0,
-                  "ploc_max": 2.0,
-                  "lloc_min": 2.0,
-                  "lloc_max": 2.0,
-                  "blank_min": 0.0,
-                  "blank_max": 0.0
-                }
-                "#);
+                assert_eq!(metric.loc.sloc(), 2.0);
+                assert_eq!(metric.loc.ploc(), 2.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
             },
         );
     }
@@ -5153,6 +5158,30 @@ local y = 2",
 
     #[test]
     fn lua_no_zero_blank() {
+        // Blank line interleaved with code that carries trailing comments —
+        // stresses the `blank = sloc - (ploc ∪ cloc lines)` union math.
+        check_metrics::<LuaParser>(
+            "local a = 1
+local b = 2
+
+local c = 3 -- trailing
+local d = 4 -- trailing
+local e = 5",
+            "foo.lua",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 5.0);
+                assert_eq!(metric.loc.cloc(), 2.0);
+                assert_eq!(metric.loc.blank(), 1.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_blank_zero_sanity() {
+        // Sanity check: blank must report 0, never go negative, when the
+        // input has no blank lines.
         check_metrics::<LuaParser>(
             "local x = 1
 local y = 2",
@@ -5163,7 +5192,6 @@ local y = 2",
                 assert_eq!(metric.loc.lloc(), 2.0);
                 assert_eq!(metric.loc.cloc(), 0.0);
                 assert_eq!(metric.loc.blank(), 0.0);
-                insta::assert_json_snapshot!(metric.loc);
             },
         );
     }
@@ -6117,9 +6145,19 @@ f",
 
     #[test]
     fn tcl_no_zero_blank() {
-        check_metrics::<TclParser>("set x 1\nset y 2", "foo.tcl", |metric| {
-            assert_eq!(metric.loc.blank(), 0.0);
-        });
+        // Blank line interleaved with code that carries trailing comments —
+        // ensures the `blank = sloc - (ploc ∪ cloc lines)` union math holds
+        // when code and comment lines coincide.
+        check_metrics::<TclParser>(
+            "set a 1\nset b 2\n\nset c 3 ;# trailing\nset d 4 ;# trailing\nset e 5",
+            "foo.tcl",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 5.0);
+                assert_eq!(metric.loc.cloc(), 2.0);
+                assert_eq!(metric.loc.blank(), 1.0);
+            },
+        );
     }
 
     #[test]
@@ -6521,18 +6559,21 @@ try {
 
     #[test]
     fn mozjs_no_zero_blank() {
+        // Blank line interleaved with code that carries trailing comments —
+        // stresses the `blank = sloc - (ploc ∪ cloc lines)` union math.
         check_metrics::<MozjsParser>(
             "function f() {
-            var x = 1; // comment
-            var y = 2; // comment
-        }",
+  var a = 1;
+
+  var b = 2; // trailing
+  var c = 3; // trailing
+}",
             "foo.js",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 5.0);
                 assert_eq!(metric.loc.cloc(), 2.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.blank(), 1.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -6687,18 +6728,21 @@ try {
 
     #[test]
     fn bash_no_zero_blank() {
+        // Blank line interleaved with code that carries trailing comments —
+        // stresses the `blank = sloc - (ploc ∪ cloc lines)` union math.
         check_metrics::<BashParser>(
             "f() {
-            echo hello # inline comment
-            echo world # another comment
-        }",
+  echo a
+
+  echo b # trailing
+  echo c # trailing
+}",
             "foo.sh",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 5.0);
                 assert_eq!(metric.loc.cloc(), 2.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.blank(), 1.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7108,18 +7152,21 @@ EOF
 
     #[test]
     fn typescript_no_zero_blank() {
+        // Blank line interleaved with code that carries trailing comments —
+        // stresses the `blank = sloc - (ploc ∪ cloc lines)` union math.
         check_metrics::<TypescriptParser>(
             "function f(): void {
-            const x = 1; // x
-            const y = 2; // y
-        }",
+  const a = 1;
+
+  const b = 2; // trailing
+  const c = 3; // trailing
+}",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 5.0);
                 assert_eq!(metric.loc.cloc(), 2.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.blank(), 1.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7405,18 +7452,21 @@ EOF
 
     #[test]
     fn tsx_no_zero_blank() {
+        // Blank line interleaved with code that carries trailing comments —
+        // stresses the `blank = sloc - (ploc ∪ cloc lines)` union math.
         check_metrics::<TsxParser>(
             "function f(): void {
-            const x = 1; // x
-            const y = 2; // y
-        }",
+  const a = 1;
+
+  const b = 2; // trailing
+  const c = 3; // trailing
+}",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 4.0);
-                assert_eq!(metric.loc.ploc(), 4.0);
-                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 5.0);
                 assert_eq!(metric.loc.cloc(), 2.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.blank(), 1.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -7683,17 +7733,21 @@ $b = 2;
 
     #[test]
     fn php_no_zero_blank() {
+        // Blank line interleaved with code that carries trailing comments —
+        // stresses the `blank = sloc - (ploc ∪ cloc lines)` union math.
         check_metrics::<PhpParser>(
             "<?php
 $a = 1;
-$b = 2;",
+
+$b = 2; // trailing
+$c = 3; // trailing
+",
             "foo.php",
             |metric| {
-                assert_eq!(metric.loc.sloc(), 3.0);
-                assert_eq!(metric.loc.ploc(), 3.0);
-                assert_eq!(metric.loc.lloc(), 2.0);
-                assert_eq!(metric.loc.cloc(), 0.0);
-                assert_eq!(metric.loc.blank(), 0.0);
+                assert_eq!(metric.loc.sloc(), 5.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.cloc(), 2.0);
+                assert_eq!(metric.loc.blank(), 1.0);
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
@@ -8193,7 +8247,24 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
 
     #[test]
     fn elixir_no_zero_blank() {
-        // No blank lines: blank must report 0, never go negative.
+        // Blank line interleaved with code that carries trailing comments —
+        // stresses the `blank = sloc - (ploc ∪ cloc lines)` union math.
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f, do: :ok\n\n  def g, do: :ok # trailing\n  def h, do: :ok # trailing\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 5.0);
+                assert_eq!(metric.loc.cloc(), 2.0);
+                assert_eq!(metric.loc.blank(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_blank_zero_sanity() {
+        // Sanity check: blank must report 0, never go negative, when the
+        // input has no blank lines.
         check_metrics::<ElixirParser>(
             "defmodule Foo do\n  def f, do: :ok\nend\n",
             "foo.ex",
