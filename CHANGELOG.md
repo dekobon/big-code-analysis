@@ -100,6 +100,38 @@ changes are marked with **(breaking)** in the entries below.
 
 ### Added
 
+- Append `("elixir", "elixir")` to `LANGUAGE_PALETTE` in the HTML report
+  with matching light- and dark-mode `section.lang-elixir{…}` CSS
+  rules. Elixir-only reports now render in a distinct purple instead of
+  the neutral "other" grey
+  ([#187](https://github.com/dekobon/big-code-analysis/issues/187)).
+- Real Ruby implementations of `Abc`, `Npa`, `Npm`, and `Wmc` metrics
+  (previously default no-ops). Removes Ruby from the four
+  `implement_metric_trait!` default registrations in `src/macros.rs`;
+  registers concrete impls mirroring the PHP / Java / C# patterns
+  including visibility-flag tracking (`private` / `public` /
+  `protected`), `attr_*` macro detection, singleton methods, and
+  inheritance. 52 new per-metric Ruby tests reach parity with the
+  Java/C#/PHP sibling counts (Abc=14, Npa=13, Npm=13, Wmc=12)
+  ([#190](https://github.com/dekobon/big-code-analysis/issues/190)).
+- `Npa::compute` and `Npm::compute` now take the source bytes as a
+  second parameter — `fn compute<'a>(node: &Node<'a>, code: &'a [u8],
+  stats: &mut Stats)` — mirroring `Cyclomatic::compute` and
+  `Exit::compute`. Languages whose visibility markers are bare
+  `Identifier` text (Ruby `private` / `public` / `protected`) can now
+  read the source bytes to classify them. Existing per-language impls
+  that do not need the bytes discard them with `_`. The `Checker`
+  supertrait is `pub(crate)`, so downstream crates cannot observe this
+  change ([#190](https://github.com/dekobon/big-code-analysis/issues/190)).
+- Audit and document the `implement_metric_trait!` default-impl matrix
+  in `src/macros.rs`. 44 (language, metric) cells classified — 21
+  genuine defaults (the language has no construct the metric measures)
+  and 23 placeholders (real impls owed). 29 placeholder smoke tests
+  added so a future implementation that lands without updating tests
+  trips the gate. Follow-up issues filed per language (#201 Python,
+  #202 JS/Mozjs, #203 Rust, #204 C++, #205 Go, #206 Elixir, #208
+  Perl/Lua/Tcl)
+  ([#188](https://github.com/dekobon/big-code-analysis/issues/188)).
 - `--exclude-tests` CLI flag (and `MetricsCfg::options.exclude_tests`
   library option) elides Rust `#[test]` / `#[cfg(test)]` /
   `#[cfg(all(test, ...))]` / `#[cfg(any(test, ...))]` and common
@@ -289,6 +321,26 @@ changes are marked with **(breaking)** in the entries below.
   ([#170](https://github.com/dekobon/big-code-analysis/issues/170)).
 
 ### Fixed
+
+- Map `elixir` and `iex` shebang interpreters to `LANG::Elixir` so
+  extensionless Elixir scripts (`#!/usr/bin/env elixir`) are correctly
+  identified by `guess_language`
+  ([#186](https://github.com/dekobon/big-code-analysis/issues/186)).
+- Guard Python `String` and Kotlin `StringLiteral` /
+  `MultilineStringLiteral` Halstead op-type with `is_child(Interpolation)`
+  so f-strings (`f"Hi {name}!"`) and string templates (`"Hi $name!"` /
+  `"${expr}"`) no longer double-count interpolated operands, matching the
+  pattern already in place for Bash (#180), C# (#183), Elixir, PHP, and
+  Ruby ([#191](https://github.com/dekobon/big-code-analysis/issues/191)).
+- Correct nine sibling `*_no_zero_blank` tests in `src/metrics/loc.rs`
+  (Elixir, Mozjs, Tcl, Bash, TypeScript, TSX, PHP, Perl, Lua) — they
+  previously used no-blank input and asserted `blank == 0`, exactly
+  inverting the contract their name advertised. Each now interleaves
+  blank lines with code carrying trailing comments to exercise the
+  `blank = sloc - (ploc ∪ cloc lines)` union math; Elixir, Lua, and
+  Perl were also split into a renamed `*_blank_zero_sanity` test plus
+  a real positive-case test
+  ([#189](https://github.com/dekobon/big-code-analysis/issues/189)).
 
 - Bash `variable_name` and `special_variable_name` are now classified
   as Halstead operands in every parse-table context. tree-sitter-bash
