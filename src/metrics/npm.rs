@@ -2845,4 +2845,33 @@ class C {
             },
         );
     }
+
+    // ----- Elixir -----
+
+    #[test]
+    fn elixir_npm_is_zero_documented_limitation() {
+        // Elixir's closest analog to a "class method" is `def` /
+        // `defp` inside a `defmodule`. Both surface as `Call` nodes
+        // with a macro identifier in the `target` field — they are
+        // NOT distinct grammar productions. The `Npm` trait signature
+        // receives no source bytes, so identifying a Call as `def`
+        // / `defp` rather than any other macro is not possible from
+        // the trait's inputs.
+        //
+        // A correct Elixir Npm impl would either need (a) the trait
+        // signature to gain `&[u8]` like `Cognitive` / `Abc` did
+        // here, or (b) a Checker-level helper that pre-tags `def` /
+        // `defp` Calls. Both are cross-cutting changes out of scope
+        // for this fix; the metric stays at zero with a documented
+        // reason. This test pins the documented omission.
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def pub_one, do: 1\n  defp priv_one, do: 1\n  def pub_two(x), do: x\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 0.0);
+                assert_eq!(metric.npm.class_npm_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
 }

@@ -1,0 +1,19 @@
+---
+source: src/metrics/abc.rs
+expression: metric.abc
+---
+{
+  "assignments": 0.0,
+  "branches": 4.0,
+  "conditions": 1.0,
+  "magnitude": 4.123105625617661,
+  "assignments_average": 0.0,
+  "branches_average": 4.0,
+  "conditions_average": 1.0,
+  "assignments_min": 0.0,
+  "assignments_max": 0.0,
+  "branches_min": 4.0,
+  "branches_max": 4.0,
+  "conditions_min": 1.0,
+  "conditions_max": 1.0
+}

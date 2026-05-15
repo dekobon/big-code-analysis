@@ -2543,4 +2543,35 @@ mod tests {
             },
         );
     }
+
+    // ----- Elixir -----
+
+    #[test]
+    fn elixir_wmc_is_zero_documented_limitation() {
+        // Elixir's `def` / `defp` declarations parse as `Call` nodes
+        // with a macro identifier in the `target` field — they are
+        // NOT distinct grammar productions and (by design in
+        // `Checker::is_func_space`) NOT their own func_space. The
+        // FuncSpace tree therefore has only the file `Unit` plus any
+        // `AnonymousFunction` spaces, with no per-method space to
+        // bucket WMC into. The Wmc trait signature receives only
+        // `SpaceKind` and the cyclomatic stats, with no way to learn
+        // a Call's target text, so per-method grouping is not
+        // recoverable from the trait's inputs.
+        //
+        // Per the parallel decision in the Go WMC impl, the metric
+        // stays at zero with a documented reason. This test pins
+        // that behaviour so any future Wmc work for Elixir (e.g. a
+        // dedicated `SpaceKind::ElixirDef` variant) has to update
+        // it deliberately.
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def m(x) do\n    if x > 0 do\n      1\n    else\n      0\n    end\n  end\n  def n, do: :ok\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
 }

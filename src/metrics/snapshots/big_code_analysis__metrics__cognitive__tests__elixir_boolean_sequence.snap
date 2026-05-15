@@ -1,0 +1,10 @@
+---
+source: src/metrics/cognitive.rs
+expression: metric.cognitive
+---
+{
+  "sum": 3.0,
+  "average": null,
+  "min": 3.0,
+  "max": 3.0
+}

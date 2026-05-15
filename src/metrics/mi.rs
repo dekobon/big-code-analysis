@@ -249,4 +249,21 @@ mod tests {
             },
         );
     }
+
+    #[test]
+    fn elixir_mi_smoke() {
+        // Elixir uses the default `Mi::compute`; with Loc / Cyclomatic
+        // / Halstead populated (and now Cognitive / Abc as well), MI
+        // derives automatically. Pin the cascade against drift.
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(x), do: x + 1\nend\n",
+            "foo.ex",
+            |metric| {
+                let mi = &metric.mi;
+                assert!(mi.mi_original() > 0.0);
+                assert!(mi.mi_sei() > 0.0);
+                assert!(mi.mi_visual_studio() > 0.0);
+            },
+        );
+    }
 }
