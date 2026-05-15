@@ -15,6 +15,14 @@ changes are marked with **(breaking)** in the entries below.
 
 ### Changed
 
+- **(breaking)** `Abc::compute` and `Cognitive::compute` now take the
+  source bytes as a third parameter — `fn compute<'a>(node: &Node<'a>,
+  code: &'a [u8], stats: &mut Stats)` — mirroring `Cyclomatic::compute`
+  and `Exit::compute`. Languages whose control-flow constructs surface
+  as untyped `Call` nodes (Elixir most notably) can identify them by
+  inspecting the call target's text. Per-language impls that do not
+  need the bytes discard them with `_`
+  ([#206](https://github.com/dekobon/big-code-analysis/issues/206)).
 - **(breaking)** `Cyclomatic::compute` now takes the source bytes as
   a third parameter — `fn compute<'a>(node: &Node<'a>, code: &'a [u8],
   stats: &mut Stats)` — mirroring `Exit::compute`. Languages whose
@@ -88,6 +96,13 @@ changes are marked with **(breaking)** in the entries below.
   `c.is_ascii_lowercase()` / `is_ascii_uppercase()` / `is_ascii_digit()`).
   The gate now enforces the same lint floor as the workspace
   ([#166](https://github.com/dekobon/big-code-analysis/issues/166)).
+- `kotlin_loc_no_zero_blank` test (`src/metrics/loc.rs`) rewritten to
+  actually exercise its advertised contract: the input now interleaves
+  a blank line between trailing-comment code so the test asserts
+  `blank() == 1.0` rather than `blank() == 0.0`. The original
+  no-blank-input coverage is preserved under
+  `kotlin_loc_blank_zero_sanity`
+  ([#200](https://github.com/dekobon/big-code-analysis/issues/200)).
 - Rewrote `.github/dependabot.yml`: added a `github-actions` ecosystem
   entry (grouped, weekly, `ci:` commit prefix) so SHA-pinned action
   bumps auto-update; standardised cargo entries on `deps:` prefix and
@@ -132,6 +147,54 @@ changes are marked with **(breaking)** in the entries below.
   #202 JS/Mozjs, #203 Rust, #204 C++, #205 Go, #206 Elixir, #208
   Perl/Lua/Tcl)
   ([#188](https://github.com/dekobon/big-code-analysis/issues/188)).
+- `Abc`, `Npa`, `Npm`, `Wmc`, `Mi` metric implementations for
+  **Python**, **Rust**, **C++**, **JavaScript**, and **Mozjs**
+  (previously default no-op, scored as 0/0/0). Python and JavaScript
+  helpers operate via the `Npa::compute` / `Npm::compute` trait
+  signatures, so prototype assignments and Python name-mangling
+  visibility are documented limitations. Rust maps `Impl→Class` and
+  `Trait→Interface` for Wmc aggregation; C++ tracks per-class
+  visibility (public/private/protected, with class-default-private
+  and struct-default-public semantics). 200+ new anchored tests
+  ([#201](https://github.com/dekobon/big-code-analysis/issues/201),
+  [#202](https://github.com/dekobon/big-code-analysis/issues/202),
+  [#203](https://github.com/dekobon/big-code-analysis/issues/203),
+  [#204](https://github.com/dekobon/big-code-analysis/issues/204)).
+- `Abc`, `Npa`, `Npm` metric implementations for **Go**, plus `Mi`
+  via the default cascade. `Wmc` deliberately left at zero with a
+  documented regression test — Go's flat space model exposes
+  `SpaceKind::Function` for both `MethodDeclaration` and free
+  `FunctionDeclaration`, so per-receiver grouping isn't possible
+  without space-model surgery
+  ([#205](https://github.com/dekobon/big-code-analysis/issues/205)).
+- `Cognitive`, `Abc` metric implementations for **Elixir** (the
+  highest-impact gap from the audit — Elixir is heavily branchy and
+  previously scored 0 on cognitive complexity), plus `Mi` via the
+  default cascade. Recursion and `Enum.reduce` are intentionally
+  omitted with documented zero-pin tests
+  ([#206](https://github.com/dekobon/big-code-analysis/issues/206)).
+- `Abc` metric implementations for **Perl**, **Lua**, and **Tcl**
+  ([#208](https://github.com/dekobon/big-code-analysis/issues/208)).
+- 18 lesson-9 synthetic-Unit regression tests in `src/spaces.rs`
+  covering every supported language (Python, JS, TS, TSX, Mozjs,
+  Java, Kotlin, Go, Rust, C#, Bash, Lua, Tcl, Perl, PHP, Elixir,
+  Preproc, Ccomment, Ruby); only Lua exercises the synthetic-Unit
+  promotion path today, the rest pin the current
+  translation-unit-root contract as future-proofing
+  ([#193](https://github.com/dekobon/big-code-analysis/issues/193)).
+- 20 nested-function/closure/lambda LLOC tests across Python, Java,
+  C#, JavaScript, Kotlin, Go, PHP, Lua, Tcl, Perl, Elixir
+  ([#195](https://github.com/dekobon/big-code-analysis/issues/195)).
+- Three new lesson-11 cross-language parity tests
+  (`cognitive_cross_language_parity`, `exit_cross_language_parity`,
+  `nargs_cross_language_parity`) covering 2-arm wildcard switches,
+  loops with early exit, and 3-parameter functions; the original
+  `cyclomatic_if_elseif_else_chain_cross_language` was the only
+  one previously implemented
+  ([#196](https://github.com/dekobon/big-code-analysis/issues/196)).
+- PHP heredoc (`<<<EOT … EOT;`) and nowdoc (`<<<'EOT' … EOT;`) LOC
+  regression tests
+  ([#194](https://github.com/dekobon/big-code-analysis/issues/194)).
 - `--exclude-tests` CLI flag (and `MetricsCfg::options.exclude_tests`
   library option) elides Rust `#[test]` / `#[cfg(test)]` /
   `#[cfg(all(test, ...))]` / `#[cfg(any(test, ...))]` and common
@@ -341,6 +404,27 @@ changes are marked with **(breaking)** in the entries below.
   Perl were also split into a renamed `*_blank_zero_sanity` test plus
   a real positive-case test
   ([#189](https://github.com/dekobon/big-code-analysis/issues/189)).
+- C++20 spaceship operator `<=>` (`Cpp::LTEQGT`) now classified as
+  Halstead operator; previously fell through to `Unknown` and was
+  excluded from `n1`/`N1`
+  ([#197](https://github.com/dekobon/big-code-analysis/issues/197)).
+- C++ Halstead operator set now includes `-=` (`DASHEQ`), `.*`
+  (`DOTSTAR`), and `->*` (`DASHGTSTAR`); previously these three
+  fell through to `Unknown`
+  ([#198](https://github.com/dekobon/big-code-analysis/issues/198)).
+- Perl `string_double_quoted` / `string_qq_quoted` / `backtick_quoted`
+  / `command_qx_quoted` literals no longer double-count their inner
+  scalar/array/hash variables when an `interpolation` child is
+  present; the wrapping string is now classified as `Unknown` only
+  in that case, while plain (non-interpolated) Perl strings still
+  count as one operand
+  ([#199](https://github.com/dekobon/big-code-analysis/issues/199)).
+- JavaScript / TypeScript / TSX / Mozjs template literals
+  (`` `…` ``) are now Halstead operands; previously they fell
+  through to `Unknown` (plain backtick strings contributed zero,
+  interpolated literals dropped the wrapper entirely)
+  ([#192](https://github.com/dekobon/big-code-analysis/issues/192)).
+
 
 - Bash `variable_name` and `special_variable_name` are now classified
   as Halstead operands in every parse-table context. tree-sitter-bash
