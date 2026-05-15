@@ -656,6 +656,53 @@ mod tests {
         );
     }
 
+    /// C++20 spaceship operator `<=>` (`Cpp::LTEQGT`) is a comparison
+    /// operator and must be counted in Halstead, like its sibling
+    /// comparison operators `<`, `>`, `<=`, `>=`, `==`, `!=`. Prior to
+    /// this fix it fell through to the `Unknown` arm and was silently
+    /// dropped from `n1` / `N1`, under-reporting volume / effort on any
+    /// C++20+ codebase that defines `operator<=>`. Regression test for
+    /// issue #197.
+    #[test]
+    fn cpp_spaceship_operator_is_halstead_operator() {
+        check_metrics::<CppParser>(
+            "int f(int a, int b) {
+                 return (a <=> b) != 0;
+             }",
+            "foo.cpp",
+            |metric| {
+                // Unique operators (grammar collapses matched delimiters
+                // to a single kind_id): int, (), {}, <=>, !=, return, ;, ,
+                //   `<=>` is the regression target — without the fix it
+                //   would be Unknown and `u_operators` would be 7.
+                // Unique operands: f, a, b, 0
+                let s = &metric.halstead;
+                assert_eq!(s.u_operators(), 8.0);
+                assert_eq!(s.u_operands(), 4.0);
+                insta::assert_json_snapshot!(
+                    s,
+                    @r###"
+                    {
+                      "n1": 8.0,
+                      "N1": 11.0,
+                      "n2": 4.0,
+                      "N2": 6.0,
+                      "length": 17.0,
+                      "estimated_program_length": 32.0,
+                      "purity_ratio": 1.8823529411764706,
+                      "vocabulary": 12.0,
+                      "volume": 60.94436251225965,
+                      "difficulty": 6.0,
+                      "level": 0.16666666666666666,
+                      "effort": 365.6661750735579,
+                      "time": 20.31478750408655,
+                      "bugs": 0.01704519358507665
+                    }"###
+                );
+            },
+        );
+    }
+
     #[test]
     fn rust_operators_and_operands() {
         check_metrics::<RustParser>(
