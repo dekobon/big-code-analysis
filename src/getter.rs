@@ -170,6 +170,18 @@ impl Getter for MozjsCode {
             Identifier | Identifier2 | MemberExpression | MemberExpression2 | MemberExpression3
             | PropertyIdentifier | String | String2 | Number | True | False | Null | This
             | Super | Undefined | Set | Get => HalsteadType::Operand,
+            // See `JavascriptCode::get_op_type` for the rationale: a
+            // bare `` `...` `` mirrors `"..."` (one operand), and an
+            // interpolated template literal must not be counted again
+            // on top of its inner `TemplateSubstitution` expressions
+            // (issue #192).
+            TemplateString => {
+                if node.is_child(TemplateSubstitution as u16) {
+                    HalsteadType::Unknown
+                } else {
+                    HalsteadType::Operand
+                }
+            }
             _ => HalsteadType::Unknown,
         }
     }
@@ -239,6 +251,19 @@ impl Getter for JavascriptCode {
             Identifier | Identifier2 | MemberExpression | MemberExpression2 | MemberExpression3
             | PropertyIdentifier | String | String2 | Number | True | False | Null | This
             | Super | Undefined | Set | Get => HalsteadType::Operand,
+            // A `` `...` `` is a string literal; without interpolation it
+            // mirrors `"..."` and contributes one operand. When it has a
+            // `TemplateSubstitution` child the inner expression is already
+            // walked and classified, so counting the wrapper too would
+            // double-count its contribution to `N2` (issue #192, same
+            // pattern as #183 C# / #191 Kotlin / #199 Perl).
+            TemplateString => {
+                if node.is_child(TemplateSubstitution as u16) {
+                    HalsteadType::Unknown
+                } else {
+                    HalsteadType::Operand
+                }
+            }
             _ => HalsteadType::Unknown,
         }
     }
@@ -311,6 +336,18 @@ impl Getter for TypescriptCode {
             Identifier | NestedIdentifier | MemberExpression | MemberExpression2
             | MemberExpression3 | MemberExpression4 | PropertyIdentifier | String | Number
             | True | False | Null | This | Super | Undefined | Set | Get => HalsteadType::Operand,
+            // See `JavascriptCode::get_op_type` for the rationale: a
+            // bare `` `...` `` mirrors `"..."` (one operand), and an
+            // interpolated template literal must not be counted again
+            // on top of its inner `TemplateSubstitution` expressions
+            // (issue #192).
+            TemplateString => {
+                if node.is_child(TemplateSubstitution as u16) {
+                    HalsteadType::Unknown
+                } else {
+                    HalsteadType::Operand
+                }
+            }
             _ => HalsteadType::Unknown,
         }
     }
@@ -384,6 +421,18 @@ impl Getter for TsxCode {
             | MemberExpression3 | MemberExpression4 | PropertyIdentifier | String | String2
             | Number | True | False | Null | This | Super | Undefined | Set | Get => {
                 HalsteadType::Operand
+            }
+            // See `JavascriptCode::get_op_type` for the rationale: a
+            // bare `` `...` `` mirrors `"..."` (one operand), and an
+            // interpolated template literal must not be counted again
+            // on top of its inner `TemplateSubstitution` expressions
+            // (issue #192).
+            TemplateString => {
+                if node.is_child(TemplateSubstitution as u16) {
+                    HalsteadType::Unknown
+                } else {
+                    HalsteadType::Operand
+                }
             }
             _ => HalsteadType::Unknown,
         }
