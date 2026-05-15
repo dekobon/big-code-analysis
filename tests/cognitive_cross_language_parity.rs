@@ -178,3 +178,42 @@ func f(x int) string {
     assert_eq!(kotlin, expected, "kotlin");
     assert_eq!(go, expected, "go");
 }
+
+// Companion tests pinning the CURRENT (divergent) behavior for
+// Python and Bash. When the upstream bugs are fixed, these tests
+// will start failing, prompting the maintainer to merge the
+// languages back into `two_arm_wildcard_switch_cognitive_parity`
+// above. This avoids the "prose-only exclusion goes stale" trap.
+
+#[test]
+fn two_arm_wildcard_switch_python_divergence_pin() {
+    // Tracks #212. Python's `match`/`case` currently contributes
+    // zero cognitive cost. When the bug is fixed (or the metric
+    // implementation is adjusted), this assertion will flip and
+    // signal that Python should rejoin the parity test above.
+    let python = cognitive_max(
+        LANG::Python,
+        "def f(x):\n    match x:\n        case 1:\n            return 'one'\n        case _:\n            return 'other'\n",
+        "py",
+    );
+    assert_eq!(
+        python, 0.0,
+        "python — tracks #212; remove this pin when fixed"
+    );
+}
+
+#[test]
+fn two_arm_wildcard_switch_bash_divergence_pin() {
+    // Tracks #211. Bash `case … esac` currently diverges from the
+    // other switch-bearing languages on `cyclomatic_max`; the
+    // cognitive impl is parked alongside pending investigation.
+    let bash = cognitive_max(
+        LANG::Bash,
+        "f() {\n  case \"$1\" in\n    one) echo one ;;\n    *) echo other ;;\n  esac\n}\n",
+        "sh",
+    );
+    // Pin whatever the current value is. If the value changes (in
+    // either direction), the maintainer will see the failure and
+    // can decide whether to rejoin the parity test.
+    assert_eq!(bash, 1.0, "bash — tracks #211; remove this pin when fixed");
+}

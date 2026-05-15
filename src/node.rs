@@ -128,6 +128,14 @@ impl<'a> Node<'a> {
         self.0.child_count()
     }
 
+    // Returns `true` if this node is a named grammar production
+    // (as opposed to an anonymous token such as a punctuation or
+    // keyword literal). Used to skip anonymous tokens like the
+    // leading `|` in an or-pattern.
+    pub(crate) fn is_named(&self) -> bool {
+        self.0.is_named()
+    }
+
     pub(crate) fn child_by_field_name(&self, name: &str) -> Option<Node<'_>> {
         self.0.child_by_field_name(name).map(Node)
     }
