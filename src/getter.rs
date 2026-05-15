@@ -530,9 +530,11 @@ impl Getter for CppCode {
             | Continue | If | Else | Switch | Case | Default | For | While | Goto | Do | Delete
             | New | Try | Try2 | Catch | Throw | EQ | AMPAMP | PIPEPIPE | DASH | DASHDASH
             | DASHGT | PLUS | PLUSPLUS | SLASH | PERCENT | PIPE | AMP | LTLT | TILDE | LT
-            | LTEQ | EQEQ | BANGEQ | GTEQ | GT | GT2 | PLUSEQ | BANG | STAREQ | SLASHEQ
-            | PERCENTEQ | GTGTEQ | LTLTEQ | AMPEQ | CARET | CARETEQ | PIPEEQ | LBRACK | LBRACE
-            | QMARK | COLONCOLON | PrimitiveType | TypeSpecifier | Sizeof => HalsteadType::Operator,
+            | LTEQ | EQEQ | BANGEQ | GTEQ | GT | GT2 | LTEQGT | PLUSEQ | BANG | STAREQ
+            | SLASHEQ | PERCENTEQ | GTGTEQ | LTLTEQ | AMPEQ | CARET | CARETEQ | PIPEEQ | LBRACK
+            | LBRACE | QMARK | COLONCOLON | PrimitiveType | TypeSpecifier | Sizeof => {
+                HalsteadType::Operator
+            }
             Identifier | TypeIdentifier | FieldIdentifier | RawStringLiteral | StringLiteral
             | NumberLiteral | True | False | Null | DOTDOTDOT => HalsteadType::Operand,
             NamespaceIdentifier => match node.parent() {
