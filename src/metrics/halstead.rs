@@ -1018,6 +1018,137 @@ mod tests {
     }
 
     #[test]
+    fn javascript_template_string_plain_is_operand() {
+        // Regression: issue #192. A backtick-delimited `` `hello` ``
+        // without `${...}` is semantically identical to `"hello"` /
+        // `'hello'` and must contribute exactly one operand — before
+        // the fix `TemplateString` fell through to `HalsteadType::Unknown`
+        // and contributed zero. expected: operands are `f` (function
+        // name) and the wrapping `` `hello` `` template literal →
+        // u_operands = 2, N2 = 2 (matches the equivalent
+        // `function f() { return "hello"; }` baseline).
+        check_metrics::<JavascriptParser>("function f() { return `hello`; }", "foo.js", |metric| {
+            assert_eq!(metric.halstead.u_operands(), 2.0);
+            assert_eq!(metric.halstead.operands(), 2.0);
+        });
+    }
+
+    #[test]
+    fn javascript_template_string_interpolation_no_double_count() {
+        // Regression: issue #192. An interpolated template literal
+        // `` `Hi ${name}!` `` used to fall through to `Unknown`,
+        // dropping the wrapper from the count entirely; the inner
+        // `name` was still walked and counted via the
+        // `TemplateSubstitution` child. Mirrors #183 (C#), #191
+        // (Kotlin), #199 (Perl): the wrapper is skipped when a
+        // `TemplateSubstitution` child is present so the inner
+        // expression is not double-counted.
+        //
+        // expected: for `function f(name) { return ` + "`Hi ${name}!`"
+        // + `; }`, operands are `f` and `name` (twice — `name` as the
+        // parameter, then again inside the interpolation), so
+        // u_operands = 2 and N2 = 3. Without the wrapper-skip guard
+        // the wrapping literal would also be counted, lifting
+        // u_operands to 3 and N2 to 4.
+        check_metrics::<JavascriptParser>(
+            "function f(name) { return `Hi ${name}!`; }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.halstead.u_operands(), 2.0);
+                assert_eq!(metric.halstead.operands(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_template_string_plain_is_operand() {
+        // Regression: issue #192. Mirrors
+        // `javascript_template_string_plain_is_operand` for the
+        // Firefox-mode dialect — the four JS-family `get_op_type`
+        // impls share the same template-literal handling.
+        check_metrics::<MozjsParser>("function f() { return `hello`; }", "foo.js", |metric| {
+            assert_eq!(metric.halstead.u_operands(), 2.0);
+            assert_eq!(metric.halstead.operands(), 2.0);
+        });
+    }
+
+    #[test]
+    fn mozjs_template_string_interpolation_no_double_count() {
+        // Regression: issue #192. Mirrors
+        // `javascript_template_string_interpolation_no_double_count`
+        // for the Firefox-mode dialect.
+        check_metrics::<MozjsParser>(
+            "function f(name) { return `Hi ${name}!`; }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.halstead.u_operands(), 2.0);
+                assert_eq!(metric.halstead.operands(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_template_string_plain_is_operand() {
+        // Regression: issue #192. Mirrors
+        // `javascript_template_string_plain_is_operand` for
+        // TypeScript — the four JS-family `get_op_type` impls share
+        // the same template-literal handling.
+        check_metrics::<TypescriptParser>(
+            "function f(): string { return `hello`; }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.halstead.u_operands(), 2.0);
+                assert_eq!(metric.halstead.operands(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_template_string_interpolation_no_double_count() {
+        // Regression: issue #192. Mirrors
+        // `javascript_template_string_interpolation_no_double_count`
+        // for TypeScript.
+        check_metrics::<TypescriptParser>(
+            "function f(name: string): string { return `Hi ${name}!`; }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.halstead.u_operands(), 2.0);
+                assert_eq!(metric.halstead.operands(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_template_string_plain_is_operand() {
+        // Regression: issue #192. Mirrors
+        // `javascript_template_string_plain_is_operand` for the
+        // TSX (TypeScript + JSX) variant.
+        check_metrics::<TsxParser>(
+            "function f(): string { return `hello`; }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.halstead.u_operands(), 2.0);
+                assert_eq!(metric.halstead.operands(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_template_string_interpolation_no_double_count() {
+        // Regression: issue #192. Mirrors
+        // `javascript_template_string_interpolation_no_double_count`
+        // for the TSX (TypeScript + JSX) variant.
+        check_metrics::<TsxParser>(
+            "function f(name: string): string { return `Hi ${name}!`; }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.halstead.u_operands(), 2.0);
+                assert_eq!(metric.halstead.operands(), 3.0);
+            },
+        );
+    }
+
+    #[test]
     fn python_wrong_operators() {
         check_metrics::<PythonParser>("()[]{}", "foo.py", |metric| {
             insta::assert_json_snapshot!(
