@@ -986,8 +986,10 @@ fn rust_count_tuple_struct_fields(list: &Node) -> (usize, usize) {
             }
             // `attribute_item` decorates the next field but does not
             // contribute to visibility. Skip without resetting the
-            // pending-pub flag.
-            AttributeItem => {}
+            // pending-pub flag. `line_comment` / `block_comment` may
+            // sit between fields (e.g. `pub struct Foo(/* x */ i32);`)
+            // and similarly must not count as a field.
+            AttributeItem | LineComment | BlockComment => {}
             // Any other child is treated as a positional field type
             // (primitive_type, type_identifier, generic_type,
             // reference_type, tuple_type, ...). One increment per
@@ -1002,6 +1004,30 @@ fn rust_count_tuple_struct_fields(list: &Node) -> (usize, usize) {
         }
     }
     (total, public)
+}
+
+// Returns `true` if `pat` is a bare-wildcard Rust `match_pattern`,
+// i.e. it contains exactly one `UNDERSCORE` token and no other named
+// children. Anonymous tokens such as a leading `|` (legal in
+// or-patterns: `| _ => ...`) are skipped, and a guard (`_ if g`)
+// adds a named expression child so it correctly escapes the filter.
+//
+// Used by both `Cyclomatic` and `Abc` for Rust to treat a bare `_ =>`
+// arm as the language-neutral `default:` equivalent.
+pub(crate) fn rust_pattern_is_bare_underscore(pat: &Node, underscore_id: u16) -> bool {
+    let mut found_underscore = false;
+    for child in pat.children() {
+        if child.kind_id() == underscore_id {
+            if found_underscore {
+                return false;
+            }
+            found_underscore = true;
+        } else if child.is_named() {
+            return false;
+        }
+        // else: anonymous non-`_` token (like `|`) — skip.
+    }
+    found_underscore
 }
 
 // Returns true if `node`'s first child is a `visibility_modifier`

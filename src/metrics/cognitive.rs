@@ -227,6 +227,28 @@ fn compute_perl_booleans(node: &Node, stats: &mut Stats) {
     }
 }
 
+/// Folds an Elixir `BinaryOperator`'s short-circuit operator children into
+/// the boolean-sequence counter. Elixir has four short-circuit operators
+/// (`&&`, `||`, `and`, `or`); `compute_booleans` only takes two operator
+/// kinds, so calling it twice would walk every child twice. Folding the
+/// match into a single pass over `node.children()` halves the work on
+/// this hot per-node arm.
+fn compute_elixir_booleans(node: &Node, stats: &mut Stats) {
+    let enclosing_end = node.end_byte();
+    for child in node.children() {
+        let id = child.kind_id();
+        if matches!(
+            id.into(),
+            Elixir::AMPAMP | Elixir::PIPEPIPE | Elixir::And | Elixir::Or
+        ) {
+            stats.structural =
+                stats
+                    .boolean_seq
+                    .eval_based_on_prev(id, enclosing_end, stats.structural);
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone)]
 struct BoolSequence {
     boolean_op: Option<(u16, usize)>,
@@ -979,13 +1001,13 @@ impl Cognitive for PhpCode {
 // (`def`, `defp`, `defmacro`, …) parse as `Call` nodes whose `target`
 // is an `Identifier` whose source text spells the keyword. The
 // `Cyclomatic` and `Exit` impls already follow this pattern; this
-// helper centralises the byte-text lookup so `Cognitive` (and `Abc`
-// via the parallel helper in `abc.rs`) can share it.
+// helper centralises the byte-text lookup so `Cognitive` and `Abc`
+// can share it.
 //
 // Returns `None` for Calls whose target is not a simple identifier
 // (e.g. `Module.func(…)` parses as `RemoteCallWithParentheses` with
 // the dotted name as target) or when the bytes are not valid UTF-8.
-fn elixir_call_keyword<'a>(node: &'a Node<'a>, code: &'a [u8]) -> Option<&'a str> {
+pub(crate) fn elixir_call_keyword<'a>(node: &'a Node<'a>, code: &'a [u8]) -> Option<&'a str> {
     if node.kind_id() != Elixir::Call as u16 {
         return None;
     }
@@ -1089,11 +1111,13 @@ impl Cognitive for ElixirCode {
             }
             // Short-circuit booleans (token-form `&&` / `||` and word-
             // form `and` / `or`) contribute one structural cost per
-            // operator sequence. The BinaryOperator parent walks its
-            // own children to collapse runs of the same operator.
+            // operator sequence. Single-pass helper (see
+            // `compute_elixir_booleans`) collapses the four operator
+            // kinds in one walk of `node.children()` — the previous
+            // shape called `compute_booleans` twice, walking children
+            // twice per BinaryOperator.
             E::BinaryOperator | E::BinaryOperator2 | E::BinaryOperator3 => {
-                compute_booleans(node, stats, E::AMPAMP, E::PIPEPIPE);
-                compute_booleans(node, stats, E::And, E::Or);
+                compute_elixir_booleans(node, stats);
             }
             // Unary `!` / `not` resets the boolean sequence so the next
             // `&&` / `||` always scores +1 (matches Java's

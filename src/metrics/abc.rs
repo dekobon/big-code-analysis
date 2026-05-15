@@ -605,10 +605,13 @@ impl Abc for TsxCode {
 //      are no `TypeArguments` / `TypeParameters` nodes to gate against.
 //   2. JS retains the same `LexicalDeclaration` / `VariableDeclaration`
 //      sentinel handling so `const x = 5` does not double-count the
-//      initializer `=` as an assignment, while `let` / `var`
-//      declarations also suppress the initializer `=` (matching
-//      Fitzpatrick's "declaration initialiser is not an assignment"
-//      rule and the TS impl above).
+//      initializer `=` as an assignment. `let x = 5` and `var x = 5`
+//      DO count their initializer `=` as an assignment — only `const`
+//      suppresses, matching the TS impl above. This deliberately
+//      deviates from a strict reading of Fitzpatrick's "declaration
+//      initialiser is not an assignment" rule because `let`/`var`
+//      bindings can be reassigned and the initial value is the first
+//      assignment of the binding's lifetime.
 macro_rules! js_abc_compute {
     ($lang:ident) => {
         fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
@@ -976,17 +979,16 @@ impl Abc for RustCode {
             // is excluded — mirrors the cyclomatic treatment and
             // Kotlin's `when` / Java's `case` rules. Patterns like
             // `Some(_)`, `(_, x)`, or `_ if guard` are not bare
-            // wildcards; their `match_pattern` has more than one child
-            // and they still count. Assumes tree-sitter-rust =0.24's
-            // `match_pattern` structure — bare `_` is a single
-            // `UNDERSCORE` token inside `match_pattern`, and a guard
-            // (`if expr`) lives under the same `match_pattern`.
+            // wildcards and still count. The check scans only NAMED
+            // children of `match_pattern` so anonymous tokens like a
+            // leading `|` (allowed in or-patterns: `| _ => ...`) do
+            // not throw off the detection. A guard (`_ if g`) adds a
+            // second named child to `match_pattern` and so escapes
+            // the bare-wildcard filter.
             MatchArm | MatchArm2 => {
-                let is_bare_wildcard = node
-                    .child_by_field_name("pattern")
-                    .filter(|pat| pat.child_count() == 1)
-                    .and_then(|pat| pat.child(0))
-                    .is_some_and(|c| c.kind_id() == UNDERSCORE);
+                let is_bare_wildcard = node.child_by_field_name("pattern").is_some_and(|pat| {
+                    super::npa::rust_pattern_is_bare_underscore(&pat, UNDERSCORE as u16)
+                });
                 if !is_bare_wildcard {
                     stats.conditions += 1.;
                 }
@@ -1458,21 +1460,6 @@ impl Abc for CsharpCode {
     }
 }
 
-// Reads the text of the `target` field of an Elixir `Call` node.
-// Parallel to the helper in `cognitive.rs`; duplicated to avoid a
-// cross-module dependency between metric impls. See that file for
-// the full rationale.
-fn elixir_call_keyword<'a>(node: &'a Node<'a>, code: &'a [u8]) -> Option<&'a str> {
-    if node.kind_id() != Elixir::Call as u16 {
-        return None;
-    }
-    let target = node.child_by_field_name("target")?;
-    if target.kind_id() != Elixir::Identifier as u16 {
-        return None;
-    }
-    target.utf8_text(code)
-}
-
 impl Abc for ElixirCode {
     // Elixir's pattern-match `=` is a `BinaryOperator` whose middle
     // child is an `EQ` token. The same wrapper node also hosts `+=`-
@@ -1511,13 +1498,17 @@ impl Abc for ElixirCode {
 
         match node.kind_id().into() {
             // A `BinaryOperator` whose operator token is `EQ` is a
-            // pattern-match assignment. The grammar puts the operator
-            // token between the two operand children, so we look for
-            // any `EQ` child.
+            // pattern-match assignment. The grammar shape is
+            // `(left, operator, right)`, so the operator token is
+            // always at child index 1 — looking it up directly is
+            // O(1) vs. an `any()` scan of all children. This arm
+            // fires on every Elixir binary op (comparisons, pipes,
+            // boolean ops, arithmetic) so the constant-time check
+            // matters.
             E::BinaryOperator | E::BinaryOperator2 | E::BinaryOperator3
                 if node
-                    .children()
-                    .any(|c| c.kind_id() == E::EQ as u16) =>
+                    .child(1)
+                    .is_some_and(|c| c.kind_id() == E::EQ as u16) =>
             {
                 stats.assignments += 1.;
             }
@@ -1531,12 +1522,32 @@ impl Abc for ElixirCode {
             // `AnonymousCall`, and `DoubleCall` are all subordinate
             // node kinds underneath the top-level `Call` wrapper, so
             // matching `Call` alone captures every dispatch site.
+            //
+            // Method-defining macros (`def`/`defp`/`defmacro`/`defmacrop`)
+            // and module/struct/protocol declarations (`defmodule`/
+            // `defstruct`/`defprotocol`/`defimpl`) are *not* runtime
+            // dispatch and must not inflate `branches` — they parse as
+            // `Call` nodes because Elixir's grammar uses the same
+            // shape for all keyword-introduced forms. Cognitive
+            // already filters these via `elixir_call_keyword`; mirror
+            // that here. Aliasing/import directives (`alias`, `import`,
+            // `require`, `use`) are similarly declarative and excluded.
             E::Call => {
-                stats.branches += 1.;
-                // Keyword-shaped Calls also contribute one condition.
-                if let Some(name) = elixir_call_keyword(node, code)
-                    && matches!(name, "if" | "unless" | "case" | "cond" | "with")
-                {
+                let keyword = super::cognitive::elixir_call_keyword(node, code);
+                let is_definition_or_directive = matches!(
+                    keyword,
+                    Some(
+                        "def" | "defp" | "defmacro" | "defmacrop"
+                        | "defmodule" | "defstruct" | "defprotocol" | "defimpl"
+                        | "alias" | "import" | "require" | "use"
+                    )
+                );
+                if !is_definition_or_directive {
+                    stats.branches += 1.;
+                }
+                // Keyword-shaped control-flow Calls also contribute
+                // one condition.
+                if matches!(keyword, Some("if" | "unless" | "case" | "cond" | "with")) {
                     stats.conditions += 1.;
                 }
             }
@@ -4714,15 +4725,15 @@ function f(int $a, int $b): int {
     }
 
     // An empty `defmodule Foo do ... end` is itself ONE `Call` →
-    // B = 1 branch. Documents the design choice that
-    // module-/function-defining macros (`defmodule`, `def`, `defp`,
-    // `defmacro`) are counted as Calls just like any other invocation
-    // (the AST does not distinguish them, and the issue body says
-    // "branches = `|>`, function calls").
+    // Documents that module-/function-defining macros (`defmodule`,
+    // `def`, `defp`, `defmacro`, `defmacrop`) and declarative
+    // directives (`alias`, `import`, `require`, `use`) are NOT
+    // runtime dispatch and therefore do NOT inflate `branches`,
+    // matching Cognitive's treatment.
     #[test]
-    fn elixir_defmodule_is_one_branch() {
+    fn elixir_defmodule_is_zero_branches() {
         check_metrics::<ElixirParser>("defmodule Foo do\nend\n", "foo.ex", |metric| {
-            assert_eq!(metric.abc.branches_sum(), 1.0);
+            assert_eq!(metric.abc.branches_sum(), 0.0);
             assert_eq!(metric.abc.assignments_sum(), 0.0);
             assert_eq!(metric.abc.conditions_sum(), 0.0);
             insta::assert_json_snapshot!(metric.abc);
@@ -4730,8 +4741,9 @@ function f(int $a, int $b): int {
     }
 
     // Pattern-match `=` counts as an assignment. Two bindings → A = 2.
-    // `defmodule` and `def` are Calls and contribute one branch each;
-    // the assertion focuses on assignments so we only pin that vector.
+    // `defmodule` and `def` are declarative-Call wrappers and are
+    // filtered out of branches; the assertion focuses on assignments
+    // so we only pin that vector.
     #[test]
     fn elixir_pattern_match_is_assignment() {
         check_metrics::<ElixirParser>(
@@ -4758,10 +4770,11 @@ function f(int $a, int $b): int {
             "foo.ex",
             |metric| {
                 // Pipeline yields 2 `|>` branches plus Calls for
-                // String.trim, String.upcase, the outer pipeline (which
-                // surfaces as a Call wrapping the binary operator),
-                // `def`, and `defmodule`. Empirical total: B = 7.
-                assert_eq!(metric.abc.branches_sum(), 7.0);
+                // String.trim, String.upcase, and the outer pipeline
+                // (which surfaces as a Call wrapping the binary
+                // operator). `def` and `defmodule` are declarative
+                // and excluded. Empirical total: B = 5.
+                assert_eq!(metric.abc.branches_sum(), 5.0);
                 assert_eq!(metric.abc.assignments_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
@@ -4858,7 +4871,8 @@ function f(int $a, int $b): int {
     // Mixed shape, verified by hand: defmodule Call + def Call + if Call
     // + Call to side_effect/0 + assignment `x = 1` + comparison `x > 0`.
     // - Assignments: `x = 1` → A = 1.
-    // - Branches: defmodule + def + if + side_effect → 4 Calls, plus 0 `|>` → B = 4.
+    // - Branches: `defmodule` and `def` are declarative and excluded;
+    //   `if` Call + `side_effect()` Call → 2 Calls, plus 0 `|>` → B = 2.
     // - Conditions: `if` keyword → 1, `x > 0` → 1 → C = 2.
     #[test]
     fn elixir_mixed_abc() {
@@ -4867,7 +4881,7 @@ function f(int $a, int $b): int {
             "foo.ex",
             |metric| {
                 assert_eq!(metric.abc.assignments_sum(), 1.0);
-                assert_eq!(metric.abc.branches_sum(), 4.0);
+                assert_eq!(metric.abc.branches_sum(), 2.0);
                 assert_eq!(metric.abc.conditions_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
