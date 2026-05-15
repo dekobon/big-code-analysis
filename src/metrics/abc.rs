@@ -4125,16 +4125,7 @@ function f(int $a, int $b): int {
     // gate. Tag the follow-up issue in each test.
     // ---------------------------------------------------------------
 
-
-
-
-
     // PLACEHOLDER #204: C++ `Abc` is unimplemented.
-
-
-
-
-
 
     // --- Python ABC ---------------------------------------------------
 

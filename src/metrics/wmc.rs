@@ -2306,12 +2306,7 @@ mod tests {
     // the assertion will fire and force a test update.
     // ---------------------------------------------------------------
 
-
-
-
-
     // PLACEHOLDER #204: C++ `Wmc` is unimplemented.
-
 
     // --- Python WMC ---------------------------------------------------
 
