@@ -8264,6 +8264,80 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
     }
 
     #[test]
+    fn php_heredoc_loc() {
+        // Heredoc string literals (`<<<EOT … EOT;`) are syntactically a
+        // single PHP expression: the body lines between the start marker
+        // and end marker are data, not code. Only the surrounding
+        // assignment and `return` statements should contribute LLOC.
+        check_metrics::<PhpParser>(
+            "<?php
+function build_sql(): string {
+    $q = <<<SQL
+        SELECT *
+        FROM users
+        WHERE id = 1
+    SQL;
+    return $q;
+}",
+            "foo.php",
+            |metric| {
+                // expected: 9 source lines (no trailing newline = 9 sloc),
+                // all non-blank (ploc = 9). Two top-level statements in
+                // the function body — `$q = <<<SQL ... SQL;` and
+                // `return $q;` — give lloc = 2; the four heredoc body
+                // lines (header `<<<SQL`, three SQL rows, and the
+                // closing `SQL;` marker) are part of the surrounding
+                // expression statement and must not bump lloc.
+                assert_eq!(metric.loc.sloc(), 9.0);
+                assert_eq!(metric.loc.ploc(), 9.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn php_nowdoc_loc() {
+        // Nowdoc (single-quoted marker `<<<'SQL' … SQL;`) is the
+        // non-interpolating sibling of heredoc; the LLOC accounting
+        // must be identical (body content is data, not code).
+        //
+        // Note the PLOC / blank skew vs `php_heredoc_loc`: the
+        // tree-sitter-php grammar emits a different inner span for
+        // nowdoc bodies (no `string_value` covers the first body
+        // line), so one body line is counted as blank by the default
+        // PLOC pass even though the source is visually identical to
+        // the heredoc fixture. The headline LLOC = 2 — which is what
+        // this test was added to pin — is unchanged.
+        check_metrics::<PhpParser>(
+            "<?php
+function build_sql(): string {
+    $q = <<<'SQL'
+        SELECT *
+        FROM users
+        WHERE id = 1
+    SQL;
+    return $q;
+}",
+            "foo.php",
+            |metric| {
+                // expected: 9 source lines; lloc = 2 (the two top-level
+                // statements `$q = <<<'SQL' ... SQL;` and `return $q;`),
+                // ploc = 8 and blank = 1 reflect the nowdoc-vs-heredoc
+                // grammar span difference described above.
+                assert_eq!(metric.loc.sloc(), 9.0);
+                assert_eq!(metric.loc.ploc(), 8.0);
+                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 1.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
     fn elixir_blank() {
         // Two blank lines separate three top-level expressions.
         check_metrics::<ElixirParser>(
