@@ -943,6 +943,15 @@ impl Cognitive for PhpCode {
     }
 }
 
+// Default no-op `Cognitive` impls. Audited in #188.
+//
+// Real defaults (no control flow → cognitive complexity is always 0):
+//   - PreprocCode, CcommentCode: comments / preprocessor lines only.
+//
+// Placeholder (the language has every control-flow construct
+// cognitive complexity measures but no impl exists yet):
+//   - ElixirCode — see #206. Placeholder smoke test under `mod tests`
+//     pins the current 0 value; update when the real impl lands.
 implement_metric_trait!(Cognitive, PreprocCode, CcommentCode, ElixirCode);
 
 impl Cognitive for RubyCode {
@@ -6035,6 +6044,22 @@ end",
             "foo.rb",
             |metric| {
                 assert_eq!(metric.cognitive.cognitive_sum(), 6.0);
+            },
+        );
+    }
+
+    // PLACEHOLDER #206: Elixir `Cognitive` is unimplemented. Audited
+    // in #188. The source below contains 3 nested control-flow
+    // constructs (`case` + nested `if`/`else`), which any real impl
+    // would score above 0. When the real impl lands, the assertion
+    // here will fire and force a test update.
+    #[test]
+    fn elixir_cognitive_placeholder_returns_zero() {
+        check_metrics::<ElixirParser>(
+            "defmodule M do\n  def f(x) do\n    case x do\n      :a -> if x == :a, do: 1, else: 2\n      _ -> 0\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 0.0);
             },
         );
     }

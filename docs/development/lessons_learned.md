@@ -42,6 +42,22 @@ one-line justification, not a leftover from scaffolding. Add a
 positive test that exercises non-trivial control flow and asserts a
 non-zero metric value before declaring the language done.
 
+**Audit (#188):** the full default-impl matrix is now documented at
+each `implement_metric_trait!` invocation site in `src/macros.rs`
+callers (`src/metrics/abc.rs`, `cognitive.rs`, `npa.rs`, `npm.rs`,
+`wmc.rs`, `mi.rs`, `loc.rs`, `cyclomatic.rs`, `exit.rs`,
+`halstead.rs`). Each (language, metric) pair is classified as either
+a *real default* (the language has no construct the metric measures
+— a comment captures the reason) or a *placeholder* (the language
+HAS the construct but no impl exists — a comment references the
+follow-up issue, and a smoke test under `mod tests` pins the current
+0 value so the assertion fires when the real impl lands). Mi turned
+out to be a non-issue: its `[Trait]` arm inherits the trait's
+default `compute` method, which works for every language — see
+#207. Note the bracketed-trait arm (`[Tokens]`, `[Nom]`, `[NArgs]`,
+`[Mi]`) is *not* a no-op; only the named-trait arms (`Abc`,
+`Cognitive`, `Halstead`, …) emit silent-zero bodies.
+
 ---
 
 ## 2. Tree-sitter aliases one rule across many kind_ids — match every variant

@@ -827,6 +827,26 @@ impl Npa for TsxCode {
     ts_npa_compute!(Tsx);
 }
 
+// Default no-op `Npa` impls. Audited in #188.
+//
+// Real defaults (no first-class class / OO grammar construct, so the
+// metric is genuinely 0):
+//   - PreprocCode, CcommentCode: no executable code.
+//   - BashCode: shell has no class concept.
+//   - PerlCode, LuaCode, TclCode: prototype / table / package-based
+//     OO is convention-only, not a grammar construct the audit treats
+//     as class-shaped.
+//   - ElixirCode: `defmodule` is module-shaped, not class-shaped; if
+//     `defstruct` counting is desired see #206.
+//
+// Placeholders (the language has classes / structs+impl but no impl
+// exists yet). Smoke tests under `mod tests` pin the current 0 value
+// with a TODO pointing at the follow-up issue.
+//   - PythonCode   — see #201.
+//   - MozjsCode / JavascriptCode — see #202.
+//   - RustCode     — see #203.
+//   - CppCode      — see #204.
+//   - GoCode       — see #205.
 implement_metric_trait!(
     Npa,
     PythonCode,
@@ -2657,6 +2677,79 @@ mod tests {
                 assert_eq!(metric.npa.class_na_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.npa);
             },
+        );
+    }
+
+    // ---------------------------------------------------------------
+    // Default-impl placeholder smoke tests (audited in #188).
+    //
+    // Each test feeds a class / struct with public attributes to a
+    // language whose `Npa` is currently the default no-op. The
+    // assertion pins the current 0 value with a TODO pointing at the
+    // follow-up issue — when the real impl lands the assertion will
+    // fire and force a test update, which is the gate.
+    // ---------------------------------------------------------------
+
+    fn assert_npa_default_zero(metric: &crate::CodeMetrics) {
+        assert_eq!(metric.npa.class_npa_sum(), 0.0);
+        assert_eq!(metric.npa.class_na_sum(), 0.0);
+    }
+
+    // PLACEHOLDER #201: Python `Npa` is unimplemented.
+    #[test]
+    fn python_npa_placeholder_returns_zero() {
+        check_metrics::<PythonParser>(
+            "class A:\n    x = 1\n    y = 2\n    def __init__(self):\n        self.z = 3\n",
+            "foo.py",
+            |metric| assert_npa_default_zero(&metric),
+        );
+    }
+
+    // PLACEHOLDER #202: Mozjs `Npa` is unimplemented.
+    #[test]
+    fn mozjs_npa_placeholder_returns_zero() {
+        check_metrics::<MozjsParser>(
+            "class A { x = 1; y = 2; constructor() { this.z = 3; } }",
+            "foo.js",
+            |metric| assert_npa_default_zero(&metric),
+        );
+    }
+
+    // PLACEHOLDER #202: JavaScript `Npa` is unimplemented.
+    #[test]
+    fn javascript_npa_placeholder_returns_zero() {
+        check_metrics::<JavascriptParser>(
+            "class A { x = 1; y = 2; constructor() { this.z = 3; } }",
+            "foo.js",
+            |metric| assert_npa_default_zero(&metric),
+        );
+    }
+
+    // PLACEHOLDER #203: Rust `Npa` is unimplemented.
+    #[test]
+    fn rust_npa_placeholder_returns_zero() {
+        check_metrics::<RustParser>(
+            "pub struct A { pub x: i32, pub y: i32 }\nimpl A { pub const K: i32 = 1; }\n",
+            "foo.rs",
+            |metric| assert_npa_default_zero(&metric),
+        );
+    }
+
+    // PLACEHOLDER #204: C++ `Npa` is unimplemented.
+    #[test]
+    fn cpp_npa_placeholder_returns_zero() {
+        check_metrics::<CppParser>("class A { public: int x; int y; };", "foo.cpp", |metric| {
+            assert_npa_default_zero(&metric);
+        });
+    }
+
+    // PLACEHOLDER #205: Go `Npa` is unimplemented.
+    #[test]
+    fn go_npa_placeholder_returns_zero() {
+        check_metrics::<GoParser>(
+            "package main\ntype A struct { X int; Y int }\n",
+            "foo.go",
+            |metric| assert_npa_default_zero(&metric),
         );
     }
 }

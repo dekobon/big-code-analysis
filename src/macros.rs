@@ -16,6 +16,22 @@ macro_rules! get_language {
     };
 }
 
+// `implement_metric_trait!` emits no-op `compute` bodies for every
+// metric / language pair listed. Every named-trait arm below
+// (`Abc`, `Cognitive`, `Halstead`, `Exit`, `Cyclomatic`, `Npa`,
+// `Npm`, `Loc`, `Wmc`) is silent: the metric will report 0 on every
+// input. The bracketed-trait arm (`[Trait]`) is different — it
+// emits an empty `impl Trait for X {}` and relies on the trait's
+// own default method body, which is correct for `Tokens`, `Nom`,
+// and `NArgs`.
+//
+// Audit: #188 walked every `(language, metric)` cell and classified
+// each as either a real default (the language has no construct the
+// metric measures) or a placeholder (the language HAS the construct
+// but no impl exists yet). Each invocation site carries a comment
+// recording the rationale and any follow-up issue number — keep
+// those comments in sync when you add a new language or land a real
+// impl.
 macro_rules! implement_metric_trait {
     (Abc, $($code:ident),+) => (
         $(

@@ -305,6 +305,7 @@ impl Exit for PhpCode {
     }
 }
 
+// Real defaults — no functions to return from. Audited in #188.
 implement_metric_trait!(Exit, PreprocCode, CcommentCode);
 
 impl Exit for RubyCode {

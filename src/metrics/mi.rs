@@ -134,6 +134,12 @@ where
     }
 }
 
+// `Mi` uses the bracketed `[Trait]` arm: this expands to a bare
+// `impl Mi for X {}` which inherits `Mi::compute`'s default trait
+// method body. The default method is fully language-neutral — it
+// combines already-computed Halstead / Cyclomatic / Loc stats into
+// the three MI variants — so this list is NOT a no-op like the named-
+// arm matrices for Abc / Npa / Npm / Wmc. Audited in #188.
 implement_metric_trait!(
     [Mi],
     PythonCode,

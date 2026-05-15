@@ -581,6 +581,10 @@ impl Npm for RubyCode {
     }
 }
 
+// Default no-op `Npm` impls. Audited in #188. See the rationale block
+// on `implement_metric_trait!(Npa, …)` in `src/metrics/npa.rs` — Npm
+// classification mirrors Npa one-for-one (same set of "has classes?"
+// questions, same follow-up issues).
 implement_metric_trait!(
     Npm,
     PythonCode,
@@ -2306,5 +2310,76 @@ class C {
             assert_eq!(metric.npm.class_nm_sum(), 0.0);
             insta::assert_json_snapshot!(metric.npm);
         });
+    }
+
+    // ---------------------------------------------------------------
+    // Default-impl placeholder smoke tests (audited in #188).
+    //
+    // Each test feeds a class / struct with public methods to a
+    // language whose `Npm` is currently the default no-op. The
+    // assertion pins the current 0 value with a TODO pointing at the
+    // follow-up issue — when the real impl lands the assertion will
+    // fire and force a test update.
+    // ---------------------------------------------------------------
+
+    fn assert_npm_default_zero(metric: &crate::CodeMetrics) {
+        assert_eq!(metric.npm.class_npm_sum(), 0.0);
+        assert_eq!(metric.npm.class_nm_sum(), 0.0);
+    }
+
+    // PLACEHOLDER #201: Python `Npm` is unimplemented.
+    #[test]
+    fn python_npm_placeholder_returns_zero() {
+        check_metrics::<PythonParser>(
+            "class A:\n    def m1(self):\n        pass\n    def m2(self):\n        pass\n",
+            "foo.py",
+            |metric| assert_npm_default_zero(&metric),
+        );
+    }
+
+    // PLACEHOLDER #202: Mozjs `Npm` is unimplemented.
+    #[test]
+    fn mozjs_npm_placeholder_returns_zero() {
+        check_metrics::<MozjsParser>("class A { m1() {} m2() {} }", "foo.js", |metric| {
+            assert_npm_default_zero(&metric);
+        });
+    }
+
+    // PLACEHOLDER #202: JavaScript `Npm` is unimplemented.
+    #[test]
+    fn javascript_npm_placeholder_returns_zero() {
+        check_metrics::<JavascriptParser>("class A { m1() {} m2() {} }", "foo.js", |metric| {
+            assert_npm_default_zero(&metric);
+        });
+    }
+
+    // PLACEHOLDER #203: Rust `Npm` is unimplemented.
+    #[test]
+    fn rust_npm_placeholder_returns_zero() {
+        check_metrics::<RustParser>(
+            "pub struct A;\nimpl A { pub fn m1(&self) {} pub fn m2(&self) {} }",
+            "foo.rs",
+            |metric| assert_npm_default_zero(&metric),
+        );
+    }
+
+    // PLACEHOLDER #204: C++ `Npm` is unimplemented.
+    #[test]
+    fn cpp_npm_placeholder_returns_zero() {
+        check_metrics::<CppParser>(
+            "class A { public: void m1() {} void m2() {} };",
+            "foo.cpp",
+            |metric| assert_npm_default_zero(&metric),
+        );
+    }
+
+    // PLACEHOLDER #205: Go `Npm` is unimplemented.
+    #[test]
+    fn go_npm_placeholder_returns_zero() {
+        check_metrics::<GoParser>(
+            "package main\ntype A struct{}\nfunc (a A) M1() {}\nfunc (a A) M2() {}\n",
+            "foo.go",
+            |metric| assert_npm_default_zero(&metric),
+        );
     }
 }

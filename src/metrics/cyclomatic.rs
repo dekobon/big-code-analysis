@@ -512,6 +512,7 @@ impl Cyclomatic for PhpCode {
     }
 }
 
+// Real defaults — no executable branches. Audited in #188.
 implement_metric_trait!(Cyclomatic, PreprocCode, CcommentCode);
 
 impl Cyclomatic for RubyCode {
