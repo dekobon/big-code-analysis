@@ -198,6 +198,25 @@ impl Wmc for PhpCode {
     }
 }
 
+// Python WMC. The shared `class_interface_compute` already does the
+// right thing for the four space kinds Python produces:
+// - `Unit` (module-level — receives WMC totals from top-level
+//   classes, mirroring the Java unit-space aggregation).
+// - `Class` (every `ClassDefinition`).
+// - `Function` (every `FunctionDefinition`; captures the
+//   per-function cyclomatic sum that the aggregator rolls up into
+//   the enclosing class).
+// - `Unknown` (anything else — skipped).
+//
+// Lambdas (`Lambda`) are not `is_func` and therefore do not open a
+// `Function` space, so they correctly do *not* contribute to WMC
+// — they are anonymous expressions, not methods.
+impl Wmc for PythonCode {
+    fn compute(space_kind: SpaceKind, cyclomatic: &cyclomatic::Stats, stats: &mut Stats) {
+        class_interface_compute(space_kind, cyclomatic, stats);
+    }
+}
+
 // TypeScript / TSX both expose `class_declaration`,
 // `abstract_class_declaration` (mapped to `SpaceKind::Class` in
 // `getter.rs`) and `interface_declaration` (`SpaceKind::Interface`).
@@ -238,7 +257,6 @@ impl Wmc for RubyCode {
 // detection plumbing).
 implement_metric_trait!(
     Wmc,
-    PythonCode,
     MozjsCode,
     JavascriptCode,
     RustCode,
@@ -2215,15 +2233,6 @@ mod tests {
         assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
     }
 
-    // PLACEHOLDER #201: Python `Wmc` is unimplemented.
-    #[test]
-    fn python_wmc_placeholder_returns_zero() {
-        check_metrics::<PythonParser>(
-            "class A:\n    def m1(self, x):\n        if x > 0:\n            return x\n        return 0\n    def m2(self, y):\n        return y\n",
-            "foo.py",
-            |metric| assert_wmc_default_zero(&metric),
-        );
-    }
 
     // PLACEHOLDER #202: Mozjs `Wmc` is unimplemented.
     #[test]
@@ -2272,6 +2281,104 @@ mod tests {
             "package main\ntype A struct{}\nfunc (a A) M1(x int) int { if x > 0 { return x }; return 0 }\nfunc (a A) M2(y int) int { return y }\n",
             "foo.go",
             |metric| assert_wmc_default_zero(&metric),
+        );
+    }
+
+    // --- Python WMC ---------------------------------------------------
+
+    #[test]
+    fn python_empty_class_zero_wmc() {
+        check_metrics::<PythonParser>("class C:\n    pass\n", "foo.py", |metric| {
+            assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+            assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.wmc);
+        });
+    }
+
+    #[test]
+    fn python_single_method_wmc_one() {
+        // Single straight-line method → cyclomatic 1 → WMC 1.
+        check_metrics::<PythonParser>(
+            "class C:\n    def m(self):\n        return 1\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn python_method_with_if_adds_to_wmc() {
+        // Cyclomatic: 1 (base) + 1 (if) = 2. WMC = 2.
+        check_metrics::<PythonParser>(
+            "class C:\n    def m(self, x):\n        if x > 0:\n            return 1\n        return 0\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn python_multiple_methods_wmc_sums() {
+        // method1 cyclomatic 1, method2 cyclomatic 2 (if), method3
+        // cyclomatic 3 (if + for). WMC sum = 1 + 2 + 3 = 6.
+        check_metrics::<PythonParser>(
+            "class C:\n\
+             \x20   def m1(self):\n\
+             \x20       return 1\n\
+             \x20   def m2(self, x):\n\
+             \x20       if x:\n\
+             \x20           return 1\n\
+             \x20       return 0\n\
+             \x20   def m3(self, xs):\n\
+             \x20       for x in xs:\n\
+             \x20           if x:\n\
+             \x20               return x\n\
+             \x20       return None\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 6.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn python_top_level_function_does_not_contribute_to_class_wmc() {
+        // Top-level function lives in the module/unit space, not in a
+        // class space — class_wmc stays at 0.
+        check_metrics::<PythonParser>(
+            "def f(x):\n    if x:\n        return 1\n    return 0\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn python_multiple_classes_wmc_independent() {
+        // Each class accumulates its own methods' cyclomatic. The
+        // file-level class_wmc_sum is the sum of every class's WMC.
+        // A.m1 (1) + B.m2 (2 — has an if) = 3.
+        check_metrics::<PythonParser>(
+            "class A:\n\
+             \x20   def m1(self):\n\
+             \x20       return 1\n\
+             class B:\n\
+             \x20   def m2(self, x):\n\
+             \x20       if x:\n\
+             \x20           return 1\n\
+             \x20       return 0\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
         );
     }
 }
