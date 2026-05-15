@@ -515,7 +515,6 @@ implement_metric_trait!(
     Abc,
     MozjsCode,
     JavascriptCode,
-    RustCode,
     CppCode,
     PreprocCode,
     CcommentCode,
@@ -874,6 +873,76 @@ impl Abc for PythonCode {
             | FinallyClause
             | CaseClause => {
                 stats.conditions += 1.;
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Abc for RustCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        use Rust::*;
+
+        match node.kind_id().into() {
+            // Plain `x = expr` (assignment_expression) and augmented
+            // forms `+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`,
+            // `<<=`, `>>=` (compound_assignment_expr) both bind a
+            // value; each counts as one assignment. Rust grammar
+            // isolates both in distinct named nodes, so there is no
+            // risk of double-counting the contained `EQ` token here.
+            AssignmentExpression | CompoundAssignmentExpr => {
+                stats.assignments += 1.;
+            }
+            // Every call expression — including method calls
+            // (`a.b.c()` parses as `call_expression` whose callee is a
+            // `field_expression`) — plus every `try_expression` (the
+            // `?` operator, a short-circuit return on Result / Option)
+            // contributes one branch. Macro invocations parse as
+            // `macro_invocation`, NOT `call_expression`, so they are
+            // intentionally NOT counted as branches.
+            CallExpression | TryExpression => {
+                stats.branches += 1.;
+            }
+            // Comparison operators emitted as token children of a
+            // `binary_expression`, `if let` / `while let` conditions,
+            // and the `else` keyword each count as one condition.
+            // `let_condition` covers both `if let` and `while let`
+            // (Rust's grammar uses the same node for both); inside a
+            // `let_chain` each `let_condition` counts separately.
+            // Java counts the `Else` token directly; Rust's grammar
+            // exposes the same token and we follow that lead.
+            LTEQ | GTEQ | EQEQ | BANGEQ | LetCondition | Else => {
+                stats.conditions += 1.;
+            }
+            // `<` / `>` doubles as type-argument delimiter; the
+            // `BinaryExpression` parent check disambiguates without
+            // needing to inspect siblings.
+            LT | GT
+                if node
+                    .parent()
+                    .is_some_and(|p| matches!(p.kind_id().into(), BinaryExpression)) =>
+            {
+                stats.conditions += 1.;
+            }
+            // Every non-wildcard `match_arm` is one condition. A bare
+            // `_ => ...` arm is the C / Java `default:` equivalent and
+            // is excluded — mirrors the cyclomatic treatment and
+            // Kotlin's `when` / Java's `case` rules. Patterns like
+            // `Some(_)`, `(_, x)`, or `_ if guard` are not bare
+            // wildcards; their `match_pattern` has more than one child
+            // and they still count. Assumes tree-sitter-rust =0.24's
+            // `match_pattern` structure — bare `_` is a single
+            // `UNDERSCORE` token inside `match_pattern`, and a guard
+            // (`if expr`) lives under the same `match_pattern`.
+            MatchArm | MatchArm2 => {
+                let is_bare_wildcard = node
+                    .child_by_field_name("pattern")
+                    .filter(|pat| pat.child_count() == 1)
+                    .and_then(|pat| pat.child(0))
+                    .is_some_and(|c| c.kind_id() == UNDERSCORE);
+                if !is_bare_wildcard {
+                    stats.conditions += 1.;
+                }
             }
             _ => {}
         }
@@ -3846,6 +3915,203 @@ function f(int $a, int $b): int {
                 assert_eq!(metric.abc.assignments_sum(), 1.0);
                 assert_eq!(metric.abc.branches_sum(), 1.0);
                 assert_eq!(metric.abc.conditions_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_empty_unit_zero() {
+        // No code at all → A=B=C=0. Establishes the trait is wired up
+        // and the per-language compute is reachable.
+        check_metrics::<RustParser>("", "empty.rs", |metric| {
+            assert_eq!(metric.abc.assignments_sum(), 0.0);
+            assert_eq!(metric.abc.branches_sum(), 0.0);
+            assert_eq!(metric.abc.conditions_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.abc);
+        });
+    }
+
+    #[test]
+    fn rust_assignments_count_outside_let() {
+        // `let x = 0` is a declaration — its `=` is NOT a Fitzpatrick
+        // assignment (mirrors Java's local-variable-declaration rule).
+        // `x = 5` and `x = 7` are plain `=` assignments → 2. `x += 2`
+        // is a compound assignment → 1. Total A = 3.
+        check_metrics::<RustParser>(
+            "fn f() { let mut x = 0; x = 5; x += 2; x = 7; }",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 3.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_calls_are_branches() {
+        // Free function call + method call (parses as call_expression
+        // with a field_expression callee) + associated-fn call. All
+        // three are `call_expression` → B = 3. Macro invocations like
+        // `println!` parse as `macro_invocation`, NOT `call_expression`,
+        // so they are not branches.
+        check_metrics::<RustParser>(
+            "fn f() { g(); 1.to_string(); String::new(); }\nfn g() {}\n",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 3.0);
+                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_try_operator_is_branch() {
+        // `?` parses as `try_expression` and counts as one branch
+        // (short-circuit return on Err / None). The `Err(())` call
+        // contributes one branch in addition (call_expression).
+        check_metrics::<RustParser>(
+            "fn f() -> Result<i32, ()> { let r: Result<i32, ()> = Err(()); Ok(r?) }",
+            "foo.rs",
+            |metric| {
+                // Err(()) + Ok(...) + r? → 2 calls + 1 try = 3 branches.
+                assert_eq!(metric.abc.branches_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_comparisons_count_conditions() {
+        // `<`, `>`, `<=`, `>=`, `==`, `!=` each count once. Six
+        // comparisons → C = 6.
+        check_metrics::<RustParser>(
+            "fn f(a: i32, b: i32) -> bool { a < b || a > b || a <= b || a >= b || a == b || a != b }",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 6.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_generic_brackets_not_conditions() {
+        // `<` / `>` in `Vec<i32>` are TypeArguments delimiters, not
+        // comparison operators. The parent-check in the LT/GT arms
+        // must filter them out. Expected C = 0.
+        check_metrics::<RustParser>(
+            "fn f() -> Vec<i32> { Vec::<i32>::new() }",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_if_let_counts_as_condition() {
+        // `if let Some(v) = opt { ... }` introduces a `let_condition`
+        // → 1 condition. The `if` keyword itself does not add another
+        // count — Fitzpatrick counts conditions, not branch keywords.
+        check_metrics::<RustParser>(
+            "fn f(opt: Option<i32>) { if let Some(_v) = opt { } }",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_while_let_counts_as_condition() {
+        // `while let Some(y) = it.next() { ... }` is also a
+        // `let_condition` (the `while` form). One condition; the
+        // `it.next()` call adds one branch.
+        check_metrics::<RustParser>(
+            "fn f(mut it: std::vec::IntoIter<i32>) { while let Some(_y) = it.next() { } }",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.branches_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_match_arms_count_conditions_wildcard_excluded() {
+        // Three arms: `0 => 1`, `n if n > 0 => n`, `_ => -1`. The
+        // bare wildcard is the `default:` equivalent and is skipped.
+        // The guarded arm has a `n if n > 0` pattern (more than one
+        // child in the match_pattern) and still counts. Two non-wildcard
+        // arms → C = 2 from MatchArm. Plus the comparison `n > 0`
+        // adds one more → C = 3.
+        check_metrics::<RustParser>(
+            "fn f(x: i32) -> i32 { match x { 0 => 1, n if n > 0 => n, _ => -1, } }",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_else_counts_as_condition() {
+        // `if a > b { ... } else { ... }` → `a > b` is one condition,
+        // `else` is one condition → C = 2.
+        check_metrics::<RustParser>(
+            "fn f(a: i32, b: i32) -> i32 { if a > b { a } else { b } }",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_complex_function_abc() {
+        // Mixed-shape regression: assignments, calls, conditions, `?`,
+        // `if let`, `match` in one body. Verified by hand:
+        // - assignments: `x = 5`, `x += 2` → A = 2 (the `let` initialisers
+        //   are not assignments).
+        // - branches: `xs.iter()`, `.next()`, `Err(())`, `r?` → B = 4
+        //   (3 calls + 1 try).
+        // - conditions: `if let Some(v) = opt` → 1, `match x` arms
+        //   `0`, `n if n>0` (wildcard excluded) → 2, `n > 0` → 1.
+        //   Total C = 4.
+        check_metrics::<RustParser>(
+            "fn f(opt: Option<i32>, xs: Vec<i32>) -> Result<i32, ()> {\n\
+             \x20   let mut x = 0;\n\
+             \x20   x = 5;\n\
+             \x20   x += 2;\n\
+             \x20   if let Some(_v) = opt { }\n\
+             \x20   let _ = xs.iter().next();\n\
+             \x20   let r: Result<i32, ()> = Err(());\n\
+             \x20   let _v = r?;\n\
+             \x20   Ok(match x {\n\
+             \x20       0 => 1,\n\
+             \x20       n if n > 0 => n,\n\
+             \x20       _ => -1,\n\
+             \x20   })\n\
+             }\n",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 2.0);
+                // calls: xs.iter(), .next(), Err(()), Ok(...) → 4 calls
+                // plus 1 try (`r?`) → 5 branches.
+                assert_eq!(metric.abc.branches_sum(), 5.0);
+                // 1 let_condition + 2 non-wildcard match_arms + 1
+                // comparison (`n > 0`) → 4.
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );

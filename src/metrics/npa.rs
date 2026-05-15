@@ -655,6 +655,202 @@ impl Npa for PythonCode {
     }
 }
 
+// Rust attribute counting.
+//
+// Rust's "class" maps to a `struct` plus its `impl` blocks. Since each
+// `impl` block opens its own func_space (`SpaceKind::Impl`), the
+// natural place to record attributes per "class" is at the impl space
+// and at the struct itself:
+//
+// 1. `StructItem`: every direct child in the struct's
+//    `field_declaration_list` (named fields) or
+//    `ordered_field_declaration_list` (tuple-struct positional fields)
+//    is one attribute. Because `struct_item` is NOT a func_space, the
+//    fields are attributed to whichever func_space is on the stack
+//    when the StructItem is visited (typically `Unit`). The enclosing
+//    space is marked as a class space so the npa metric is emitted.
+//
+// 2. `ImplItem`: every `ConstItem` and `StaticItem` direct child of the
+//    impl's `declaration_list` is one associated attribute. These
+//    accumulate on the Impl space (which is itself a class-style
+//    func_space).
+//
+// 3. `TraitItem`: every `ConstItem`, `StaticItem`, and `AssociatedType`
+//    direct child of the trait's `declaration_list` is one attribute.
+//    Trait members are always visible to implementers, so they are
+//    counted as public (`interface_npa == interface_na`), mirroring
+//    Java's interface-body rule.
+//
+// Limitations (documented):
+// - Multiple `impl Foo` blocks each open their own Impl space and
+//   accumulate independently. Their `_sum` accumulators roll up to
+//   the parent during finalisation, so the file-level
+//   `class_npa_sum` is the sum across every impl.
+// - Struct fields are attributed to the enclosing func_space (usually
+//   Unit), not to a per-struct space. Two structs in the same module
+//   therefore contribute to the same `class_na` bucket on that Unit.
+//   This matches the issue's intent of "count struct fields + impl
+//   associated consts" without inventing a synthetic per-struct
+//   space.
+// - Enum variants are NOT counted as attributes (they are sum-type
+//   tags, not data fields), mirroring Kotlin's `enum_class_body`
+//   treatment.
+impl Npa for RustCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        use Rust::*;
+
+        // Mark Impl / Trait spaces as class spaces so the metric is
+        // emitted on them.
+        if matches!(node.kind_id().into(), ImplItem | TraitItem) && stats.is_disabled() {
+            stats.is_class_space = true;
+        }
+
+        match node.kind_id().into() {
+            // Counted on the StructItem so each struct's fields are
+            // tallied exactly once. The enclosing func_space (Unit or
+            // nested) is the recipient — marking it a class space
+            // makes the npa metric visible.
+            StructItem => {
+                let mut attrs = 0;
+                let mut public_attrs = 0;
+                for body in node.children() {
+                    match body.kind_id().into() {
+                        // Named-field struct: each `field_declaration`
+                        // is one attribute. Visibility is the
+                        // `visibility_modifier` first child.
+                        FieldDeclarationList => {
+                            for field in body
+                                .children()
+                                .filter(|c| matches!(c.kind_id().into(), FieldDeclaration))
+                            {
+                                attrs += 1;
+                                if rust_item_is_public(&field) {
+                                    public_attrs += 1;
+                                }
+                            }
+                        }
+                        // Tuple struct: the field count is positional.
+                        // The grammar emits each field as either a
+                        // type-bearing node (`primitive_type`,
+                        // `type_identifier`, `generic_type`, ...) or a
+                        // `visibility_modifier` followed by such a
+                        // node. We count one attribute per non-token
+                        // child that is not a delimiter, comma, or
+                        // visibility modifier.
+                        OrderedFieldDeclarationList => {
+                            let (count, public) = rust_count_tuple_struct_fields(&body);
+                            attrs += count;
+                            public_attrs += public;
+                        }
+                        _ => {}
+                    }
+                }
+                if attrs > 0 {
+                    if stats.is_disabled() {
+                        stats.is_class_space = true;
+                    }
+                    stats.class_na += attrs;
+                    stats.class_npa += public_attrs;
+                }
+            }
+            // Associated const/static declared in an `impl` block.
+            // The current top-of-stack is the Impl space (because we
+            // are inside its body), so attribution lands there.
+            ConstItem | StaticItem => {
+                let Some(parent) = node.parent() else {
+                    return;
+                };
+                let Some(grand) = parent.parent() else {
+                    return;
+                };
+                match grand.kind_id().into() {
+                    ImplItem if matches!(parent.kind_id().into(), DeclarationList) => {
+                        stats.class_na += 1;
+                        if rust_item_is_public(node) {
+                            stats.class_npa += 1;
+                        }
+                    }
+                    TraitItem if matches!(parent.kind_id().into(), DeclarationList) => {
+                        stats.interface_na += 1;
+                        stats.interface_npa = stats.interface_na;
+                    }
+                    _ => {}
+                }
+            }
+            // `type Foo;` inside a trait body is an associated type —
+            // a placeholder bound that the implementer must supply.
+            // Counted as an interface attribute, public by default.
+            AssociatedType => {
+                let Some(parent) = node.parent() else {
+                    return;
+                };
+                let Some(grand) = parent.parent() else {
+                    return;
+                };
+                if matches!(grand.kind_id().into(), TraitItem)
+                    && matches!(parent.kind_id().into(), DeclarationList)
+                {
+                    stats.interface_na += 1;
+                    stats.interface_npa = stats.interface_na;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+// Counts positional fields inside an `ordered_field_declaration_list`
+// (tuple struct). Each non-token child that is a type node represents
+// one field. A leading `visibility_modifier` may decorate the field;
+// counts that field as public. Returns `(total_count, public_count)`.
+fn rust_count_tuple_struct_fields(list: &Node) -> (usize, usize) {
+    use Rust::*;
+
+    let mut total = 0;
+    let mut public = 0;
+    let mut pending_pub = false;
+    for child in list.children() {
+        match child.kind_id().into() {
+            // Open / close parens and comma separators — skipped.
+            LPAREN | RPAREN | COMMA => {
+                pending_pub = false;
+            }
+            // `pub` / `pub(crate)` / `pub(super)` / ... — applies to
+            // the next type child.
+            VisibilityModifier => {
+                pending_pub = true;
+            }
+            // `attribute_item` decorates the next field but does not
+            // contribute to visibility. Skip without resetting the
+            // pending-pub flag.
+            AttributeItem => {}
+            // Any other child is treated as a positional field type
+            // (primitive_type, type_identifier, generic_type,
+            // reference_type, tuple_type, ...). One increment per
+            // type child.
+            _ => {
+                total += 1;
+                if pending_pub {
+                    public += 1;
+                }
+                pending_pub = false;
+            }
+        }
+    }
+    (total, public)
+}
+
+// Returns true if `node`'s first child is a `visibility_modifier`
+// containing the `pub` keyword. Matches Rust's "public-only-when-`pub`"
+// model — `pub(crate)` / `pub(super)` / `pub(in path)` are also
+// `visibility_modifier` and count as public for ABC purposes
+// (`pub(crate)` is still "public to its crate"); only the absence of
+// `pub` means private.
+pub(crate) fn rust_item_is_public(node: &Node) -> bool {
+    node.children()
+        .any(|c| c.kind_id() == Rust::VisibilityModifier)
+}
+
 // Returns the `Block2` body child of a `ClassDefinition` if present.
 // `ClassDefinition` children are: `class` keyword, identifier,
 // optional type-parameters, optional argument-list (base classes),
@@ -1049,7 +1245,6 @@ implement_metric_trait!(
     Npa,
     MozjsCode,
     JavascriptCode,
-    RustCode,
     CppCode,
     PreprocCode,
     CcommentCode,
@@ -3072,5 +3267,132 @@ mod tests {
             assert_eq!(metric.npa.class_na_sum(), 1.0);
             insta::assert_json_snapshot!(metric.npa);
         });
+    }
+
+    #[test]
+    fn rust_empty_unit_no_attributes() {
+        check_metrics::<RustParser>("", "empty.rs", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 0.0);
+            assert_eq!(metric.npa.class_npa_sum(), 0.0);
+            assert_eq!(metric.npa.interface_na_sum(), 0.0);
+            assert_eq!(metric.npa.interface_npa_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.npa);
+        });
+    }
+
+    #[test]
+    fn rust_struct_fields_are_attributes() {
+        // 3 named fields → class_na = 3. `pub a` and `pub c` are public
+        // → class_npa = 2. `b` is private, so it's not in `npa`.
+        check_metrics::<RustParser>(
+            "struct Foo { pub a: i32, b: String, pub c: bool }",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_tuple_struct_fields_are_attributes() {
+        // Tuple-struct field counting is positional. `Bar(pub i32,
+        // String)` → 2 fields, 1 public.
+        check_metrics::<RustParser>("struct Bar(pub i32, String);", "foo.rs", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 2.0);
+            assert_eq!(metric.npa.class_npa_sum(), 1.0);
+            insta::assert_json_snapshot!(metric.npa);
+        });
+    }
+
+    #[test]
+    fn rust_unit_struct_has_no_attributes() {
+        // `struct Empty;` is a unit struct (no fields). 0 attributes.
+        check_metrics::<RustParser>("struct Empty;", "foo.rs", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.npa);
+        });
+    }
+
+    #[test]
+    fn rust_empty_struct_body_has_no_attributes() {
+        // `struct Empty {}` is named-field with zero fields.
+        check_metrics::<RustParser>("struct Empty { }", "foo.rs", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.npa);
+        });
+    }
+
+    #[test]
+    fn rust_impl_associated_consts_are_attributes() {
+        // `const X` and `pub const Y` and `static Z` and `pub static W`
+        // → 4 associated attributes, 2 public.
+        check_metrics::<RustParser>(
+            "struct Foo;\n\
+             impl Foo {\n\
+             \x20   const X: i32 = 1;\n\
+             \x20   pub const Y: i32 = 2;\n\
+             \x20   static Z: i32 = 3;\n\
+             \x20   pub static W: i32 = 4;\n\
+             }\n",
+            "foo.rs",
+            |metric| {
+                // The Impl-space class_na is 4; rolled up to Unit
+                // class_na_sum it is also 4 (no struct fields in `Foo;`).
+                assert_eq!(metric.npa.class_na_sum(), 4.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_trait_consts_and_associated_types_are_attributes() {
+        // `const DEFAULT_COLOR` + `type Item` → 2 interface attributes,
+        // both public by trait convention.
+        check_metrics::<RustParser>(
+            "trait Drawable { const DEFAULT_COLOR: u32; type Item; }",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.npa.interface_na_sum(), 2.0);
+                assert_eq!(metric.npa.interface_npa_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_multiple_impls_aggregate() {
+        // Two `impl Foo` blocks each have one associated const. The
+        // unit-level rollup should be class_na_sum = 2.
+        check_metrics::<RustParser>(
+            "struct Foo;\n\
+             impl Foo { const X: i32 = 1; }\n\
+             impl Foo { pub const Y: i32 = 2; }\n",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_module_level_consts_not_attributes() {
+        // `const PI: f64 = 3.14;` at file scope is a free-standing
+        // constant — NOT a class attribute. Only consts INSIDE an
+        // `impl` / `trait` body count.
+        check_metrics::<RustParser>(
+            "const PI: f64 = 3.14;\nstatic Q: i32 = 0;\n",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 0.0);
+                assert_eq!(metric.npa.interface_na_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
     }
 }

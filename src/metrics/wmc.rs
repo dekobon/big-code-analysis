@@ -217,6 +217,35 @@ impl Wmc for PythonCode {
     }
 }
 
+// Rust WMC. Rust's `Impl` / `Trait` space kinds map onto the OO
+// "class" / "interface" concept for WMC purposes: every `impl` block
+// is a class, every `trait` is an interface, and each `function_item`
+// inside contributes its cyclomatic complexity to the surrounding
+// space.
+//
+// `class_interface_compute` is reused after mapping the space kind:
+// the Wmc `Stats.space_kind` field is the recipient that
+// `Stats::merge` keys off when rolling per-function cyclomatics into
+// the parent. Mapping to `Class` / `Interface` means the existing
+// merge logic produces the right numbers without touching the shared
+// helpers.
+//
+// Multiple `impl Foo` blocks each open their own Impl space and
+// accumulate independently; their `class_wmc_sum` values are merged
+// into the parent space (Unit) during finalisation, so the
+// file-level `class_wmc_sum` is the sum of cyclomatic complexity
+// across every impl block in the file.
+impl Wmc for RustCode {
+    fn compute(space_kind: SpaceKind, cyclomatic: &cyclomatic::Stats, stats: &mut Stats) {
+        let mapped = match space_kind {
+            SpaceKind::Impl => SpaceKind::Class,
+            SpaceKind::Trait => SpaceKind::Interface,
+            other => other,
+        };
+        class_interface_compute(mapped, cyclomatic, stats);
+    }
+}
+
 // TypeScript / TSX both expose `class_declaration`,
 // `abstract_class_declaration` (mapped to `SpaceKind::Class` in
 // `getter.rs`) and `interface_declaration` (`SpaceKind::Interface`).
@@ -259,7 +288,6 @@ implement_metric_trait!(
     Wmc,
     MozjsCode,
     JavascriptCode,
-    RustCode,
     CppCode,
     PreprocCode,
     CcommentCode,
@@ -2377,6 +2405,117 @@ mod tests {
             "foo.py",
             |metric| {
                 assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_empty_unit_zero_wmc() {
+        check_metrics::<RustParser>("", "empty.rs", |metric| {
+            assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+            assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.wmc);
+        });
+    }
+
+    #[test]
+    fn rust_single_impl_method_wmc_one() {
+        // Single straight-line method → cyclomatic 1 → WMC 1.
+        check_metrics::<RustParser>(
+            "struct Foo;\nimpl Foo { fn m(&self) -> i32 { 1 } }\n",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_method_with_if_adds_to_wmc() {
+        // Cyclomatic: 1 (base) + 1 (if) = 2. WMC = 2.
+        check_metrics::<RustParser>(
+            "struct Foo;\n\
+             impl Foo {\n\
+             \x20   fn m(&self, x: i32) -> i32 {\n\
+             \x20       if x > 0 { 1 } else { 0 }\n\
+             \x20   }\n\
+             }\n",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_multiple_methods_wmc_sums() {
+        // m1 cyclomatic 1, m2 cyclomatic 2 (if), m3 cyclomatic 3 (if
+        // inside for). WMC = 1 + 2 + 3 = 6.
+        check_metrics::<RustParser>(
+            "struct Foo;\n\
+             impl Foo {\n\
+             \x20   fn m1(&self) -> i32 { 1 }\n\
+             \x20   fn m2(&self, x: i32) -> i32 { if x > 0 { 1 } else { 0 } }\n\
+             \x20   fn m3(&self, xs: &[i32]) -> i32 {\n\
+             \x20       for x in xs { if *x > 0 { return *x; } }\n\
+             \x20       0\n\
+             \x20   }\n\
+             }\n",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 6.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_multiple_impls_wmc_aggregate() {
+        // Two `impl` blocks for Foo, each contributing 1 method with
+        // cyclomatic 1. Unit-level class_wmc_sum = 2.
+        check_metrics::<RustParser>(
+            "struct Foo;\n\
+             impl Foo { fn m1(&self) {} }\n\
+             impl Foo { fn m2(&self) {} }\n",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_trait_default_method_contributes_to_interface_wmc() {
+        // A trait method with a default body — `area` is a function
+        // space inside the trait. Cyclomatic = 1 → interface_wmc = 1.
+        // The signature-only `draw` has no body and contributes
+        // nothing.
+        check_metrics::<RustParser>(
+            "trait T { fn draw(&self); fn area(&self) -> f64 { 0.0 } }",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.wmc.interface_wmc_sum(), 1.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_top_level_function_does_not_contribute_to_class_wmc() {
+        // Free `fn f()` opens a Function space but no class/trait
+        // surrounds it. The Unit space is not a class space, so
+        // class_wmc_sum stays at 0.
+        check_metrics::<RustParser>(
+            "fn f(x: i32) -> i32 { if x > 0 { 1 } else { 0 } }",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
         );

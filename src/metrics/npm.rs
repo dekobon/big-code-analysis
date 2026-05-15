@@ -451,6 +451,64 @@ impl Npm for PythonCode {
     }
 }
 
+// Rust method counting.
+//
+// A "method" in Rust is a `function_item` direct child of an `impl`
+// block's `declaration_list`. In a `trait_item`, both `function_item`
+// (default-body methods) and `function_signature_item` (signature-only
+// methods that implementers must provide) count toward the trait's
+// interface methods. Trait methods are always visible to implementers
+// and are therefore counted as public, matching Java's interface rule
+// (`interface_npm == interface_nm`).
+//
+// `pub` / `pub(crate)` / `pub(super)` / `pub(in ...)` mark an impl
+// method as public; absence of any visibility modifier means private.
+// The `pub(crate)` form is intentionally counted as public because
+// it's externally callable from the crate's perspective — narrower
+// distinctions are tracked by `npa` / `npm` only as a binary public /
+// private flag.
+impl Npm for RustCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        use Rust::*;
+
+        // Mark Impl / Trait spaces as class spaces so npm emits.
+        if matches!(node.kind_id().into(), ImplItem | TraitItem) && stats.is_disabled() {
+            stats.is_class_space = true;
+        }
+
+        // A method is a `function_item` or `function_signature_item`
+        // whose parent is the `declaration_list` of an `impl` or
+        // `trait`. Gating on the kind, parent, and grandparent keeps
+        // free-standing functions out of the count without needing to
+        // walk the parent list eagerly.
+        if !matches!(node.kind_id().into(), FunctionItem | FunctionSignatureItem) {
+            return;
+        }
+        let Some(parent) = node.parent() else {
+            return;
+        };
+        if !matches!(parent.kind_id().into(), DeclarationList) {
+            return;
+        }
+        let Some(grand) = parent.parent() else {
+            return;
+        };
+        match grand.kind_id().into() {
+            ImplItem => {
+                stats.class_nm += 1;
+                if super::npa::rust_item_is_public(node) {
+                    stats.class_npm += 1;
+                }
+            }
+            TraitItem => {
+                stats.interface_nm += 1;
+                stats.interface_npm = stats.interface_nm;
+            }
+            _ => {}
+        }
+    }
+}
+
 // Re-uses the visibility helper from the `Npa` impl. Kotlin's default
 // visibility is `public`, the opposite of Java's
 // package-private-by-default, so the "no modifier → public" branch is the
@@ -645,7 +703,6 @@ implement_metric_trait!(
     Npm,
     MozjsCode,
     JavascriptCode,
-    RustCode,
     CppCode,
     PreprocCode,
     CcommentCode,
@@ -2548,6 +2605,107 @@ class C {
             |metric| {
                 assert_eq!(metric.npm.class_nm_sum(), 3.0);
                 assert_eq!(metric.npm.class_npm_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_empty_unit_no_methods() {
+        check_metrics::<RustParser>("", "empty.rs", |metric| {
+            assert_eq!(metric.npm.class_nm_sum(), 0.0);
+            assert_eq!(metric.npm.class_npm_sum(), 0.0);
+            assert_eq!(metric.npm.interface_nm_sum(), 0.0);
+            assert_eq!(metric.npm.interface_npm_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.npm);
+        });
+    }
+
+    #[test]
+    fn rust_impl_methods_count() {
+        // 3 `fn`s in `impl Foo` body. `pub new` and `pub process` are
+        // public; `helper` is private. → class_nm=3, class_npm=2.
+        check_metrics::<RustParser>(
+            "struct Foo;\n\
+             impl Foo {\n\
+             \x20   pub fn new() -> Self { Foo }\n\
+             \x20   fn helper(&self) -> i32 { 0 }\n\
+             \x20   pub fn process(&self) -> i32 { 0 }\n\
+             }\n",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_trait_methods_count() {
+        // `fn draw(&self);` (signature only) + `fn area(&self) -> f64
+        // { 0.0 }` (default body) → both are interface methods.
+        // Trait methods are always public. → interface_nm=2,
+        // interface_npm=2.
+        check_metrics::<RustParser>(
+            "trait Drawable {\n\
+             \x20   fn draw(&self);\n\
+             \x20   fn area(&self) -> f64 { 0.0 }\n\
+             }\n",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.npm.interface_nm_sum(), 2.0);
+                assert_eq!(metric.npm.interface_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_module_level_function_not_method() {
+        // Top-level `fn` is NOT a method. The npa/npm metric on a
+        // Unit space stays disabled (no class/interface), so the
+        // method count is zero.
+        check_metrics::<RustParser>("fn f() {}\nfn g() {}\n", "foo.rs", |metric| {
+            assert_eq!(metric.npm.class_nm_sum(), 0.0);
+            assert_eq!(metric.npm.interface_nm_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.npm);
+        });
+    }
+
+    #[test]
+    fn rust_multiple_impls_methods_aggregate() {
+        // Two `impl Foo` blocks contribute 1 + 1 = 2 methods.
+        check_metrics::<RustParser>(
+            "struct Foo;\n\
+             impl Foo { pub fn m1(&self) {} }\n\
+             impl Foo { fn m2(&self) {} }\n",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_trait_impl_block_counts_methods() {
+        // `impl Drawable for Foo` is also an `impl_item` — its methods
+        // count toward class_nm of the impl. Trait impls and inherent
+        // impls are not distinguished at the AST level (both parse as
+        // `impl_item`).
+        check_metrics::<RustParser>(
+            "struct Foo;\n\
+             trait Drawable { fn draw(&self); }\n\
+             impl Drawable for Foo { fn draw(&self) {} }\n",
+            "foo.rs",
+            |metric| {
+                // Trait body: 1 signature method → interface_nm = 1.
+                // Impl body: 1 fn `draw` → class_nm = 1.
+                assert_eq!(metric.npm.interface_nm_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 1.0);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
