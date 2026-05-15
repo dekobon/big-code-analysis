@@ -34,16 +34,17 @@ macro_rules! get_language {
 // impl.
 macro_rules! implement_metric_trait {
     (Abc, $($code:ident),+) => (
-        $(
-           impl Abc for $code {
-               fn compute(_node: &Node, _stats: &mut Stats) {}
-           }
-        )+
+        implement_metric_trait!(@code_taking Abc, $($code),+);
     );
     (Cognitive, $($code:ident),+) => (
         $(
            impl Cognitive for $code {
-               fn compute(_node: &Node, _stats: &mut Stats, _nesting_map: &mut HashMap<usize, (usize, usize, usize)>,) {}
+               fn compute<'a>(
+                   _node: &Node<'a>,
+                   _code: &'a [u8],
+                   _stats: &mut Stats,
+                   _nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
+               ) {}
            }
         )+
     );
