@@ -703,6 +703,75 @@ mod tests {
         );
     }
 
+    /// C++ compound subtract-assign `-=` (`Cpp::DASHEQ`) must be counted
+    /// in Halstead like every other compound assignment (`+=`, `*=`,
+    /// `/=`, etc.). Prior to the fix it fell through to the `Unknown`
+    /// arm and was silently dropped from `n1` / `N1` — under-reporting
+    /// volume / effort wherever C++ code subtracts in place. Regression
+    /// test for issue #198.
+    #[test]
+    fn cpp_dash_eq_is_halstead_operator() {
+        check_metrics::<CppParser>("void f(int a, int b) { a -= b; }", "foo.cpp", |metric| {
+            // Unique operators: void, (), {}, int, ,, -=, ;
+            //   `-=` is the regression target — without the fix it
+            //   would be Unknown and `u_operators` would be 6.
+            // Unique operands: f, a, b
+            let s = &metric.halstead;
+            assert_eq!(s.u_operators(), 7.0);
+            assert_eq!(s.u_operands(), 3.0);
+        });
+    }
+
+    /// C++ pointer-to-member access `.*` (`Cpp::DOTSTAR`) must be
+    /// counted in Halstead. Prior to the fix it fell through to the
+    /// `Unknown` arm and was silently dropped from `n1` / `N1`.
+    /// Regression test for issue #198.
+    ///
+    /// The snippet uses an `operator.*` declaration because that is
+    /// where the C++ tree-sitter grammar reliably emits a single
+    /// `DOTSTAR` leaf; in expression position (`a.*b`) some grammar
+    /// versions split the token into `DOT` + `STAR` and the regression
+    /// would be masked.
+    #[test]
+    fn cpp_dot_star_is_halstead_operator() {
+        check_metrics::<CppParser>("struct S { void operator.*(int); };", "foo.cpp", |metric| {
+            // Unique operators with fix: {}, ;, (), int, void, .*
+            //   `.*` is the regression target — without the fix it
+            //   falls through to `Unknown` and `u_operators` is 5.
+            // Unique operands: S
+            let s = &metric.halstead;
+            assert_eq!(s.u_operators(), 6.0);
+            assert_eq!(s.u_operands(), 1.0);
+        });
+    }
+
+    /// C++ pointer-to-member access through pointer `->*`
+    /// (`Cpp::DASHGTSTAR`) must be counted in Halstead. Prior to the
+    /// fix it fell through to the `Unknown` arm and was silently
+    /// dropped from `n1` / `N1`. Regression test for issue #198.
+    ///
+    /// The snippet uses an `operator->*` declaration because that is
+    /// where the C++ tree-sitter grammar reliably emits a single
+    /// `DASHGTSTAR` leaf; in expression position (`a->*b`) the grammar
+    /// splits the token into `DASHGT` + `STAR` and the regression would
+    /// be masked.
+    #[test]
+    fn cpp_dash_gt_star_is_halstead_operator() {
+        check_metrics::<CppParser>(
+            "struct S { void operator->*(int); };",
+            "foo.cpp",
+            |metric| {
+                // Unique operators with fix: {}, ;, (), int, void, ->*
+                //   `->*` is the regression target — without the fix it
+                //   falls through to `Unknown` and `u_operators` is 5.
+                // Unique operands: S
+                let s = &metric.halstead;
+                assert_eq!(s.u_operators(), 6.0);
+                assert_eq!(s.u_operands(), 1.0);
+            },
+        );
+    }
+
     #[test]
     fn rust_operators_and_operands() {
         check_metrics::<RustParser>(
