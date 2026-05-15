@@ -2621,11 +2621,6 @@ class C {
     // fire and force a test update.
     // ---------------------------------------------------------------
 
-    fn assert_npm_default_zero(metric: &crate::CodeMetrics) {
-        assert_eq!(metric.npm.class_npm_sum(), 0.0);
-        assert_eq!(metric.npm.class_nm_sum(), 0.0);
-    }
-
 
 
 

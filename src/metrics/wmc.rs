@@ -2306,10 +2306,6 @@ mod tests {
     // the assertion will fire and force a test update.
     // ---------------------------------------------------------------
 
-    fn assert_wmc_default_zero(metric: &crate::CodeMetrics) {
-        assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
-    }
-
 
 
 
