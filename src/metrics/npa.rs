@@ -487,13 +487,11 @@ pub(crate) fn ruby_walk_class_body(body: &Node, source: &[u8], stats: &mut Stats
                     }
                 }
             }
-            Call | Call2 | Call3 | Call4 => {
-                if ruby_attr_macro_name(&child, source).is_some() {
-                    let count = ruby_attr_macro_symbol_count(&child);
-                    stats.class_na += count;
-                    if visibility == RubyVisibility::Public {
-                        stats.class_npa += count;
-                    }
+            Call | Call2 | Call3 | Call4 if ruby_attr_macro_name(&child, source).is_some() => {
+                let count = ruby_attr_macro_symbol_count(&child);
+                stats.class_na += count;
+                if visibility == RubyVisibility::Public {
+                    stats.class_npa += count;
                 }
             }
             _ => {}
@@ -3318,12 +3316,7 @@ mod tests {
     // fire and force a test update, which is the gate.
     // ---------------------------------------------------------------
 
-
-
-
-
     // PLACEHOLDER #204: C++ `Npa` is unimplemented.
-
 
     // --- Python NPA ---------------------------------------------------
 

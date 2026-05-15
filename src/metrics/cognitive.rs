@@ -993,7 +993,6 @@ impl Cognitive for PhpCode {
     }
 }
 
-
 // Reads the text of the `target` field of an Elixir `Call` node.
 //
 // Most of Elixir's control-flow constructs (`if`, `unless`, `for`,
