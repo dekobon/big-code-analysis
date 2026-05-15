@@ -6945,6 +6945,64 @@ EOF
 
     #[test]
     fn kotlin_loc_no_zero_blank() {
+        // Checks that the blank metric is not equal to 0 when there are some
+        // comments next to code lines. Mirrors rust_no_zero_blank.
+        check_metrics::<KotlinParser>(
+            "fun connectToUpdateServer() {
+              val pool = 0
+
+              val updateServer = -42
+              val isConnected = false
+              val currTry = 0
+              val numRetries = 10  // Number of IPC connection retries before
+                                    // giving up.
+              val numTries = 20    // Number of IPC connection tries before
+                                    // giving up.
+            }",
+            "foo.kt",
+            |metric| {
+                // Anchor the headline integer values; in particular
+                // `blank() > 0` is the contract this test's name advertises.
+                assert_eq!(metric.loc.sloc(), 11.0);
+                assert_eq!(metric.loc.ploc(), 8.0);
+                assert_eq!(metric.loc.cloc(), 4.0);
+                assert_eq!(metric.loc.blank(), 1.0);
+                insta::assert_json_snapshot!(
+                    metric.loc,
+                    @r###"
+                    {
+                      "sloc": 11.0,
+                      "ploc": 8.0,
+                      "lloc": 6.0,
+                      "cloc": 4.0,
+                      "blank": 1.0,
+                      "sloc_average": 5.5,
+                      "ploc_average": 4.0,
+                      "lloc_average": 3.0,
+                      "cloc_average": 2.0,
+                      "blank_average": 0.5,
+                      "sloc_min": 11.0,
+                      "sloc_max": 11.0,
+                      "cloc_min": 4.0,
+                      "cloc_max": 4.0,
+                      "ploc_min": 8.0,
+                      "ploc_max": 8.0,
+                      "lloc_min": 6.0,
+                      "lloc_max": 6.0,
+                      "blank_min": 1.0,
+                      "blank_max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_loc_blank_zero_sanity() {
+        // Sanity: when the source has no blank lines, blank() must be 0.
+        // Preserves the no-blank coverage previously held by
+        // kotlin_loc_no_zero_blank before it was rewritten to assert the
+        // positive case its name advertises.
         check_metrics::<KotlinParser>(
             "fun f(): Int {
             val x = 1 // x
@@ -6958,7 +7016,6 @@ EOF
                 assert_eq!(metric.loc.lloc(), 3.0);
                 assert_eq!(metric.loc.cloc(), 2.0);
                 assert_eq!(metric.loc.blank(), 0.0);
-                insta::assert_json_snapshot!(metric.loc);
             },
         );
     }
