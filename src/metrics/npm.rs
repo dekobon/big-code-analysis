@@ -566,7 +566,7 @@ impl Npm for GoCode {
 }
 
 impl Npm for CppCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Cpp::*;
 
         // Mark class / struct spaces as class spaces so the metric is
@@ -825,14 +825,73 @@ impl Npm for RubyCode {
     }
 }
 
+// JavaScript / Mozjs class methods. JS has no `accessibility_modifier`
+// — every class member is public, so each method maps 1:1 to both
+// `nm` and `npm`. Two shapes count:
+//
+//   1. `method_definition` direct children of `class_body`
+//      (regular methods, getters/setters, the constructor — all share
+//      the same kind id in the JS grammar).
+//   2. `field_definition` whose initializer is an `arrow_function` or
+//      `function_expression` (method written as a field initializer:
+//      `foo = () => {}`).
+//
+// Prototype methods (`Foo.prototype.bar = function() {}`) would also
+// qualify, but detecting them requires matching the `prototype`
+// property text. The `Npm::compute` trait does not carry source
+// bytes, so prototype-shaped methods are intentionally not counted.
+// Modern ES2015+ class syntax is unaffected.
+macro_rules! js_npm_compute {
+    ($lang:ident) => {
+        fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+            use $lang::*;
+
+            if Self::is_func_space(node) && stats.is_disabled() {
+                stats.is_class_space = true;
+            }
+
+            if !matches!(node.kind_id().into(), ClassBody) {
+                return;
+            }
+
+            for member in node.children() {
+                match member.kind_id().into() {
+                    MethodDefinition => {
+                        stats.class_nm += 1;
+                        stats.class_npm += 1;
+                    }
+                    FieldDefinition
+                        if member
+                            .first_child(|id| {
+                                id == $lang::ArrowFunction || id == $lang::FunctionExpression
+                            })
+                            .is_some() =>
+                    {
+                        stats.class_nm += 1;
+                        stats.class_npm += 1;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    };
+}
+
+impl Npm for JavascriptCode {
+    js_npm_compute!(Javascript);
+}
+
+impl Npm for MozjsCode {
+    js_npm_compute!(Mozjs);
+}
+
 // Default no-op `Npm` impls. Audited in #188. See the rationale block
 // on `implement_metric_trait!(Npa, …)` in `src/metrics/npa.rs` — Npm
 // classification mirrors Npa one-for-one (same set of "has classes?"
 // questions, same follow-up issues).
+
 implement_metric_trait!(
     Npm,
-    MozjsCode,
-    JavascriptCode,
     PreprocCode,
     CcommentCode,
     PerlCode,
@@ -2568,32 +2627,10 @@ class C {
     }
 
 
-    // PLACEHOLDER #202: Mozjs `Npm` is unimplemented.
-    #[test]
-    fn mozjs_npm_placeholder_returns_zero() {
-        check_metrics::<MozjsParser>("class A { m1() {} m2() {} }", "foo.js", |metric| {
-            assert_npm_default_zero(&metric);
-        });
-    }
 
-    // PLACEHOLDER #202: JavaScript `Npm` is unimplemented.
-    #[test]
-    fn javascript_npm_placeholder_returns_zero() {
-        check_metrics::<JavascriptParser>("class A { m1() {} m2() {} }", "foo.js", |metric| {
-            assert_npm_default_zero(&metric);
-        });
-    }
 
 
     // PLACEHOLDER #204: C++ `Npm` is unimplemented.
-    #[test]
-    fn cpp_npm_placeholder_returns_zero() {
-        check_metrics::<CppParser>(
-            "class A { public: void m1() {} void m2() {} };",
-            "foo.cpp",
-            |metric| assert_npm_default_zero(&metric),
-        );
-    }
 
 
     // --- Python NPM ---------------------------------------------------
@@ -3083,6 +3120,103 @@ class C {
             |metric| {
                 assert_eq!(metric.npm.class_nm_sum(), 3.0);
                 assert_eq!(metric.npm.class_npm_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_empty_unit_no_methods() {
+        check_metrics::<JavascriptParser>("", "empty.js", |metric| {
+            assert_eq!(metric.npm.class_nm_sum(), 0.0);
+            assert_eq!(metric.npm.class_npm_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.npm);
+        });
+    }
+
+    #[test]
+    fn javascript_class_methods_count() {
+        // `method_definition` direct children of `class_body` cover
+        // regular methods, getters/setters, and constructors. JS has
+        // no visibility — all members are public. nm = npm = 4.
+        check_metrics::<JavascriptParser>(
+            "class Foo {\n\
+                 constructor() {}\n\
+                 bar() {}\n\
+                 get baz() { return 1; }\n\
+                 set baz(v) {}\n\
+             }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 4.0);
+                assert_eq!(metric.npm.class_npm_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_arrow_field_is_method() {
+        // `class Foo { x = () => {} }` is a method written as a field
+        // initializer. Both arrow functions and `function`
+        // expressions in field position count as methods.
+        check_metrics::<JavascriptParser>(
+            "class Foo { x = () => {}; y = function() {}; z = 1; }",
+            "foo.js",
+            |metric| {
+                // x + y are methods; z is an attribute.
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_free_function_is_not_method() {
+        // Top-level functions and arrow functions outside a class
+        // body are not methods.
+        check_metrics::<JavascriptParser>(
+            "function f() {}\nconst g = () => {};\nclass Foo { h() {} }",
+            "foo.js",
+            |metric| {
+                // Only `h` is a method.
+                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_multiple_classes_aggregate_at_unit() {
+        // File-level rollup: Foo has 2 methods, Bar has 1. Unit
+        // class_nm_sum = 3.
+        check_metrics::<JavascriptParser>(
+            "class Foo { a() {} b() {} }\nclass Bar { c() {} }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                assert_eq!(metric.npm.class_npm_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_class_methods_count() {
+        // Mozjs shares JS's class vocabulary.
+        check_metrics::<MozjsParser>(
+            "class Foo {\n\
+                 constructor() {}\n\
+                 bar() {}\n\
+                 get baz() { return 1; }\n\
+                 set baz(v) {}\n\
+             }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 4.0);
+                assert_eq!(metric.npm.class_npm_sum(), 4.0);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );

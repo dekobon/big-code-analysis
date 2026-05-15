@@ -868,7 +868,7 @@ impl Npa for GoCode {
 }
 
 impl Npa for CppCode {
-    fn compute(node: &Node, stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Cpp::*;
 
         // Mark class / struct spaces as class spaces so the metric is
@@ -1386,6 +1386,64 @@ impl Npa for TsxCode {
     ts_npa_compute!(Tsx);
 }
 
+// JavaScript / Mozjs share the same class vocabulary. JS has no
+// `accessibility_modifier` — every class member is public, so each
+// class field maps 1:1 to both `na` and `npa`.
+//
+// We count ES2022 class fields (`class Foo { x = 1; }`):
+// `field_definition` direct children of `class_body`. Fields whose
+// initializer is an `arrow_function` or `function_expression` are
+// methods written as field initializers and belong to `Npm`, not
+// `Npa`.
+//
+// Prototype-based attribute assignments (`Foo.prototype.x = 5;`)
+// would also be legitimate JS attributes per Fenton's metric
+// taxonomy, but detecting them requires matching the `prototype`
+// property-identifier text. The `Npa::compute` trait signature
+// does not carry source bytes, so prototype-shaped attributes are
+// intentionally not counted by this impl. Modern ES2015+ class
+// syntax — the dominant style — is unaffected; legacy prototype-
+// only files under-report. A follow-up that widens the trait
+// signature to `(node, code, stats)` would unlock prototype
+// detection (see `Abc::compute` for the existing pattern).
+
+macro_rules! js_npa_compute {
+    ($lang:ident) => {
+        fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+            use $lang::*;
+
+            if Self::is_func_space(node) && stats.is_disabled() {
+                stats.is_class_space = true;
+            }
+
+            if !matches!(node.kind_id().into(), ClassBody) {
+                return;
+            }
+
+            for member in node.children() {
+                if matches!(member.kind_id().into(), FieldDefinition)
+                    && member
+                        .first_child(|id| {
+                            id == $lang::ArrowFunction || id == $lang::FunctionExpression
+                        })
+                        .is_none()
+                {
+                    stats.class_na += 1;
+                    stats.class_npa += 1;
+                }
+            }
+        }
+    };
+}
+
+impl Npa for JavascriptCode {
+    js_npa_compute!(Javascript);
+}
+
+impl Npa for MozjsCode {
+    js_npa_compute!(Mozjs);
+}
+
 // Default no-op `Npa` impls. Audited in #188.
 //
 // Real defaults (no first-class class / OO grammar construct, so the
@@ -1397,18 +1455,8 @@ impl Npa for TsxCode {
 //     as class-shaped.
 //   - ElixirCode: `defmodule` is module-shaped, not class-shaped; if
 //     `defstruct` counting is desired see #206.
-//
-// Placeholders (the language has classes / structs+impl but no impl
-// exists yet). Smoke tests under `mod tests` pin the current 0 value
-// with a TODO pointing at the follow-up issue.
-//   - MozjsCode / JavascriptCode — see #202.
-//   - RustCode     — see #203.
-//   - CppCode      — see #204.
-//   - GoCode       — see #205.
 implement_metric_trait!(
     Npa,
-    MozjsCode,
-    JavascriptCode,
     PreprocCode,
     CcommentCode,
     PerlCode,
@@ -3250,34 +3298,10 @@ mod tests {
     }
 
 
-    // PLACEHOLDER #202: Mozjs `Npa` is unimplemented.
-    #[test]
-    fn mozjs_npa_placeholder_returns_zero() {
-        check_metrics::<MozjsParser>(
-            "class A { x = 1; y = 2; constructor() { this.z = 3; } }",
-            "foo.js",
-            |metric| assert_npa_default_zero(&metric),
-        );
-    }
 
-    // PLACEHOLDER #202: JavaScript `Npa` is unimplemented.
-    #[test]
-    fn javascript_npa_placeholder_returns_zero() {
-        check_metrics::<JavascriptParser>(
-            "class A { x = 1; y = 2; constructor() { this.z = 3; } }",
-            "foo.js",
-            |metric| assert_npa_default_zero(&metric),
-        );
-    }
 
 
     // PLACEHOLDER #204: C++ `Npa` is unimplemented.
-    #[test]
-    fn cpp_npa_placeholder_returns_zero() {
-        check_metrics::<CppParser>("class A { public: int x; int y; };", "foo.cpp", |metric| {
-            assert_npa_default_zero(&metric);
-        });
-    }
 
 
     // --- Python NPA ---------------------------------------------------
@@ -3814,6 +3838,108 @@ mod tests {
                 assert_eq!(metric.npa.class_na_sum(), 3.0);
                 // Public: Foo::a (1) + Bar::c (1) = 2.
                 assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_empty_unit_no_attributes() {
+        // Wires up the trait and ensures no spurious attribute counts
+        // on an empty file.
+        check_metrics::<JavascriptParser>("", "empty.js", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 0.0);
+            assert_eq!(metric.npa.class_npa_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.npa);
+        });
+    }
+
+    #[test]
+    fn javascript_empty_class_no_attributes() {
+        // A class with no body and no fields has zero attributes.
+        check_metrics::<JavascriptParser>("class Foo {}", "foo.js", |metric| {
+            assert_eq!(metric.npa.class_na_sum(), 0.0);
+            assert_eq!(metric.npa.class_npa_sum(), 0.0);
+            insta::assert_json_snapshot!(metric.npa);
+        });
+    }
+
+    #[test]
+    fn javascript_class_fields_count() {
+        // ES2022 class fields: `class Foo { x = 1; y; static z = 2; }`.
+        // All three are `field_definition` direct children of
+        // `class_body`. JS has no visibility — everything is public.
+        // class_na = class_npa = 3.
+        check_metrics::<JavascriptParser>(
+            "class Foo { x = 1; y; static z = 2; }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_arrow_field_is_method_not_attribute() {
+        // `class Foo { x = () => {} }` declares a method, not an
+        // attribute. The arrow function initializer makes this an
+        // `Npm` member, not an `Npa` member.
+        check_metrics::<JavascriptParser>(
+            "class Foo { x = () => {}; y = function() {}; z = 1; }",
+            "foo.js",
+            |metric| {
+                // Only `z = 1` is an attribute.
+                assert_eq!(metric.npa.class_na_sum(), 1.0);
+                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_methods_not_counted_as_attributes() {
+        // `method_definition` direct children of `class_body` are
+        // methods, not fields. They must not show up in `npa`.
+        check_metrics::<JavascriptParser>(
+            "class Foo { constructor() {} bar() {} get baz() { return 1; } x = 1; }",
+            "foo.js",
+            |metric| {
+                // Only `x = 1` is a true attribute.
+                assert_eq!(metric.npa.class_na_sum(), 1.0);
+                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_multiple_classes_aggregate_at_unit() {
+        // Two classes contribute their attribute counts to the
+        // Unit-level rollup. Foo has 2 fields; Bar has 1. Total
+        // class_na_sum = 3.
+        check_metrics::<JavascriptParser>(
+            "class Foo { a = 1; b = 2; }\nclass Bar { c = 3; }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_class_fields_count() {
+        // Mozjs shares JS's class vocabulary. Same expectation as the
+        // JS parity test above.
+        check_metrics::<MozjsParser>(
+            "class Foo { x = 1; y; static z = 2; }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 3.0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
