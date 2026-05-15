@@ -405,21 +405,30 @@ pub(crate) fn ruby_attr_macro_symbol_count(call: &Node) -> usize {
         })
 }
 
+// Ruby class-body visibility state. `private` / `public` / `protected`
+// keywords flip this flag for every subsequent declaration in the same
+// body until another marker overrides them. The default at the top of
+// every class body is `Public`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RubyVisibility {
+    Public,
+    Private,
+    Protected,
+}
+
 // Recognises a bare visibility-keyword `identifier` child of a Ruby
 // class body (`private` / `public` / `protected` with no arguments).
-// These flip the default visibility for every subsequent declaration in
-// the same body until another marker overrides them. tree-sitter-ruby
-// emits the keyword-form as a literal `identifier` token; the
-// argument-form (`private :foo`, `private def bar`) is a `Call` node
-// instead and does NOT flip the body-wide flag.
-pub(crate) fn ruby_visibility_marker(node: &Node, source: &[u8]) -> Option<&'static str> {
+// tree-sitter-ruby emits the keyword-form as a literal `identifier`
+// token; the argument-form (`private :foo`, `private def bar`) is a
+// `Call` node instead and does NOT flip the body-wide flag.
+pub(crate) fn ruby_visibility_marker(node: &Node, source: &[u8]) -> Option<RubyVisibility> {
     if !matches!(node.kind_id().into(), Ruby::Identifier) {
         return None;
     }
     match node.utf8_text(source)? {
-        "private" => Some("private"),
-        "public" => Some("public"),
-        "protected" => Some("protected"),
+        "private" => Some(RubyVisibility::Private),
+        "public" => Some(RubyVisibility::Public),
+        "protected" => Some(RubyVisibility::Protected),
         _ => None,
     }
 }
@@ -460,7 +469,7 @@ pub(crate) fn ruby_attr_macro_name(call: &Node, source: &[u8]) -> Option<&'stati
 pub(crate) fn ruby_walk_class_body(body: &Node, source: &[u8], stats: &mut Stats) {
     use Ruby::*;
 
-    let mut visibility = "public";
+    let mut visibility = RubyVisibility::Public;
     for child in body.children() {
         if let Some(marker) = ruby_visibility_marker(&child, source) {
             visibility = marker;
@@ -473,7 +482,7 @@ pub(crate) fn ruby_walk_class_body(body: &Node, source: &[u8], stats: &mut Stats
                 };
                 if matches!(lhs.kind_id().into(), InstanceVariable | ClassVariable) {
                     stats.class_na += 1;
-                    if visibility == "public" {
+                    if visibility == RubyVisibility::Public {
                         stats.class_npa += 1;
                     }
                 }
@@ -482,7 +491,7 @@ pub(crate) fn ruby_walk_class_body(body: &Node, source: &[u8], stats: &mut Stats
                 if ruby_attr_macro_name(&child, source).is_some() {
                     let count = ruby_attr_macro_symbol_count(&child);
                     stats.class_na += count;
-                    if visibility == "public" {
+                    if visibility == RubyVisibility::Public {
                         stats.class_npa += count;
                     }
                 }
