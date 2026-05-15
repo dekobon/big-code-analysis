@@ -53,8 +53,8 @@ HAS the construct but no impl exists — a comment references the
 follow-up issue, and a smoke test under `mod tests` pins the current
 0 value so the assertion fires when the real impl lands). Mi turned
 out to be a non-issue: its `[Trait]` arm inherits the trait's
-default `compute` method, which works for every language — see
-#207. Note the bracketed-trait arm (`[Tokens]`, `[Nom]`, `[NArgs]`,
+default `compute` method, which works for every language (see
+issue #207). Note the bracketed-trait arm (`[Tokens]`, `[Nom]`, `[NArgs]`,
 `[Mi]`) is *not* a no-op; only the named-trait arms (`Abc`,
 `Cognitive`, `Halstead`, …) emit silent-zero bodies.
 
@@ -119,6 +119,20 @@ enumerating all variants mapping to `"string"` in the language enum.
 The bug class extends beyond `getter.rs` / `checker.rs` to any match
 on a grammar rule: `alterator.rs`, `metrics/*.rs`, and `spaces.rs`
 are equally susceptible.
+
+**Ruby paired keyword-token and named-clause variants** (#190,
+`c42edf2`). tree-sitter-ruby emits *two* node kinds for each
+control-flow boundary: a keyword token (`Else2`, `Elsif2`, `When2`,
+`Rescue2`, `Then2`) plus a named clause (`Else`, `Elsif`, `When`,
+`Rescue`). The grammar also emits an implicit `Then` named clause
+around every `if`/`elsif` body even when the source has no explicit
+`then` keyword. Counting both the keyword token AND the named clause
+double-counts the structure once via the keyword and once via the
+clause; counting only the keyword token misses bodies that use the
+implicit `then`. The Ruby Abc impl in `src/metrics/abc.rs` matches
+the named clause node in each pair (the 200-range IDs), avoiding
+both pitfalls — a useful template for any future grammar that
+exposes the same paired shape.
 
 **Lesson:** After bumping any tree-sitter grammar pin in `Cargo.toml`,
 run `rg 'Lang::([A-Za-z]+)\b' src/getter.rs src/checker.rs
@@ -539,6 +553,28 @@ function with a 3-arm `case` reported standard CCN 6 against an
 equivalent C `switch`'s 5. Same paper-over via `16cd610`'s modified
 variant; same residual asymmetry in standard CCN.
 
+**Halstead `is_child(Interpolation)` guard missed across seven
+languages, with an eighth tracked** (#180 Bash, #183 C#, #184 PHP
+each fixed reactively after their respective language-addition
+PRs; Elixir and Ruby shipped with the guard wired correctly during
+initial language addition, leaving no issue trail; #191 Python +
+Kotlin in `7a8ccac`; #199 Perl filed but not yet fixed). The
+logical contract is that an interpolated string literal contributes
+*only* its inner expressions as Halstead operands — the wrapping
+literal itself should not count, because its inner identifiers are
+walked separately. Each language's `Getter::get_op_type`
+implementation classifies its own `String` / `StringLiteral` /
+`string_double_quoted` node independently against its own grammar's
+interpolation child-kind, so the guard has been added reactively in
+each language as the bug surfaces. After #191 the only known-
+affected language without the guard is Perl (#199 tracks it). The
+pattern across languages is identical:
+`if node.is_child(<Lang>::Interpolation as u16) { Unknown } else
+{ Operand }`. The shared contract is invisible at the type level —
+each impl matches a different `Lang::Interpolation` variant — but
+the failure mode is uniform: `u_operands` inflates by one for every
+interpolated literal.
+
 **Lesson:** When adding or touching a metric implementation, write the
 fixture in *every* affected language and assert the metrics agree on
 logically equivalent code (modulo documented exceptions). One fixture
@@ -953,5 +989,111 @@ it cannot occur) that the input is not absolute on any platform —
 `join` silently throws away the base if it is. Windows-only test
 coverage is load-bearing here: a fix verified only on Unix can
 ship a regression that wipes out user output on Windows.
+
+---
+
+## 21. Hidden-rule alias nodes extend their byte range to the shared delimiter
+
+A visible tree-sitter node's `kind()` describes the grammar rule it
+came from, but its `start_byte()` / `end_byte()` describe *which
+bytes the rule actually consumed*. When a grammar uses a hidden rule
+to consume a sigil or delimiter together with a sibling identifier
+(common shapes in tree-sitter grammars include `seq('$', $._foo)`,
+`seq('#{', $._expr, '}')`, alias inlining), the resulting visible
+node can span the delimiter even though its kind name suggests
+otherwise. `node.utf8_text(src)` then returns text like `"$name"`
+when the kind is `identifier`, making `$name` and bare `name`
+distinct entries in any text-keyed store (Halstead operands keyed
+by source bytes, primitive-type tables, etc.) even though they look
+identical at the kind level. The asymmetry is invisible until a
+test pins integer counts and the actual byte range disagrees with
+the visible token.
+
+**Kotlin short-form string templates double-count interpolated
+identifiers in tests, not in production** (#191, `7a8ccac`). The Wave
+3 fix added the `is_child(Interpolation)` guard correctly, but the
+initial expected counts assumed `name` inside `$name` would share an
+operand bucket with the parameter `name` outside the string. Empirically,
+tree-sitter-kotlin-ng emits a visible `identifier` node whose source
+byte range starts at the `$` — making `$name` a distinct operand from
+`name`. The Wave-3 investigation attributed this to a `seq('$',
+$._identifier)`-style hidden-rule alias in the grammar; whatever the
+exact rule, the observable behaviour (consult `node.utf8_text(src)`
+on a representative parse to confirm before relying on a count) is
+what the test must be derived against. The expected counts were
+re-derived against the actual byte range (u_operands = 4, not 3)
+with an explanatory comment so a future reader can reconcile the
+result. The production fix was already correct; the lesson is about
+how the *test* was wrong because the byte-range assumption was wrong.
+
+**Lesson:** Never assume a node's source text matches its visible
+token name. Before pinning Halstead operand counts (or any text-
+keyed metric) on an interpolation-bearing snippet, dump the AST
+with byte ranges and confirm what each visible node *actually*
+spans. `node.utf8_text(src)` is the source of truth — visible kind
+names like `identifier` describe the rule, not the bytes. The same
+hazard applies to any hidden-rule alias: `template_substitution`
+wrappers, heredoc body splices, language-specific `$#` / `@_` /
+`${` constructs, Perl sigil variables. When the test breaks because
+the count is one higher than expected, the first thing to check is
+not the production code but whether the AST is splitting an
+identifier the way you assumed.
+
+---
+
+## 22. Text-keyed semantic markers force trait signatures to carry source bytes
+
+When a language encodes semantic state (visibility, branch type,
+attribute kind) in *bare identifier text* rather than a distinct
+token kind, no `kind_id`-based dispatch can classify it. The
+metric impl needs to read the source bytes to disambiguate
+`private` from any other `Identifier`. If the per-metric trait
+signature does not already accept `&[u8]`, the addition propagates:
+the supertrait, every existing per-language impl (explicit and
+macro-generated), the call site in `spaces.rs`, and any downstream
+signature checks. This has now happened twice for two distinct
+metric traits, and the underlying need — text-keyed dispatch — is
+common enough across grammars that more recurrences are likely.
+
+**`Cyclomatic::compute` widened for Elixir keyword Calls** (#179,
+see CHANGELOG `### Changed`). Elixir's `if` / `unless` / `for` /
+`while` / `with` / `case` / `cond` / `try` constructs surface as
+`Call` nodes with untyped targets — there is no distinct
+`IfStatement` kind. Distinguishing branch-contributing Calls from
+regular method invocations required reading the call target's
+text, which forced `Cyclomatic::compute` to widen from
+`(node, stats)` to `<'a>(node, code: &'a [u8], stats)`.
+`Exit::compute` was already that shape.
+
+**`Npa::compute` and `Npm::compute` widened for Ruby visibility
+markers** (#190, `c42edf2`). Ruby's `private` / `public` /
+`protected` parse as bare `Identifier` nodes whose semantic
+meaning is text-only — they share a kind with every other
+identifier in the program. Classifying them required reading the
+source bytes, which forced both `Npa::compute` and `Npm::compute`
+to widen to the same `<'a>(node, code: &'a [u8], stats)` shape as
+`Cyclomatic` and `Exit`. Every per-language impl — the explicit
+ones in `src/metrics/npa.rs` and `src/metrics/npm.rs` plus the
+macro-generated defaults emitted by `implement_metric_trait!` —
+and the two call sites in `src/spaces.rs` were updated in the same
+commit. The `Checker` supertrait is `pub(crate)`, so the change is
+invisible to downstream crates, but the convergence is now load-
+bearing for any future metric whose impl needs source bytes.
+
+**Lesson:** When implementing a metric for a new language, the
+first question is: does this language encode any
+branch/visibility/attribute semantic in **bare identifier text**
+rather than a distinct token kind? If yes, the metric trait will
+need `&[u8]` at the `compute` signature — plan the widening as
+part of the impl, not as a follow-up refactor. Standardise on the
+four-argument `<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut
+Stats)` shape for any new metric trait; per-language impls that do
+not need the bytes discard them with `_`. The marginal cost is
+zero (the source slice is already on hand at the call site); the
+savings are not having to widen the signature retroactively across
+every existing impl plus the macro-generated defaults. Two
+incarnations are now documented (Elixir keyword Calls for
+`Cyclomatic`, Ruby visibility markers for `Npa`/`Npm`); the
+catalogue will grow as more languages get real impls.
 
 ---
