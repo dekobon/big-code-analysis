@@ -206,20 +206,29 @@ impl<'a> Node<'a> {
         count
     }
 
-    pub(crate) fn has_ancestors(&self, typ: fn(&Node) -> bool, typs: fn(&Node) -> bool) -> bool {
-        let mut res = false;
-        let mut node = *self;
-        if let Some(parent) = node.parent()
-            && typ(&parent)
-        {
-            node = parent;
+    /// Returns `true` iff this node's parent satisfies `parent_pred`
+    /// AND that parent's own parent (this node's grandparent)
+    /// satisfies `grand_pred`. Both predicates must hold against the
+    /// expected ancestor chain — fixes #229 where the previous
+    /// `has_ancestors` helper would slide through when only the
+    /// grandparent predicate matched, causing the Python `Else` arm
+    /// of cyclomatic to fire for every `else:`, including plain
+    /// `if/else`.
+    pub(crate) fn parent_grandparent_match(
+        &self,
+        parent_pred: fn(&Node) -> bool,
+        grand_pred: fn(&Node) -> bool,
+    ) -> bool {
+        let Some(parent) = self.parent() else {
+            return false;
+        };
+        if !parent_pred(&parent) {
+            return false;
         }
-        if let Some(parent) = node.parent()
-            && typs(&parent)
-        {
-            res = true;
-        }
-        res
+        let Some(grand) = parent.parent() else {
+            return false;
+        };
+        grand_pred(&grand)
     }
 }
 

@@ -242,17 +242,10 @@ f() {
 //
 // Per-language post-offset expectation: unit(1) + fn(1) + 3 conditions = 5.
 //
-// Python carries an additional +1 offset for this family. `impl
-// Cyclomatic for PythonCode` (`src/metrics/cyclomatic.rs:195`) calls
-// `node.has_ancestors(For|While, ElseClause)` from an `Else` token to
-// detect Python's loop-`else` feature. `Node::has_ancestors`
-// (`src/node.rs:175`) only walks up when the first predicate matches,
-// so as wired here the check evaluates to "is the parent of `Else` an
-// `else_clause`" — which is true for **every** `else:` in Python,
-// including the `else` of an `if`/`elif`/`else` chain. This is a
-// pre-existing standard-CCN bug surfaced by the parity test. Drop
-// this offset once the Python impl is fixed.
-const PYTHON_ELSE_BUG_OFFSET: f64 = 1.0;
+// Issue #229 fixed an over-count in the Python `Else` arm of
+// cyclomatic where a plain `if/else` was previously credited as a
+// loop-`else`. With the fix, Python now reaches parity with the other
+// languages on this family without any compensating offset.
 
 #[test]
 fn if_else_if_else_chain_parity() {
@@ -372,10 +365,7 @@ f() {
             "sh",
         ),
     );
-    let offsets = BTreeMap::from([
-        ("java", JAVA_CLASS_OFFSET),
-        ("python", PYTHON_ELSE_BUG_OFFSET),
-    ]);
+    let offsets = BTreeMap::from([("java", JAVA_CLASS_OFFSET)]);
     assert_parity("if_else_if_else_chain", &sums, &offsets);
 }
 
