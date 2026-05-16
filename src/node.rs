@@ -208,12 +208,9 @@ impl<'a> Node<'a> {
 
     /// Returns `true` iff this node's parent satisfies `parent_pred`
     /// AND that parent's own parent (this node's grandparent)
-    /// satisfies `grand_pred`. Both predicates must hold against the
-    /// expected ancestor chain — fixes #229 where the previous
-    /// `has_ancestors` helper would slide through when only the
-    /// grandparent predicate matched, causing the Python `Else` arm
-    /// of cyclomatic to fire for every `else:`, including plain
-    /// `if/else`.
+    /// satisfies `grand_pred`. Returns `false` as soon as either link
+    /// is absent or its predicate fails, so a misordered predicate
+    /// cannot silently degrade to a single-predicate check.
     pub(crate) fn parent_grandparent_match(
         &self,
         parent_pred: fn(&Node) -> bool,

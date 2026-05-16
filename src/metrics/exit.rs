@@ -151,9 +151,7 @@ where
 
 // Bumps `stats.exit` whenever the current node matches any of the
 // supplied per-language token variants. Mirrors the `js_cognitive!` /
-// `impl_cyclomatic_c_family!` shape used elsewhere in `src/metrics/`
-// (issue #228 added a second variant per language and made the
-// duplication worth factoring out).
+// `impl_cyclomatic_c_family!` shape used elsewhere in `src/metrics/`.
 macro_rules! impl_exit_match_kinds {
     ($code:ty, $lang:ident, [$($kind:ident),+ $(,)?]) => {
         impl Exit for $code {
@@ -344,7 +342,7 @@ mod tests {
 
     use super::*;
 
-    /// Regression for #227: a `Stats::default()` that never sees an
+    /// A `Stats::default()` that never sees an
     /// observation must not leak the `usize::MAX` sentinel for
     /// `exit_min`. The getter collapses the sentinel to `0.0` so
     /// JSON never emits `1.8446744e19`.
@@ -474,9 +472,7 @@ mod tests {
             "foo.cpp",
             |metric| {
                 // 1 function, 3 returns (2 in try, 1 in catch); no
-                // `throw` in this body so the #228 throw-counting fix
-                // does not bump the total — this also pins the negative
-                // case (return-only path stays at 3).
+                // `throw` here, so the return-only path stays at 3.
                 assert_eq!(metric.nexits.exit_sum(), 3.0);
                 assert_eq!(metric.nexits.exit_max(), 3.0);
                 insta::assert_json_snapshot!(
@@ -1726,7 +1722,7 @@ end",
 
     #[test]
     fn python_return_and_raise() {
-        // Regression for #228: `raise` exits the function (stack unwinds)
+        // `raise` exits the function (stack unwinds)
         // just like `return`. Mirrors the C# / Kotlin / PHP / Elixir
         // behaviour. One `raise` + one `return` => 2 exits.
         check_metrics::<PythonParser>(
@@ -1754,7 +1750,7 @@ end",
 
     #[test]
     fn javascript_return_and_throw() {
-        // Regression for #228: `throw` is a function exit.
+        // `throw` is a function exit.
         check_metrics::<JavascriptParser>(
             "function parseLength(s) {
                  if (s === null) throw new Error('null');
@@ -1780,7 +1776,7 @@ end",
 
     #[test]
     fn mozjs_return_and_throw() {
-        // Regression for #228: same shape as plain JavaScript.
+        // Same shape as plain JavaScript.
         check_metrics::<MozjsParser>(
             "function parseLength(s) {
                  if (s === null) throw new Error('null');
@@ -1806,7 +1802,6 @@ end",
 
     #[test]
     fn typescript_return_and_throw() {
-        // Regression for #228.
         check_metrics::<TypescriptParser>(
             "function parseLength(s: string | null): number {
                  if (s === null) throw new Error('null');
@@ -1832,7 +1827,6 @@ end",
 
     #[test]
     fn tsx_return_and_throw() {
-        // Regression for #228.
         check_metrics::<TsxParser>(
             "function parseLength(s: string | null): number {
                  if (s === null) throw new Error('null');
@@ -1858,7 +1852,7 @@ end",
 
     #[test]
     fn java_return_and_throw() {
-        // Regression for #228: `throw` exits the method.
+        // `throw` exits the method.
         check_metrics::<JavaParser>(
             "class A {
                  int parseLength(String s) {
@@ -1886,7 +1880,7 @@ end",
 
     #[test]
     fn cpp_return_and_throw() {
-        // Regression for #228: `throw` exits the function.
+        // `throw` exits the function.
         check_metrics::<CppParser>(
             "int parseLength(const char* s) {
                  if (s == nullptr) throw std::invalid_argument(\"null\");

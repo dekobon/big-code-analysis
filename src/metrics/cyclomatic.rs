@@ -797,7 +797,7 @@ mod tests {
 
     use super::*;
 
-    /// Regression for #227: a `Stats::default()` that never sees an
+    /// A `Stats::default()` that never sees an
     /// observation must not leak the `f64::MAX` sentinel for
     /// `cyclomatic_min` or `cyclomatic_modified_min`. Both getters
     /// collapse the sentinel to `0.0` so JSON never emits
@@ -809,7 +809,7 @@ mod tests {
         assert_eq!(stats.cyclomatic_modified_min(), 0.0);
     }
 
-    /// Regression for #229: a plain `if/else` must not be credited
+    /// A plain `if/else` must not be credited
     /// as a loop-`else`. The `Else` arm of `impl Cyclomatic for
     /// PythonCode` previously fired for every `else_clause` because
     /// the old `has_ancestors` helper only verified the second
@@ -3101,7 +3101,7 @@ f() {
 
     #[test]
     fn javascript_nullish_coalescing_chain_226() {
-        // Regression for issue #226: `??` is short-circuit and must count as
+        // `??` is short-circuit and must count as
         // a decision point in cyclomatic complexity.  `a ?? b ?? c` adds two
         // `??` decisions on top of the function entry.
         check_metrics::<JavascriptParser>(
@@ -3135,7 +3135,7 @@ f() {
 
     #[test]
     fn typescript_nullish_coalescing_with_if_226() {
-        // Regression for issue #226: TypeScript must count `??` as a
+        // TypeScript must count `??` as a
         // decision.  This mirrors the example in the issue body.
         check_metrics::<TypescriptParser>(
             "function classify(x: string | null, fallback: string | null): string { // +1 (entry)
@@ -3169,7 +3169,7 @@ f() {
 
     #[test]
     fn tsx_nullish_coalescing_chain_226() {
-        // Regression for issue #226: TSX must count `??` the same as JS/TS.
+        // TSX must count `??` the same as JS/TS.
         check_metrics::<TsxParser>(
             "function pick(a: number | null, b: number | null, c: number): number { // +1 (entry)
                  return a ?? b ?? c; // +2 (two `??`)
@@ -3201,7 +3201,7 @@ f() {
 
     #[test]
     fn mozjs_nullish_coalescing_chain_226() {
-        // Regression for issue #226: Mozjs must count `??` the same as JS.
+        // Mozjs must count `??` the same as JS.
         check_metrics::<MozjsParser>(
             "function pick(a, b, c) { // +1 (entry)
                  return a ?? b ?? c; // +2 (two `??`)

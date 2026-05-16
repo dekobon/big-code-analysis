@@ -240,12 +240,7 @@ f() {
 // condition contributes one decision point. JavaScript and Python join
 // here; Bash uses `elif` which is counted via `ElifClause`.
 //
-// Per-language post-offset expectation: unit(1) + fn(1) + 3 conditions = 5.
-//
-// Issue #229 fixed an over-count in the Python `Else` arm of
-// cyclomatic where a plain `if/else` was previously credited as a
-// loop-`else`. With the fix, Python now reaches parity with the other
-// languages on this family without any compensating offset.
+// Per-language expectation: unit(1) + fn(1) + 3 conditions = 5.
 
 #[test]
 fn if_else_if_else_chain_parity() {
