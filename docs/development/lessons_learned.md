@@ -185,6 +185,22 @@ modules.
 **`Do` keyword not counted as Halstead operator** (#35,
 `68db037`). Same omission, four modules.
 
+**`_min` sentinel guard propagated unevenly across the per-metric
+sibling axis** (#227, `e347260`). The lesson scope is per-language
+siblings, but the same fix-one-miss-the-others failure mode applies
+to per-metric siblings. `src/metrics/tokens.rs:115-127` documented
+and applied a `usize::MAX → 0.0` sentinel collapse in `tokens_min()`;
+`src/metrics/loc.rs` did the same at three sites for `sloc_min` /
+`ploc_min` / `cloc_min`. The remaining six metric files
+(`cognitive.rs`, `cyclomatic.rs`, `nom.rs`, `nargs.rs`, `exit.rs`,
+`abc.rs`) left their `_min` accessors leaking the raw `usize::MAX`
+(1.8446744e19) or `f64::MAX` (1.7976931e308) sentinel straight into
+JSON for any space that never observed a value. The tokens.rs guard
+predated and explicitly anticipated the propagation in its doc
+comment, but it had never landed. The fix added all six guards plus
+per-metric `<metric>_empty_file_min_is_zero` regression tests in one
+commit.
+
 **Lesson:** Before claiming any fix in a JS-family module is
 complete, grep the other three for the same identifier and apply
 the same change. The check is mechanical: `rg
@@ -192,7 +208,11 @@ the same change. The check is mechanical: `rg
 src/{getter,checker}.rs`. Land all sibling fixes in one commit so
 the diff makes the pattern visible to reviewers — splitting them
 across PRs hides the symmetry. The same discipline applies to any
-future trio (e.g., Java/Kotlin, C/C++/Mozcpp).
+future trio (e.g., Java/Kotlin, C/C++/Mozcpp) and to the per-metric
+axis: a defensive guard added to one file under `src/metrics/`
+(sentinel collapses, interpolation child-kind guards, FIXME locks)
+must be propagated across the metric family with the same `rg`
+checklist.
 
 ---
 
@@ -575,6 +595,27 @@ each impl matches a different `Lang::Interpolation` variant — but
 the failure mode is uniform: `u_operands` inflates by one for every
 interpolated literal.
 
+**Cross-language parity tests caught real divergences during fixture
+wiring** (#211 Bash, `28aafd6`; #212 Python, `d8ed3b5`; #228 exit,
+`6de7d58`). `e2fbd2b` wired the four parity tests this lesson
+prescribes (`cyclomatic_if_elseif_else_chain`,
+`two_arm_switch_with_wildcard`, `early_exit_in_while_loop`,
+`three_parameter_function`). Two real divergences surfaced *during
+fixture authoring* — before any user reported them. Bash 2-arm
+`case … esac` with bare `*)` reported `cyclomatic_max == 3` against
+`2` for every other switch-bearing language (the wildcard arm
+contributed when it shouldn't — the C-family analogue of `default:`).
+Python's `match`/`case` reported `cyclomatic_max == 1` and
+`cognitive_max == 0` (the entire construct was a dispatch hole,
+lesson-19 class). Both were filed and fixed within the week. A
+subsequent parity audit on early-return / throw fixtures surfaced
+that Python, the JS family, Java, and C++ missed `throw`/`raise` as
+exits — fixed in #228, aligning with the existing C# / Kotlin / PHP
+/ Elixir behaviour. The prescription "one
+fixture file per language under a shared parity test" produced
+these findings on day one of the test landing, not as latent debt
+years later.
+
 **Lesson:** When adding or touching a metric implementation, write the
 fixture in *every* affected language and assert the metrics agree on
 logically equivalent code (modulo documented exceptions). One fixture
@@ -934,6 +975,23 @@ useful idiom whenever a bug is identified before its fix is scheduled
 tracker, and the issue-link upgrade is cheap to apply later once the
 tracking number exists.
 
+**Wave 3 audits closed the dispatch gaps the C/C++ table identified
+across eight sibling languages** (#212, `d8ed3b5`; #224,
+`baf98d8`; #225, `ea75e35`; #226, `7fce6f7`). The audit table built when
+fixing Java #178 proved its value over the following week: Python
+`match`/`case` (PEP 634, 3.10+) contributed 0 decision points to
+both cyclomatic and cognitive — the dispatch predated Python's
+structural pattern matching and was never updated (#212). Cognitive
+ternary `?:` was missing from Java, C#, and PHP — the same C++
+pattern from #172 applied to three more languages (#224).
+Cyclomatic short-circuit `??` (nullish coalescing) was missing from
+JavaScript / TypeScript / TSX / Mozjs — C# and PHP already had it
+(#226). Cognitive labeled `break`/`continue` was missing from
+Java; all forms of `goto` (`label` / `case` / `default`) were
+missing from C# (#225). Each fix followed the audit-table
+workflow: identify the omission, build the per-language coverage
+table, add a regression test, apply sibling fixes in one commit.
+
 **Lesson:** When a metric impl uses a `match` on node kinds, treat the
 arm list as a coverage claim, not a complete spec. After touching or
 auditing one, grep `src/languages/language_<lang>.rs` for every kind
@@ -1095,5 +1153,57 @@ every existing impl plus the macro-generated defaults. Two
 incarnations are now documented (Elixir keyword Calls for
 `Cyclomatic`, Ruby visibility markers for `Npa`/`Npm`); the
 catalogue will grow as more languages get real impls.
+
+---
+
+## 23. Compensation constants in parity tests blind the test to its own purpose
+
+A cross-language or cross-metric parity test exists to detect when one
+language (or metric impl) drifts from the others on equivalent code.
+When that test catches a real divergence and the divergence cannot be
+fixed in the same change, two options preserve the test's signal:
+leave the test failing (`#[ignore]` with the tracking issue) or lock
+it in against the wrong literal value with a `FIXME(#NNN)` comment
+per lesson 19. The third option — adding a per-target offset constant
+that "compensates" for the bug so the test passes — destroys the
+test's ability to detect that bug class. The compensation reads like
+a workaround in the diff but functions as a permanent blindfold; the
+test cannot fire on the bug it was designed to catch, and any future
+regression that shifts the same input by `±OFFSET` becomes invisible
+too.
+
+**`PYTHON_ELSE_BUG_OFFSET` hid a Python `if/else` over-count from the
+parity test designed to catch it** (#229, `a239cf6`). `e2fbd2b` wired
+the four cross-language cyclomatic / cognitive / exit / nargs parity
+tests prescribed by lesson 11. `if_else_if_else_chain_parity`
+detected that Python over-counted plain `if/else` by 1 — root cause:
+`Node::has_ancestors(typ, typs)` in `src/node.rs` did not actually
+verify both predicates against the expected ancestor chain. It
+returned `true` whenever the immediate parent matched the second
+predicate, regardless of whether the first predicate matched, so the
+Python `Else` arm of cyclomatic fired for every `else_clause`, not
+just loop-`else`. Instead of `#[ignore]`-ing the failure or
+FIXME-locking the wrong literal, the test author introduced
+`const PYTHON_ELSE_BUG_OFFSET: f64 = 1.0` and added it to Python's
+expected sum, accompanied by an 8-line comment explaining the bug.
+The OFFSET made the test pass for every Python case — including any
+future regression that would shift Python's count in a different
+direction. #229 fixed `has_ancestors` (renamed to
+`parent_grandparent_match`, strictly checks both predicates),
+updated the sole call site to include `TryStatement` in the
+grandparent set, and removed the OFFSET in the same commit.
+
+**Lesson:** When a parity test catches a real bug you cannot fix in
+the same change, choose visibility over passability. `#[ignore]`
+with the issue number, FIXME-lock the wrong literal per lesson 19,
+or assert the buggy value with a comment that gets flipped when the
+fix lands — all preserve the test's ability to detect *future*
+drift on the same input. A per-target offset constant looks
+defensive but actually neutralises the test: any future regression
+that shifts the same metric by `±OFFSET` becomes invisible, and the
+explanatory comment is no substitute for a failing test (reviewers
+skim comments; CI cannot). The rule generalises beyond parity tests
+— anywhere a calibration constant exists to compensate for a known
+asymmetry, that test cannot catch bugs in the asymmetric path.
 
 ---
