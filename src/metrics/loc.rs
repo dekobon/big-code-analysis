@@ -6478,6 +6478,26 @@ try {
     }
 
     #[test]
+    fn tcl_no_string_lloc() {
+        // Multi-line double-quoted strings must not inflate lloc — only the
+        // surrounding command should count. Mirrors lua_no_string_lloc and
+        // elixir_no_string_content_lloc; pins the heredoc-shaped invariant
+        // for Tcl quoted_word bodies.
+        check_metrics::<TclParser>(
+            "set s \"line one\nline two\nline three\"",
+            "foo.tcl",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 3.0);
+                assert_eq!(metric.loc.ploc(), 2.0);
+                assert_eq!(metric.loc.lloc(), 1.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 1.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
     fn javascript_blank() {
         check_metrics::<JavascriptParser>(
             "// header comment
