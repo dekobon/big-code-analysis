@@ -286,16 +286,19 @@ impl Cyclomatic for PythonCode {
 /// C-family cyclomatic: `Case` adds standard, `SwitchStatement` adds
 /// modified, and the shared branching kinds add both.  The ternary token
 /// name varies (`TernaryExpression` for JS-family, `ConditionalExpression`
-/// for Cpp), so it's a parameter.
+/// for Cpp), so it's a parameter.  The short-circuit operator list is
+/// also a parameter because JS-family languages include nullish
+/// coalescing (`??`, token `QMARKQMARK`) on top of `&&` and `||`, while
+/// C++ has only `&&` and `||` (issue #226).
 macro_rules! impl_cyclomatic_c_family {
-    ($code:ty, $lang:ident, $ternary:ident) => {
+    ($code:ty, $lang:ident, $ternary:ident, [$($short_circuit:ident),+ $(,)?]) => {
         impl Cyclomatic for $code {
             fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
                 use $lang::*;
                 match node.kind_id().into() {
                     Case => stats.cyclomatic += 1.,
                     SwitchStatement => stats.cyclomatic_modified += 1.,
-                    If | For | While | Catch | $ternary | AMPAMP | PIPEPIPE => {
+                    If | For | While | Catch | $ternary $(| $short_circuit)+ => {
                         stats.cyclomatic += 1.;
                         stats.cyclomatic_modified += 1.;
                     }
@@ -306,10 +309,32 @@ macro_rules! impl_cyclomatic_c_family {
     };
 }
 
-impl_cyclomatic_c_family!(MozjsCode, Mozjs, TernaryExpression);
-impl_cyclomatic_c_family!(JavascriptCode, Javascript, TernaryExpression);
-impl_cyclomatic_c_family!(TypescriptCode, Typescript, TernaryExpression);
-impl_cyclomatic_c_family!(TsxCode, Tsx, TernaryExpression);
+// JS-family: include nullish coalescing (`??`) as a short-circuit
+// decision in addition to `&&` and `||` (issue #226).
+impl_cyclomatic_c_family!(
+    MozjsCode,
+    Mozjs,
+    TernaryExpression,
+    [AMPAMP, PIPEPIPE, QMARKQMARK]
+);
+impl_cyclomatic_c_family!(
+    JavascriptCode,
+    Javascript,
+    TernaryExpression,
+    [AMPAMP, PIPEPIPE, QMARKQMARK]
+);
+impl_cyclomatic_c_family!(
+    TypescriptCode,
+    Typescript,
+    TernaryExpression,
+    [AMPAMP, PIPEPIPE, QMARKQMARK]
+);
+impl_cyclomatic_c_family!(
+    TsxCode,
+    Tsx,
+    TernaryExpression,
+    [AMPAMP, PIPEPIPE, QMARKQMARK]
+);
 
 impl Cyclomatic for RustCode {
     fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
@@ -351,7 +376,8 @@ impl Cyclomatic for RustCode {
     }
 }
 
-impl_cyclomatic_c_family!(CppCode, Cpp, ConditionalExpression);
+// C++ has only `&&` and `||` short-circuit operators.
+impl_cyclomatic_c_family!(CppCode, Cpp, ConditionalExpression, [AMPAMP, PIPEPIPE]);
 
 impl Cyclomatic for JavaCode {
     fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
@@ -3041,6 +3067,138 @@ f() {
                 assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
                 assert_eq!(metric.cyclomatic.cyclomatic_max(), 4.0);
                 insta::assert_json_snapshot!(metric.cyclomatic);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_nullish_coalescing_chain_226() {
+        // Regression for issue #226: `??` is short-circuit and must count as
+        // a decision point in cyclomatic complexity.  `a ?? b ?? c` adds two
+        // `??` decisions on top of the function entry.
+        check_metrics::<JavascriptParser>(
+            "function pick(a, b, c) { // +1 (entry)
+                 return a ?? b ?? c; // +2 (two `??`)
+             }",
+            "foo.js",
+            |metric| {
+                // unit(1) + fn(entry 1 + 2*?? = 3) = sum 4, max 3.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 2.0,
+                      "min": 1.0,
+                      "max": 3.0,
+                      "modified": {
+                        "sum": 4.0,
+                        "average": 2.0,
+                        "min": 1.0,
+                        "max": 3.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_nullish_coalescing_with_if_226() {
+        // Regression for issue #226: TypeScript must count `??` as a
+        // decision.  This mirrors the example in the issue body.
+        check_metrics::<TypescriptParser>(
+            "function classify(x: string | null, fallback: string | null): string { // +1 (entry)
+                 if (x === \"y\") return \"yes\"; // +1 (if)
+                 return x ?? fallback ?? \"unknown\"; // +2 (two `??`)
+             }",
+            "foo.ts",
+            |metric| {
+                // unit(1) + fn(entry 1 + if 1 + 2*?? = 4) = sum 5, max 4.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4.0);
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 5.0,
+                      "average": 2.5,
+                      "min": 1.0,
+                      "max": 4.0,
+                      "modified": {
+                        "sum": 5.0,
+                        "average": 2.5,
+                        "min": 1.0,
+                        "max": 4.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_nullish_coalescing_chain_226() {
+        // Regression for issue #226: TSX must count `??` the same as JS/TS.
+        check_metrics::<TsxParser>(
+            "function pick(a: number | null, b: number | null, c: number): number { // +1 (entry)
+                 return a ?? b ?? c; // +2 (two `??`)
+             }",
+            "foo.tsx",
+            |metric| {
+                // unit(1) + fn(entry 1 + 2*?? = 3) = sum 4, max 3.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 2.0,
+                      "min": 1.0,
+                      "max": 3.0,
+                      "modified": {
+                        "sum": 4.0,
+                        "average": 2.0,
+                        "min": 1.0,
+                        "max": 3.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_nullish_coalescing_chain_226() {
+        // Regression for issue #226: Mozjs must count `??` the same as JS.
+        check_metrics::<MozjsParser>(
+            "function pick(a, b, c) { // +1 (entry)
+                 return a ?? b ?? c; // +2 (two `??`)
+             }",
+            "foo.js",
+            |metric| {
+                // unit(1) + fn(entry 1 + 2*?? = 3) = sum 4, max 3.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 2.0,
+                      "min": 1.0,
+                      "max": 3.0,
+                      "modified": {
+                        "sum": 4.0,
+                        "average": 2.0,
+                        "min": 1.0,
+                        "max": 3.0
+                      }
+                    }"###
+                );
             },
         );
     }
