@@ -8895,6 +8895,29 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
     }
 
     #[test]
+    fn cpp_lambda_in_function_lloc() {
+        // C++11 lambdas are expressions. The outer function `bar()` produces
+        // two LLOC for the body: `auto f = [](int x) { return x + 1; };` and
+        // `return f(2);`. The lambda's inner `return x + 1;` is part of the
+        // lambda body inside the same function space (lambdas do not open a
+        // new FuncSpace in this implementation), so it adds a third LLOC.
+        // Closes the parity gap with #195 (which covered 11 other
+        // languages but omitted C++).
+        check_metrics::<CppParser>(
+            "int bar() {\n    auto f = [](int x) { return x + 1; };\n    return f(2);\n}\n",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
     fn javascript_nested_function_lloc() {
         // Nested function_declaration: 4 LLOC = outer's `return inner();`,
         // inner's `return 1;`, plus the two function declarations
