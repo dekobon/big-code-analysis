@@ -112,9 +112,38 @@ changes are marked with **(breaking)** in the entries below.
   (kept 99 for `/`); added a previously-missing cargo entry for
   `/tree-sitter-tcl`
   ([#154](https://github.com/dekobon/big-code-analysis/issues/154)).
+- `Node::is_child(id)` avoids the per-call `TreeCursor` heap
+  allocation by walking via `child(0)` + `next_sibling()` instead
+  of `children(&mut self.0.walk())`. Behaviour-preserving; total
+  cost stays O(n). Hot on the JS/TS/TSX/Mozjs template-literal
+  arms in `src/getter.rs`
+  ([#217](https://github.com/dekobon/big-code-analysis/issues/217)).
+- Lesson-9 partial-input tests split into two suites for honesty:
+  16 `*_top_level_space_is_unit_contract` tests pin the public API
+  contract, and `lua_partial_input_yields_synthetic_unit_wrapper`
+  + `cpp_error_root_yields_unit_top_level_space` are the only two
+  that today actually exercise the synthetic-Unit wrapper in
+  `metrics()`. The naming was previously uniform and implied all
+  18 tests exercised the wrapper
+  ([#220](https://github.com/dekobon/big-code-analysis/issues/220)).
 
 ### Added
 
+- Python `Abc` impl now counts unary `not` as one condition,
+  closing the parity gap with Java / C# / Kotlin. `if not flag:`
+  reports `conditions = 1` (was `0`); `not (x > 0)` reports `2`
+  (`NotOperator` + `ComparisonOperator`), matching Java's
+  `!(x > 0)`
+  ([#214](https://github.com/dekobon/big-code-analysis/issues/214)).
+- New `tcl_no_string_lloc` test pins that a multi-line Tcl
+  double-quoted string literal contributes only one lloc (the
+  surrounding `set` command), not one lloc per body line — mirrors
+  the existing Lua / Elixir / PHP heredoc-shape coverage
+  ([#210](https://github.com/dekobon/big-code-analysis/issues/210)).
+- New `cpp_lambda_in_function_lloc` test covers C++11 lambda LLOC
+  counting, the one language missing from #195's wave-9 nested-
+  function / closure / lambda coverage
+  ([#213](https://github.com/dekobon/big-code-analysis/issues/213)).
 - Append `("elixir", "elixir")` to `LANGUAGE_PALETTE` in the HTML report
   with matching light- and dark-mode `section.lang-elixir{…}` CSS
   rules. Elixir-only reports now render in a distinct purple instead of
@@ -385,6 +414,26 @@ changes are marked with **(breaking)** in the entries below.
 
 ### Fixed
 
+- Python `match`/`case` (PEP 634, 3.10+) now contributes decision
+  points to both cyclomatic and cognitive complexity, matching Rust /
+  C-family / Java / JS / TS / C# / PHP / Kotlin / Go / Bash. A 2-arm
+  match with a wildcard previously reported `cyclomatic_max == 1` /
+  `cognitive_max == 0`; it now reports `2` and `1`. Bare `case _:`
+  (no guard) is filtered, mirroring Rust's `MatchArm` rule
+  ([#212](https://github.com/dekobon/big-code-analysis/issues/212)).
+- Bash 2-arm `case … esac` with a `*)` catch-all arm reported
+  `cyclomatic_max == 3`; the bare `*)` is Bash's analogue of the
+  C-family `default:` and is now excluded from the standard count,
+  matching every other switch-bearing language. Multi-value patterns
+  (`a|*)`) are NOT bare and still contribute a decision
+  ([#211](https://github.com/dekobon/big-code-analysis/issues/211)).
+- Python `Npa` impl now deduplicates `self.x = …` bindings by
+  attribute identifier text. The defensive re-init pattern
+  (`__init__` + `reset` both binding `self.value`) and conditional
+  initialisation (`if flag: self.x = 1; else: self.x = 2`) count
+  the attribute exactly once instead of inflating by one per
+  re-bind. Uses the source bytes widened into the trait by #219
+  ([#215](https://github.com/dekobon/big-code-analysis/issues/215)).
 - Map `elixir` and `iex` shebang interpreters to `LANG::Elixir` so
   extensionless Elixir scripts (`#!/usr/bin/env elixir`) are correctly
   identified by `guess_language`
