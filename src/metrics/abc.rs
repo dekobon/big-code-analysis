@@ -920,7 +920,17 @@ impl Abc for PythonCode {
             | ElifClause
             | ElseClause
             | ExceptClause
-            | FinallyClause => {
+            | FinallyClause
+            | NotOperator => {
+                // `NotOperator` is Python's unary `not`. Counting it
+                // mirrors Java's `!x` / C#'s `!x` Abc condition rule
+                // and closes the parity gap noted in #214 — without
+                // it, `if not flag:` reports 0 conditions while
+                // `if !flag` in Java reports 1. Nested combos like
+                // `not (x > 0)` count both the unary and the
+                // comparison once each (one logical "is-negation",
+                // one logical "comparison"), matching Java's
+                // `!(x > 0)`.
                 stats.conditions += 1.;
             }
             // A non-wildcard `case` arm contributes one condition,
@@ -4268,6 +4278,92 @@ function f(int $a, int $b): int {
                 // `a and b or c` parses as `BooleanOperator(or,
                 // BooleanOperator(and, a, b), c)` → 2 BooleanOperator
                 // nodes → 2 conditions.
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+
+    /// Python's unary `not` operator parses as `NotOperator` and now
+    /// counts as one condition, matching Java's `!x` rule. Closes
+    /// the parity gap noted in #214: without this, `if not flag:`
+    /// reported 0 conditions while the Java equivalent reports 1.
+    #[test]
+    fn python_unary_not_counts_as_condition() {
+        check_metrics::<PythonParser>(
+            "def f(flag):\n    if not flag:\n        return 1\n    return 0\n",
+            "foo.py",
+            |metric| {
+                // One `NotOperator` -> 1 condition. The `if` itself
+                // is structural and doesn't add an Abc condition.
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    /// `return not flag` — the unary `not` is the entire return
+    /// expression. Without `NotOperator` counted, this reports zero
+    /// conditions; with it, one. Java's `return !flag;` is one.
+    #[test]
+    fn python_return_unary_not_counts() {
+        check_metrics::<PythonParser>(
+            "def f(flag):\n    return not flag\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    /// `foo(not ready, value)` — the unary `not` inside an argument
+    /// list still contributes. Mirrors Java's
+    /// `java_count_unary_conditions` walk over argument lists.
+    #[test]
+    fn python_unary_not_in_argument_list_counts() {
+        check_metrics::<PythonParser>(
+            "def f(ready, value):\n    log(not ready, value)\n",
+            "foo.py",
+            |metric| {
+                // 1 Call (log) -> 1 branch.
+                // 1 NotOperator (not ready) -> 1 condition.
+                assert_eq!(metric.abc.branches_sum(), 1.0);
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    /// Nested `not` + comparison counts each unique node once.
+    /// `not (x > 0)` parses as `NotOperator(ParenthesizedExpression(
+    /// ComparisonOperator))`; both the unary and the comparison
+    /// contribute one condition (mirrors Java's `!(x > 0)` = 2
+    /// conditions).
+    #[test]
+    fn python_unary_not_with_comparison_counts_each_once() {
+        check_metrics::<PythonParser>(
+            "def f(x):\n    if not (x > 0):\n        return 1\n    return 0\n",
+            "foo.py",
+            |metric| {
+                // NotOperator (1) + ComparisonOperator (1) = 2.
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    /// `not x and y` parses as `BooleanOperator(NotOperator(x), and,
+    /// y)`. The BooleanOperator counts (and/or = 1 condition); the
+    /// inner NotOperator also counts. Total: 2.
+    #[test]
+    fn python_unary_not_with_boolean_combinator_counts_each() {
+        check_metrics::<PythonParser>(
+            "def f(x, y):\n    if not x and y:\n        return 1\n    return 0\n",
+            "foo.py",
+            |metric| {
+                // BooleanOperator (1) + NotOperator (1) = 2.
                 assert_eq!(metric.abc.conditions_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
