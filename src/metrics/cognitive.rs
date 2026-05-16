@@ -572,7 +572,8 @@ impl Cognitive for JavaCode {
             | WhileStatement
             | DoStatement
             | SwitchBlock
-            | CatchClause => {
+            | CatchClause
+            | TernaryExpression => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
             Else /* else-if also */ => {
@@ -608,8 +609,14 @@ impl Cognitive for CsharpCode {
             IfStatement if !Self::is_else_if(node) => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
-            ForStatement | ForeachStatement | WhileStatement | DoStatement | SwitchStatement
-            | SwitchExpression | CatchClause => {
+            ForStatement
+            | ForeachStatement
+            | WhileStatement
+            | DoStatement
+            | SwitchStatement
+            | SwitchExpression
+            | CatchClause
+            | ConditionalExpression => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
             // `else` is an anonymous keyword token. Each occurrence carries
@@ -968,8 +975,15 @@ impl Cognitive for PhpCode {
         let (mut nesting, depth, mut lambda) = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
-            IfStatement | ForStatement | ForeachStatement | WhileStatement | DoStatement
-            | SwitchStatement | MatchExpression | CatchClause => {
+            IfStatement
+            | ForStatement
+            | ForeachStatement
+            | WhileStatement
+            | DoStatement
+            | SwitchStatement
+            | MatchExpression
+            | CatchClause
+            | ConditionalExpression => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
             ElseClause | ElseClause2 | ElseIfClause | ElseIfClause2 => {
@@ -3471,6 +3485,69 @@ mod tests {
     }
 
     #[test]
+    fn java_ternary() {
+        // Java's ternary `?:` (grammar `ternary_expression`) is a
+        // conditional construct: +1 base + nesting, matching the
+        // SonarSource Cognitive Complexity §2 rule and the C++/JS
+        // siblings. Regression test for issue #224.
+        check_metrics::<JavaParser>(
+            "class X {
+              public static boolean check(int a) {
+                  return a > 0 ? true : false; // +1
+              }
+            }",
+            "foo.java",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn java_nested_ternary() {
+        // Nested ternaries inside an `if` block compound by nesting,
+        // matching the C++ regression test for issue #172.
+        // expected: if (+1, nesting=0) + outer ternary (+1+1=+2,
+        // nesting=1) + inner ternary (+1+2=+3, nesting=2) = 6.
+        check_metrics::<JavaParser>(
+            "class X {
+              public static String classify(int a, int b) {
+                  if (a > 0) { // +1
+                      return b > 0 ? (b > 10 ? \"big\" : \"small\") : \"neg\"; // +2, +3
+                  }
+                  return \"zero\";
+              }
+            }",
+            "foo.java",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 6.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 6.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 6.0,
+                      "average": 6.0,
+                      "min": 0.0,
+                      "max": 6.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
     fn csharp_no_cognitive() {
         check_metrics::<CsharpParser>("int a = 42;", "foo.cs", |metric| {
             insta::assert_json_snapshot!(
@@ -3620,6 +3697,68 @@ mod tests {
                 assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
                 assert_eq!(metric.cognitive.cognitive_max(), 3.0);
                 insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_ternary() {
+        // C#'s ternary `?:` (grammar `conditional_expression`) is a
+        // conditional construct: +1 base + nesting. Regression test for
+        // issue #224.
+        check_metrics::<CsharpParser>(
+            "class X {
+                public static bool Check(int a) {
+                    return a > 0 ? true : false; // +1
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_nested_ternary() {
+        // Nested ternaries inside an `if` compound by nesting (mirrors
+        // the C++ regression test for #172).
+        // expected: if (+1) + outer ternary (+2, nesting=1) + inner
+        // ternary (+3, nesting=2) = 6.
+        check_metrics::<CsharpParser>(
+            "class X {
+                public static string Classify(int a, int b) {
+                    if (a > 0) { // +1
+                        return b > 0 ? (b > 10 ? \"big\" : \"small\") : \"neg\"; // +2, +3
+                    }
+                    return \"zero\";
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 6.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 6.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 6.0,
+                      "average": 6.0,
+                      "min": 0.0,
+                      "max": 6.0
+                    }"###
+                );
             },
         );
     }
@@ -5977,6 +6116,68 @@ end",
                 assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
                 assert_eq!(metric.cognitive.cognitive_max(), 1.0);
                 insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn php_ternary() {
+        // PHP's ternary `?:` (grammar `conditional_expression`) is a
+        // conditional construct: +1 base + nesting. Regression test for
+        // issue #224. Note: this differs from PHP's
+        // `match_conditional_expression` (the `match` expression),
+        // which is handled separately by `MatchExpression`.
+        check_metrics::<PhpParser>(
+            "<?php
+            function check(int $a): bool {
+                return $a > 0 ? true : false; // +1
+            }",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn php_nested_ternary() {
+        // Nested ternaries inside an `if` compound by nesting (mirrors
+        // the C++ regression test for #172).
+        // expected: if (+1) + outer ternary (+2, nesting=1) + inner
+        // ternary (+3, nesting=2) = 6.
+        check_metrics::<PhpParser>(
+            "<?php
+            function classify(int $a, int $b): string {
+                if ($a > 0) { // +1
+                    return $b > 0 ? ($b > 10 ? 'big' : 'small') : 'neg'; // +2, +3
+                }
+                return 'zero';
+            }",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 6.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 6.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 6.0,
+                      "average": 6.0,
+                      "min": 0.0,
+                      "max": 6.0
+                    }"###
+                );
             },
         );
     }
