@@ -484,10 +484,6 @@ f() {
 // over-count of the wildcard *and* an under-count of the explicit
 // arm.
 //
-// **Excluded — Bash**: Bash `case … esac` with two arms reports
-// `cyclomatic_sum` consistent with the post-#107 fix but
-// `cyclomatic_max` retains a residual asymmetry tracked in #211.
-//
 // Per-language post-offset expectation: unit(1) + fn(1) + 1 arm = 3.
 
 #[test]
@@ -586,6 +582,14 @@ function f($x) {
             LANG::Python,
             "def f(x):\n    match x:\n        case 1:\n            return 'one'\n        case _:\n            return 'other'\n",
             "py",
+        ),
+    );
+    sums.insert(
+        "bash",
+        ccn_sum(
+            LANG::Bash,
+            "#!/bin/bash\nf() {\n    case \"$1\" in\n        one) echo 1 ;;\n        *)   echo 0 ;;\n    esac\n}\n",
+            "sh",
         ),
     );
     let offsets = BTreeMap::from([("java", JAVA_CLASS_OFFSET)]);

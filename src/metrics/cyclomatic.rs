@@ -640,12 +640,49 @@ impl Cyclomatic for ElixirCode {
     }
 }
 
+/// Detects Bash `*)` catch-all arms inside `case … esac`. Returns
+/// `true` when the case_item has exactly one `value` field whose
+/// source text is the literal `*`. Multi-value patterns (`a|b`,
+/// `*|b`) are NOT bare and still count as decisions.
+fn bash_case_item_is_bare_wildcard(node: &Node, code: &[u8]) -> bool {
+    // tree-sitter-bash attaches the `value` field to each alternation
+    // in the case pattern (`a|b)` produces two `value` children).
+    // Walk via a single `TreeCursor`: `field_name()` exposes the field
+    // for the current position and `goto_next_sibling()` is O(1), so
+    // total cost is linear in child count — avoiding the per-call
+    // O(i) `Node::child(i)` access that an index-based loop would
+    // pay on every iteration.
+    let mut cursor = node.0.walk();
+    if !cursor.goto_first_child() {
+        return false;
+    }
+    let mut value_count = 0usize;
+    let mut sole_value_is_star = false;
+    loop {
+        if cursor.field_name() == Some("value") {
+            value_count += 1;
+            if value_count > 1 {
+                return false;
+            }
+            sole_value_is_star = cursor.node().utf8_text(code).is_ok_and(|s| s.trim() == "*");
+        }
+        if !cursor.goto_next_sibling() {
+            break;
+        }
+    }
+    value_count == 1 && sole_value_is_star
+}
+
 impl Cyclomatic for BashCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
         match node.kind_id().into() {
             // Standard-only: individual case arms (matches C-family `case:`
-            // treatment — only arms contribute, not the container).
-            Bash::CaseItem | Bash::CaseItem2 => {
+            // treatment — only arms contribute, not the container). The
+            // bare-wildcard arm `*)` is Bash's analogue of the C-family
+            // `default:` and is excluded from the standard count, matching
+            // every other switch-bearing language. A multi-value pattern
+            // (`a|b)`, `*|b)`) is NOT bare and still counts. Closes #211.
+            Bash::CaseItem | Bash::CaseItem2 if !bash_case_item_is_bare_wildcard(node, code) => {
                 stats.cyclomatic += 1.;
             }
             // Modified-only: the case…esac container collapses all arms
@@ -2904,10 +2941,63 @@ f() {
 }",
             "foo.sh",
             |metric| {
-                // standard: unit(1) + fn(base 1 + 3 case_items) = sum 5, max 4.
-                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
-                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4.0);
+                // standard: unit(1) + fn(base 1 + 2 explicit case_items;
+                //          `*)` skipped per #211) = sum 4, max 3.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
                 insta::assert_json_snapshot!(metric.cyclomatic);
+            },
+        );
+    }
+
+    /// Regression #211: a bare `*)` arm is Bash's analogue of the
+    /// C-family `default:` and must NOT contribute to standard CCN.
+    /// Without the fix, this 2-arm case reports `cyclomatic_max == 3`
+    /// (1 base + 2 arms); with the fix it reports `2` (1 base + 1
+    /// explicit arm), matching every other switch-bearing language
+    /// in `tests/cyclomatic_cross_language_parity.rs`.
+    #[test]
+    fn bash_case_bare_wildcard_excluded() {
+        check_metrics::<BashParser>(
+            "#!/bin/bash
+f() {
+    case \"$1\" in
+        one) echo 1 ;;
+        *)   echo 0 ;;
+    esac
+}",
+            "foo.sh",
+            |metric| {
+                // standard: unit(1) + fn(base 1 + 1 explicit; `*)` skipped) = 3, max 2.
+                // modified: unit(1) + fn(base 1 + case_stmt 1) = 3, max 2.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_max(), 2.0);
+                insta::assert_json_snapshot!(metric.cyclomatic);
+            },
+        );
+    }
+
+    /// A multi-value pattern containing `*` (`a|*)`) is NOT a bare
+    /// wildcard — both alternations make it a non-default case. The
+    /// arm still contributes one standard decision.
+    #[test]
+    fn bash_case_multi_value_with_star_counts() {
+        check_metrics::<BashParser>(
+            "#!/bin/bash
+f() {
+    case \"$1\" in
+        a|*) echo any ;;
+    esac
+}",
+            "foo.sh",
+            |metric| {
+                // standard: unit(1) + fn(base 1 + 1 arm) = 3, max 2.
+                // The `a|*` pattern has TWO `value` fields, so the
+                // bare-wildcard filter (`value_count == 1`) skips it.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
             },
         );
     }
