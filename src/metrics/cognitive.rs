@@ -194,11 +194,10 @@ fn compute_booleans_with<F: Fn(u16) -> bool>(node: &Node, stats: &mut Stats, is_
     }
 }
 
-/// Two-operator specialization for languages whose short-circuit
-/// operator set fits in a pair (token `&&` + `||`, or word `and` +
-/// `or`). Kept because the majority of call sites supply exactly two
-/// enum variants — the `compute_booleans_with` closure form is uglier
-/// at the call site for the pair case.
+/// Two-operator specialization. Most call sites match exactly two
+/// enum variants (`&&` + `||`, or `and` + `or`); this signature
+/// keeps those call sites as plain `(node, stats, A, B)` rather than
+/// forcing a closure.
 fn compute_booleans<T: PartialEq + From<u16>>(node: &Node, stats: &mut Stats, typs1: T, typs2: T) {
     compute_booleans_with(node, stats, |id| {
         let converted: T = id.into();

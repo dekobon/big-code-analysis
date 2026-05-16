@@ -1004,15 +1004,24 @@ fn rust_count_tuple_struct_fields(list: &Node) -> (usize, usize) {
     (total, public)
 }
 
-// Returns `true` if `pat` is a bare-wildcard Rust `match_pattern`,
-// i.e. it contains exactly one `UNDERSCORE` token and no other named
-// children. Anonymous tokens such as a leading `|` (legal in
-// or-patterns: `| _ => ...`) are skipped, and a guard (`_ if g`)
-// adds a named expression child so it correctly escapes the filter.
+// Returns `true` if `pat` contains exactly one `UNDERSCORE` token
+// (identified by `underscore_id`) and no other named children.
+// Anonymous tokens such as a leading `|` in a Rust or-pattern
+// (`| _ => ...`) are skipped — they do not change the semantic
+// meaning of the pattern.
 //
-// Used by both `Cyclomatic` and `Abc` for Rust to treat a bare `_ =>`
-// arm as the language-neutral `default:` equivalent.
-pub(crate) fn rust_pattern_is_bare_underscore(pat: &Node, underscore_id: u16) -> bool {
+// Shared between languages whose `default:`-equivalent wildcard
+// pattern is a single `_`:
+//   - Rust `match_pattern` (`Cyclomatic` and `Abc` for `RustCode`)
+//   - Python `case_pattern` (`Abc` for `PythonCode`)
+//
+// The Rust caller passes its grammar's `UNDERSCORE` kind id; Python
+// passes its own. Guard handling is the caller's responsibility —
+// in Rust the guard is a sibling inside `match_pattern` and so adds
+// a named child here (this helper returns `false`); in Python the
+// guard is an `if_clause` sibling on the enclosing `case_clause`,
+// so the caller must check the surrounding node separately.
+pub(crate) fn pattern_is_bare_underscore(pat: &Node, underscore_id: u16) -> bool {
     let mut found_underscore = false;
     for child in pat.children() {
         if child.kind_id() == underscore_id {
@@ -1024,35 +1033,6 @@ pub(crate) fn rust_pattern_is_bare_underscore(pat: &Node, underscore_id: u16) ->
             return false;
         }
         // else: anonymous non-`_` token (like `|`) — skip.
-    }
-    found_underscore
-}
-
-// Returns `true` if `pat` is a Python `case_pattern` containing only
-// the bare `_` UNDERSCORE token. Used by `Abc for PythonCode` to skip
-// `case _:` arms — the language-neutral `default:` equivalent — when
-// counting conditions, matching Rust's bare-`_` MatchArm filter and
-// Java/C#'s `default:` rule.
-//
-// The grammar emits `case _:` as `case_clause > case_pattern > _`. A
-// guarded wildcard `case _ if g:` lives at the `case_clause` level
-// (the guard is a sibling of `case_pattern`, not a child), so this
-// helper still returns `true` for the guarded form — but the
-// `case_clause` arm in `Abc::compute` would need its own guard-check
-// if Python's behaviour should diverge from Rust there. Today no
-// regression test exercises a guarded `case _:` so the simpler
-// definition stands.
-pub(crate) fn python_case_pattern_is_bare_underscore(pat: &Node) -> bool {
-    let mut found_underscore = false;
-    for child in pat.children() {
-        if matches!(child.kind_id().into(), Python::UNDERSCORE) {
-            if found_underscore {
-                return false;
-            }
-            found_underscore = true;
-        } else if child.is_named() {
-            return false;
-        }
     }
     found_underscore
 }

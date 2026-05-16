@@ -288,10 +288,10 @@ impl Cyclomatic for RustCode {
             // `| _ => ...`) don't throw off detection, and a guard
             // (`_ if g`) adds a second named child so it correctly
             // escapes the filter. Shared helper with the `Abc` impl
-            // (`super::npa::rust_pattern_is_bare_underscore`).
+            // (`super::npa::pattern_is_bare_underscore`).
             MatchArm | MatchArm2 => {
                 let is_bare_wildcard = node.child_by_field_name("pattern").is_some_and(|pat| {
-                    crate::metrics::npa::rust_pattern_is_bare_underscore(&pat, UNDERSCORE as u16)
+                    crate::metrics::npa::pattern_is_bare_underscore(&pat, UNDERSCORE as u16)
                 });
                 if !is_bare_wildcard {
                     stats.cyclomatic += 1.;

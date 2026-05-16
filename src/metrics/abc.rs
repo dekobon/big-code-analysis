@@ -923,21 +923,28 @@ impl Abc for PythonCode {
             | FinallyClause => {
                 stats.conditions += 1.;
             }
-            // `case` arms count as conditions, except for the bare
-            // wildcard `case _:` which is the language-neutral
-            // `default:` equivalent (matches Rust's bare-`_`
-            // MatchArm filter and Java/C#'s `default:` rule). The
-            // grammar emits `case _:` as a `case_clause` containing
-            // a `case_pattern` whose sole child is the `UNDERSCORE`
-            // token; any other shape (`case 1:`, `case Some(x):`,
-            // `case _ if g:`) has additional children and still
-            // counts.
+            // A non-wildcard `case` arm contributes one condition,
+            // matching Rust's bare-`_` MatchArm filter and Java/C#'s
+            // `default:` rule. The bare wildcard is detected by: (a)
+            // `case_pattern` is `_`, AND (b) no `if_clause` sibling
+            // on the `case_clause` — `case _ if g:` carries a guard
+            // and still counts.
             CaseClause => {
-                let is_bare_wildcard = node
-                    .children()
-                    .find(|c| matches!(c.kind_id().into(), CasePattern))
-                    .is_some_and(|pat| super::npa::python_case_pattern_is_bare_underscore(&pat));
-                if !is_bare_wildcard {
+                let mut pattern_is_bare_underscore = false;
+                let mut has_guard = false;
+                for child in node.children() {
+                    match child.kind_id().into() {
+                        CasePattern => {
+                            pattern_is_bare_underscore = super::npa::pattern_is_bare_underscore(
+                                &child,
+                                Python::UNDERSCORE as u16,
+                            );
+                        }
+                        IfClause => has_guard = true,
+                        _ => {}
+                    }
+                }
+                if !pattern_is_bare_underscore || has_guard {
                     stats.conditions += 1.;
                 }
             }
@@ -1004,7 +1011,7 @@ impl Abc for RustCode {
             // the bare-wildcard filter.
             MatchArm | MatchArm2 => {
                 let is_bare_wildcard = node.child_by_field_name("pattern").is_some_and(|pat| {
-                    super::npa::rust_pattern_is_bare_underscore(&pat, UNDERSCORE as u16)
+                    super::npa::pattern_is_bare_underscore(&pat, UNDERSCORE as u16)
                 });
                 if !is_bare_wildcard {
                     stats.conditions += 1.;
@@ -4323,6 +4330,25 @@ function f(int $a, int $b): int {
             "foo.py",
             |metric| {
                 assert_eq!(metric.abc.conditions_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn python_match_case_guarded_wildcard_counts() {
+        // `case _ if g:` is NOT a bare wildcard — the guard
+        // contributes real branching, so the arm counts as a
+        // condition. Mirrors Rust's `_ if g => ...` behavior.
+        // Source: `case 1:` (counts) + `case _ if x > 0:` (guarded
+        // wildcard, counts) + `case _:` (bare wildcard, excluded) →
+        // C from CaseClause = 2; the guard's `x > 0` adds one
+        // ComparisonOperator → total C = 3.
+        check_metrics::<PythonParser>(
+            "def f(x):\n    match x:\n        case 1:\n            pass\n        case _ if x > 0:\n            pass\n        case _:\n            pass\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 3.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
