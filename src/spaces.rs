@@ -658,22 +658,32 @@ mod tests {
         );
     }
 
-    /// Lesson-9 invariant (`docs/development/lessons_learned.md` §9,
-    /// issue #193): for every supported language, parsing a malformed or
-    /// truncated fixture must still yield a file-level `FuncSpace` whose
-    /// `kind == SpaceKind::Unit` with `sloc >= ploc` and `blank >= 0`.
+    /// Lesson-9 contract (`docs/development/lessons_learned.md` §9,
+    /// issue #193): for every supported language, parsing any input —
+    /// including malformed or truncated — must yield a file-level
+    /// `FuncSpace` whose `kind == SpaceKind::Unit` with `sloc >= ploc`
+    /// and `blank >= 0`.
     ///
-    /// The C++ test above exercises the synthetic-Unit code path directly
-    /// (the grammar returns an `ERROR` root). For most other grammars the
-    /// root is always the canonical translation-unit kind regardless of
-    /// input — so these tests pin the contract as a future-proofing
-    /// assertion: a grammar bump that starts promoting an inner kind to
-    /// root on partial input would fail here before it could ship a
-    /// non-`Unit` top-level space to downstream consumers.
-    fn assert_partial_input_yields_unit_top_level_space<P: ParserTrait>(
-        source: &str,
-        filename: &str,
-    ) {
+    /// This helper pins the **contract** at the public API surface
+    /// (`metrics()` always returns a `Unit` top-level space). For most
+    /// grammars the parse root is already the canonical translation-
+    /// unit kind regardless of input, so the synthetic-Unit wrapper
+    /// (`src/spaces.rs:~385`) is not actually exercised by tests
+    /// using this helper alone. They serve as future-proofing: a
+    /// grammar bump that starts promoting an inner kind to root on
+    /// partial input would fail here before shipping a non-`Unit`
+    /// top-level space to downstream consumers.
+    ///
+    /// Tests that need to exercise the synthetic-Unit wrapper itself
+    /// (i.e., the path triggered by an `ERROR`-root parse) must also
+    /// assert `parser.get_root().0.is_error()` before calling this
+    /// helper. See `cpp_error_root_yields_unit_top_level_space` and
+    /// `lua_partial_input_yields_synthetic_unit_wrapper` — those two
+    /// are the only tests in the corpus that today exercise the
+    /// wrapper path. Issue #220 tracks finding additional per-grammar
+    /// fixtures that surface ERROR roots so each language can have
+    /// both a contract test and a wrapper-exercising test.
+    fn assert_top_level_space_is_unit_contract<P: ParserTrait>(source: &str, filename: &str) {
         let path = std::path::PathBuf::from(filename);
         let parser = P::new(source.as_bytes().to_vec(), &path, None);
         let space = metrics(&parser, &path).expect("metrics must yield a top-level space");
@@ -697,137 +707,155 @@ mod tests {
         );
     }
 
+    /// Like [`assert_top_level_space_is_unit_contract`] but additionally
+    /// asserts the parse root is an `ERROR` node, so the test actually
+    /// exercises the synthetic-Unit wrapper in `metrics()` rather than
+    /// the contract-only path. Use this for languages where a fixture
+    /// is known to make the grammar return ERROR (currently: Lua, C++
+    /// via mozcpp).
+    fn assert_partial_input_yields_synthetic_unit_wrapper<P: ParserTrait>(
+        source: &str,
+        filename: &str,
+    ) {
+        let path = std::path::PathBuf::from(filename);
+        let parser = P::new(source.as_bytes().to_vec(), &path, None);
+        assert!(
+            parser.get_root().0.is_error(),
+            "test premise broken: grammar must yield ERROR root for {filename:?}",
+        );
+        assert_top_level_space_is_unit_contract::<P>(source, filename);
+    }
+
     #[test]
-    fn python_partial_input_yields_unit_top_level_space() {
-        assert_partial_input_yields_unit_top_level_space::<crate::PythonParser>(
+    fn python_top_level_space_is_unit_contract() {
+        assert_top_level_space_is_unit_contract::<crate::PythonParser>(
             "def foo(x):\n    return x +\n",
             "partial.py",
         );
     }
 
     #[test]
-    fn javascript_partial_input_yields_unit_top_level_space() {
-        assert_partial_input_yields_unit_top_level_space::<crate::JavascriptParser>(
+    fn javascript_top_level_space_is_unit_contract() {
+        assert_top_level_space_is_unit_contract::<crate::JavascriptParser>(
             "function foo(x) {\n  return x +\n",
             "partial.js",
         );
     }
 
     #[test]
-    fn mozjs_partial_input_yields_unit_top_level_space() {
-        assert_partial_input_yields_unit_top_level_space::<crate::MozjsParser>(
+    fn mozjs_top_level_space_is_unit_contract() {
+        assert_top_level_space_is_unit_contract::<crate::MozjsParser>(
             "function foo(x) {\n  return x +\n",
             "partial.js",
         );
     }
 
     #[test]
-    fn typescript_partial_input_yields_unit_top_level_space() {
-        assert_partial_input_yields_unit_top_level_space::<crate::TypescriptParser>(
+    fn typescript_top_level_space_is_unit_contract() {
+        assert_top_level_space_is_unit_contract::<crate::TypescriptParser>(
             "function foo(x: number): number {\n  return x +\n",
             "partial.ts",
         );
     }
 
     #[test]
-    fn tsx_partial_input_yields_unit_top_level_space() {
-        assert_partial_input_yields_unit_top_level_space::<crate::TsxParser>(
+    fn tsx_top_level_space_is_unit_contract() {
+        assert_top_level_space_is_unit_contract::<crate::TsxParser>(
             "function Foo(x: number): JSX.Element {\n  return <div>{x +\n",
             "partial.tsx",
         );
     }
 
     #[test]
-    fn java_partial_input_yields_unit_top_level_space() {
-        assert_partial_input_yields_unit_top_level_space::<crate::JavaParser>(
+    fn java_top_level_space_is_unit_contract() {
+        assert_top_level_space_is_unit_contract::<crate::JavaParser>(
             "class Foo {\n  void bar(int x) {\n    return x +\n",
             "Partial.java",
         );
     }
 
     #[test]
-    fn kotlin_partial_input_yields_unit_top_level_space() {
-        assert_partial_input_yields_unit_top_level_space::<crate::KotlinParser>(
+    fn kotlin_top_level_space_is_unit_contract() {
+        assert_top_level_space_is_unit_contract::<crate::KotlinParser>(
             "class Foo {\n  fun bar(x: Int): Int {\n    return x +\n",
             "Partial.kt",
         );
     }
 
     #[test]
-    fn go_partial_input_yields_unit_top_level_space() {
-        assert_partial_input_yields_unit_top_level_space::<crate::GoParser>(
+    fn go_top_level_space_is_unit_contract() {
+        assert_top_level_space_is_unit_contract::<crate::GoParser>(
             "package main\nfunc foo(x int) int {\n  return x +\n",
             "partial.go",
         );
     }
 
     #[test]
-    fn rust_partial_input_yields_unit_top_level_space() {
-        assert_partial_input_yields_unit_top_level_space::<crate::RustParser>(
+    fn rust_top_level_space_is_unit_contract() {
+        assert_top_level_space_is_unit_contract::<crate::RustParser>(
             "fn foo(x: i32) -> i32 {\n    return x +\n",
             "partial.rs",
         );
     }
 
     #[test]
-    fn csharp_partial_input_yields_unit_top_level_space() {
-        assert_partial_input_yields_unit_top_level_space::<crate::CsharpParser>(
+    fn csharp_top_level_space_is_unit_contract() {
+        assert_top_level_space_is_unit_contract::<crate::CsharpParser>(
             "class Foo {\n  void Bar(int x) {\n    return x +\n",
             "Partial.cs",
         );
     }
 
     #[test]
-    fn bash_partial_input_yields_unit_top_level_space() {
-        assert_partial_input_yields_unit_top_level_space::<crate::BashParser>(
+    fn bash_top_level_space_is_unit_contract() {
+        assert_top_level_space_is_unit_contract::<crate::BashParser>(
             "function foo() {\n  echo \"x +\n",
             "partial.sh",
         );
     }
 
-    /// Lua is the one language in the corpus whose grammar surfaces an
-    /// `ERROR` root for this fixture (tree-sitter-lua 0.4.x); the test
-    /// thus also exercises the synthetic-Unit wrapper directly, on par
-    /// with the C++ regression above.
+    /// Lua's grammar surfaces an `ERROR` root for this fixture
+    /// (tree-sitter-lua 0.4.x), so this test exercises the
+    /// synthetic-Unit wrapper directly, on par with the C++
+    /// regression in `cpp_error_root_yields_unit_top_level_space`.
+    /// The 16 sibling `*_top_level_space_is_unit_contract` tests
+    /// only pin the public-API contract; only this and the C++ test
+    /// actually trigger the wrapper code path. See #220.
     #[test]
-    fn lua_partial_input_yields_unit_top_level_space() {
-        let source = "function foo(x)\n  return x +\n";
-        let path = std::path::PathBuf::from("partial.lua");
-        let parser = crate::LuaParser::new(source.as_bytes().to_vec(), &path, None);
-        assert!(
-            parser.get_root().0.is_error(),
-            "test premise broken: tree-sitter-lua must yield an ERROR root for this snippet"
+    fn lua_partial_input_yields_synthetic_unit_wrapper() {
+        assert_partial_input_yields_synthetic_unit_wrapper::<crate::LuaParser>(
+            "function foo(x)\n  return x +\n",
+            "partial.lua",
         );
-        assert_partial_input_yields_unit_top_level_space::<crate::LuaParser>(source, "partial.lua");
     }
 
     #[test]
-    fn tcl_partial_input_yields_unit_top_level_space() {
-        assert_partial_input_yields_unit_top_level_space::<crate::TclParser>(
+    fn tcl_top_level_space_is_unit_contract() {
+        assert_top_level_space_is_unit_contract::<crate::TclParser>(
             "proc foo {x} {\n  return [expr {$x +\n",
             "partial.tcl",
         );
     }
 
     #[test]
-    fn perl_partial_input_yields_unit_top_level_space() {
-        assert_partial_input_yields_unit_top_level_space::<crate::PerlParser>(
+    fn perl_top_level_space_is_unit_contract() {
+        assert_top_level_space_is_unit_contract::<crate::PerlParser>(
             "sub foo {\n  my $x = shift;\n  return $x +\n",
             "partial.pl",
         );
     }
 
     #[test]
-    fn php_partial_input_yields_unit_top_level_space() {
-        assert_partial_input_yields_unit_top_level_space::<crate::PhpParser>(
+    fn php_top_level_space_is_unit_contract() {
+        assert_top_level_space_is_unit_contract::<crate::PhpParser>(
             "<?php\nfunction foo($x) {\n  return $x +\n",
             "partial.php",
         );
     }
 
     #[test]
-    fn elixir_partial_input_yields_unit_top_level_space() {
-        assert_partial_input_yields_unit_top_level_space::<crate::ElixirParser>(
+    fn elixir_top_level_space_is_unit_contract() {
+        assert_top_level_space_is_unit_contract::<crate::ElixirParser>(
             "defmodule Foo do\n  def bar(x) do\n    x +\n",
             "partial.ex",
         );
@@ -839,16 +867,16 @@ mod tests {
     /// too — a grammar bump promoting an inner construct to root would
     /// otherwise produce a non-`Unit` file-level space.
     #[test]
-    fn preproc_partial_input_yields_unit_top_level_space() {
-        assert_partial_input_yields_unit_top_level_space::<crate::PreprocParser>(
+    fn preproc_top_level_space_is_unit_contract() {
+        assert_top_level_space_is_unit_contract::<crate::PreprocParser>(
             "#ifdef FOO\n#define BAR(x) (x +\n",
             "partial.h",
         );
     }
 
     #[test]
-    fn ccomment_partial_input_yields_unit_top_level_space() {
-        assert_partial_input_yields_unit_top_level_space::<crate::CcommentParser>(
+    fn ccomment_top_level_space_is_unit_contract() {
+        assert_top_level_space_is_unit_contract::<crate::CcommentParser>(
             "/* unterminated comment\n  spanning several\n",
             "partial.c",
         );
@@ -860,11 +888,11 @@ mod tests {
     /// future grammar bump that starts promoting an inner kind to
     /// root would fail here.
     #[test]
-    fn ruby_partial_input_yields_unit_top_level_space() {
+    fn ruby_top_level_space_is_unit_contract() {
         // Truncated method definition (missing `end`) plus an
         // incomplete parameter list — tree-sitter-ruby treats both as
         // ERROR children of `program`.
-        assert_partial_input_yields_unit_top_level_space::<crate::RubyParser>(
+        assert_top_level_space_is_unit_contract::<crate::RubyParser>(
             "class Foo\n  def bar(\n    x\n  ",
             "partial.rb",
         );
