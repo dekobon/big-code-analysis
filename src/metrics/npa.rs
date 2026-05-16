@@ -613,7 +613,7 @@ impl Npa for PhpCode {
 // `self.X = …` lives inside a child `FunctionDefinition` space whose
 // own `npa` stats are not class spaces.
 impl Npa for PythonCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
         use Python::*;
 
         // Gate on `ClassDefinition` specifically: `is_func_space` is
@@ -634,17 +634,17 @@ impl Npa for PythonCode {
         };
 
         // Counts of distinct class attributes (class-level + self.*).
-        // `self.x` may appear in several methods; per Fitzpatrick's
-        // intent each *attribute* counts once. We don't have access
-        // to identifier text, so the best we can do without source
-        // bytes is to count each `self.x = …` statement once. The
-        // common style (single `__init__` defining every instance
-        // attribute exactly once) yields the correct count; later
-        // re-binding of the same attribute is rare and inflates the
-        // count by one per re-bind — documented and accepted as the
-        // trade-off for not threading source bytes through this trait.
+        // `self.x` may appear in several methods — and in different
+        // branches of the same method — but per Fitzpatrick's intent
+        // each *attribute* counts once. We deduplicate by the
+        // attribute identifier text (read via the `code` bytes
+        // widened into the trait by #219), so:
+        //   class C:
+        //       def __init__(self): self.value = None
+        //       def reset(self):    self.value = None
+        // counts `value` once, not twice. Closes #215.
         let class_level = python_count_class_level_attrs(&body);
-        let self_attrs = python_count_self_assignments(&body);
+        let self_attrs = python_count_unique_self_attrs(&body, code);
         let total = class_level + self_attrs;
 
         stats.class_na += total;
@@ -1079,25 +1079,90 @@ fn python_count_class_level_attrs(body: &Node) -> usize {
     count
 }
 
-// Counts `self.X = …` assignments inside methods of the class body.
-// Walks every `FunctionDefinition` (including those wrapped in
-// `DecoratedDefinition`) and recursively scans its body for
-// `Assignment` nodes whose LHS is `self.<attr>`. Recursive descent
-// handles `__init__` patterns like `if cond: self.x = a; else:
-// self.x = b` where the assignment is nested inside an `if`.
+// Like `python_count_self_assignments` but deduplicates by the
+// attribute identifier text. Walks every method body once and
+// collects the set of unique `self.<attr>` names; the count is the
+// size of that set. Fixes #215 — re-binding `self.x` across methods
+// or across branches no longer inflates the attribute count.
 //
-// Limitation: re-binding `self.x` in multiple places inflates the
-// count by one per re-bind. Mitigating that without access to source
-// bytes would require deeper-and-much-more-fragile string handling
-// inside `Attribute` nodes — out of scope for this metric.
-fn python_count_self_assignments(body: &Node) -> usize {
-    let mut count = 0_usize;
+// Capacity hint: typical Python classes declare under a dozen
+// instance attributes (often documented as a class-level
+// `__slots__`); `with_capacity(8)` covers the common case without
+// any rehash and costs negligibly when a class has fewer.
+fn python_count_unique_self_attrs(body: &Node, code: &[u8]) -> usize {
+    let mut seen: std::collections::HashSet<&[u8]> = std::collections::HashSet::with_capacity(8);
     for stmt in body.children() {
         if let Some(func) = python_unwrap_function(&stmt) {
-            count += python_count_self_in_subtree(&func);
+            python_collect_self_attrs_in_subtree(&func, code, &mut seen);
         }
     }
-    count
+    seen.len()
+}
+
+fn python_collect_self_attrs_in_subtree<'a>(
+    root: &Node<'a>,
+    code: &'a [u8],
+    seen: &mut std::collections::HashSet<&'a [u8]>,
+) {
+    use Python::*;
+
+    let mut stack: Vec<Node<'a>> = Vec::with_capacity(32);
+    for child in root.children() {
+        stack.push(child);
+    }
+    while let Some(node) = stack.pop() {
+        // Boundary: do not descend into nested classes, functions, or
+        // lambdas. Their attributes belong to their inner scope.
+        if matches!(
+            node.kind_id().into(),
+            FunctionDefinition | ClassDefinition | DecoratedDefinition | Lambda
+        ) {
+            continue;
+        }
+
+        if node.kind_id() == Assignment
+            && python_lhs_is_self_attribute(&node)
+            && let Some(name) = python_self_attr_name_bytes(&node, code)
+        {
+            seen.insert(name);
+        }
+
+        for child in node.children() {
+            stack.push(child);
+        }
+    }
+}
+
+// Returns the byte slice for the attribute identifier in a
+// `self.<attr> = …` assignment. The LHS is an `Attribute` node whose
+// last named child is the attribute identifier (the `.` and the
+// preceding `self` are siblings; the identifier comes last).
+// Borrows directly from `code` so the returned slice is the
+// canonical key for deduplication — two `self.value` assignments
+// share the same identifier text and therefore the same key.
+fn python_self_attr_name_bytes<'a>(assignment: &Node<'a>, code: &'a [u8]) -> Option<&'a [u8]> {
+    // Fully-qualified `Python::Attribute` / `Python::Identifier` — this
+    // function deliberately does NOT `use Python::*;` so unqualified
+    // `None` keeps its `Option` meaning rather than being shadowed by
+    // the `Python::None` token kind.
+    let target = assignment.child(0)?;
+    if target.kind_id() != Python::Attribute {
+        return None;
+    }
+    // The grammar guarantees the trailing identifier is the last
+    // `Identifier` child of the Attribute node; `.last()` walks the
+    // children once and yields the right one.
+    let id = target
+        .children()
+        .filter(|c| c.kind_id() == Python::Identifier)
+        .last()?;
+    // First `Identifier` was the receiver (`self`); only count when
+    // we have a distinct second Identifier (the attribute name).
+    let receiver = target.child(0)?;
+    if id.start_byte() == receiver.start_byte() {
+        return None;
+    }
+    code.get(id.start_byte()..id.end_byte())
 }
 
 fn python_unwrap_function<'a>(node: &Node<'a>) -> Option<Node<'a>> {
@@ -1110,43 +1175,6 @@ fn python_unwrap_function<'a>(node: &Node<'a>) -> Option<Node<'a>> {
             .find(|c| c.kind_id() == Python::FunctionDefinition),
         _ => None,
     }
-}
-
-fn python_count_self_in_subtree(root: &Node) -> usize {
-    use Python::*;
-
-    // Heuristic capacity: typical Python method bodies have a few
-    // dozen nodes; pre-allocating avoids the first 3-4 grow steps for
-    // the common case while costing little when the body is small.
-    let mut count = 0_usize;
-    let mut stack: Vec<Node> = Vec::with_capacity(32);
-    // Seed the stack with `root`'s children directly, not `root`
-    // itself. That eliminates the `node.id() != root.id()` boundary
-    // check on every popped node — the root is a FunctionDefinition
-    // and would otherwise need the check to avoid being treated as
-    // its own boundary on the first iteration.
-    for child in root.children() {
-        stack.push(child);
-    }
-    while let Some(node) = stack.pop() {
-        // Boundary: do not descend into nested classes, functions,
-        // or lambdas. Their attributes belong to their inner scope.
-        if matches!(
-            node.kind_id().into(),
-            FunctionDefinition | ClassDefinition | DecoratedDefinition | Lambda
-        ) {
-            continue;
-        }
-
-        if node.kind_id() == Assignment && python_lhs_is_self_attribute(&node) {
-            count += 1;
-        }
-
-        for child in node.children() {
-            stack.push(child);
-        }
-    }
-    count
 }
 
 // Checks whether the LHS of an `Assignment` is `self.<identifier>`.
@@ -3380,14 +3408,70 @@ mod tests {
 
     #[test]
     fn python_self_attributes_in_nested_control_flow() {
-        // `self.z = "ok"` and `self.z = "no"` in if/else both count —
-        // documented limitation: re-binds inflate the count by one per
-        // re-bind.
+        // `self.z = 1` and `self.z = 2` in if/else now count once —
+        // #215 added identifier-text deduplication. Both branches
+        // bind the same attribute `z`, so `class_na == 1`.
         check_metrics::<PythonParser>(
             "class C:\n    def __init__(self, flag):\n        if flag:\n            self.z = 1\n        else:\n            self.z = 2\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                assert_eq!(metric.npa.class_na_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    /// Regression #215: `self.value = …` bound in `__init__` and again
+    /// in `reset()` should count the attribute exactly once. Before
+    /// identifier-text deduplication, each binding inflated
+    /// `class_na` by one — the defensive re-init pattern reported 2.
+    ///
+    /// The two assignments use DIFFERENT right-hand sides (`None`
+    /// vs `0`) so a hypothetical byte-content-of-Assignment dedup
+    /// (rather than identifier-name dedup) would NOT collapse them.
+    /// This pins the rule to the attribute *name*, not the
+    /// assignment text.
+    #[test]
+    fn python_defensive_reinit_self_attribute_counts_once() {
+        check_metrics::<PythonParser>(
+            "class C:\n    def __init__(self):\n        self.value = None\n    def reset(self):\n        self.value = 0\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 1.0);
+                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    /// Distinct attribute names still accumulate normally — the
+    /// dedup is per-name, not per-method.
+    #[test]
+    fn python_distinct_self_attributes_count_independently() {
+        check_metrics::<PythonParser>(
+            "class C:\n    def __init__(self):\n        self.x = 1\n        self.y = 2\n        self.z = 3\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+
+    /// Annotated `self.x: int = 1` inside a method body parses as
+    /// `Assignment(target=Attribute(self, x), type, value)` in
+    /// tree-sitter-python — the same node type as plain `self.x = 1`.
+    /// The dedup helper must see both forms and treat them as the
+    /// same attribute. Regression guard for the review finding on
+    /// #215: ensure annotated assignments aren't missed.
+    #[test]
+    fn python_self_attribute_annotated_assignment_dedupes() {
+        check_metrics::<PythonParser>(
+            "class C:\n    def __init__(self):\n        self.value: int = 1\n    def reset(self):\n        self.value = 0\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 1.0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );

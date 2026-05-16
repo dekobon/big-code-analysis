@@ -4284,7 +4284,6 @@ function f(int $a, int $b): int {
         );
     }
 
-
     /// Python's unary `not` operator parses as `NotOperator` and now
     /// counts as one condition, matching Java's `!x` rule. Closes
     /// the parity gap noted in #214: without this, `if not flag:`
@@ -4308,14 +4307,10 @@ function f(int $a, int $b): int {
     /// conditions; with it, one. Java's `return !flag;` is one.
     #[test]
     fn python_return_unary_not_counts() {
-        check_metrics::<PythonParser>(
-            "def f(flag):\n    return not flag\n",
-            "foo.py",
-            |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
-                insta::assert_json_snapshot!(metric.abc);
-            },
-        );
+        check_metrics::<PythonParser>("def f(flag):\n    return not flag\n", "foo.py", |metric| {
+            assert_eq!(metric.abc.conditions_sum(), 1.0);
+            insta::assert_json_snapshot!(metric.abc);
+        });
     }
 
     /// `foo(not ready, value)` — the unary `not` inside an argument
