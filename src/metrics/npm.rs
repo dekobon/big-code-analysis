@@ -2621,8 +2621,6 @@ class C {
     // fire and force a test update.
     // ---------------------------------------------------------------
 
-    // PLACEHOLDER #204: C++ `Npm` is unimplemented.
-
     // --- Python NPM ---------------------------------------------------
 
     #[test]

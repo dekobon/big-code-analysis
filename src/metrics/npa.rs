@@ -1028,6 +1028,35 @@ pub(crate) fn rust_pattern_is_bare_underscore(pat: &Node, underscore_id: u16) ->
     found_underscore
 }
 
+// Returns `true` if `pat` is a Python `case_pattern` containing only
+// the bare `_` UNDERSCORE token. Used by `Abc for PythonCode` to skip
+// `case _:` arms — the language-neutral `default:` equivalent — when
+// counting conditions, matching Rust's bare-`_` MatchArm filter and
+// Java/C#'s `default:` rule.
+//
+// The grammar emits `case _:` as `case_clause > case_pattern > _`. A
+// guarded wildcard `case _ if g:` lives at the `case_clause` level
+// (the guard is a sibling of `case_pattern`, not a child), so this
+// helper still returns `true` for the guarded form — but the
+// `case_clause` arm in `Abc::compute` would need its own guard-check
+// if Python's behaviour should diverge from Rust there. Today no
+// regression test exercises a guarded `case _:` so the simpler
+// definition stands.
+pub(crate) fn python_case_pattern_is_bare_underscore(pat: &Node) -> bool {
+    let mut found_underscore = false;
+    for child in pat.children() {
+        if matches!(child.kind_id().into(), Python::UNDERSCORE) {
+            if found_underscore {
+                return false;
+            }
+            found_underscore = true;
+        } else if child.is_named() {
+            return false;
+        }
+    }
+    found_underscore
+}
+
 // Returns true if `node`'s first child is a `visibility_modifier`
 // containing the `pub` keyword. Matches Rust's "public-only-when-`pub`"
 // model — `pub(crate)` / `pub(super)` / `pub(in path)` are also
@@ -1103,27 +1132,29 @@ fn python_unwrap_function<'a>(node: &Node<'a>) -> Option<Node<'a>> {
     }
 }
 
-// Recursively walks `root` (a function definition's subtree),
-// counting every `Assignment` whose LHS is `self.<attr>`. The walk
-// does NOT descend into nested `FunctionDefinition` or
-// `ClassDefinition` nodes — those introduce a new scope; their
-// attributes belong to the inner scope, not the enclosing class.
 fn python_count_self_in_subtree(root: &Node) -> usize {
     use Python::*;
 
+    // Heuristic capacity: typical Python method bodies have a few
+    // dozen nodes; pre-allocating avoids the first 3-4 grow steps for
+    // the common case while costing little when the body is small.
     let mut count = 0_usize;
-    let mut stack: Vec<Node> = vec![*root];
+    let mut stack: Vec<Node> = Vec::with_capacity(32);
+    // Seed the stack with `root`'s children directly, not `root`
+    // itself. That eliminates the `node.id() != root.id()` boundary
+    // check on every popped node — the root is a FunctionDefinition
+    // and would otherwise need the check to avoid being treated as
+    // its own boundary on the first iteration.
+    for child in root.children() {
+        stack.push(child);
+    }
     while let Some(node) = stack.pop() {
-        // Boundary: do not descend into nested classes or functions.
-        // The root itself is a FunctionDefinition; we still need to
-        // walk its body, so the boundary check fires only for
-        // *child* nodes that share the kind.
-        if node.id() != root.id()
-            && matches!(
-                node.kind_id().into(),
-                FunctionDefinition | ClassDefinition | DecoratedDefinition | Lambda
-            )
-        {
+        // Boundary: do not descend into nested classes, functions,
+        // or lambdas. Their attributes belong to their inner scope.
+        if matches!(
+            node.kind_id().into(),
+            FunctionDefinition | ClassDefinition | DecoratedDefinition | Lambda
+        ) {
             continue;
         }
 
@@ -1131,7 +1162,6 @@ fn python_count_self_in_subtree(root: &Node) -> usize {
             count += 1;
         }
 
-        // Descend into every child.
         for child in node.children() {
             stack.push(child);
         }
@@ -3315,8 +3345,6 @@ mod tests {
     // follow-up issue — when the real impl lands the assertion will
     // fire and force a test update, which is the gate.
     // ---------------------------------------------------------------
-
-    // PLACEHOLDER #204: C++ `Npa` is unimplemented.
 
     // --- Python NPA ---------------------------------------------------
 

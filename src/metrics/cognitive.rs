@@ -175,78 +175,72 @@ where
     );
 }
 
-fn compute_booleans<T: PartialEq + From<u16>>(node: &Node, stats: &mut Stats, typs1: T, typs2: T) {
+/// Walks `node.children()` and folds each child whose `kind_id`
+/// satisfies `is_op` into the boolean-sequence counter. The predicate
+/// is the only thing that differs across the per-language short-
+/// circuit helpers (`compute_*_booleans`); inlining the predicate as
+/// a `Fn` closure lets each language declare its operator set with a
+/// `matches!` pattern at the call site without duplicating the walk.
+fn compute_booleans_with<F: Fn(u16) -> bool>(node: &Node, stats: &mut Stats, is_op: F) {
     let enclosing_end = node.end_byte();
     for child in node.children() {
         let id = child.kind_id();
-        let converted: T = id.into();
-        if typs1 == converted || typs2 == converted {
+        if is_op(id) {
             stats.structural =
                 stats
                     .boolean_seq
                     .eval_based_on_prev(id, enclosing_end, stats.structural);
         }
     }
+}
+
+/// Two-operator specialization for languages whose short-circuit
+/// operator set fits in a pair (token `&&` + `||`, or word `and` +
+/// `or`). Kept because the majority of call sites supply exactly two
+/// enum variants — the `compute_booleans_with` closure form is uglier
+/// at the call site for the pair case.
+fn compute_booleans<T: PartialEq + From<u16>>(node: &Node, stats: &mut Stats, typs1: T, typs2: T) {
+    compute_booleans_with(node, stats, |id| {
+        let converted: T = id.into();
+        typs1 == converted || typs2 == converted
+    });
 }
 
 /// Folds a Ruby `binary`'s short-circuit operator children into the
-/// boolean-sequence counter. `compute_booleans` only takes two operator
-/// kinds; Ruby needs four (`&&`, `||`, word-form `and`, word-form `or`).
+/// boolean-sequence counter — Ruby has four (`&&`, `||`, word-form
+/// `and`, word-form `or`).
 fn compute_ruby_booleans(node: &Node, stats: &mut Stats) {
-    let enclosing_end = node.end_byte();
-    for child in node.children() {
-        let id = child.kind_id();
-        if matches!(
+    compute_booleans_with(node, stats, |id| {
+        matches!(
             id.into(),
             Ruby::AMPAMP | Ruby::PIPEPIPE | Ruby::And | Ruby::Or
-        ) {
-            stats.structural =
-                stats
-                    .boolean_seq
-                    .eval_based_on_prev(id, enclosing_end, stats.structural);
-        }
-    }
+        )
+    });
 }
 
-/// Folds a Perl `binary_expression`'s short-circuit operator children into
-/// the boolean-sequence counter. `compute_booleans` only takes two operator
-/// kinds; Perl needs five (`&&`, `||`, `//`, `and`, `or`).
+/// Folds a Perl `binary_expression`'s short-circuit operator children
+/// into the boolean-sequence counter — Perl has five (`&&`, `||`, `//`,
+/// `and`, `or`).
 fn compute_perl_booleans(node: &Node, stats: &mut Stats) {
-    let enclosing_end = node.end_byte();
-    for child in node.children() {
-        let id = child.kind_id();
-        if matches!(
+    compute_booleans_with(node, stats, |id| {
+        matches!(
             id.into(),
             Perl::AMPAMP | Perl::PIPEPIPE | Perl::SLASHSLASH | Perl::And | Perl::Or
-        ) {
-            stats.structural =
-                stats
-                    .boolean_seq
-                    .eval_based_on_prev(id, enclosing_end, stats.structural);
-        }
-    }
+        )
+    });
 }
 
-/// Folds an Elixir `BinaryOperator`'s short-circuit operator children into
-/// the boolean-sequence counter. Elixir has four short-circuit operators
-/// (`&&`, `||`, `and`, `or`); `compute_booleans` only takes two operator
-/// kinds, so calling it twice would walk every child twice. Folding the
-/// match into a single pass over `node.children()` halves the work on
-/// this hot per-node arm.
+/// Folds an Elixir `BinaryOperator`'s short-circuit operator children
+/// into the boolean-sequence counter — Elixir has four (`&&`, `||`,
+/// `and`, `or`). Single-pass walk over `node.children()` avoids the
+/// 2x cost of calling the two-operator `compute_booleans` twice.
 fn compute_elixir_booleans(node: &Node, stats: &mut Stats) {
-    let enclosing_end = node.end_byte();
-    for child in node.children() {
-        let id = child.kind_id();
-        if matches!(
+    compute_booleans_with(node, stats, |id| {
+        matches!(
             id.into(),
             Elixir::AMPAMP | Elixir::PIPEPIPE | Elixir::And | Elixir::Or
-        ) {
-            stats.structural =
-                stats
-                    .boolean_seq
-                    .eval_based_on_prev(id, enclosing_end, stats.structural);
-        }
-    }
+        )
+    });
 }
 
 #[derive(Debug, Default, Clone)]
@@ -6394,10 +6388,4 @@ end",
             },
         );
     }
-
-    // PLACEHOLDER #206: Elixir `Cognitive` is unimplemented. Audited
-    // in #188. The source below contains 3 nested control-flow
-    // constructs (`case` + nested `if`/`else`), which any real impl
-    // would score above 0. When the real impl lands, the assertion
-    // here will fire and force a test update.
 }
