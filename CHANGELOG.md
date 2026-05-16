@@ -414,6 +414,14 @@ changes are marked with **(breaking)** in the entries below.
 
 ### Fixed
 
+- The `cognitive`, `cyclomatic`, `nom`, `nargs`, `exit`, and `abc`
+  metric `_min` getters now collapse the `usize::MAX` / `f64::MAX`
+  sentinel that `Stats::default()` plants to `0.0`, so a never-observed
+  space serializes to a meaningful number rather than `1.8446744e19`
+  (for `usize` sentinels) or `1.7976931e308` (for `f64` sentinels).
+  Mirrors the existing guards in `tokens::Stats::tokens_min` and the
+  three LOC variants
+  ([#227](https://github.com/dekobon/big-code-analysis/issues/227)).
 - Python `match`/`case` (PEP 634, 3.10+) now contributes decision
   points to both cyclomatic and cognitive complexity, matching Rust /
   C-family / Java / JS / TS / C# / PHP / Kotlin / Go / Bash. A 2-arm

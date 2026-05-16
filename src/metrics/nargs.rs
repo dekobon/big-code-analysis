@@ -170,10 +170,18 @@ impl Stats {
         self.nargs_total() / (self.total_functions + self.total_closures).max(1) as f64
     }
     /// Returns the minimum number of function arguments in a space.
+    ///
+    /// Collapses the `usize::MAX` sentinel that `Stats::default()` plants
+    /// into `fn_nargs_min` to `0.0`, so a never-observed space
+    /// serializes to a meaningful number rather than `1.8446744e19`.
     #[inline]
     #[must_use]
     pub fn fn_args_min(&self) -> f64 {
-        self.fn_nargs_min as f64
+        if self.fn_nargs_min == usize::MAX {
+            0.0
+        } else {
+            self.fn_nargs_min as f64
+        }
     }
     /// Returns the maximum number of function arguments in a space.
     #[inline]
@@ -182,10 +190,16 @@ impl Stats {
         self.fn_nargs_max as f64
     }
     /// Returns the minimum number of closure arguments in a space.
+    ///
+    /// Same `usize::MAX` sentinel collapse as `fn_args_min`.
     #[inline]
     #[must_use]
     pub fn closure_args_min(&self) -> f64 {
-        self.closure_nargs_min as f64
+        if self.closure_nargs_min == usize::MAX {
+            0.0
+        } else {
+            self.closure_nargs_min as f64
+        }
     }
     /// Returns the maximum number of closure arguments in a space.
     #[inline]
@@ -422,6 +436,17 @@ mod tests {
     use crate::tools::check_metrics;
 
     use super::*;
+
+    /// Regression for #227: a `Stats::default()` that never sees an
+    /// observation must not leak the `usize::MAX` sentinel for
+    /// `fn_args_min` or `closure_args_min`. Both getters collapse
+    /// the sentinel to `0.0` so JSON never emits `1.8446744e19`.
+    #[test]
+    fn nargs_empty_file_min_is_zero() {
+        let stats = Stats::default();
+        assert_eq!(stats.fn_args_min(), 0.0);
+        assert_eq!(stats.closure_args_min(), 0.0);
+    }
 
     #[test]
     fn python_no_functions_and_closures() {

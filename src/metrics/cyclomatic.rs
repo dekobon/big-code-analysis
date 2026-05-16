@@ -142,9 +142,18 @@ impl Stats {
     }
 
     /// Returns the minimum standard cyclomatic complexity.
+    ///
+    /// Collapses the `f64::MAX` sentinel that `Stats::default()` plants
+    /// into `cyclomatic_min` to `0.0`, so a never-observed space
+    /// serializes to a meaningful number rather than `1.7976931e308`.
+    #[allow(clippy::float_cmp)]
     #[must_use]
     pub fn cyclomatic_min(&self) -> f64 {
-        self.cyclomatic_min
+        if self.cyclomatic_min == f64::MAX {
+            0.0
+        } else {
+            self.cyclomatic_min
+        }
     }
 
     /// Returns the modified cyclomatic complexity for the current space.
@@ -181,9 +190,16 @@ impl Stats {
     }
 
     /// Returns the minimum modified cyclomatic complexity.
+    ///
+    /// Same `f64::MAX` sentinel collapse as `cyclomatic_min`.
+    #[allow(clippy::float_cmp)]
     #[must_use]
     pub fn cyclomatic_modified_min(&self) -> f64 {
-        self.cyclomatic_modified_min
+        if self.cyclomatic_modified_min == f64::MAX {
+            0.0
+        } else {
+            self.cyclomatic_modified_min
+        }
     }
 
     #[inline]
@@ -780,6 +796,18 @@ mod tests {
     use crate::tools::check_metrics;
 
     use super::*;
+
+    /// Regression for #227: a `Stats::default()` that never sees an
+    /// observation must not leak the `f64::MAX` sentinel for
+    /// `cyclomatic_min` or `cyclomatic_modified_min`. Both getters
+    /// collapse the sentinel to `0.0` so JSON never emits
+    /// `1.7976931e308`.
+    #[test]
+    fn cyclomatic_empty_file_min_is_zero() {
+        let stats = Stats::default();
+        assert_eq!(stats.cyclomatic_min(), 0.0);
+        assert_eq!(stats.cyclomatic_modified_min(), 0.0);
+    }
 
     /// Regression for #229: a plain `if/else` must not be credited
     /// as a loop-`else`. The `Else` arm of `impl Cyclomatic for

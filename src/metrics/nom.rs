@@ -167,19 +167,33 @@ impl Stats {
         self.total() / self.space_count as f64
     }
 
-    /// Counts the number of function definitions in a scope
+    /// Counts the number of function definitions in a scope.
+    ///
+    /// Collapses the `usize::MAX` sentinel that `Stats::default()` plants
+    /// into `functions_min` to `0.0`, so a never-observed space
+    /// serializes to a meaningful number rather than `1.8446744e19`.
     #[inline]
     #[must_use]
     pub fn functions_min(&self) -> f64 {
         // Only function definitions are considered, not general declarations
-        self.functions_min as f64
+        if self.functions_min == usize::MAX {
+            0.0
+        } else {
+            self.functions_min as f64
+        }
     }
 
-    /// Counts the number of closures in a scope
+    /// Counts the number of closures in a scope.
+    ///
+    /// Same `usize::MAX` sentinel collapse as `functions_min`.
     #[inline]
     #[must_use]
     pub fn closures_min(&self) -> f64 {
-        self.closures_min as f64
+        if self.closures_min == usize::MAX {
+            0.0
+        } else {
+            self.closures_min as f64
+        }
     }
     /// Counts the number of function definitions in a scope
     #[inline]
@@ -274,6 +288,17 @@ mod tests {
     use crate::tools::check_metrics;
 
     use super::*;
+
+    /// Regression for #227: a `Stats::default()` that never sees an
+    /// observation must not leak the `usize::MAX` sentinel for
+    /// `functions_min` or `closures_min`. Both getters collapse the
+    /// sentinel to `0.0` so JSON never emits `1.8446744e19`.
+    #[test]
+    fn nom_empty_file_min_is_zero() {
+        let stats = Stats::default();
+        assert_eq!(stats.functions_min(), 0.0);
+        assert_eq!(stats.closures_min(), 0.0);
+    }
 
     #[test]
     fn python_nom() {
