@@ -46,12 +46,6 @@ fn cognitive_max(lang: LANG, source: &str, ext: &str) -> f64 {
 //
 // **Excluded — Python**: Python's `match` statement (PEP 634)
 // currently reports `cognitive_max() == 0` here. See #212.
-//
-// **Excluded — Bash**: Bash uses `case … esac`, which is the same
-// logical construct, but `impl Cyclomatic for BashCode` reports a
-// divergent `cyclomatic_max()` for this fixture (see #211); the
-// cognitive impl is similarly an open question. Parking Bash here
-// pending #211 / a sibling investigation.
 
 #[test]
 fn two_arm_wildcard_switch_cognitive_parity() {
@@ -164,6 +158,11 @@ func f(x int) string {
 "#,
         "go",
     );
+    let bash = cognitive_max(
+        LANG::Bash,
+        "f() {\n  case \"$1\" in\n    one) echo one ;;\n    *) echo other ;;\n  esac\n}\n",
+        "sh",
+    );
 
     // expected: one explicit arm + wildcard/default in a single
     // switch/match contributes one cognitive decision point.
@@ -177,13 +176,14 @@ func f(x int) string {
     assert_eq!(csharp, expected, "csharp");
     assert_eq!(kotlin, expected, "kotlin");
     assert_eq!(go, expected, "go");
+    assert_eq!(bash, expected, "bash");
 }
 
-// Companion tests pinning the CURRENT (divergent) behavior for
-// Python and Bash. When the upstream bugs are fixed, these tests
-// will start failing, prompting the maintainer to merge the
-// languages back into `two_arm_wildcard_switch_cognitive_parity`
-// above. This avoids the "prose-only exclusion goes stale" trap.
+// Companion test pinning the CURRENT (divergent) behavior for
+// Python. When the upstream bug is fixed, this test will start
+// failing, prompting the maintainer to merge Python back into
+// `two_arm_wildcard_switch_cognitive_parity` above. This avoids
+// the "prose-only exclusion goes stale" trap.
 
 #[test]
 fn two_arm_wildcard_switch_python_divergence_pin() {
@@ -200,20 +200,4 @@ fn two_arm_wildcard_switch_python_divergence_pin() {
         python, 0.0,
         "python — tracks #212; remove this pin when fixed"
     );
-}
-
-#[test]
-fn two_arm_wildcard_switch_bash_divergence_pin() {
-    // Tracks #211. Bash `case … esac` currently diverges from the
-    // other switch-bearing languages on `cyclomatic_max`; the
-    // cognitive impl is parked alongside pending investigation.
-    let bash = cognitive_max(
-        LANG::Bash,
-        "f() {\n  case \"$1\" in\n    one) echo one ;;\n    *) echo other ;;\n  esac\n}\n",
-        "sh",
-    );
-    // Pin whatever the current value is. If the value changes (in
-    // either direction), the maintainer will see the failure and
-    // can decide whether to rejoin the parity test.
-    assert_eq!(bash, 1.0, "bash — tracks #211; remove this pin when fixed");
 }
