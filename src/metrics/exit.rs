@@ -141,45 +141,38 @@ where
     fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats);
 }
 
-impl Exit for PythonCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
-        if matches!(node.kind_id().into(), Python::ReturnStatement) {
-            stats.exit += 1;
+// Bumps `stats.exit` whenever the current node matches any of the
+// supplied per-language token variants. Mirrors the `js_cognitive!` /
+// `impl_cyclomatic_c_family!` shape used elsewhere in `src/metrics/`
+// (issue #228 added a second variant per language and made the
+// duplication worth factoring out).
+macro_rules! impl_exit_match_kinds {
+    ($code:ty, $lang:ident, [$($kind:ident),+ $(,)?]) => {
+        impl Exit for $code {
+            fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+                if matches!(node.kind_id().into(), $($lang::$kind)|+) {
+                    stats.exit += 1;
+                }
+            }
         }
-    }
+    };
 }
 
-impl Exit for MozjsCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
-        if matches!(node.kind_id().into(), Mozjs::ReturnStatement) {
-            stats.exit += 1;
-        }
-    }
-}
-
-impl Exit for JavascriptCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
-        if matches!(node.kind_id().into(), Javascript::ReturnStatement) {
-            stats.exit += 1;
-        }
-    }
-}
-
-impl Exit for TypescriptCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
-        if matches!(node.kind_id().into(), Typescript::ReturnStatement) {
-            stats.exit += 1;
-        }
-    }
-}
-
-impl Exit for TsxCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
-        if matches!(node.kind_id().into(), Tsx::ReturnStatement) {
-            stats.exit += 1;
-        }
-    }
-}
+impl_exit_match_kinds!(PythonCode, Python, [ReturnStatement, RaiseStatement]);
+impl_exit_match_kinds!(MozjsCode, Mozjs, [ReturnStatement, ThrowStatement]);
+impl_exit_match_kinds!(
+    JavascriptCode,
+    Javascript,
+    [ReturnStatement, ThrowStatement]
+);
+impl_exit_match_kinds!(
+    TypescriptCode,
+    Typescript,
+    [ReturnStatement, ThrowStatement]
+);
+impl_exit_match_kinds!(TsxCode, Tsx, [ReturnStatement, ThrowStatement]);
+impl_exit_match_kinds!(CppCode, Cpp, [ReturnStatement, ThrowStatement]);
+impl_exit_match_kinds!(JavaCode, Java, [ReturnStatement, ThrowStatement]);
 
 impl Exit for RustCode {
     fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
@@ -188,22 +181,6 @@ impl Exit for RustCode {
             Rust::ReturnExpression | Rust::TryExpression
         ) || Self::is_func(node) && node.child_by_field_name("return_type").is_some()
         {
-            stats.exit += 1;
-        }
-    }
-}
-
-impl Exit for CppCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
-        if matches!(node.kind_id().into(), Cpp::ReturnStatement) {
-            stats.exit += 1;
-        }
-    }
-}
-
-impl Exit for JavaCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
-        if matches!(node.kind_id().into(), Java::ReturnStatement) {
             stats.exit += 1;
         }
     }
@@ -478,8 +455,10 @@ mod tests {
              }",
             "foo.cpp",
             |metric| {
-                // 1 function, 3 returns (2 in try, 1 in catch).
-                // C++ exit impl does NOT count `throw` — only ReturnStatement.
+                // 1 function, 3 returns (2 in try, 1 in catch); no
+                // `throw` in this body so the #228 throw-counting fix
+                // does not bump the total — this also pins the negative
+                // case (return-only path stays at 3).
                 assert_eq!(metric.nexits.exit_sum(), 3.0);
                 assert_eq!(metric.nexits.exit_max(), 3.0);
                 insta::assert_json_snapshot!(
@@ -1723,6 +1702,192 @@ end",
             |metric| {
                 assert_eq!(metric.nexits.exit_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.nexits);
+            },
+        );
+    }
+
+    #[test]
+    fn python_return_and_raise() {
+        // Regression for #228: `raise` exits the function (stack unwinds)
+        // just like `return`. Mirrors the C# / Kotlin / PHP / Elixir
+        // behaviour. One `raise` + one `return` => 2 exits.
+        check_metrics::<PythonParser>(
+            "def parse(s):
+                 if not s:
+                     raise ValueError(\"empty\")
+                 return int(s)",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 2.0);
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                {
+                  "sum": 2.0,
+                  "average": 2.0,
+                  "min": 0.0,
+                  "max": 2.0
+                }
+                "###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_return_and_throw() {
+        // Regression for #228: `throw` is a function exit.
+        check_metrics::<JavascriptParser>(
+            "function parseLength(s) {
+                 if (s === null) throw new Error('null');
+                 return s.length;
+             }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 2.0);
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                {
+                  "sum": 2.0,
+                  "average": 2.0,
+                  "min": 0.0,
+                  "max": 2.0
+                }
+                "###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_return_and_throw() {
+        // Regression for #228: same shape as plain JavaScript.
+        check_metrics::<MozjsParser>(
+            "function parseLength(s) {
+                 if (s === null) throw new Error('null');
+                 return s.length;
+             }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 2.0);
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                {
+                  "sum": 2.0,
+                  "average": 2.0,
+                  "min": 0.0,
+                  "max": 2.0
+                }
+                "###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_return_and_throw() {
+        // Regression for #228.
+        check_metrics::<TypescriptParser>(
+            "function parseLength(s: string | null): number {
+                 if (s === null) throw new Error('null');
+                 return s.length;
+             }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 2.0);
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                {
+                  "sum": 2.0,
+                  "average": 2.0,
+                  "min": 0.0,
+                  "max": 2.0
+                }
+                "###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_return_and_throw() {
+        // Regression for #228.
+        check_metrics::<TsxParser>(
+            "function parseLength(s: string | null): number {
+                 if (s === null) throw new Error('null');
+                 return s.length;
+             }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 2.0);
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                {
+                  "sum": 2.0,
+                  "average": 2.0,
+                  "min": 0.0,
+                  "max": 2.0
+                }
+                "###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn java_return_and_throw() {
+        // Regression for #228: `throw` exits the method.
+        check_metrics::<JavaParser>(
+            "class A {
+                 int parseLength(String s) {
+                     if (s == null) throw new NullPointerException();
+                     return s.length();
+                 }
+             }",
+            "foo.java",
+            |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 2.0);
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                {
+                  "sum": 2.0,
+                  "average": 2.0,
+                  "min": 0.0,
+                  "max": 2.0
+                }
+                "###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_return_and_throw() {
+        // Regression for #228: `throw` exits the function.
+        check_metrics::<CppParser>(
+            "int parseLength(const char* s) {
+                 if (s == nullptr) throw std::invalid_argument(\"null\");
+                 return 0;
+             }",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 2.0);
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                {
+                  "sum": 2.0,
+                  "average": 2.0,
+                  "min": 0.0,
+                  "max": 2.0
+                }
+                "###
+                );
             },
         );
     }
