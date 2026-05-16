@@ -414,6 +414,41 @@ changes are marked with **(breaking)** in the entries below.
 
 ### Fixed
 
+- Python cyclomatic complexity no longer over-counts plain `if/else` by
+  one. Root cause: the `has_ancestors` helper in `src/node.rs` did not
+  actually verify both predicates against the expected ancestor chain;
+  it returned true whenever the immediate parent matched the second
+  predicate. The helper has been renamed to `parent_grandparent_match`
+  and now strictly checks both. Python `try/except/else` is now
+  counted alongside `for/else` and `while/else`
+  ([#229](https://github.com/dekobon/big-code-analysis/issues/229)).
+- Cyclomatic complexity now counts the nullish coalescing operator
+  (`??`, token `QMARKQMARK`) as a short-circuit decision in
+  JavaScript, TypeScript, TSX, and Mozjs, matching the existing C#
+  and PHP treatment. `a ?? b` adds one decision edge to the CFG (does
+  not evaluate `b` if `a` is non-null). The `impl_cyclomatic_c_family!`
+  macro now takes the short-circuit operator list as a parameter so
+  per-language differences (C++ has no `??`) stay explicit
+  ([#226](https://github.com/dekobon/big-code-analysis/issues/226)).
+- Cognitive complexity now counts the ternary `?:` operator with
+  `+1 + nesting` for Java, C#, and PHP, matching `cyclomatic.rs`, the
+  C++ fix from #172, and SonarSource Cognitive Complexity §2. Adds
+  `TernaryExpression` (Java) and `ConditionalExpression` (C#, PHP) to
+  each language's `increase_nesting` arm
+  ([#224](https://github.com/dekobon/big-code-analysis/issues/224)).
+- Cognitive complexity now counts labeled `break`/`continue` for
+  Java and all forms of `goto` (`label`, `case`, `default`) for C#,
+  mirroring the Rust/Go/C++/Perl/Lua handling per SonarSource
+  Cognitive Complexity §B2. C#'s grammar does not allow labeled
+  `break`/`continue` so only `goto_statement` is added there
+  ([#225](https://github.com/dekobon/big-code-analysis/issues/225)).
+- `throw`/`raise` now contribute to `NExit` in Python, JavaScript,
+  TypeScript, TSX, Mozjs, Java, and C++, aligning with the existing
+  C#/Kotlin/PHP/Elixir behaviour. `throw`/`raise` is a function exit
+  by definition — control leaves the function and the stack unwinds.
+  Fixtures containing throws see their `nexits` sum/min/max/average
+  increase accordingly; no other metrics or structural fields change
+  ([#228](https://github.com/dekobon/big-code-analysis/issues/228)).
 - The `cognitive`, `cyclomatic`, `nom`, `nargs`, `exit`, and `abc`
   metric `_min` getters now collapse the `usize::MAX` / `f64::MAX`
   sentinel that `Stats::default()` plants to `0.0`, so a never-observed
