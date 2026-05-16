@@ -179,9 +179,18 @@ impl Stats {
     }
 
     /// Returns the `Abc` assignments minimum value.
+    ///
+    /// Collapses the `f64::MAX` sentinel that `Stats::default()` plants
+    /// into `assignments_min` to `0.0`, so a never-observed space
+    /// serializes to a meaningful number rather than `1.7976931e308`.
+    #[allow(clippy::float_cmp)]
     #[must_use]
     pub fn assignments_min(&self) -> f64 {
-        self.assignments_min
+        if self.assignments_min == f64::MAX {
+            0.0
+        } else {
+            self.assignments_min
+        }
     }
 
     /// Returns the `Abc` assignments maximum value.
@@ -212,9 +221,16 @@ impl Stats {
     }
 
     /// Returns the `Abc` branches minimum value.
+    ///
+    /// Same `f64::MAX` sentinel collapse as `assignments_min`.
+    #[allow(clippy::float_cmp)]
     #[must_use]
     pub fn branches_min(&self) -> f64 {
-        self.branches_min
+        if self.branches_min == f64::MAX {
+            0.0
+        } else {
+            self.branches_min
+        }
     }
 
     /// Returns the `Abc` branches maximum value.
@@ -245,9 +261,16 @@ impl Stats {
     }
 
     /// Returns the `Abc` conditions minimum value.
+    ///
+    /// Same `f64::MAX` sentinel collapse as `assignments_min`.
+    #[allow(clippy::float_cmp)]
     #[must_use]
     pub fn conditions_min(&self) -> f64 {
-        self.conditions_min
+        if self.conditions_min == f64::MAX {
+            0.0
+        } else {
+            self.conditions_min
+        }
     }
 
     /// Returns the `Abc` conditions maximum value.
@@ -1879,6 +1902,19 @@ mod tests {
     use crate::tools::check_metrics;
 
     use super::*;
+
+    /// Regression for #227: a `Stats::default()` that never sees an
+    /// observation must not leak the `f64::MAX` sentinel for
+    /// `assignments_min`, `branches_min`, or `conditions_min`. All
+    /// three getters collapse the sentinel to `0.0` so JSON never
+    /// emits `1.7976931e308`.
+    #[test]
+    fn abc_empty_file_min_is_zero() {
+        let stats = Stats::default();
+        assert_eq!(stats.assignments_min(), 0.0);
+        assert_eq!(stats.branches_min(), 0.0);
+        assert_eq!(stats.conditions_min(), 0.0);
+    }
 
     // Regression test for the `EQ` arm guard in `JavaCode::compute`:
     // the rewrite from `.map().unwrap_or_else()` to

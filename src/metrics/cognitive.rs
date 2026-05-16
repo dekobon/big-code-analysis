@@ -113,10 +113,18 @@ impl Stats {
         self.structural_sum as f64
     }
 
-    /// Returns the `Cognitive Complexity` minimum metric value
+    /// Returns the `Cognitive Complexity` minimum metric value.
+    ///
+    /// Collapses the `usize::MAX` sentinel that `Stats::default()` plants
+    /// into `structural_min` to `0.0`, so a never-observed space
+    /// serializes to a meaningful number rather than `1.8446744e19`.
     #[must_use]
     pub fn cognitive_min(&self) -> f64 {
-        self.structural_min as f64
+        if self.structural_min == usize::MAX {
+            0.0
+        } else {
+            self.structural_min as f64
+        }
     }
     /// Returns the `Cognitive Complexity` maximum metric value
     #[must_use]
@@ -1258,6 +1266,16 @@ mod tests {
     use crate::tools::check_metrics;
 
     use super::*;
+
+    /// Regression for #227: a `Stats::default()` that never sees an
+    /// observation must not leak the `usize::MAX` sentinel for
+    /// `structural_min`. The getter collapses the sentinel to `0.0`
+    /// so JSON never emits `1.8446744e19`.
+    #[test]
+    fn cognitive_empty_file_min_is_zero() {
+        let stats = Stats::default();
+        assert_eq!(stats.cognitive_min(), 0.0);
+    }
 
     #[test]
     fn python_no_cognitive() {
