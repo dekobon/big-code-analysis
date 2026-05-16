@@ -920,9 +920,26 @@ impl Abc for PythonCode {
             | ElifClause
             | ElseClause
             | ExceptClause
-            | FinallyClause
-            | CaseClause => {
+            | FinallyClause => {
                 stats.conditions += 1.;
+            }
+            // `case` arms count as conditions, except for the bare
+            // wildcard `case _:` which is the language-neutral
+            // `default:` equivalent (matches Rust's bare-`_`
+            // MatchArm filter and Java/C#'s `default:` rule). The
+            // grammar emits `case _:` as a `case_clause` containing
+            // a `case_pattern` whose sole child is the `UNDERSCORE`
+            // token; any other shape (`case 1:`, `case Some(x):`,
+            // `case _ if g:`) has additional children and still
+            // counts.
+            CaseClause => {
+                let is_bare_wildcard = node
+                    .children()
+                    .find(|c| matches!(c.kind_id().into(), CasePattern))
+                    .is_some_and(|pat| super::npa::python_case_pattern_is_bare_underscore(&pat));
+                if !is_bare_wildcard {
+                    stats.conditions += 1.;
+                }
             }
             _ => {}
         }
@@ -1528,10 +1545,20 @@ impl Abc for ElixirCode {
             // `defstruct`/`defprotocol`/`defimpl`) are *not* runtime
             // dispatch and must not inflate `branches` — they parse as
             // `Call` nodes because Elixir's grammar uses the same
-            // shape for all keyword-introduced forms. Cognitive
-            // already filters these via `elixir_call_keyword`; mirror
-            // that here. Aliasing/import directives (`alias`, `import`,
-            // `require`, `use`) are similarly declarative and excluded.
+            // shape for all keyword-introduced forms. Aliasing/import
+            // directives (`alias`, `import`, `require`, `use`) are
+            // similarly declarative and excluded.
+            //
+            // Cognitive's `elixir_call_keyword` lookup is reused to
+            // identify the target keyword. Note: Cognitive only acts
+            // on a subset of these keywords (the four method-definers
+            // for nesting reset, plus the 7 control-flow keywords for
+            // +nesting); Abc's broader filter additionally drops the
+            // module/struct/protocol declarators and aliasing
+            // directives that Cognitive ignores entirely. Filter sets
+            // are intentionally different — both impls use the same
+            // helper to look up the keyword, but apply different
+            // policies on top.
             E::Call => {
                 let keyword = super::cognitive::elixir_call_keyword(node, code);
                 let is_definition_or_directive = matches!(
@@ -4125,8 +4152,6 @@ function f(int $a, int $b): int {
     // gate. Tag the follow-up issue in each test.
     // ---------------------------------------------------------------
 
-    // PLACEHOLDER #204: C++ `Abc` is unimplemented.
-
     // --- Python ABC ---------------------------------------------------
 
     #[test]
@@ -4288,14 +4313,16 @@ function f(int $a, int $b): int {
 
     #[test]
     fn python_match_case_counts_conditions() {
-        // Each `CaseClause` → 1 condition. `match` itself isn't a
-        // condition arm by Fitzpatrick's rule — the comparison
-        // happens inside each `case`.
+        // Each non-wildcard `CaseClause` → 1 condition. The bare
+        // `case _:` arm is the language-neutral `default:` equivalent
+        // and is excluded (matches Rust's bare-`_` MatchArm filter and
+        // Java/C#'s `default:` rule). Source has `case 1:` (counts) +
+        // `case _:` (excluded) → C = 1.
         check_metrics::<PythonParser>(
             "def f(x):\n    match x:\n        case 1:\n            pass\n        case _:\n            pass\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
