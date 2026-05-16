@@ -590,10 +590,8 @@ impl Cognitive for JavaCode {
             // Per SonarSource Cognitive Complexity §B2, labeled `break LABEL`
             // and `continue LABEL` each add +1 for breaking the structured
             // control flow. Plain `break;` / `continue;` are not penalized.
-            // The Java grammar models the label as an optional `identifier`
-            // child of `break_statement` / `continue_statement`.
             BreakStatement | ContinueStatement
-                if node.children().any(|c| c.kind_id() == Identifier) =>
+                if node.is_child(Identifier as u16) =>
             {
                 increment_by_one(stats);
             }
@@ -713,7 +711,7 @@ impl Cognitive for PerlCode {
             // `last LABEL` / `next LABEL` / `redo LABEL` — only the
             // labeled forms count, since the bare forms are subsumed by
             // the surrounding loop's nesting.
-            P::LoopControlStatement if node.children().any(|c| c.kind_id() == P::Label) => {
+            P::LoopControlStatement if node.is_child(P::Label as u16) => {
                 increment_by_one(stats);
             }
             P::UnaryExpression => {
@@ -813,9 +811,7 @@ impl Cognitive for GoCode {
             G::Else | G::GotoStatement => {
                 increment_by_one(stats);
             }
-            G::BreakStatement | G::ContinueStatement
-                if node.children().any(|c| c.kind_id() == G::LabelName) =>
-            {
+            G::BreakStatement | G::ContinueStatement if node.is_child(G::LabelName as u16) => {
                 increment_by_one(stats);
             }
             G::UnaryExpression => {
@@ -1267,7 +1263,7 @@ mod tests {
 
     use super::*;
 
-    /// Regression for #227: a `Stats::default()` that never sees an
+    /// A `Stats::default()` that never sees an
     /// observation must not leak the `usize::MAX` sentinel for
     /// `structural_min`. The getter collapses the sentinel to `0.0`
     /// so JSON never emits `1.8446744e19`.
@@ -3525,7 +3521,7 @@ mod tests {
         // Java's ternary `?:` (grammar `ternary_expression`) is a
         // conditional construct: +1 base + nesting, matching the
         // SonarSource Cognitive Complexity §2 rule and the C++/JS
-        // siblings. Regression test for issue #224.
+        // siblings.
         check_metrics::<JavaParser>(
             "class X {
               public static boolean check(int a) {
