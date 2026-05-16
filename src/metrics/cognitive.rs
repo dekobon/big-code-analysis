@@ -579,6 +579,16 @@ impl Cognitive for JavaCode {
             Else /* else-if also */ => {
                 increment_by_one(stats);
             }
+            // Per SonarSource Cognitive Complexity §B2, labeled `break LABEL`
+            // and `continue LABEL` each add +1 for breaking the structured
+            // control flow. Plain `break;` / `continue;` are not penalized.
+            // The Java grammar models the label as an optional `identifier`
+            // child of `break_statement` / `continue_statement`.
+            BreakStatement | ContinueStatement
+                if node.children().any(|c| c.kind_id() == Identifier) =>
+            {
+                increment_by_one(stats);
+            }
             UnaryExpression => {
                 stats.boolean_seq.not_operator();
             }
@@ -623,6 +633,14 @@ impl Cognitive for CsharpCode {
             // a flat +1 for the alternative branch (matches Java's `Else`
             // handling).
             Else => {
+                increment_by_one(stats);
+            }
+            // Per SonarSource Cognitive Complexity §B2, any `goto` (including
+            // `goto label`, `goto case x`, `goto default`) is an unstructured
+            // jump and adds +1. C#'s grammar does not allow labeled
+            // `break`/`continue` (those forms are syntactically rejected), so
+            // the only labeled-jump form to handle here is `goto_statement`.
+            GotoStatement => {
                 increment_by_one(stats);
             }
             // The grammar emits two aliased `kind_id`s for
@@ -3548,6 +3566,78 @@ mod tests {
     }
 
     #[test]
+    fn java_labeled_break_continue() {
+        // Per SonarSource Cognitive Complexity §B2 (issue #225), labeled
+        // `break LABEL` and `continue LABEL` each add +1 because they break
+        // structured control flow. Mirrors `go_labeled_break_continue` and
+        // `rust_break_continue_labeled`.
+        // expected: outer for (+1, nesting=0) + inner for (+2, nesting=1)
+        // + if (+3, nesting=2) + continue outer (+1)
+        // + if (+3, nesting=2) + break outer (+1) = 11.
+        check_metrics::<JavaParser>(
+            "class X {
+                void scan(int[][] m) {
+                    outer:
+                    for (int i = 0; i < m.length; i++) {        // +1
+                        for (int j = 0; j < m[i].length; j++) {  // +2
+                            if (m[i][j] < 0) continue outer;     // +3, +1
+                            if (m[i][j] > 100) break outer;      // +3, +1
+                        }
+                    }
+                }
+            }",
+            "foo.java",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 11.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 11.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 11.0,
+                      "average": 11.0,
+                      "min": 0.0,
+                      "max": 11.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn java_unlabeled_break_continue_not_counted() {
+        // Negative test for issue #225: plain `break;` / `continue;` are
+        // *not* unstructured jumps under SonarSource Cognitive Complexity
+        // §B2 and must add 0. Only the surrounding `for` + `if` contribute.
+        // expected: for (+1) + if (+2) + if (+2) = 5.
+        check_metrics::<JavaParser>(
+            "class X {
+                void scan(int[] m) {
+                    for (int i = 0; i < m.length; i++) {  // +1
+                        if (m[i] < 0) continue;            // +2, +0
+                        if (m[i] > 100) break;             // +2, +0
+                    }
+                }
+            }",
+            "foo.java",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 5.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 5.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 5.0,
+                      "average": 5.0,
+                      "min": 0.0,
+                      "max": 5.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
     fn csharp_no_cognitive() {
         check_metrics::<CsharpParser>("int a = 42;", "foo.cs", |metric| {
             insta::assert_json_snapshot!(
@@ -3757,6 +3847,108 @@ mod tests {
                       "average": 6.0,
                       "min": 0.0,
                       "max": 6.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_goto_statement() {
+        // Per SonarSource Cognitive Complexity §B2 (issue #225), any `goto`
+        // is an unstructured jump and adds +1. Mirrors C++'s `GotoStatement`
+        // and Go's `GotoStatement` handling.
+        // expected: if (+1, nesting=0) + goto neg (+1) = 2.
+        check_metrics::<CsharpParser>(
+            "class X {
+                int Classify(int x) {
+                    if (x < 0) goto neg;  // +1, +1
+                    return x;
+                    neg:
+                    return -x;
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 2.0,
+                      "min": 0.0,
+                      "max": 2.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_goto_case_and_default() {
+        // `goto case` and `goto default` inside a `switch` are also
+        // unstructured jumps (+1 each) per SonarSource §B2.
+        // expected: switch (+1, nesting=0) + goto case 2 (+1)
+        // + goto default (+1) = 3.
+        check_metrics::<CsharpParser>(
+            "class X {
+                int Walk(int x) {
+                    switch (x) {  // +1
+                        case 1: goto case 2;     // +1
+                        case 2: return 2;
+                        case 3: goto default;    // +1
+                        default: return 0;
+                    }
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 3.0,
+                      "min": 0.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_unlabeled_break_not_counted() {
+        // Negative test for issue #225: C#'s grammar does not allow
+        // labeled `break`/`continue` (those are syntactically rejected),
+        // and plain `break;` / `continue;` are not unstructured jumps under
+        // SonarSource §B2 — they must add 0. Only the `for` + `if`
+        // contribute.
+        // expected: for (+1) + if (+2) = 3.
+        check_metrics::<CsharpParser>(
+            "class X {
+                void Scan(int[] m) {
+                    for (int i = 0; i < m.Length; i++) {  // +1
+                        if (m[i] < 0) break;               // +2, +0
+                    }
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 3.0,
+                      "min": 0.0,
+                      "max": 3.0
                     }"###
                 );
             },
