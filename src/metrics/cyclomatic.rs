@@ -256,9 +256,23 @@ impl Cyclomatic for PythonCode {
             MatchStatement => {
                 stats.cyclomatic_modified += 1.;
             }
-            Else if node.has_ancestors(
-                |node| matches!(node.kind_id().into(), ForStatement | WhileStatement),
-                |node| node.kind_id() == ElseClause,
+            // Python's `for/else`, `while/else`, and `try/except/else`
+            // attach an `else_clause` whose body runs only on the
+            // "normal" completion path (loop finishes without `break`;
+            // try block finishes without raising). That conditional
+            // execution is a distinct decision point, so count it
+            // toward both standard and modified cyclomatic. Plain
+            // `if/else` is unconditional once the `if` has been
+            // counted, so we must NOT fire for `else_clause` parents
+            // of `if_statement` — see #229.
+            Else if node.parent_grandparent_match(
+                |parent| parent.kind_id() == ElseClause,
+                |grand| {
+                    matches!(
+                        grand.kind_id().into(),
+                        ForStatement | WhileStatement | TryStatement
+                    )
+                },
             ) =>
             {
                 stats.cyclomatic += 1.;
@@ -740,6 +754,150 @@ mod tests {
     use crate::tools::check_metrics;
 
     use super::*;
+
+    /// Regression for #229: a plain `if/else` must not be credited
+    /// as a loop-`else`. The `Else` arm of `impl Cyclomatic for
+    /// PythonCode` previously fired for every `else_clause` because
+    /// the old `has_ancestors` helper only verified the second
+    /// predicate; the rewritten `parent_grandparent_match` requires
+    /// the grandparent to be `for/while/try`.
+    ///
+    /// Expected: unit(1) + fn(1) + if(1) = 3. No contribution from
+    /// `else`.
+    #[test]
+    fn python_if_else_does_not_overcount_229() {
+        check_metrics::<PythonParser>(
+            "def f(x):
+    if x > 0:
+        y = 1
+    else:
+        y = 2
+",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 1.5,
+                      "min": 1.0,
+                      "max": 2.0,
+                      "modified": {
+                        "sum": 3.0,
+                        "average": 1.5,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// Companion to #229: a chained `if/elif/else` must count one
+    /// per `if` and per `elif`, never the bare `else`.
+    ///
+    /// Expected: unit(1) + fn(1) + if(1) + elif(1) + elif(1) = 5.
+    #[test]
+    fn python_if_elif_else_chain_229() {
+        check_metrics::<PythonParser>(
+            "def f(x):
+    if x == 1:
+        return 10
+    elif x == 2:
+        return 20
+    elif x == 3:
+        return 30
+    else:
+        return 0
+",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 5.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4.0);
+            },
+        );
+    }
+
+    /// The for/else feature must still count: the `else` body runs
+    /// only when the loop completes without `break`, which is a
+    /// distinct decision point.
+    ///
+    /// Expected: unit(1) + fn(1) + for(1) + else(1) = 4.
+    #[test]
+    fn python_for_else_still_counts_229() {
+        check_metrics::<PythonParser>(
+            "def f(xs):
+    for x in xs:
+        if x < 0:
+            break
+    else:
+        return True
+    return False
+",
+            "foo.py",
+            |metric| {
+                // fn body has: for(1) + if(1) + for/else(1) = 3 over base 1 -> max = 4
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 5.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4.0);
+            },
+        );
+    }
+
+    /// Symmetric to for/else: while/else also runs only on normal
+    /// completion of the loop.
+    ///
+    /// Expected: unit(1) + fn(1) + while(1) + else(1) = 4.
+    #[test]
+    fn python_while_else_still_counts_229() {
+        check_metrics::<PythonParser>(
+            "def f(n):
+    while n > 0:
+        n -= 1
+    else:
+        return True
+    return False
+",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+            },
+        );
+    }
+
+    /// try/except/else: the `else` body runs only when no exception
+    /// was raised in `try`, mirroring loop-`else` semantics. Counts
+    /// alongside the `except` arm.
+    ///
+    /// Expected: unit(1) + fn(1) + except(1) + try/else(1) = 4.
+    #[test]
+    fn python_try_except_else_counts_229() {
+        check_metrics::<PythonParser>(
+            "def f():
+    try:
+        x = risky()
+    except ValueError:
+        x = -1
+    else:
+        x = x + 1
+    return x
+",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+            },
+        );
+    }
 
     #[test]
     fn python_simple_function() {
