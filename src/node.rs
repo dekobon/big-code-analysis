@@ -117,11 +117,24 @@ impl<'a> Node<'a> {
         self.0.next_sibling().map(Node)
     }
 
+    /// Returns `true` if any direct child has the given grammar
+    /// `kind_id`. Walks via `child(0)` + `next_sibling()` instead of
+    /// `children(&mut self.0.walk())` so the implementation avoids
+    /// the per-call `TreeCursor` heap allocation that the iterator
+    /// form requires. Each `next_sibling()` is O(1) (tree-sitter
+    /// stores siblings as a linked list), so total cost is O(n)
+    /// without cursor overhead. See #217 for the motivating perf
+    /// finding from the JS/TS template-literal hot path.
     #[inline]
     pub(crate) fn is_child(&self, id: u16) -> bool {
-        self.0
-            .children(&mut self.0.walk())
-            .any(|child| child.kind_id() == id)
+        let mut cur = self.0.child(0);
+        while let Some(c) = cur {
+            if c.kind_id() == id {
+                return true;
+            }
+            cur = c.next_sibling();
+        }
+        false
     }
 
     pub(crate) fn child_count(&self) -> usize {
