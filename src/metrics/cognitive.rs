@@ -337,7 +337,11 @@ impl Cognitive for PythonCode {
         let (mut nesting, mut depth, mut lambda) = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
-            IfStatement | ForStatement | WhileStatement | ConditionalExpression => {
+            IfStatement
+            | ForStatement
+            | WhileStatement
+            | ConditionalExpression
+            | MatchStatement => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
             ElifClause => {
@@ -1321,6 +1325,40 @@ mod tests {
                       "average": 4.0,
                       "min": 0.0,
                       "max": 4.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// Python `match`/`case` (PEP 634, 3.10+) opens cognitive nesting
+    /// the same way Rust's `match_expression` and the C-family
+    /// `switch_statement` do. A 2-arm match with one explicit arm
+    /// plus a wildcard contributes one cognitive decision point.
+    /// Regression test for #212.
+    #[test]
+    fn python_match_two_arm_wildcard() {
+        check_metrics::<PythonParser>(
+            "def f(x):
+    match x:
+        case 1:
+            return 'one'
+        case _:
+            return 'other'
+",
+            "foo.py",
+            |metric| {
+                // The `match_statement` contributes one decision point;
+                // case arms inside add no extra nesting (mirrors Rust /
+                // C-family switch). cognitive_max = 1.
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
                     }"###
                 );
             },
