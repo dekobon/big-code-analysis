@@ -3458,7 +3458,6 @@ mod tests {
         );
     }
 
-
     /// Annotated `self.x: int = 1` inside a method body parses as
     /// `Assignment(target=Attribute(self, x), type, value)` in
     /// tree-sitter-python — the same node type as plain `self.x = 1`.
