@@ -43,9 +43,6 @@ fn cognitive_max(lang: LANG, source: &str, ext: &str) -> f64 {
 // nesting and the fallback is silent. Expected `cognitive_max()` is
 // therefore `1` for every language whose grammar models the
 // construct as a `switch`/`match`.
-//
-// **Excluded — Python**: Python's `match` statement (PEP 634)
-// currently reports `cognitive_max() == 0` here. See #212.
 
 #[test]
 fn two_arm_wildcard_switch_cognitive_parity() {
@@ -163,6 +160,11 @@ func f(x int) string {
         "f() {\n  case \"$1\" in\n    one) echo one ;;\n    *) echo other ;;\n  esac\n}\n",
         "sh",
     );
+    let python = cognitive_max(
+        LANG::Python,
+        "def f(x):\n    match x:\n        case 1:\n            return 'one'\n        case _:\n            return 'other'\n",
+        "py",
+    );
 
     // expected: one explicit arm + wildcard/default in a single
     // switch/match contributes one cognitive decision point.
@@ -177,27 +179,5 @@ func f(x int) string {
     assert_eq!(kotlin, expected, "kotlin");
     assert_eq!(go, expected, "go");
     assert_eq!(bash, expected, "bash");
-}
-
-// Companion test pinning the CURRENT (divergent) behavior for
-// Python. When the upstream bug is fixed, this test will start
-// failing, prompting the maintainer to merge Python back into
-// `two_arm_wildcard_switch_cognitive_parity` above. This avoids
-// the "prose-only exclusion goes stale" trap.
-
-#[test]
-fn two_arm_wildcard_switch_python_divergence_pin() {
-    // Tracks #212. Python's `match`/`case` currently contributes
-    // zero cognitive cost. When the bug is fixed (or the metric
-    // implementation is adjusted), this assertion will flip and
-    // signal that Python should rejoin the parity test above.
-    let python = cognitive_max(
-        LANG::Python,
-        "def f(x):\n    match x:\n        case 1:\n            return 'one'\n        case _:\n            return 'other'\n",
-        "py",
-    );
-    assert_eq!(
-        python, 0.0,
-        "python — tracks #212; remove this pin when fixed"
-    );
+    assert_eq!(python, expected, "python");
 }

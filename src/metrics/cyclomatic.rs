@@ -222,12 +222,38 @@ impl Cyclomatic for PythonCode {
     fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Python::*;
 
-        // Python's `match`/`case` (3.10+) is intentionally not counted in
-        // either standard or modified CCN, following Lizard's convention
-        // (`_case_keywords = set()` for Python).
+        // Python's `match`/`case` (PEP 634, 3.10+) is treated like Rust's
+        // `match` and the C-family `switch`: each non-bare-wildcard arm
+        // counts toward standard CCN, and the containing `match_statement`
+        // adds the modified count. A bare `case _:` (no guard) is skipped,
+        // mirroring Rust's `MatchArm` filter and Java/C#'s `default:`
+        // exclusion. A guard (`case _ if g:`) still escapes the filter.
         match node.kind_id().into() {
             If | Elif | For | While | Except | With | Assert | And | Or => {
                 stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
+            }
+            CaseClause => {
+                let mut pattern_is_bare_underscore = false;
+                let mut has_guard = false;
+                for child in node.children() {
+                    match child.kind_id().into() {
+                        CasePattern => {
+                            pattern_is_bare_underscore =
+                                crate::metrics::npa::pattern_is_bare_underscore(
+                                    &child,
+                                    UNDERSCORE as u16,
+                                );
+                        }
+                        IfClause => has_guard = true,
+                        _ => {}
+                    }
+                }
+                if !pattern_is_bare_underscore || has_guard {
+                    stats.cyclomatic += 1.;
+                }
+            }
+            MatchStatement => {
                 stats.cyclomatic_modified += 1.;
             }
             Else if node.has_ancestors(
@@ -702,6 +728,94 @@ mod tests {
                         "average": 3.0,
                         "min": 1.0,
                         "max": 5.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// Python `match`/`case` (PEP 634, 3.10+): each non-bare-wildcard
+    /// arm contributes one standard decision; the containing
+    /// `match_statement` contributes one modified decision. A bare
+    /// `case _:` (no guard) is skipped, mirroring Rust's `MatchArm`
+    /// bare-wildcard filter. Regression test for #212.
+    #[test]
+    fn python_match_two_arm_wildcard() {
+        check_metrics::<PythonParser>(
+            "def f(x):
+    match x:
+        case 1:
+            return 'one'
+        case _:
+            return 'other'
+",
+            "foo.py",
+            |metric| {
+                // standard: 1 (unit) + 1 (fn) + 1 (case 1; case _ skipped) = 3
+                // modified: 1 (unit) + 1 (fn) + 1 (match_statement) = 3
+                // function space alone holds 1 decision -> max = 2
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 1.5,
+                      "min": 1.0,
+                      "max": 2.0,
+                      "modified": {
+                        "sum": 3.0,
+                        "average": 1.5,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// `case _ if guard:` still counts because the guard is an
+    /// `if_clause` sibling on the `case_clause`, escaping the bare-
+    /// wildcard filter. The guard's own `if` keyword token is also
+    /// counted via the existing `If` arm (every `if` keyword in
+    /// Python contributes a decision) — long-standing behaviour
+    /// shared with regular `if` statements. Companion to the
+    /// `python_match_case_guarded_wildcard_counts` test in `abc.rs`.
+    #[test]
+    fn python_match_guarded_wildcard_counts() {
+        check_metrics::<PythonParser>(
+            "def f(x):
+    match x:
+        case 1:
+            return 'one'
+        case _ if x > 0:
+            return 'positive'
+        case _:
+            return 'other'
+",
+            "foo.py",
+            |metric| {
+                // standard: 1 (unit) + 1 (fn) + 1 (case 1)
+                //         + 1 (guarded `case _ if ...` — bare-_ filter
+                //              escaped by the guard)
+                //         + 1 (`if` keyword inside the guard)
+                //         = 5; bare `case _:` is filtered.
+                // modified: 1 (unit) + 1 (fn) + 1 (match_statement)
+                //         + 1 (`if` keyword in the guard) = 4.
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 5.0,
+                      "average": 2.5,
+                      "min": 1.0,
+                      "max": 4.0,
+                      "modified": {
+                        "sum": 4.0,
+                        "average": 2.0,
+                        "min": 1.0,
+                        "max": 3.0
                       }
                     }"###
                 );

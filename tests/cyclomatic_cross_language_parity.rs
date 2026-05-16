@@ -484,10 +484,6 @@ f() {
 // over-count of the wildcard *and* an under-count of the explicit
 // arm.
 //
-// **Excluded — Python**: Python's `match` statement (PEP 634)
-// currently contributes `0` decision points in `impl Cyclomatic for
-// PythonCode`. See #212.
-//
 // **Excluded — Bash**: Bash `case … esac` with two arms reports
 // `cyclomatic_sum` consistent with the post-#107 fix but
 // `cyclomatic_max` retains a residual asymmetry tracked in #211.
@@ -582,6 +578,14 @@ function f($x) {
 }
 ",
             "php",
+        ),
+    );
+    sums.insert(
+        "python",
+        ccn_sum(
+            LANG::Python,
+            "def f(x):\n    match x:\n        case 1:\n            return 'one'\n        case _:\n            return 'other'\n",
+            "py",
         ),
     );
     let offsets = BTreeMap::from([("java", JAVA_CLASS_OFFSET)]);
