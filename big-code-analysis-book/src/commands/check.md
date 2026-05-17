@@ -61,7 +61,7 @@ form:
 | Cyclomatic          | `cyclomatic`, `cyclomatic.modified` |
 | Halstead            | `halstead.volume`, `halstead.difficulty`, `halstead.effort`, `halstead.time`, `halstead.bugs` |
 | Lines of code       | `loc.sloc`, `loc.ploc`, `loc.lloc`, `loc.cloc`, `loc.blank` |
-| Maintainability index | `mi.original`, `mi.sei`, `mi.visual_studio` |
+| Maintainability Index | `mi.original`, `mi.sei`, `mi.visual_studio` |
 
 An unknown threshold name is a tool error (exit `1`), not silently
 ignored.

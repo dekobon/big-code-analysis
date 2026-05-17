@@ -26,11 +26,11 @@ pub(crate) enum ListMetricsMode {
 pub(crate) const METRICS: &[MetricEntry] = &[
     MetricEntry {
         name: "cognitive",
-        description: "Cognitive complexity: how difficult code is to understand.",
+        description: "Cognitive Complexity: how difficult code is to understand.",
     },
     MetricEntry {
         name: "cyclomatic",
-        description: "Cyclomatic complexity: linearly independent paths through the code; the modified variant collapses switch/match arms (Lizard `-m`).",
+        description: "Cyclomatic Complexity: linearly independent paths through the code; the modified variant collapses switch/match arms (Lizard `-m`).",
     },
     MetricEntry {
         name: "halstead",
@@ -74,7 +74,7 @@ pub(crate) const METRICS: &[MetricEntry] = &[
     },
     MetricEntry {
         name: "mi",
-        description: "Maintainability index suite.",
+        description: "Maintainability Index suite.",
     },
     MetricEntry {
         name: "abc",
@@ -82,7 +82,7 @@ pub(crate) const METRICS: &[MetricEntry] = &[
     },
     MetricEntry {
         name: "wmc",
-        description: "Weighted methods per class.",
+        description: "Weighted Methods per Class.",
     },
     MetricEntry {
         name: "npm",

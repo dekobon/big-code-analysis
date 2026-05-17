@@ -15,13 +15,13 @@ expression: render(&offenders)
             {
               "id": "cognitive",
               "shortDescription": {
-                "text": "Cognitive complexity exceeds the configured threshold."
+                "text": "Cognitive Complexity exceeds the configured threshold."
               }
             },
             {
               "id": "cyclomatic",
               "shortDescription": {
-                "text": "Cyclomatic complexity exceeds the configured threshold."
+                "text": "Cyclomatic Complexity exceeds the configured threshold."
               }
             },
             {
