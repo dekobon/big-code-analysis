@@ -523,45 +523,56 @@ mod tests {
             .to_request();
 
         let res: Value = test::call_and_read_body_json(&app, req).await;
+        // FieldName values mirror the C grammar: `declaration` names its
+        // `type` and `declarator` fields, `init_declarator` names its
+        // `declarator` and `value` fields. Anonymous tokens (`=`, `;`)
+        // carry no field name. Regression coverage for #244.
         let expected = json!({
             "id": "1234",
             "root": {
                 "Type": "translation_unit",
                 "TextValue": "",
                 "Span": [1, 1, 1, 11],
+                "FieldName": null,
                 "Children": [
                     {
                         "Type": "declaration",
                         "TextValue": "",
                         "Span": [1, 1, 1, 11],
+                        "FieldName": null,
                         "Children": [
                             {
                                 "Type": "primitive_type",
                                 "TextValue": "int",
                                 "Span": [1, 1, 1, 4],
+                                "FieldName": "type",
                                 "Children": []
                             },
                             {
                                 "Type": "init_declarator",
                                 "TextValue": "",
                                 "Span": [1, 5, 1, 10],
+                                "FieldName": "declarator",
                                 "Children": [
                                     {
                                         "Type": "identifier",
                                         "TextValue": "x",
                                         "Span": [1, 5, 1, 6],
+                                        "FieldName": "declarator",
                                         "Children": []
                                     },
                                     {
                                         "Type": "=",
                                         "TextValue": "=",
                                         "Span": [1, 7, 1, 8],
+                                        "FieldName": null,
                                         "Children": []
                                     },
                                     {
                                         "Type": "number_literal",
                                         "TextValue": "1",
                                         "Span": [1, 9, 1, 10],
+                                        "FieldName": "value",
                                         "Children": []
                                     }
                                 ]
@@ -570,6 +581,7 @@ mod tests {
                                 "Type": ";",
                                 "TextValue": ";",
                                 "Span": [1, 10, 1, 11],
+                                "FieldName": null,
                                 "Children": []
                             }
                         ]
@@ -600,34 +612,46 @@ mod tests {
             .to_request();
 
         let res: Value = test::call_and_read_body_json(&app, req).await;
+        // FieldName values mirror the JS grammar: `variable_declarator`
+        // names its `name` and `value` children; `variable_declaration`
+        // and its `var` keyword / `;` token are unnamed. Regression
+        // coverage for #244.
         let expected = json!({
             "id": "1234",
             "root": {"Children": [{"Children": [{"Children": [],
+                                                 "FieldName": null,
                                                  "Span": [1, 1, 1, 4],
                                                  "TextValue": "var",
                                                  "Type": "var"},
                                                 {"Children": [{"Children": [],
+                                                               "FieldName": "name",
                                                                "Span": [1, 5, 1, 6],
                                                                "TextValue": "x",
                                                                "Type": "identifier"},
                                                               {"Children": [],
+                                                               "FieldName": null,
                                                                "Span": [1, 7, 1, 8],
                                                                "TextValue": "=",
                                                                "Type": "="},
                                                               {"Children": [],
+                                                               "FieldName": "value",
                                                                "Span": [1, 9, 1, 22],
                                                                "TextValue": "\"hello world\"",
                                                                "Type": "string"}],
+                                                 "FieldName": null,
                                                  "Span": [1, 5, 1, 22],
                                                  "TextValue": "",
                                                  "Type": "variable_declarator"},
                                                 {"Children": [],
+                                                 "FieldName": null,
                                                  "Span": [1, 22, 1, 23],
                                                  "TextValue": ";",
                                                  "Type": ";"}],
+                                   "FieldName": null,
                                    "Span": [1, 1, 1, 23],
                                    "TextValue": "",
                                    "Type": "variable_declaration"}],
+                     "FieldName": null,
                      "Span": [1, 1, 1, 23],
                      "TextValue": "",
                      "Type": "program"}
