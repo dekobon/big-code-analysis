@@ -2053,4 +2053,141 @@ end",
             },
         );
     }
+
+    #[test]
+    fn python_yield_forms_count_as_exit() {
+        // tree-sitter-python emits a single `Python::Yield` node kind for
+        // every yield form: bare `yield`, `yield value`, and `yield from
+        // iter`. The match arm therefore covers all three with no extra
+        // variants needed. Three yield forms == 3 exits.
+        check_metrics::<PythonParser>(
+            "def gen():
+                 yield
+                 yield 1
+                 yield from range(3)",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                {
+                  "sum": 3.0,
+                  "average": 3.0,
+                  "min": 0.0,
+                  "max": 3.0
+                }
+                "###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_yield_delegate_counts_as_exit() {
+        // Delegating yield (`yield*`) parses as the same
+        // `Javascript::YieldExpression` node as plain `yield`, so the
+        // existing match arm covers it. Two regular yields + one
+        // delegate == 3 exits.
+        check_metrics::<JavascriptParser>(
+            "function* gen() {
+                 yield 1;
+                 yield* other();
+                 yield 2;
+             }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                {
+                  "sum": 3.0,
+                  "average": 3.0,
+                  "min": 0.0,
+                  "max": 3.0
+                }
+                "###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_yield_delegate_counts_as_exit() {
+        check_metrics::<MozjsParser>(
+            "function* gen() {
+                 yield 1;
+                 yield* other();
+                 yield 2;
+             }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                {
+                  "sum": 3.0,
+                  "average": 3.0,
+                  "min": 0.0,
+                  "max": 3.0
+                }
+                "###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_yield_delegate_counts_as_exit() {
+        check_metrics::<TypescriptParser>(
+            "function* gen(): Generator<number> {
+                 yield 1;
+                 yield* other();
+                 yield 2;
+             }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                {
+                  "sum": 3.0,
+                  "average": 3.0,
+                  "min": 0.0,
+                  "max": 3.0
+                }
+                "###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_yield_delegate_counts_as_exit() {
+        check_metrics::<TsxParser>(
+            "function* gen(): Generator<number> {
+                 yield 1;
+                 yield* other();
+                 yield 2;
+             }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                {
+                  "sum": 3.0,
+                  "average": 3.0,
+                  "min": 0.0,
+                  "max": 3.0
+                }
+                "###
+                );
+            },
+        );
+    }
 }
