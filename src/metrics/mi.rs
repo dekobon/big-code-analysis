@@ -261,9 +261,14 @@ mod tests {
             - 0.23 * stats.cyclomatic
             - 16.2 * stats.sloc.log2()
             + 50.0 * (2.4_f64 * 0.5).sqrt().sin();
+        // The ratio-vs-percentage flip moves the sin term by roughly
+        // its full ±50 amplitude; pin the bound at 50.0 so a partial
+        // regression (e.g. accidentally dividing by 10 instead of by 1)
+        // still fails this check instead of slipping under a generous
+        // threshold.
         assert!(
-            (actual - buggy).abs() > 1.0,
-            "mi_sei should differ from the ratio-scaled value by >1; got actual={actual}, buggy={buggy}",
+            (actual - buggy).abs() > 50.0,
+            "mi_sei should differ from the ratio-scaled value by >50; got actual={actual}, buggy={buggy}",
         );
     }
 
