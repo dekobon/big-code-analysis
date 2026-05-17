@@ -170,10 +170,10 @@ fn build<T: ParserTrait>(parser: &T, span: bool, comment: bool) -> Option<AstNod
             let node = T::Checker::get_ast_node(
                 &frame.node,
                 code,
-                frame.children,
                 span,
                 comment,
                 frame.field,
+                frame.children,
             );
             match (node, stack.last_mut()) {
                 (Some(ast), Some(parent)) => parent.children.push(ast),
@@ -282,18 +282,22 @@ mod tests {
     #[test]
     fn rust_function_carries_name_and_body_field_names() {
         // `function_item` names children `name`, `parameters`, `body`.
+        // Assert the field name directly on the AstNode so a bug that
+        // misnames a field (e.g. always emits "body") fails even if
+        // the target node kinds coincidentally line up.
         let root =
             build_ast::<crate::RustParser>(b"fn greet(name: &str) -> &str { name }", "test.rs");
         let func = find_first(&root, "function_item").expect("expected a function_item node");
-        assert_eq!(
-            find_child(func, "name").map(|n| n.r#type),
-            Some("identifier"),
-        );
-        assert_eq!(
-            find_child(func, "parameters").map(|n| n.r#type),
-            Some("parameters"),
-        );
-        assert_eq!(find_child(func, "body").map(|n| n.r#type), Some("block"),);
+        let name_child = find_child(func, "name").expect("function_item should have a name child");
+        assert_eq!(name_child.field_name, Some("name"));
+        assert_eq!(name_child.r#type, "identifier");
+        let params_child =
+            find_child(func, "parameters").expect("function_item should have a parameters child");
+        assert_eq!(params_child.field_name, Some("parameters"));
+        assert_eq!(params_child.r#type, "parameters");
+        let body_child = find_child(func, "body").expect("function_item should have a body child");
+        assert_eq!(body_child.field_name, Some("body"));
+        assert_eq!(body_child.r#type, "block");
     }
 
     #[test]

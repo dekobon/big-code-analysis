@@ -70,14 +70,19 @@ where
 
     /// Gets a new `AST` node if and only if the code is not a comment,
     /// otherwise [`None`] is returned.
+    ///
+    /// Parameter order mirrors [`Self::alterate`] and [`Self::get_default`]
+    /// (the flags-before-data convention `span, comment, field_name,
+    /// children`) so positional confusion between adjacent boolean
+    /// toggles is harder to introduce on the next edit.
     #[must_use]
     fn get_ast_node(
         node: &Node,
         code: &[u8],
-        children: Vec<AstNode>,
         span: bool,
         comment: bool,
         field_name: Option<&'static str>,
+        children: Vec<AstNode>,
     ) -> Option<AstNode> {
         if comment && Self::is_comment(node) {
             None
