@@ -304,8 +304,9 @@ impl Cyclomatic for PythonCode {
 /// name varies (`TernaryExpression` for JS-family, `ConditionalExpression`
 /// for Cpp), so it's a parameter.  The short-circuit operator list is
 /// also a parameter because JS-family languages include nullish
-/// coalescing (`??`, token `QMARKQMARK`) on top of `&&` and `||`, while
-/// C++ has only `&&` and `||` (issue #226).
+/// coalescing (`??`, token `QMARKQMARK`) and its compound assignment form
+/// (`??=`, token `QMARKQMARKEQ`) on top of `&&` and `||`, while C++ has
+/// only `&&` and `||` (issues #226, #231).
 macro_rules! impl_cyclomatic_c_family {
     ($code:ty, $lang:ident, $ternary:ident, [$($short_circuit:ident),+ $(,)?]) => {
         impl Cyclomatic for $code {
@@ -325,31 +326,33 @@ macro_rules! impl_cyclomatic_c_family {
     };
 }
 
-// JS-family: include nullish coalescing (`??`) as a short-circuit
-// decision in addition to `&&` and `||` (issue #226).
+// JS-family: include nullish coalescing (`??`, `??=`) as a short-circuit
+// decision in addition to `&&` and `||` (issues #226, #231). `??=` is
+// semantically `x = x ?? y` — one short-circuit decision edge, same as
+// `??`.
 impl_cyclomatic_c_family!(
     MozjsCode,
     Mozjs,
     TernaryExpression,
-    [AMPAMP, PIPEPIPE, QMARKQMARK]
+    [AMPAMP, PIPEPIPE, QMARKQMARK, QMARKQMARKEQ]
 );
 impl_cyclomatic_c_family!(
     JavascriptCode,
     Javascript,
     TernaryExpression,
-    [AMPAMP, PIPEPIPE, QMARKQMARK]
+    [AMPAMP, PIPEPIPE, QMARKQMARK, QMARKQMARKEQ]
 );
 impl_cyclomatic_c_family!(
     TypescriptCode,
     Typescript,
     TernaryExpression,
-    [AMPAMP, PIPEPIPE, QMARKQMARK]
+    [AMPAMP, PIPEPIPE, QMARKQMARK, QMARKQMARKEQ]
 );
 impl_cyclomatic_c_family!(
     TsxCode,
     Tsx,
     TernaryExpression,
-    [AMPAMP, PIPEPIPE, QMARKQMARK]
+    [AMPAMP, PIPEPIPE, QMARKQMARK, QMARKQMARKEQ]
 );
 
 impl Cyclomatic for RustCode {
@@ -444,7 +447,8 @@ impl Cyclomatic for CsharpCode {
             | ConditionalAccessExpression
             | AMPAMP
             | PIPEPIPE
-            | QMARKQMARK => {
+            | QMARKQMARK
+            | QMARKQMARKEQ => {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }
@@ -582,7 +586,8 @@ impl Cyclomatic for PhpCode {
             | And
             | Or
             | Xor
-            | QMARKQMARK => {
+            | QMARKQMARK
+            | QMARKQMARKEQ => {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }
@@ -3232,6 +3237,182 @@ f() {
     }
 
     #[test]
+    fn javascript_nullish_coalescing_assignment_231() {
+        // `x ??= y` is `x = x ?? y` — one short-circuit decision edge,
+        // same as `??`. Two `??=` assignments add +2 on top of the entry.
+        check_metrics::<JavascriptParser>(
+            "function pick(o) { // +1 (entry)
+                 o.x ??= 1; // +1 (??=)
+                 o.y ??= 2; // +1 (??=)
+                 return o;
+             }",
+            "foo.js",
+            |metric| {
+                // unit(1) + fn(entry 1 + 2*??= = 3) = sum 4, max 3.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 2.0,
+                      "min": 1.0,
+                      "max": 3.0,
+                      "modified": {
+                        "sum": 4.0,
+                        "average": 2.0,
+                        "min": 1.0,
+                        "max": 3.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_nullish_coalescing_assignment_231() {
+        // TypeScript must count `??=` the same as JS.
+        check_metrics::<TypescriptParser>(
+            "function pick(o: { x?: number; y?: number }) { // +1 (entry)
+                 o.x ??= 1; // +1 (??=)
+                 o.y ??= 2; // +1 (??=)
+                 return o;
+             }",
+            "foo.ts",
+            |metric| {
+                // unit(1) + fn(entry 1 + 2*??= = 3) = sum 4, max 3.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 2.0,
+                      "min": 1.0,
+                      "max": 3.0,
+                      "modified": {
+                        "sum": 4.0,
+                        "average": 2.0,
+                        "min": 1.0,
+                        "max": 3.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_nullish_coalescing_assignment_231() {
+        // TSX must count `??=` the same as JS/TS.
+        check_metrics::<TsxParser>(
+            "function pick(o: { x?: number; y?: number }) { // +1 (entry)
+                 o.x ??= 1; // +1 (??=)
+                 o.y ??= 2; // +1 (??=)
+                 return o;
+             }",
+            "foo.tsx",
+            |metric| {
+                // unit(1) + fn(entry 1 + 2*??= = 3) = sum 4, max 3.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 2.0,
+                      "min": 1.0,
+                      "max": 3.0,
+                      "modified": {
+                        "sum": 4.0,
+                        "average": 2.0,
+                        "min": 1.0,
+                        "max": 3.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_nullish_coalescing_assignment_231() {
+        // Mozjs must count `??=` the same as JS.
+        check_metrics::<MozjsParser>(
+            "function pick(o) { // +1 (entry)
+                 o.x ??= 1; // +1 (??=)
+                 o.y ??= 2; // +1 (??=)
+                 return o;
+             }",
+            "foo.js",
+            |metric| {
+                // unit(1) + fn(entry 1 + 2*??= = 3) = sum 4, max 3.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 2.0,
+                      "min": 1.0,
+                      "max": 3.0,
+                      "modified": {
+                        "sum": 4.0,
+                        "average": 2.0,
+                        "min": 1.0,
+                        "max": 3.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_nullish_coalescing_assignment_231() {
+        // C#'s `??=` is short-circuit (RHS evaluates only when LHS is null)
+        // and must add +1 cyclomatic per occurrence (#231).
+        check_metrics::<CsharpParser>(
+            "public class A {
+                public int? x;
+                public int? y;
+                public void Pick() { // +1 (entry)
+                    x ??= 1; // +1 (??=)
+                    y ??= 2; // +1 (??=)
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                // unit(1) + class(1) + Pick(entry 1 + 2*??= = 3) = sum 5,
+                // max 3 (Pick).
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 5.0,
+                      "average": 1.6666666666666667,
+                      "min": 1.0,
+                      "max": 3.0,
+                      "modified": {
+                        "sum": 5.0,
+                        "average": 1.6666666666666667,
+                        "min": 1.0,
+                        "max": 3.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
     fn mozjs_while_loop() {
         check_metrics::<MozjsParser>(
             "function f(n) { // +2 (+1 unit)
@@ -3942,8 +4123,9 @@ f() {
 
     #[test]
     fn php_null_coalescing() {
-        // `??` adds 1 (treated as a short-circuit branch). `??=` is an
-        // augmented assignment, NOT a binary `??` — does not double-count.
+        // `??` and `??=` are each one short-circuit decision (#231).
+        // Tree-sitter emits `??=` as the single token `QMARKQMARKEQ`, so it
+        // is matched independently from the binary `??`.
         check_metrics::<PhpParser>(
             "<?php
             function pick($x, $y) {
@@ -3953,20 +4135,22 @@ f() {
             }",
             "foo.php",
             |metric| {
-                // unit (+1) + function (+1) + ?? (+1) = sum 3.
+                // unit (+1) + function (+1) + ?? (+1) + ??= (+1) = sum 4.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r###"
                     {
-                      "sum": 3.0,
-                      "average": 1.5,
+                      "sum": 4.0,
+                      "average": 2.0,
                       "min": 1.0,
-                      "max": 2.0,
+                      "max": 3.0,
                       "modified": {
-                        "sum": 3.0,
-                        "average": 1.5,
+                        "sum": 4.0,
+                        "average": 2.0,
                         "min": 1.0,
-                        "max": 2.0
+                        "max": 3.0
                       }
                     }"###
                 );

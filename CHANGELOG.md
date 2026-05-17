@@ -438,6 +438,14 @@ changes are marked with **(breaking)** in the entries below.
   macro now takes the short-circuit operator list as a parameter so
   per-language differences (C++ has no `??`) stay explicit
   ([#226](https://github.com/dekobon/big-code-analysis/issues/226)).
+- Cyclomatic complexity now counts the compound nullish-coalescing
+  assignment operator (`??=`, token `QMARKQMARKEQ`) as a short-circuit
+  decision in JavaScript, TypeScript, TSX, Mozjs, C#, and PHP. `a ??= b`
+  is semantically `a = a ?? b` — it evaluates and assigns `b` only when
+  `a` is null/undefined, the same one-decision-edge contribution as
+  `??`. Sibling assignment forms `&&=` and `||=` remain uncounted and
+  are tracked as a follow-up
+  ([#231](https://github.com/dekobon/big-code-analysis/issues/231)).
 - Cognitive complexity now counts the ternary `?:` operator with
   `+1 + nesting` for Java, C#, and PHP, matching `cyclomatic.rs`, the
   C++ fix from #172, and SonarSource Cognitive Complexity §2. Adds
