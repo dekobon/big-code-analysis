@@ -193,6 +193,14 @@ impl_exit_match_kinds!(
 );
 impl_exit_match_kinds!(CppCode, Cpp, [ReturnStatement, ThrowStatement]);
 impl_exit_match_kinds!(JavaCode, Java, [ReturnStatement, ThrowStatement]);
+// Groovy's `yield` is the Java-14+ switch-expression yield, identical
+// to Java's. Implicit-return-from-closure is NOT counted as an exit
+// (consistent with Java) — only explicit return / throw / yield count.
+impl_exit_match_kinds!(
+    GroovyCode,
+    Groovy,
+    [ReturnStatement, ThrowStatement, YieldStatement]
+);
 
 impl Exit for RustCode {
     fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {

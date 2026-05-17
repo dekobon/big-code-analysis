@@ -162,6 +162,12 @@ impl Wmc for JavaCode {
     }
 }
 
+impl Wmc for GroovyCode {
+    fn compute(space_kind: SpaceKind, cyclomatic: &cyclomatic::Stats, stats: &mut Stats) {
+        class_interface_compute(space_kind, cyclomatic, stats);
+    }
+}
+
 impl Wmc for CsharpCode {
     fn compute(space_kind: SpaceKind, cyclomatic: &cyclomatic::Stats, stats: &mut Stats) {
         class_interface_compute(space_kind, cyclomatic, stats);

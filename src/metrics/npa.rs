@@ -297,6 +297,56 @@ impl Npa for JavaCode {
     }
 }
 
+// Groovy's class/interface/field machinery is inherited from Java
+// verbatim, so the Npa impl is a direct mirror. `def field` at class
+// scope is parsed as a `FieldDeclaration` with `Def` in the modifiers
+// list (no `Public`), so it's correctly excluded from `class_npa`
+// unless explicitly annotated `public` — consistent with Groovy's
+// access semantics (default class members are package-private under
+// `@CompileStatic`, public otherwise; we conservatively follow Java
+// and count only explicit `public`).
+impl Npa for GroovyCode {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+        use Groovy::*;
+
+        if Self::is_func_space(node) && stats.is_disabled() {
+            stats.is_class_space = true;
+        }
+
+        match node.kind_id().into() {
+            ClassBody => {
+                stats.class_na += node
+                    .children()
+                    .filter(|node| matches!(node.kind_id().into(), FieldDeclaration))
+                    .map(|declaration| {
+                        let attributes = declaration
+                            .children()
+                            .filter(|n| matches!(n.kind_id().into(), VariableDeclarator))
+                            .count();
+                        if declaration.child(0).is_some_and(|modifiers| {
+                            matches!(modifiers.kind_id().into(), Modifiers)
+                                && modifiers.first_child(|id| id == Public).is_some()
+                        }) {
+                            stats.class_npa += attributes;
+                        }
+                        attributes
+                    })
+                    .sum::<usize>();
+            }
+            InterfaceBody => {
+                stats.interface_na += node
+                    .children()
+                    .filter(|node| matches!(node.kind_id().into(), ConstantDeclaration))
+                    .flat_map(|node| node.children())
+                    .filter(|node| matches!(node.kind_id().into(), VariableDeclarator))
+                    .count();
+                stats.interface_npa = stats.interface_na;
+            }
+            _ => {}
+        }
+    }
+}
+
 // C# uses individual `Modifier` nodes (not wrapped under a single
 // `modifiers` node like Java); detecting `public` requires scanning
 // every Modifier child of the declaration for a `public` keyword.

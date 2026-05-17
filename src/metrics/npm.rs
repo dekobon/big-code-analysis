@@ -289,6 +289,38 @@ impl Npm for JavaCode {
     }
 }
 
+impl Npm for GroovyCode {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+        use Groovy::*;
+
+        if Self::is_func_space(node) && stats.is_disabled() {
+            stats.is_class_space = true;
+        }
+
+        match node.kind_id().into() {
+            ClassBody => {
+                stats.class_nm += node
+                    .children()
+                    .filter(|node| Self::is_func(node))
+                    .map(|method| {
+                        if let Some(modifiers) = method.child(0)
+                            && matches!(modifiers.kind_id().into(), Modifiers)
+                            && modifiers.first_child(|id| id == Public).is_some()
+                        {
+                            stats.class_npm += 1;
+                        }
+                    })
+                    .count();
+            }
+            InterfaceBody => {
+                stats.interface_nm += node.children().filter(|node| Self::is_func(node)).count();
+                stats.interface_npm = stats.interface_nm;
+            }
+            _ => {}
+        }
+    }
+}
+
 // Count direct method-like declarations and property / indexer
 // accessors (each get/set/init is a method per C# IL semantics).
 // Expression-bodied properties (`int W => _w;`) have no AccessorList

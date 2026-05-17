@@ -524,6 +524,89 @@ fn java_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
     }
 }
 
+// Groovy mirror of `java_inspect_container`. amaanq's grammar inherits
+// `parenthesized_expression`, `unary_expression`, and the standard
+// boolean-context kinds from tree-sitter-java verbatim, so the body is
+// structurally identical to Java's helper.
+fn groovy_inspect_container(container_node: &Node, conditions: &mut f64) {
+    use Groovy::*;
+
+    let mut node = *container_node;
+    let mut node_kind = node.kind_id().into();
+
+    let Some(parent) = node.parent() else { return };
+    let mut has_boolean_content = match parent.kind_id().into() {
+        BinaryExpression | IfStatement | WhileStatement | DoStatement | ForStatement => true,
+        TernaryExpression => node
+            .previous_sibling()
+            .is_none_or(|prev_node| !matches!(prev_node.kind_id().into(), QMARK | COLON)),
+        _ => false,
+    };
+
+    loop {
+        let is_parenthesised_exp = matches!(node_kind, ParenthesizedExpression);
+        let is_not_operator = matches!(node_kind, UnaryExpression)
+            && node
+                .child(0)
+                .is_some_and(|c| matches!(c.kind_id().into(), BANG));
+
+        if !is_parenthesised_exp && !is_not_operator {
+            break;
+        }
+
+        if !has_boolean_content && is_not_operator {
+            has_boolean_content = true;
+        }
+
+        let Some(child) = node.child(1) else { break };
+        node = child;
+        node_kind = node.kind_id().into();
+
+        // `JuxtFunctionCall` covers Groovy's parens-less call form
+        // (`println foo`), which the ABC dispatch in `impl Abc for
+        // GroovyCode` already counts as a branch; keep the terminal
+        // set in sync so a `juxt_call(...)` used as a unary condition
+        // is recognised here too.
+        if matches!(
+            node_kind,
+            MethodInvocation | JuxtFunctionCall | Identifier | True | False
+        ) {
+            if has_boolean_content {
+                *conditions += 1.;
+            }
+            break;
+        }
+    }
+}
+
+fn groovy_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
+    use Groovy::*;
+
+    let list_kind = list_node.kind_id().into();
+    let mut cursor = list_node.cursor();
+
+    if cursor.goto_first_child() {
+        loop {
+            let node = cursor.node();
+            let node_kind = node.kind_id().into();
+
+            if matches!(
+                node_kind,
+                MethodInvocation | JuxtFunctionCall | Identifier | True | False
+            ) && matches!(list_kind, BinaryExpression)
+            {
+                *conditions += 1.;
+            } else {
+                groovy_inspect_container(&node, conditions);
+            }
+
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+}
+
 // Default no-op `Abc` impls. Audited in #188; the matrix below
 // records the rationale for every entry so the no-op default is a
 // deliberate choice, not scaffolding leftover.
@@ -1362,6 +1445,170 @@ impl Abc for JavaCode {
                     )
                 {
                     java_inspect_container(&expression, &mut stats.conditions);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+// Groovy's ABC mirrors Java's directly because amaanq's grammar reuses
+// Java's expression/statement vocabulary verbatim. Closures
+// (`{ x -> ... }`) introduce their own "implicit return" semantics but
+// the right-operand pattern matching handles them via
+// `LambdaExpression` — Groovy's `Closure` body is a `Block`, not an
+// expression, so the LambdaExpression arm carries the implicit-return
+// path for lambdas; closure-only bodies do not factor in here.
+impl Abc for GroovyCode {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+        use Groovy::*;
+
+        match node.kind_id().into() {
+            STAREQ | SLASHEQ | PERCENTEQ | DASHEQ | PLUSEQ | LTLTEQ | GTGTEQ | AMPEQ | PIPEEQ
+            | CARETEQ | GTGTGTEQ | PLUSPLUS | DASHDASH => {
+                stats.assignments += 1.;
+            }
+            FieldDeclaration | LocalVariableDeclaration => {
+                stats.declaration.push(DeclKind::Var);
+            }
+            Final => {
+                if let Some(DeclKind::Var) = stats.declaration.last() {
+                    stats.declaration.push(DeclKind::Const);
+                }
+            }
+            SEMI => {
+                if let Some(DeclKind::Const | DeclKind::Var) = stats.declaration.last() {
+                    stats.declaration.clear();
+                }
+            }
+            EQ if stats
+                .declaration
+                .last()
+                .is_none_or(|decl| matches!(decl, DeclKind::Var)) =>
+            {
+                stats.assignments += 1.;
+            }
+            MethodInvocation | JuxtFunctionCall | New => {
+                stats.branches += 1.;
+            }
+            GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | Default | QMARK | Try | Catch => {
+                stats.conditions += 1.;
+            }
+            GT | LT => {
+                // Excludes `<` / `>` used for generic types (e.g.
+                // `List<String>`).
+                if let Some(parent) = node.parent()
+                    && !matches!(parent.kind_id().into(), TypeArguments)
+                {
+                    stats.conditions += 1.;
+                }
+            }
+            AMPAMP | PIPEPIPE => {
+                if let Some(parent) = node.parent() {
+                    groovy_count_unary_conditions(&parent, &mut stats.conditions);
+                }
+            }
+            ArgumentList | ArgumentList2 => {
+                groovy_count_unary_conditions(node, &mut stats.conditions);
+            }
+            VariableDeclarator | AssignmentExpression => {
+                if let Some(right_operand) = node.child(2)
+                    && matches!(
+                        right_operand.kind_id().into(),
+                        ParenthesizedExpression | UnaryExpression
+                    )
+                {
+                    groovy_inspect_container(&right_operand, &mut stats.conditions);
+                }
+            }
+            IfStatement | WhileStatement => {
+                if let Some(condition) = node.child(1)
+                    && matches!(condition.kind_id().into(), ParenthesizedExpression)
+                {
+                    groovy_inspect_container(&condition, &mut stats.conditions);
+                }
+            }
+            DoStatement => {
+                if let Some(condition) = node.child(3)
+                    && matches!(condition.kind_id().into(), ParenthesizedExpression)
+                {
+                    groovy_inspect_container(&condition, &mut stats.conditions);
+                }
+            }
+            ForStatement => {
+                if let Some(condition) = node.child(3) {
+                    match condition.kind_id().into() {
+                        SEMI => {
+                            if let Some(cond) = node.child(4) {
+                                match cond.kind_id().into() {
+                                    MethodInvocation | JuxtFunctionCall | Identifier | True
+                                    | False | SEMI | RPAREN => {
+                                        stats.conditions += 1.;
+                                    }
+                                    ParenthesizedExpression | UnaryExpression => {
+                                        groovy_inspect_container(&cond, &mut stats.conditions);
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                        MethodInvocation | JuxtFunctionCall | Identifier | True | False => {
+                            stats.conditions += 1.;
+                        }
+                        ParenthesizedExpression | UnaryExpression => {
+                            groovy_inspect_container(&condition, &mut stats.conditions);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            ReturnStatement => {
+                if let Some(value) = node.child(1)
+                    && matches!(
+                        value.kind_id().into(),
+                        ParenthesizedExpression | UnaryExpression
+                    )
+                {
+                    groovy_inspect_container(&value, &mut stats.conditions);
+                }
+            }
+            LambdaExpression => {
+                if let Some(value) = node.child(2)
+                    && matches!(
+                        value.kind_id().into(),
+                        ParenthesizedExpression | UnaryExpression
+                    )
+                {
+                    groovy_inspect_container(&value, &mut stats.conditions);
+                }
+            }
+            TernaryExpression => {
+                if let Some(condition) = node.child(0) {
+                    match condition.kind_id().into() {
+                        MethodInvocation | JuxtFunctionCall | Identifier | True | False => {
+                            stats.conditions += 1.;
+                        }
+                        ParenthesizedExpression | UnaryExpression => {
+                            groovy_inspect_container(&condition, &mut stats.conditions);
+                        }
+                        _ => {}
+                    }
+                }
+                if let Some(expression) = node.child(2)
+                    && matches!(
+                        expression.kind_id().into(),
+                        ParenthesizedExpression | UnaryExpression
+                    )
+                {
+                    groovy_inspect_container(&expression, &mut stats.conditions);
+                }
+                if let Some(expression) = node.child(4)
+                    && matches!(
+                        expression.kind_id().into(),
+                        ParenthesizedExpression | UnaryExpression
+                    )
+                {
+                    groovy_inspect_container(&expression, &mut stats.conditions);
                 }
             }
             _ => {}

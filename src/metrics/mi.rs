@@ -161,7 +161,8 @@ implement_metric_trait!(
     PhpCode,
     CsharpCode,
     ElixirCode,
-    RubyCode
+    RubyCode,
+    GroovyCode
 );
 
 #[cfg(test)]

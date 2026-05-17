@@ -43,6 +43,9 @@ pub use language_elixir::*;
 pub mod language_go;
 pub use language_go::*;
 
+pub mod language_groovy;
+pub use language_groovy::*;
+
 pub mod language_java;
 pub use language_java::*;
 
