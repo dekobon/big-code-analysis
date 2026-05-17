@@ -47,7 +47,7 @@ fn list_metrics_descriptions_includes_descriptions() {
         .assert()
         .success()
         .stdout(predicate::str::contains("cognitive"))
-        .stdout(predicate::str::contains("Cognitive complexity"));
+        .stdout(predicate::str::contains("Cognitive Complexity"));
 }
 
 #[test]

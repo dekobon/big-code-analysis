@@ -15,7 +15,7 @@ expression: out
             {
               "id": "cyclomatic",
               "shortDescription": {
-                "text": "Cyclomatic complexity exceeds the configured threshold."
+                "text": "Cyclomatic Complexity exceeds the configured threshold."
               }
             },
             {

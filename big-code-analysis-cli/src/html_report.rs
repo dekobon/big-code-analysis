@@ -218,7 +218,7 @@ impl Align {
 // ("MI"/"Avg MI", "CC"/"Avg CC", "Cognitive"/"Avg Cognitive").
 const MI_TOOLTIP: &str = "Maintainability Index (Visual Studio scale, 0\u{2013}100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable.";
 const CC_TOOLTIP: &str = "Cyclomatic Complexity: number of linearly independent control-flow paths through the function.";
-const COGNITIVE_TOOLTIP: &str = "Cognitive complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.";
+const COGNITIVE_TOOLTIP: &str = "Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.";
 
 /// Plain-English tooltip catalogue for every metric column header
 /// emitted by [`generate_html_report`]. Centralised so every section of

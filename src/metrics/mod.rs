@@ -16,7 +16,7 @@ pub mod exit;
 pub mod halstead;
 /// Lines-of-code variants (SLOC, PLOC, LLOC, CLOC, blank).
 pub mod loc;
-/// Maintainability index.
+/// Maintainability Index.
 pub mod mi;
 /// Number of arguments per function.
 pub mod nargs;
@@ -28,5 +28,5 @@ pub mod npa;
 pub mod npm;
 /// Token count.
 pub mod tokens;
-/// Weighted methods per class.
+/// Weighted Methods per Class.
 pub mod wmc;
