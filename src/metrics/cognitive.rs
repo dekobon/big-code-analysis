@@ -532,6 +532,17 @@ macro_rules! js_cognitive {
                         matches!(id.into(), AMPAMP | PIPEPIPE | QMARKQMARK)
                     });
                 }
+                AugmentedAssignmentExpression => {
+                    // Compound short-circuit assignments `&&=`, `||=`,
+                    // `??=` are semantically `x = x op y` and each carries
+                    // one boolean-sequence decision, parallel to the
+                    // cyclomatic fix from #231. The operator token sits
+                    // inside the augmented-assignment node rather than a
+                    // `BinaryExpression`, so it needs its own arm (#236).
+                    compute_booleans_with(node, stats, |id| {
+                        matches!(id.into(), AMPAMPEQ | PIPEPIPEEQ | QMARKQMARKEQ)
+                    });
+                }
                 FunctionDeclaration => {
                     // Reset lambda nesting at function for JS
                     nesting = 0;
@@ -728,6 +739,17 @@ impl Cognitive for CsharpCode {
                 compute_booleans_with(node, stats, |id| {
                     matches!(id.into(), AMPAMP | PIPEPIPE | QMARKQMARK)
                 });
+            }
+            AssignmentExpression => {
+                // C#'s compound null-coalescing assignment `??=` is
+                // semantically `x = x ?? y` and carries one boolean-
+                // sequence decision, parallel to the cyclomatic fix
+                // from #231. The operator token sits inside the
+                // `assignment_expression` node rather than a
+                // `BinaryExpression`, so it needs its own arm (#236).
+                // C# grammar does not provide `&&=` or `||=`, so only
+                // `??=` matters here.
+                compute_booleans_with(node, stats, |id| matches!(id.into(), QMARKQMARKEQ));
             }
             LambdaExpression | AnonymousMethodExpression => {
                 lambda += 1;
@@ -1094,6 +1116,15 @@ impl Cognitive for PhpCode {
                 compute_booleans_with(node, stats, |id| {
                     matches!(id.into(), AMPAMP | PIPEPIPE | And | Or | Xor | QMARKQMARK)
                 });
+            }
+            AugmentedAssignmentExpression => {
+                // PHP's `??=` is `x = x ?? y` and carries one boolean-
+                // sequence decision, parallel to the cyclomatic fix
+                // from #231. The token sits inside the augmented-
+                // assignment container rather than a `BinaryExpression`,
+                // so it needs its own arm (#236). PHP grammar has no
+                // `&&=` / `||=`.
+                compute_booleans_with(node, stats, |id| matches!(id.into(), QMARKQMARKEQ));
             }
             AnonymousFunction | ArrowFunction => {
                 lambda += 1;
@@ -7494,6 +7525,186 @@ end",
             "foo.rb",
             |metric| {
                 assert_eq!(metric.cognitive.cognitive_sum(), 6.0);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_compound_short_circuit_assignment_236() {
+        // Regression for issue #236: `&&=`, `||=`, `??=` are compound
+        // short-circuit assignments (e.g. `x ??= y` ≡ `x = x ?? y`)
+        // and each carries one boolean-sequence decision. Each lives
+        // inside its own `expression_statement`, so the boolean
+        // sequence resets between them and all three count.
+        check_metrics::<JavascriptParser>(
+            "function f(x) {
+                 x ??= 1; // +1 (??=)
+                 x &&= 2; // +1 (&&=)
+                 x ||= 3; // +1 (||=)
+             }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 3.0,
+                      "min": 0.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_compound_short_circuit_assignment_236() {
+        // Regression for issue #236: TS parity with JS for `&&=`,
+        // `||=`, `??=`.
+        check_metrics::<TypescriptParser>(
+            "function f(x: number | null) {
+                 x ??= 1; // +1 (??=)
+                 x &&= 2; // +1 (&&=)
+                 x ||= 3; // +1 (||=)
+             }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 3.0,
+                      "min": 0.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_compound_short_circuit_assignment_236() {
+        // Regression for issue #236: TSX parity with JS/TS for `&&=`,
+        // `||=`, `??=`.
+        check_metrics::<TsxParser>(
+            "function f(x: number | null) {
+                 x ??= 1; // +1 (??=)
+                 x &&= 2; // +1 (&&=)
+                 x ||= 3; // +1 (||=)
+             }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 3.0,
+                      "min": 0.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_compound_short_circuit_assignment_236() {
+        // Regression for issue #236: Mozjs (SpiderMonkey-flavoured JS)
+        // shares the JS macro and must score `&&=` / `||=` / `??=`
+        // identically.
+        check_metrics::<MozjsParser>(
+            "function f(x) {
+                 x ??= 1; // +1 (??=)
+                 x &&= 2; // +1 (&&=)
+                 x ||= 3; // +1 (||=)
+             }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 3.0,
+                      "min": 0.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_compound_short_circuit_assignment_236() {
+        // Regression for issue #236: C#'s grammar only provides `??=`
+        // among the short-circuit assignments (no `&&=` / `||=`). The
+        // operator lives inside `assignment_expression` rather than a
+        // `BinaryExpression`, so without the #236 fix it was silently
+        // skipped.
+        check_metrics::<CsharpParser>(
+            "class C {
+                 int? F(int? x) {
+                     x ??= 1; // +1 (??=)
+                     return x ?? 0;
+                 }
+             }",
+            "foo.cs",
+            |metric| {
+                // Outer `??` chain (+1) + `??=` (+1) = 2 at function max.
+                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 2.0,
+                      "min": 0.0,
+                      "max": 2.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn php_compound_short_circuit_assignment_236() {
+        // Regression for issue #236: PHP's only compound short-circuit
+        // assignment is `??=` (no `&&=` / `||=`). It lives inside
+        // `augmented_assignment_expression` rather than a
+        // `BinaryExpression`, so without the #236 fix it was silently
+        // skipped.
+        check_metrics::<PhpParser>(
+            "<?php
+            function f($x) {
+                $x ??= 1; // +1 (??=)
+                return $x ?? 0; // +1 (??)
+            }",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 2.0,
+                      "min": 0.0,
+                      "max": 2.0
+                    }"###
+                );
             },
         );
     }
