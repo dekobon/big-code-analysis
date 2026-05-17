@@ -94,7 +94,7 @@ impl AggregatedFormat {
 /// violation" semantics.
 pub(crate) fn violation_to_offender(v: &Violation) -> OffenderRecord {
     OffenderRecord {
-        path: std::path::PathBuf::from(&v.path),
+        path: v.path.clone(),
         function: (!v.function.is_empty()).then(|| v.function.clone()),
         start_line: u32::try_from(v.start_line).unwrap_or(u32::MAX),
         end_line: u32::try_from(v.end_line).unwrap_or(u32::MAX),
@@ -135,7 +135,7 @@ mod tests {
 
     fn violation(function: &str) -> Violation {
         Violation {
-            path: "fixture.rs".to_string(),
+            path: std::path::PathBuf::from("fixture.rs"),
             start_line: 1,
             end_line: 2,
             function: function.to_string(),
@@ -160,5 +160,34 @@ mod tests {
     fn violation_to_offender_preserves_non_empty_function() {
         let offender = violation_to_offender(&violation("compute"));
         assert_eq!(offender.function.as_deref(), Some("compute"));
+    }
+
+    /// `OffenderRecord::path` is `PathBuf` precisely so non-UTF-8
+    /// path bytes survive the dump boundary. Pre-#240 the
+    /// `Violation::path: String` field had already collapsed them
+    /// through `to_string_lossy` upstream, so the conversion appeared
+    /// lossless but the bytes had already been lost. This regression
+    /// test pins the round-trip end to end.
+    #[cfg(unix)]
+    #[test]
+    fn violation_to_offender_preserves_non_utf8_path_bytes() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+        use std::path::PathBuf;
+
+        let raw_bytes: &[u8] = b"weird-\xff\xfe.rs";
+        let path = PathBuf::from(OsString::from_vec(raw_bytes.to_vec()));
+        let v = Violation {
+            path: path.clone(),
+            start_line: 1,
+            end_line: 2,
+            function: "f".to_string(),
+            metric: "cyclomatic",
+            value: 5.0,
+            limit: 1.0,
+        };
+        let offender = violation_to_offender(&v);
+        assert_eq!(offender.path, path);
+        assert_eq!(offender.path.as_os_str().as_encoded_bytes(), raw_bytes);
     }
 }
