@@ -303,6 +303,27 @@ impl Alterator for ElixirCode {
     }
 }
 
+impl Alterator for GroovyCode {
+    fn alterate(node: &Node, code: &[u8], span: bool, children: Vec<AstNode>) -> AstNode {
+        // Preserve string and GString fragment text verbatim so report
+        // output never trims their bodies. `StringLiteral2` and
+        // `MultilineStringFragment2` are the aliased lexer variants of
+        // the same rule.
+        match Groovy::from(node.kind_id()) {
+            Groovy::StringLiteral
+            | Groovy::StringLiteral2
+            | Groovy::CharacterLiteral
+            | Groovy::StringFragment
+            | Groovy::MultilineStringFragment
+            | Groovy::MultilineStringFragment2 => {
+                let (text, span) = Self::get_text_span(node, code, span, true);
+                AstNode::new(node.kind(), text, span, Vec::new())
+            }
+            _ => Self::get_default(node, code, span, children),
+        }
+    }
+}
+
 #[cfg(test)]
 #[allow(
     clippy::float_cmp,

@@ -615,6 +615,67 @@ impl Cognitive for JavaCode {
     }
 }
 
+impl Cognitive for GroovyCode {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        stats: &mut Stats,
+        nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
+    ) {
+        use Groovy::*;
+
+        let (mut nesting, depth, mut lambda) = get_nesting_from_map(node, nesting_map);
+
+        match node.kind_id().into() {
+            IfStatement if !Self::is_else_if(node) => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
+            }
+            ForStatement | EnhancedForStatement | WhileStatement | DoStatement | SwitchBlock
+            | CatchClause | TernaryExpression => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
+            }
+            // `Else` covers plain `else` blocks *and* the chained
+            // `else if` form, because amaanq's grammar inlines the
+            // `else` token before the nested `if_statement` rather
+            // than wrapping it in an `else_clause` node.
+            Else => {
+                increment_by_one(stats);
+            }
+            // SonarSource B2: labeled break/continue each +1 for breaking
+            // structured control flow. Same shape as Java.
+            BreakStatement | ContinueStatement if node.is_child(Identifier as u16) => {
+                increment_by_one(stats);
+            }
+            UnaryExpression => {
+                stats.boolean_seq.not_operator();
+            }
+            BinaryExpression => {
+                compute_booleans(node, stats, AMPAMP, PIPEPIPE);
+            }
+            // Only `LambdaExpression` (arrow-bodied form, `(x) -> body`
+            // or `{ x -> body }` whose inner expression is captured
+            // as a `lambda_expression`) introduces a nested
+            // function-like scope. The bare `Closure` rule in
+            // amaanq's grammar is `prec(1, seq('{', ..., '}'))` —
+            // it eagerly matches *every* brace-block, including
+            // for-loop / if-body blocks that are syntactically
+            // `block`s. Bumping `lambda` for those would incorrectly
+            // inflate the nesting penalty for ordinary control flow,
+            // so we leave bare `Closure` out of this arm. Implicit-
+            // `it` closures (`{ println it }`) parse as bare
+            // `Closure` without an inner `LambdaExpression` and so
+            // will not be counted; that's an accepted accuracy loss
+            // in exchange for matching Java's cognitive numbers on
+            // identical control-flow shapes.
+            LambdaExpression => {
+                lambda += 1;
+            }
+            _ => {}
+        }
+        nesting_map.insert(node.id(), (nesting, depth, lambda));
+    }
+}
+
 impl Cognitive for CsharpCode {
     fn compute<'a>(
         node: &Node<'a>,

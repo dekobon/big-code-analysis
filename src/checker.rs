@@ -1515,6 +1515,85 @@ impl Checker for RubyCode {
     }
 }
 
+impl Checker for GroovyCode {
+    fn is_comment(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Groovy::LineComment | Groovy::BlockComment
+        )
+    }
+
+    fn is_useful_comment(_: &Node, _: &[u8]) -> bool {
+        false
+    }
+
+    fn is_func_space(node: &Node) -> bool {
+        // Mirrors `impl Checker for JavaCode` exactly. `EnumDeclaration`,
+        // `AnnotationTypeDeclaration`, and `RecordDeclaration` are
+        // intentionally excluded for parity with Java's classification —
+        // counting them as class-shaped spaces would make identical-shape
+        // sources disagree on Npa/Npm/Wmc between languages.
+        matches!(
+            node.kind_id().into(),
+            Groovy::Program | Groovy::ClassDeclaration | Groovy::InterfaceDeclaration
+        )
+    }
+
+    fn is_func(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Groovy::MethodDeclaration | Groovy::ConstructorDeclaration | Groovy::FunctionDefinition
+        )
+    }
+
+    fn is_closure(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Groovy::Closure | Groovy::LambdaExpression
+        )
+    }
+
+    fn is_call(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Groovy::MethodInvocation
+                | Groovy::JuxtFunctionCall
+                | Groovy::ObjectCreationExpression
+                | Groovy::ExplicitConstructorInvocation
+        )
+    }
+
+    fn is_non_arg(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Groovy::LPAREN | Groovy::COMMA | Groovy::RPAREN
+        )
+    }
+
+    // `StringLiteral2` is the aliased lexer variant of the same rule.
+    fn is_string(node: &Node) -> bool {
+        matches!(
+            node.kind_id().into(),
+            Groovy::StringLiteral | Groovy::StringLiteral2 | Groovy::CharacterLiteral
+        )
+    }
+
+    // tree-sitter-groovy inherits Java's `if_statement` shape: the `else`
+    // keyword token is emitted inline inside the outer if_statement and
+    // the inner `if_statement` follows it as a sibling.
+    #[inline]
+    fn is_else_if(node: &Node) -> bool {
+        node.kind_id() == Groovy::IfStatement
+            && node
+                .previous_sibling()
+                .is_some_and(|prev| prev.kind_id() == Groovy::Else)
+    }
+
+    fn is_primitive(_: u16) -> bool {
+        false
+    }
+}
+
 #[cfg(test)]
 #[allow(
     clippy::float_cmp,

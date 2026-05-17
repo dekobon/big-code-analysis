@@ -406,6 +406,32 @@ impl Cyclomatic for JavaCode {
     }
 }
 
+impl Cyclomatic for GroovyCode {
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+        use Groovy::*;
+
+        match node.kind_id().into() {
+            Case => {
+                stats.cyclomatic += 1.;
+            }
+            // `Switch` keyword token marks the construct (classic and Java
+            // 14+ switch expressions). Same role as in Java.
+            Switch => {
+                stats.cyclomatic_modified += 1.;
+            }
+            // Elvis `?:` and Groovy 3 identity / safe-navigation operators
+            // do NOT contribute branches here because amaanq's grammar
+            // emits ERROR nodes for them; tracked as follow-up issues.
+            // The standard short-circuits and `Assert` still count.
+            If | For | While | Catch | TernaryExpression | AMPAMP | PIPEPIPE | Assert => {
+                stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
+            }
+            _ => {}
+        }
+    }
+}
+
 impl Cyclomatic for CsharpCode {
     fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Csharp::*;

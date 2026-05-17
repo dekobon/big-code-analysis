@@ -944,6 +944,75 @@ impl Loc for JavaCode {
     }
 }
 
+impl Loc for GroovyCode {
+    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool, is_unit: bool) {
+        use Groovy::*;
+
+        let (start, end) = init(node, stats, is_func_space, is_unit);
+        let kind_id: Groovy = node.kind_id().into();
+        // LLOC counts statements only — same definition as Java.
+        // Additions over Java's list:
+        //   - `YieldStatement` / `SynchronizedStatement` for the
+        //     Java-14+ switch-expression form
+        //   - `JuxtFunctionCall` for Groovy's parens-less call as a
+        //     top-level statement
+        // `FunctionDefinition` is a declaration, not a statement, so
+        // it's intentionally excluded.
+        match kind_id {
+            Program => {}
+            LineComment | BlockComment => {
+                add_cloc_lines(stats, start, end);
+            }
+            // An `ExpressionStatement` whose only child is a bare
+            // `Closure` is a Groovy-specific grammar artifact: the
+            // alternative branch of `if (x) { … } else { … }` wraps
+            // the brace-block as `expression_statement (closure)`
+            // even though the user wrote it as part of the surrounding
+            // `if`. Skipping the wrapper avoids double-counting the
+            // else-branch as a separate LLOC. Real expression
+            // statements like `expression_statement (juxt_function_call)`
+            // for `println x` keep firing because their child is not
+            // a bare `Closure`.
+            ExpressionStatement if node.child(0).is_some_and(|c| c.kind_id() == Closure) => {
+                // No-op: do not count as LLOC.
+            }
+            AssertStatement
+            | BreakStatement
+            | ContinueStatement
+            | DoStatement
+            | EnhancedForStatement
+            | ExpressionStatement
+            | ForStatement
+            | IfStatement
+            | JuxtFunctionCall
+            | ReturnStatement
+            | SwitchExpression
+            | SynchronizedStatement
+            | ThrowStatement
+            | TryStatement
+            | WhileStatement
+            | YieldStatement => {
+                stats.lloc.logical_lines += 1;
+            }
+            LocalVariableDeclaration => {
+                if node.count_specific_ancestors::<GroovyParser>(
+                    |node| node.kind_id() == ForStatement,
+                    |node| node.kind_id() == Block,
+                ) == 0
+                {
+                    // Skip the initializer slot of a classic `for` loop —
+                    // same reason as Java's impl.
+                    stats.lloc.logical_lines += 1;
+                }
+            }
+            _ => {
+                check_comment_ends_on_code_line(stats, start);
+                stats.ploc.lines.insert(start);
+            }
+        }
+    }
+}
+
 impl Loc for CsharpCode {
     fn compute(node: &Node, stats: &mut Stats, is_func_space: bool, is_unit: bool) {
         use Csharp::*;

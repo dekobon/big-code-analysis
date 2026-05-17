@@ -1561,3 +1561,87 @@ impl Getter for RubyCode {
 
     get_operator!(Ruby);
 }
+
+impl Getter for GroovyCode {
+    fn get_space_kind(node: &Node) -> SpaceKind {
+        use Groovy::{
+            ClassDeclaration, Closure, ConstructorDeclaration, FunctionDefinition,
+            InterfaceDeclaration, LambdaExpression, MethodDeclaration, Program,
+        };
+
+        // Mirrors `impl Getter for JavaCode::get_space_kind` exactly to keep
+        // cross-language metric parity (lesson 11). Groovy-specific
+        // additions over Java are `FunctionDefinition` (top-level `def`)
+        // and `Closure` (Groovy block-with-arrow), both tagged as
+        // `Function` like Java's `LambdaExpression`.
+        match node.kind_id().into() {
+            ClassDeclaration => SpaceKind::Class,
+            InterfaceDeclaration => SpaceKind::Interface,
+            MethodDeclaration
+            | ConstructorDeclaration
+            | FunctionDefinition
+            | LambdaExpression
+            | Closure => SpaceKind::Function,
+            Program => SpaceKind::Unit,
+            _ => SpaceKind::Unknown,
+        }
+    }
+
+    fn get_op_type(node: &Node) -> HalsteadType {
+        use Groovy::*;
+        // Mirrors `JavaCode`'s minimal classification — modifiers
+        // (`Public`, `Static`, …), declaration keywords (`Class`,
+        // `Interface`, …), and module keywords (`Package`, `Import`,
+        // …) are excluded because they live inside `Modifiers` /
+        // `*Declaration` wrappers and would over-count if treated as
+        // separate operators. `IntegralType` / `FloatingPointType`
+        // are wrappers around their primitive-keyword children and
+        // are dropped here so the same `int` token is not counted
+        // twice. Groovy adds `Def`, binary `In`, and the explicit
+        // `STARSTAR` / `DOTDOT` / `Asterisk` tokens on top of Java's
+        // set.
+        match node.kind_id().into() {
+            If | Else | Switch | Case | Try | Catch | Throw | Throws | Throws2 | For | While
+            | Continue | Break | Do | Finally | New | Return | Default | Abstract | Assert
+            | Instanceof | Extends | Final | Implements | Transient | Synchronized | Super
+            | This | VoidType | Def | In | SEMI | COMMA | COLONCOLON | DOT | DASHGT | LBRACE
+            | LBRACK | LPAREN | EQ | LT | GT | BANG | TILDE | QMARK | COLON | EQEQ | LTEQ
+            | GTEQ | BANGEQ | AMPAMP | PIPEPIPE | PLUSPLUS | DASHDASH | PLUS | DASH | STAR
+            | SLASH | AMP | PIPE | CARET | PERCENT | LTLT | GTGT | GTGTGT | PLUSEQ | DASHEQ
+            | STAREQ | SLASHEQ | AMPEQ | PIPEEQ | CARETEQ | PERCENTEQ | LTLTEQ | GTGTEQ
+            | GTGTGTEQ | STARSTAR | DOTDOT | Asterisk | Byte | Short | Int | Long | Char
+            | Float | Double | BooleanType => HalsteadType::Operator,
+
+            Identifier
+            | ScopedIdentifier
+            | TypeIdentifier
+            | ScopedTypeIdentifier
+            | NullLiteral
+            | ClassLiteral
+            | True
+            | False
+            | StringLiteral
+            | StringLiteral2
+            | CharacterLiteral
+            | HexIntegerLiteral
+            | OctalIntegerLiteral
+            | BinaryIntegerLiteral
+            | DecimalIntegerLiteral
+            | HexFloatingPointLiteral
+            | DecimalFloatingPointLiteral => HalsteadType::Operand,
+
+            _ => HalsteadType::Unknown,
+        }
+    }
+
+    fn get_operator_id_as_str(id: u16) -> &'static str {
+        let typ = id.into();
+        match typ {
+            Groovy::LPAREN => "()",
+            Groovy::LBRACK => "[]",
+            Groovy::LBRACE => "{}",
+            Groovy::VoidType => "void",
+            _ => typ.into(),
+        }
+    }
+}

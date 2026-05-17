@@ -224,6 +224,16 @@ mk_langs!(
         tree_sitter_ruby,
         [rb, rake, gemspec],
         ["ruby"]
+    ),
+    (
+        Groovy,
+        "The `Groovy` language",
+        "groovy",
+        GroovyCode,
+        GroovyParser,
+        tree_sitter_groovy,
+        [groovy, gradle, gvy, gy, gsh],
+        ["groovy"]
     )
 );
 
