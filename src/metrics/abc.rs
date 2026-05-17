@@ -2945,6 +2945,317 @@ mod tests {
     }
 
     #[test]
+    fn groovy_no_abc() {
+        // Comment-only file has no executable code → all-zero ABC.
+        check_metrics::<GroovyParser>(
+            "// just a comment, no executable code",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 0.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_single_assignment() {
+        // `int x = 1` is a local-variable declaration whose `=` counts
+        // as one assignment (matches Java's semantics).
+        check_metrics::<GroovyParser>("int x = 1", "foo.groovy", |metric| {
+            assert_eq!(metric.abc.assignments_sum(), 1.0);
+            assert_eq!(metric.abc.branches_sum(), 0.0);
+            assert_eq!(metric.abc.conditions_sum(), 0.0);
+        });
+    }
+
+    #[test]
+    fn groovy_assignments() {
+        check_metrics::<GroovyParser>(
+            "void f() {
+                int a = 1
+                int b = 2
+                a = 3
+                b = 4
+                a += 1
+                b -= 1
+            }",
+            "foo.groovy",
+            |metric| {
+                // Six `=` tokens total. The two `Final`-less local
+                // var-decls (`int a = 1`, `int b = 2`) and the two
+                // bare assignments (`a = 3`, `b = 4`) each contribute
+                // one assignment via the `EQ` arm; the `+=` / `-=`
+                // each contribute one via the compound-assign arm.
+                assert_eq!(metric.abc.assignments_sum(), 6.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_branches() {
+        check_metrics::<GroovyParser>(
+            "void f() {
+                doStuff()
+                helper.invoke()
+                new Worker()
+            }",
+            "foo.groovy",
+            |metric| {
+                // 2 method invocations + 1 object creation = 3 branches
+                assert_eq!(metric.abc.branches_sum(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_conditions_in_if() {
+        check_metrics::<GroovyParser>(
+            "void f(int a) {
+                if (a == 0) { println a }
+                if (a >= 1) { println a }
+                if (a != 2) { println a }
+            }",
+            "foo.groovy",
+            |metric| {
+                // Three relational ops = 3 conditions
+                assert_eq!(metric.abc.conditions_sum(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_branches_with_juxt_call() {
+        // Groovy's parens-less call form `println foo` must be counted
+        // as a branch (`JuxtFunctionCall`).
+        check_metrics::<GroovyParser>(
+            "void f() {
+                println 'hi'
+                println 'bye'
+            }",
+            "foo.groovy",
+            |metric| {
+                // 2 juxt calls = 2 branches.
+                assert_eq!(metric.abc.branches_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_try_catch_conditions() {
+        // Each `try` and `catch` keyword token contributes +1 to
+        // conditions (mirrors Java).
+        check_metrics::<GroovyParser>(
+            "void f() {
+                try {
+                    risky()
+                } catch (Exception e) {
+                    handle(e)
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // try + catch = 2 conditions
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_ternary_conditions() {
+        check_metrics::<GroovyParser>(
+            "void f(int x) {
+                def y = x > 0 ? 1 : 2
+            }",
+            "foo.groovy",
+            |metric| {
+                // QMARK alone is +1 condition, plus the `>` condition = 2.
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_constant_excluded_from_assignments() {
+        // `final` declarations are not counted as assignments
+        // (mirrors Java's `Final` handling).
+        check_metrics::<GroovyParser>(
+            "class A {
+                final int CONST = 42
+                int field = 0
+            }",
+            "foo.groovy",
+            |metric| {
+                // The `=` on `final int CONST = 42` is a constant
+                // initialiser (skipped). Only `field = 0` counts.
+                assert_eq!(metric.abc.assignments_sum(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_malformed_parenthesized_no_panic() {
+        // Regression: malformed Groovy input must not panic the ABC
+        // walker; the `spaces.rs` Unit fallback (lesson 9) covers
+        // structural recovery. amaanq's grammar treats `def x = (((`
+        // as a `local_variable_declaration` whose initialiser is the
+        // first opening paren — the `=` still fires the assignment
+        // arm.
+        check_metrics::<GroovyParser>("def x = (((", "foo.groovy", |metric| {
+            assert_eq!(metric.abc.assignments_sum(), 1.0);
+        });
+    }
+
+    #[test]
+    fn groovy_if_multiple_conditions() {
+        // Mirrors `java_if_multiple_conditions`: `&&` / `||` chains
+        // and parenthesised unary forms each contribute one
+        // condition per primitive comparison; the inspect-container
+        // pass picks up the unary `!a` / `!b` arguments inside the
+        // `BinaryExpression` and counts them too.
+        check_metrics::<GroovyParser>(
+            "void f(boolean a, boolean b, boolean c) {
+                if (a || b || c) { println a }
+                if (a && b && c) { println a }
+                if (!a && !b) { println a }
+            }",
+            "foo.groovy",
+            |metric| {
+                // Conditions counted via the AMPAMP/PIPEPIPE arms
+                // (one count per identifier in the chain — three
+                // for `||`, three for `&&`, two for the unary chain)
+                // = 8.
+                assert_eq!(metric.abc.conditions_sum(), 8.0);
+                // Three `println a` juxt calls — each is a branch.
+                assert_eq!(metric.abc.branches_sum(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_while_and_do_while_conditions() {
+        // Covers the WhileStatement and DoStatement arms in
+        // `impl Abc for GroovyCode`. Each `while` / `do-while` has
+        // its condition inspected through `groovy_inspect_container`.
+        check_metrics::<GroovyParser>(
+            "void f(boolean a, boolean b) {
+                while (a) {
+                    a = false
+                }
+                do {
+                    b = !b
+                } while (b)
+            }",
+            "foo.groovy",
+            |metric| {
+                // `while(a)` + `while(b)` each contribute one condition;
+                // the unary `!b` on the do body's right-hand side adds
+                // one more via the assignment-arm inspection = 3.
+                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                // Two assignments to existing variables (`a = false`,
+                // `b = !b`).
+                assert_eq!(metric.abc.assignments_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_methods_arguments_with_conditions() {
+        // Mirror of `java_methods_arguments_with_conditions`: a
+        // unary `!x` inside an argument list must count both the
+        // method invocation as a branch AND the unary as a
+        // condition. The `ArgumentList | ArgumentList2` arm in
+        // `impl Abc for GroovyCode` is what exercises this.
+        check_metrics::<GroovyParser>(
+            "void f(boolean a, boolean b, boolean c) {
+                m1(a)
+                m1(!a)
+                m2(!a, !b)
+            }",
+            "foo.groovy",
+            |metric| {
+                // 3 method invocations (m1, m1, m2) — each fires the
+                // branches arm.
+                assert_eq!(metric.abc.branches_sum(), 3.0);
+                // Three `!` unaries — `m1(!a)` and the two args of
+                // `m2(!a, !b)` — each contribute one condition via
+                // the ArgumentList inspection.
+                assert_eq!(metric.abc.conditions_sum(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_return_with_conditions() {
+        // Mirror of `java_return_with_conditions`: a parenthesised
+        // or unary expression inside `return` flows through the
+        // `ReturnStatement` arm to `groovy_inspect_container`.
+        check_metrics::<GroovyParser>(
+            "boolean f(boolean a) {
+                return (a)
+            }
+            boolean g(boolean a) {
+                return !a
+            }",
+            "foo.groovy",
+            |metric| {
+                // Only one of the two return forms surfaces a
+                // condition: `return !a` hits the UnaryExpression
+                // path and adds one; `return (a)` reaches
+                // `groovy_inspect_container` but the inner
+                // identifier `a` is not in a boolean-context-firing
+                // parent, so no condition is added.
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_for_with_variable_declaration() {
+        // Classical `for (int i = 0; cond; i++)` form. The init
+        // slot's `int i = 0` is suppressed from assignments by the
+        // `LocalVariableDeclaration` push/pop dance; the `i++` in
+        // the update slot contributes one assignment via the
+        // `PLUSPLUS` arm. The condition `i < 10` flows through the
+        // `ForStatement` arm.
+        check_metrics::<GroovyParser>(
+            "void f() {
+                for (int i = 0; i < 10; i++) {
+                    println i
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // `int i = 0` fires the EQ arm + `i++` fires the
+                // PLUSPLUS arm = 2 assignments.
+                assert_eq!(metric.abc.assignments_sum(), 2.0);
+                // `i < 10` is one condition (the LT arm).
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_eq_arm_increments_when_no_declaration() {
+        // Bare reassignment of an already-declared variable: the
+        // `EQ` arm fires when the declaration stack is empty
+        // (`stats.declaration.last().is_none()`), so the `=` counts
+        // as one assignment. Mirrors `java_eq_arm_increments_when_
+        // declaration_stack_is_empty`.
+        check_metrics::<GroovyParser>(
+            "void f(int x) {
+                x = 42
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 1.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 0.0);
+            },
+        );
+    }
+
+    #[test]
     fn csharp_constant_declarations() {
         check_metrics::<CsharpParser>(
             "class A {

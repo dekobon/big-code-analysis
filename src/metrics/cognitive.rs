@@ -6296,6 +6296,354 @@ end",
     }
 
     #[test]
+    fn groovy_no_cognitive() {
+        check_metrics::<GroovyParser>("class A { int x = 42 }", "foo.groovy", |metric| {
+            assert_eq!(metric.cognitive.cognitive_sum(), 0.0);
+        });
+    }
+
+    #[test]
+    fn groovy_single_branch_function() {
+        check_metrics::<GroovyParser>(
+            "void f(int x) {
+                if (x > 0) {
+                    println x
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // if = +1
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_nested_if() {
+        check_metrics::<GroovyParser>(
+            "void f(int x, int y) {
+                if (x > 0) {
+                    if (y > 0) {
+                        println x
+                    }
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // outer if (+1) + inner if (+2 for nesting depth 1) = 3
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_else_if_chain() {
+        // Regression for the #115 / #239 stub pattern: an `else if`
+        // chain must NOT receive a nesting increment for the `if`
+        // inside `else if`. Without the sibling-`Else` pattern in
+        // `Checker::is_else_if`, this would have scored higher.
+        check_metrics::<GroovyParser>(
+            "class X {
+                static void f(int x) {
+                    if (x > 10) {
+                    } else if (x > 5) {
+                    } else if (x > 0) {
+                    } else {
+                    }
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // if(+1) + else(+1) + else(+1) + else(+1) = 4
+                assert_eq!(metric.cognitive.cognitive_sum(), 4.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_else_if_chain_lower_than_nested_ifs() {
+        // The `else if` chain in `groovy_else_if_chain` MUST score
+        // lower than an equivalent depth of nested `if` blocks — this
+        // is the inequality the test exists to defend (lesson 10).
+        check_metrics::<GroovyParser>(
+            "class X {
+                static void f(int x) {
+                    if (x > 10) {
+                        if (x > 5) {
+                            if (x > 0) {
+                            }
+                        }
+                    }
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // 3 nested `if`s: 1 + 2 + 3 = 6 (each deeper layer
+                // pays a higher nesting cost). The chain in
+                // `groovy_else_if_chain` produces 4, so this MUST
+                // exceed it.
+                assert!(metric.cognitive.cognitive_sum() > 4.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_sequence_booleans_same_op() {
+        // SonarSource B1: a chain of identical short-circuit ops counts as one.
+        check_metrics::<GroovyParser>(
+            "void f(boolean a, boolean b, boolean c) {
+                if (a && b && c) { println a }
+            }",
+            "foo.groovy",
+            |metric| {
+                // if (+1) + boolean sequence (+1) = 2
+                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_sequence_booleans_mixed_ops() {
+        // A `&&` followed by `||` is two distinct sequences = +2.
+        check_metrics::<GroovyParser>(
+            "void f(boolean a, boolean b, boolean c) {
+                if (a && b || c) { println a }
+            }",
+            "foo.groovy",
+            |metric| {
+                // if (+1) + && (+1) + || (+1) = 3
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_not_operator_negation() {
+        // SonarSource: `!` negation flips a boolean sequence's polarity
+        // but doesn't add cognitive cost on its own.
+        check_metrics::<GroovyParser>(
+            "void f(boolean a, boolean b) {
+                if (a && !b) { println a }
+            }",
+            "foo.groovy",
+            |metric| {
+                // if(+1) + && (+1) = 2
+                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_for_while_do_loops() {
+        check_metrics::<GroovyParser>(
+            "void f(int n) {
+                for (int i = 0; i < n; i++) {
+                    while (i > 0) {
+                        i--
+                    }
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // for(+1) + while inside for(+2) = 3
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_enhanced_for() {
+        check_metrics::<GroovyParser>(
+            "void f(List items) {
+                for (item in items) {
+                    println item
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_try_catch_nesting() {
+        check_metrics::<GroovyParser>(
+            "void f() {
+                try {
+                    risky()
+                } catch (Exception e) {
+                    handle(e)
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // catch(+1) = 1
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_ternary_expression() {
+        check_metrics::<GroovyParser>(
+            "void f(int x) {
+                def y = (x > 0) ? 1 : 2
+            }",
+            "foo.groovy",
+            |metric| {
+                // ternary(+1) = 1
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_labeled_break_continue() {
+        // SonarSource B2: labeled break/continue each add +1.
+        check_metrics::<GroovyParser>(
+            "void f() {
+                outer:
+                for (int i = 0; i < 10; i++) {
+                    inner:
+                    for (int j = 0; j < 10; j++) {
+                        if (i == j) break outer
+                        if (i < j) continue inner
+                    }
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // for(+1) + for(+2 nested) + if(+3) + break label(+1)
+                // + if(+3) + continue label(+1) = 11
+                assert_eq!(metric.cognitive.cognitive_sum(), 11.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_multiple_branch_function() {
+        // Sibling `if` statements at the same nesting level each
+        // contribute +1; an `else` at the same level adds another
+        // +1 via the Else arm.
+        check_metrics::<GroovyParser>(
+            "class X {
+                static void print(boolean a, boolean b) {
+                    if (a) {
+                        println 'test1'
+                    }
+                    if (b) {
+                        println 'test2'
+                    } else {
+                        println 'test3'
+                    }
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // if(+1) + if(+1) + else(+1) = 3
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_unlabeled_break_continue_not_counted() {
+        // SonarSource B2: plain `break` / `continue` are NOT
+        // unstructured jumps and must add 0 — only labeled forms
+        // pay the +1. Matches Java's identical fixture.
+        check_metrics::<GroovyParser>(
+            "class X {
+                void scan(int[] m) {
+                    for (int i = 0; i < m.length; i++) {
+                        if (m[i] < 0) continue
+                        if (m[i] > 100) break
+                    }
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // for(+1) + if(+2) + if(+2) = 5 (break/continue add 0)
+                assert_eq!(metric.cognitive.cognitive_sum(), 5.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_cognitive_nested_else_if() {
+        // Regression for the #115 stub pattern at deeper nesting:
+        // an `else if` chain inside a `for` loop must still respect
+        // the loop's nesting for the initial `if`, but each
+        // `else`-chained branch pays a flat +1 via the Else arm.
+        // Matches Java's identical fixture.
+        check_metrics::<GroovyParser>(
+            "class X {
+                static void f(int x) {
+                    for (int i = 0; i < x; i++) {
+                        if (i > 10) {
+                        } else if (i > 5) {
+                        } else {
+                        }
+                    }
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // for(+1) + if at nesting=1(+2) + else(+1) + else(+1) = 5
+                assert_eq!(metric.cognitive.cognitive_sum(), 5.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_cognitive_if_inside_else_block_is_not_else_if() {
+        // Regression for #115 — an inner `if` whose previous sibling
+        // is the block's opening brace (not the `else` keyword) is a
+        // nested independent statement, NOT an else-if continuation,
+        // so it pays the full nesting penalty. Matches Java's
+        // identical fixture.
+        check_metrics::<GroovyParser>(
+            "class X {
+                static void f(int a, int c) {
+                    if (a > 0) {
+                    } else {
+                        if (c > 0) {
+                        }
+                    }
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // if(+1, nesting=0) + else(+1) + inner if(+2, nesting=1) = 4
+                assert_eq!(metric.cognitive.cognitive_sum(), 4.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_nested_ternary() {
+        // Nested ternaries inside an `if` compound by nesting — same
+        // rule as Java's `java_nested_ternary` (which itself mirrors
+        // the C++ regression for #172).
+        check_metrics::<GroovyParser>(
+            "class X {
+                static String classify(int a, int b) {
+                    if (a > 0) {
+                        return b > 0 ? (b > 10 ? 'big' : 'small') : 'neg'
+                    }
+                    return 'zero'
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // if(+1, nesting=0) + outer ternary(+1+1=+2, nesting=1)
+                // + inner ternary(+1+2=+3, nesting=2) = 6
+                assert_eq!(metric.cognitive.cognitive_sum(), 6.0);
+            },
+        );
+    }
+
+    #[test]
     fn csharp_cognitive_else_if_chain() {
         // Regression for #115: else-if chains must not receive a nesting
         // increment for the `if` inside `else if`. Expected breakdown:

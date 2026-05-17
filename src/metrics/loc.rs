@@ -8956,6 +8956,368 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
     }
 
     #[test]
+    fn groovy_blank() {
+        // Blank lines + simple statements. Newlines act as the
+        // statement terminator; PLOC counts the two declaration lines.
+        check_metrics::<GroovyParser>("int x = 1\n\n\nint y = 2", "foo.groovy", |metric| {
+            assert_eq!(metric.loc.sloc(), 4.0);
+            assert_eq!(metric.loc.ploc(), 2.0);
+            assert_eq!(metric.loc.lloc(), 2.0);
+            assert_eq!(metric.loc.blank(), 2.0);
+        });
+    }
+
+    #[test]
+    fn groovy_no_zero_blank() {
+        // A single line with no blanks: blank() == 0.
+        check_metrics::<GroovyParser>("int x = 1", "foo.groovy", |metric| {
+            assert_eq!(metric.loc.sloc(), 1.0);
+            assert_eq!(metric.loc.blank(), 0.0);
+        });
+    }
+
+    #[test]
+    fn groovy_cloc_line_comments() {
+        check_metrics::<GroovyParser>(
+            "// first comment
+            int x = 1
+            // second comment
+            int y = 2",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.loc.cloc(), 2.0);
+                assert_eq!(metric.loc.ploc(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_cloc_block_comment() {
+        check_metrics::<GroovyParser>(
+            "/* multi
+               line
+               comment */
+            int x = 1",
+            "foo.groovy",
+            |metric| {
+                // Block comment spans 3 lines → cloc == 3.
+                assert_eq!(metric.loc.cloc(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_simple_lloc() {
+        // One LLOC per simple expression statement.
+        check_metrics::<GroovyParser>(
+            "int a = 1
+            int b = 2
+            int c = 3",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.loc.lloc(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_no_local_variable_declaration_in_for_lloc() {
+        // The variable declaration inside a classic `for` init slot
+        // does NOT count as an LLOC (it's an expression part of the
+        // for-loop). Same gating as Java's `java_for_lloc`.
+        check_metrics::<GroovyParser>(
+            "for (int i = 0; i < 10; i++) {
+                println i
+            }",
+            "foo.groovy",
+            |metric| {
+                // for-statement (1) + expression-statement `println i` (1) = 2
+                assert_eq!(metric.loc.lloc(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_lambda_in_method_lloc() {
+        // Lambdas are expressions: the declaration `def f = …` is one
+        // LLOC; the call `f(3)` is another. Lambda body itself is not
+        // a separate statement.
+        check_metrics::<GroovyParser>(
+            "class Foo {
+                void bar() {
+                    def f = { x -> x + 1 }
+                    f(3)
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.loc.lloc(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_try_lloc() {
+        // try-statement counts as one LLOC; the catch body's
+        // statements count separately.
+        check_metrics::<GroovyParser>(
+            "void f() {
+                try {
+                    risky()
+                } catch (Exception e) {
+                    handle(e)
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // try(1) + risky() expr-stmt(1) + handle() expr-stmt(1) = 3
+                assert_eq!(metric.loc.lloc(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_class_loc() {
+        // Source-file-level totals across multiple methods.
+        check_metrics::<GroovyParser>(
+            "class A {
+                void f() {
+                    int x = 1
+                }
+                void g() {
+                    int y = 2
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // 8 lines of non-comment content: `class A {`, two
+                // `void` headers, two `int … = …` body statements,
+                // three closing braces.
+                assert_eq!(metric.loc.ploc(), 8.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                // Two expression-statement LLOCs (`int x = 1`,
+                // `int y = 2`).
+                assert_eq!(metric.loc.lloc(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_partial_parse_recovers_unit() {
+        // Malformed input parses with ERROR but still emits a Unit
+        // root via `spaces.rs` fallback (lesson 9). The single
+        // source line is counted as SLOC even when the parse fails
+        // mid-expression.
+        check_metrics::<GroovyParser>("def x = (((", "foo.groovy", |metric| {
+            assert_eq!(metric.loc.sloc(), 1.0);
+            assert_eq!(metric.loc.blank(), 0.0);
+        });
+    }
+
+    #[test]
+    fn groovy_sloc() {
+        // Mirrors `java_sloc`: basic per-line count across a mix of
+        // statements and a blank line.
+        check_metrics::<GroovyParser>(
+            "int a = 1
+            int b = 2
+
+            int c = 3",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 3.0);
+                assert_eq!(metric.loc.blank(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_single_ploc() {
+        // Mirrors `java_single_ploc`: one non-blank, non-comment
+        // line of code => ploc == 1.
+        check_metrics::<GroovyParser>("int x = 42", "foo.groovy", |metric| {
+            assert_eq!(metric.loc.ploc(), 1.0);
+            assert_eq!(metric.loc.cloc(), 0.0);
+        });
+    }
+
+    #[test]
+    fn groovy_multi_ploc() {
+        // Multiple statements on separate lines all contribute to
+        // PLOC. Mirrors `java_multi_ploc`.
+        check_metrics::<GroovyParser>(
+            "int a = 1
+            int b = 2
+            int c = 3
+            int d = 4",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 4.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_single_statement_lloc() {
+        // A single expression statement contributes one LLOC.
+        // Mirrors `java_single_statement_lloc`.
+        check_metrics::<GroovyParser>("println 'hi'", "foo.groovy", |metric| {
+            assert_eq!(metric.loc.lloc(), 1.0);
+        });
+    }
+
+    #[test]
+    fn groovy_for_lloc() {
+        // The classical `for` statement itself counts as one LLOC;
+        // the body's `println i` adds another. The init-slot
+        // var-decl is suppressed by the LocalVariableDeclaration
+        // ancestor-check (same rule as `java_for_lloc`).
+        check_metrics::<GroovyParser>(
+            "for (int i = 0; i < 100; i++) {
+                println i
+            }",
+            "foo.groovy",
+            |metric| {
+                // ForStatement(1) + println-expr(1) = 2
+                assert_eq!(metric.loc.lloc(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_foreach_lloc() {
+        // `for (item in list)` parses as `enhanced_for_statement` —
+        // counts as one LLOC.
+        check_metrics::<GroovyParser>(
+            "for (item in items) {
+                println item
+            }",
+            "foo.groovy",
+            |metric| {
+                // EnhancedForStatement(1) + println(1) = 2
+                assert_eq!(metric.loc.lloc(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_while_lloc() {
+        // `while` itself is one LLOC; each body statement adds
+        // another. Mirrors `java_while_lloc`.
+        check_metrics::<GroovyParser>(
+            "int i = 0
+            while (i < 10) {
+                i++
+                println i
+            }",
+            "foo.groovy",
+            |metric| {
+                // int i = 0 (1) + while (1) + i++ (1) + println (1) = 4
+                assert_eq!(metric.loc.lloc(), 4.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_do_while_lloc() {
+        // `do…while` is one LLOC plus its body. Mirrors
+        // `java_do_while_lloc`.
+        check_metrics::<GroovyParser>(
+            "int i = 0
+            do {
+                i++
+            } while (i < 5)",
+            "foo.groovy",
+            |metric| {
+                // int i = 0 (1) + do (1) + i++ (1) = 3
+                assert_eq!(metric.loc.lloc(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_continue_lloc() {
+        // `continue` is an LLOC. Same gating as `java_continue_lloc`.
+        check_metrics::<GroovyParser>(
+            "for (int i = 0; i < 10; i++) {
+                if (i == 5) {
+                    continue
+                }
+                println i
+            }",
+            "foo.groovy",
+            |metric| {
+                // for(1) + if(1) + continue(1) + println(1) = 4
+                assert_eq!(metric.loc.lloc(), 4.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_expressions_lloc() {
+        // A bag of expression statements: each independent
+        // expr-stmt is one LLOC. Mirrors `java_expressions_lloc`.
+        check_metrics::<GroovyParser>(
+            "int a = 1
+            a = 2
+            a += 3
+            println a
+            doSomething()",
+            "foo.groovy",
+            |metric| {
+                // 5 expression-statement lines.
+                assert_eq!(metric.loc.lloc(), 5.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_throw_lloc() {
+        // `throw` is one LLOC via the `ThrowStatement` arm.
+        check_metrics::<GroovyParser>(
+            "throw new RuntimeException('bad')",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.loc.lloc(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_general_loc() {
+        // Comprehensive mix: class + method + control flow.
+        // Mirrors `java_general_loc`'s coverage shape.
+        //
+        // LLOC = 4, fully attributable:
+        //   IfStatement (the outer if/else):     +1
+        //   `println x`     (JuxtFunctionCall):  +1
+        //   `println 'neg'` (JuxtFunctionCall):  +1
+        //   `return`        (ReturnStatement):   +1
+        // The else-branch's `expression_statement (closure)`
+        // wrapper does NOT count — see the bare-Closure carve-out
+        // in `impl Loc for GroovyCode::compute`.
+        check_metrics::<GroovyParser>(
+            "class A {
+                void f(int x) {
+                    if (x > 0) {
+                        println x
+                    } else {
+                        println 'neg'
+                    }
+                    return
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.loc.lloc(), 4.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+            },
+        );
+    }
+
+    #[test]
     fn csharp_local_function_in_method_lloc() {
         // C# local functions (`int Inner(int x) { ... }` inside `Bar()`)
         // open their own function space, so the outer method sees only

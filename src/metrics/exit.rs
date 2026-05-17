@@ -1901,6 +1901,75 @@ end",
     }
 
     #[test]
+    fn groovy_no_exit() {
+        // No functions at all — `nexits.sum` is 0.
+        check_metrics::<GroovyParser>("int a = 42", "foo.groovy", |metric| {
+            assert_eq!(metric.nexits.exit_sum(), 0.0);
+        });
+    }
+
+    #[test]
+    fn groovy_simple_function() {
+        // One explicit return in a top-level function.
+        check_metrics::<GroovyParser>(
+            "int answer() {
+                return 42
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_return_and_throw() {
+        check_metrics::<GroovyParser>(
+            "class A {
+                int parseLength(String s) {
+                    if (s == null) throw new NullPointerException()
+                    return s.length()
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_yield_in_switch_expression() {
+        // Groovy inherits Java-14+ switch-expression `yield`. Each
+        // explicit `yield` counts as one exit.
+        check_metrics::<GroovyParser>(
+            "class A {
+                int describe(int n) {
+                    return switch (n) {
+                        case 0: yield 100;
+                        default: yield 200;
+                    }
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_implicit_return_not_counted() {
+        // Groovy allows implicit return of the last expression in a
+        // closure / function body. The Exit metric only counts
+        // *explicit* `return` / `yield` / `throw` — consistent with
+        // Java's docstring.
+        check_metrics::<GroovyParser>("int identity(int x) { x }", "foo.groovy", |metric| {
+            assert_eq!(metric.nexits.exit_sum(), 0.0);
+        });
+    }
+
+    #[test]
     fn cpp_return_and_throw() {
         // `throw` exits the function.
         check_metrics::<CppParser>(

@@ -980,6 +980,225 @@ mod tests {
     }
 
     #[test]
+    fn groovy_no_methods() {
+        check_metrics::<GroovyParser>("class A { int x = 1 }", "foo.groovy", |metric| {
+            assert_eq!(metric.npm.total_nm(), 0.0);
+        });
+    }
+
+    #[test]
+    fn groovy_public_methods() {
+        check_metrics::<GroovyParser>(
+            "class A {
+                public void m1() {}
+                public int m2() { return 0 }
+                private void m3() {}
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_interface_methods_implicitly_public() {
+        check_metrics::<GroovyParser>(
+            "interface I {
+                void a()
+                int b()
+            }",
+            "foo.groovy",
+            |metric| {
+                // Interface methods are implicitly public.
+                assert_eq!(metric.npm.interface_nm_sum(), 2.0);
+                assert_eq!(metric.npm.interface_npm_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_constructors() {
+        check_metrics::<GroovyParser>(
+            "class X {
+                X() {}
+                private X(int a) {}
+                protected X(int a, int b) {}
+                public X(int a, int b, int c) {}
+            }",
+            "foo.groovy",
+            |metric| {
+                // 4 constructors total, 1 public
+                assert_eq!(metric.npm.class_nm_sum(), 4.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_no_methods_in_unit_scope() {
+        check_metrics::<GroovyParser>("int x = 1", "foo.groovy", |metric| {
+            assert_eq!(metric.npm.total_nm(), 0.0);
+        });
+    }
+
+    #[test]
+    fn groovy_multiple_classes_methods() {
+        check_metrics::<GroovyParser>(
+            "class A { public void a() {} }
+            class B { public void b() {} }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_methods_returning_primitive_types() {
+        // Mirror of `java_methods_returning_primitive_types`. Each
+        // method declaration is counted regardless of return type;
+        // `public` modifier promotes to NPM.
+        check_metrics::<GroovyParser>(
+            "class X {
+                public byte a() {}
+                public int b() {}
+                public double c() {}
+                public boolean d() {}
+                byte e() {}
+                int f() {}
+            }",
+            "foo.groovy",
+            |metric| {
+                // 6 methods, 4 public.
+                assert_eq!(metric.npm.class_nm_sum(), 6.0);
+                assert_eq!(metric.npm.class_npm_sum(), 4.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_methods_with_generic_types() {
+        // Methods with generic parameter/return types.
+        check_metrics::<GroovyParser>(
+            "class X {
+                public List<String> a() {}
+                public Map<String, Integer> b() {}
+                List<Integer> c() {}
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_method_modifiers() {
+        // Modifier ordering doesn't matter — what matters is
+        // whether the `Modifiers` block contains `Public`. Mirrors
+        // `java_method_modifiers`.
+        check_metrics::<GroovyParser>(
+            "abstract class X {
+                public static void a() {}
+                static public void b() {}
+                public final void c() {}
+                final public void d() {}
+                protected static void e() {}
+                static protected void f() {}
+                abstract public void g()
+                abstract void h()
+            }",
+            "foo.groovy",
+            |metric| {
+                // 8 methods, 5 public.
+                assert_eq!(metric.npm.class_nm_sum(), 8.0);
+                assert_eq!(metric.npm.class_npm_sum(), 5.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_nested_inner_classes() {
+        // Each nested `class` declaration is its own class space.
+        // Mirrors `java_nested_inner_classes`.
+        check_metrics::<GroovyParser>(
+            "class X {
+                public void a() {}
+                class Y {
+                    public void b() {}
+                    class Z {
+                        public void c() {}
+                    }
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // 3 classes, 3 public methods (one per class).
+                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                assert_eq!(metric.npm.class_npm_sum(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_anonymous_inner_class() {
+        // Anonymous inner class via `new T() { ... }`. Its methods
+        // are counted in a separate class space.
+        check_metrics::<GroovyParser>(
+            "class X {
+                public Runnable r = new Runnable() {
+                    public void run() {}
+                    void helper() {}
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // Inner anonymous: 2 methods (run + helper), 1 public
+                // (run). Outer X has no methods.
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_interfaces_and_class() {
+        // Mixed interfaces + class. Interface methods are
+        // implicitly public; class methods need explicit `public`.
+        // Mirrors `java_interfaces_and_class`.
+        check_metrics::<GroovyParser>(
+            "interface X {
+                void a()
+            }
+            interface Y extends X {
+                void b()
+                void c()
+            }
+            class Z implements Y {
+                public void a() {}
+                public void b() {}
+                public void c() {}
+                void d() {}
+                void e() {}
+            }",
+            "foo.groovy",
+            |metric| {
+                // Interfaces: 3 total methods (a, b, c), all 3 public.
+                assert_eq!(metric.npm.interface_nm_sum(), 3.0);
+                assert_eq!(metric.npm.interface_npm_sum(), 3.0);
+                // Class Z: 5 methods, 3 public (a, b, c — d, e are
+                // package-private).
+                assert_eq!(metric.npm.class_nm_sum(), 5.0);
+                assert_eq!(metric.npm.class_npm_sum(), 3.0);
+            },
+        );
+    }
+
+    #[test]
     fn java_methods_returning_primitive_types() {
         check_metrics::<JavaParser>(
             "class X {

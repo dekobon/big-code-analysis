@@ -1225,6 +1225,49 @@ mod tests {
     }
 
     #[test]
+    fn groovy_nom() {
+        check_metrics::<GroovyParser>(
+            "class Printer {
+                void print() {
+                    println 'hello'
+                }
+                static void main(String[] args) {
+                    def p = new Printer()
+                    p.print()
+                    def doubler = { x -> x * 2 }
+                    int r = doubler(21)
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // Two methods declared. amaanq's grammar parses both
+                // method bodies as `closure` nodes in addition to the
+                // explicit `doubler` closure literal — so the closure
+                // count is the method-body count, not just the literal
+                // count. The total is stable on this fixture.
+                assert_eq!(metric.nom.functions_sum(), 2.0);
+                assert_eq!(metric.nom.closures_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_nom_function_definition() {
+        // `def foo() {}` at top level uses `function_definition`, not
+        // `method_declaration`. Nom must count it as a function.
+        check_metrics::<GroovyParser>(
+            "def greet(name) {
+                println name
+            }
+            greet('world')",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 1.0);
+            },
+        );
+    }
+
+    #[test]
     fn perl_nom() {
         check_metrics::<PerlParser>(
             "sub a { 1 }

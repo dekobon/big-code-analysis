@@ -2312,6 +2312,130 @@ mod tests {
     }
 
     #[test]
+    fn groovy_simple_class() {
+        check_metrics::<GroovyParser>(
+            "
+            class Example {
+                int a = 10
+                boolean b = (a > 5) ? true : false
+                boolean c = b && true
+
+                void m1() {
+                    if (a % 2 == 0) {
+                        b = b || c
+                    }
+                }
+                void m2() {
+                    while (a > 3) {
+                        m1()
+                        a--
+                    }
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // Same shape as `java_simple_class`. nspace = 4
+                // (unit, class, 2 methods); branches mirror Java's.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 9.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_nested_control_flow() {
+        check_metrics::<GroovyParser>(
+            "void f(int x) {
+                if (x > 0) {
+                    while (x < 100) {
+                        x = x + 1
+                    }
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // unit(1) + fn(1) + if(1) + while(1) = 4
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_switch_with_cases() {
+        check_metrics::<GroovyParser>(
+            "void print(int result) {
+                switch (result) {
+                    case -1:
+                        println 'minus one'
+                        break
+                    case -2:
+                        println 'minus two'
+                        break
+                    default:
+                        println 'other'
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // standard: unit(1) + fn(1) + 2 cases = 4
+                // modified: unit(1) + fn(1) + switch(1) = 3
+                // (default does NOT add a branch — same as Java/lesson #106)
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_try_catch() {
+        check_metrics::<GroovyParser>(
+            "void f() {
+                try {
+                    risky()
+                } catch (Exception e) {
+                    handle(e)
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // unit(1) + fn(1) + catch(1) = 3
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_closure_body_short_circuit() {
+        // Top-level `def pred = { … }` collapses the closure into the
+        // unit scope (no class wrapper), so the `&&` inside still
+        // contributes one branch but no extra function space is
+        // created. Mirrors Java's top-level-lambda behavior.
+        check_metrics::<GroovyParser>(
+            "def pred = { x -> x > 0 && x < 100 }",
+            "foo.groovy",
+            |metric| {
+                // unit(1) + && (1) = 2
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_assert_adds_branch() {
+        // Groovy `assert` is a runtime check that branches on its
+        // condition; mirror Sonar's standard-CCN treatment.
+        check_metrics::<GroovyParser>(
+            "void check(int x) {
+                assert x > 0
+            }",
+            "foo.groovy",
+            |metric| {
+                // unit(1) + fn(1) + assert(1) = 3
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
+            },
+        );
+    }
+
+    #[test]
     fn perl_nested_control_flow() {
         check_metrics::<PerlParser>(
             "sub f { # +1 (unit) +1 (sub)

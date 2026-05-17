@@ -1830,6 +1830,210 @@ mod tests {
     }
 
     #[test]
+    fn groovy_no_attributes() {
+        check_metrics::<GroovyParser>("class A { void foo() {} }", "foo.groovy", |metric| {
+            assert_eq!(metric.npa.total_na(), 0.0);
+            assert_eq!(metric.npa.total_npa(), 0.0);
+        });
+    }
+
+    #[test]
+    fn groovy_public_attributes() {
+        check_metrics::<GroovyParser>(
+            "class A {
+                public int x
+                public String name
+                private int hidden
+            }",
+            "foo.groovy",
+            |metric| {
+                // 3 total attributes, 2 public
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_def_attributes_not_public() {
+        // `def field` at class scope is a FieldDeclaration whose
+        // modifier list contains `Def`, not `Public`. Mirror Java's
+        // semantics: only explicit `public` is counted.
+        check_metrics::<GroovyParser>(
+            "class A {
+                def field1
+                def field2
+            }",
+            "foo.groovy",
+            |metric| {
+                // Both `def` fields parse as FieldDeclarations.
+                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                assert_eq!(metric.npa.class_npa_sum(), 0.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_interface_attributes() {
+        check_metrics::<GroovyParser>(
+            "interface I {
+                public static final int A = 1
+                public static final int B = 2
+            }",
+            "foo.groovy",
+            |metric| {
+                // Interface fields are implicitly public+static+final.
+                assert_eq!(metric.npa.interface_na_sum(), 2.0);
+                assert_eq!(metric.npa.interface_npa_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_no_attributes_in_unit_scope() {
+        check_metrics::<GroovyParser>("int x = 1", "foo.groovy", |metric| {
+            assert_eq!(metric.npa.total_na(), 0.0);
+        });
+    }
+
+    #[test]
+    fn groovy_multiple_classes() {
+        check_metrics::<GroovyParser>(
+            "class A { public int a }
+            class B { public int b }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_initialized_attributes() {
+        // Mirror of `java_initialized_attributes`: each
+        // `variable_declarator` inside a `field_declaration` counts
+        // as one attribute, with or without an initializer; `public`
+        // modifier promotes them all to NPA.
+        check_metrics::<GroovyParser>(
+            "class X {
+                public int a1 = 1, a2
+                public int b1 = 2
+                int c1, c2 = 3
+            }",
+            "foo.groovy",
+            |metric| {
+                // 5 attributes total, 3 public.
+                assert_eq!(metric.npa.class_na_sum(), 5.0);
+                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_object_attributes() {
+        // Object-typed attributes (boxed primitives, user types,
+        // String, arrays). Each declarator is one attribute.
+        check_metrics::<GroovyParser>(
+            "class X {
+                public Integer a1
+                public String b1 = 'hello'
+                public Y[] c1
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_attribute_modifiers() {
+        // Multiple modifier orderings (public/static/final/transient/
+        // volatile etc.) must all be detected — what matters for NPA
+        // is whether the `Modifiers` block contains `Public`.
+        check_metrics::<GroovyParser>(
+            "class X {
+                public static int a
+                static public int b
+                public final int c = 1
+                final public int d = 2
+                private static int e
+                int f
+            }",
+            "foo.groovy",
+            |metric| {
+                // 6 attributes total, 4 public (regardless of order).
+                assert_eq!(metric.npa.class_na_sum(), 6.0);
+                assert_eq!(metric.npa.class_npa_sum(), 4.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_nested_inner_classes() {
+        // Each nested `class` declaration is its own class space
+        // with its own NPA. Mirrors `java_nested_inner_classes`.
+        check_metrics::<GroovyParser>(
+            "class X {
+                public int a
+                class Y {
+                    public boolean b
+                    class Z {
+                        public char c
+                    }
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // 3 classes, 3 public attributes.
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_array_attributes() {
+        // Array-typed attributes. Mirrors `java_array_attributes`.
+        check_metrics::<GroovyParser>(
+            "class X {
+                public int[] a
+                public String[] b
+                int[] c
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_anonymous_inner_class() {
+        // Object-creation expression containing a `class_body` —
+        // anonymous inner class. Its attributes are counted in a
+        // separate class space.
+        check_metrics::<GroovyParser>(
+            "class X {
+                public Runnable r = new Runnable() {
+                    public int x
+                    void run() {}
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // outer X has 1 public attr `r`; inner anonymous
+                // has 1 public attr `x` => total 2.
+                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
     fn java_generic_attributes() {
         check_metrics::<JavaParser>(
             "class X<T, S extends T> {

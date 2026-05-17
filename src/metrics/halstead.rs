@@ -1296,6 +1296,109 @@ mod tests {
     }
 
     #[test]
+    fn groovy_operators_and_operands() {
+        check_metrics::<GroovyParser>(
+            "class Main {
+                static void main(String[] args) {
+                    int a, b, c, avg;
+                    a = 5; b = 5; c = 5;
+                    avg = (a + b + c) / 3;
+                    println avg;
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // Groovy mirror of `java_operators_and_operands`. The juxt
+                // call `println avg` exercises `juxt_function_call` in
+                // place of Java's `MessageFormat.format(...)`. amaanq's
+                // grammar inherits Java's tokenisation, so n1/N1/n2/N2
+                // shapes match Java up to those substitutions.
+                assert_eq!(metric.halstead.u_operators(), 10.0);
+                assert_eq!(metric.halstead.u_operands(), 11.0);
+                insta::assert_json_snapshot!(
+                    metric.halstead,
+                    @r#"
+                {
+                  "n1": 10.0,
+                  "N1": 23.0,
+                  "n2": 11.0,
+                  "N2": 21.0,
+                  "length": 44.0,
+                  "estimated_program_length": 71.27302875388389,
+                  "purity_ratio": 1.6198415625882703,
+                  "vocabulary": 21.0,
+                  "volume": 193.26196660226546,
+                  "difficulty": 9.545454545454545,
+                  "level": 0.10476190476190476,
+                  "effort": 1844.7733175670794,
+                  "time": 102.4874065315044,
+                  "bugs": 0.050138817168622
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_primitive_types_and_booleans() {
+        check_metrics::<GroovyParser>(
+            "class Prims {
+                byte a = 1
+                short b = 2
+                int c = 3
+                long d = 4
+                char e = 'x'
+                float f = 1.0f
+                double g = 2.0
+                boolean h = true
+                boolean i = false
+            }",
+            "foo.groovy",
+            |metric| {
+                // Groovy keeps Java's 8 primitive-type tokens (byte,
+                // short, int, long, char, float, double, boolean) — these
+                // must count as distinct operators, and true/false as
+                // operands. Newline statement terminators replace `;`.
+                assert_eq!(metric.halstead.u_operators(), 11.0);
+                assert_eq!(metric.halstead.u_operands(), 19.0);
+                insta::assert_json_snapshot!(
+                    metric.halstead,
+                    @r#"
+                {
+                  "n1": 11.0,
+                  "N1": 28.0,
+                  "n2": 19.0,
+                  "N2": 19.0,
+                  "length": 47.0,
+                  "estimated_program_length": 118.76437056043838,
+                  "purity_ratio": 2.526901501285923,
+                  "vocabulary": 30.0,
+                  "volume": 230.62385799360038,
+                  "difficulty": 5.5,
+                  "level": 0.18181818181818182,
+                  "effort": 1268.4312189648022,
+                  "time": 70.46840105360012,
+                  "bugs": 0.03905920146699976
+                }
+                "#
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_closure_operators_and_operands() {
+        check_metrics::<GroovyParser>("def double = { x -> x * 2 }", "foo.groovy", |metric| {
+            // Closure with arrow-style parameter list.
+            // Distinct operators: def, =, {}, ->, * = 5.
+            // Distinct operands: double, x, 2 = 3.
+            assert_eq!(metric.halstead.u_operators(), 5.0);
+            assert_eq!(metric.halstead.u_operands(), 3.0);
+        });
+    }
+
+    #[test]
     fn csharp_operators_and_operands() {
         check_metrics::<CsharpParser>(
             "public class Main {
