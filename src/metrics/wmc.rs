@@ -429,6 +429,277 @@ mod tests {
         );
     }
 
+    #[test]
+    fn groovy_single_class() {
+        // WMC = sum of method cyclomatic complexities for the class.
+        check_metrics::<GroovyParser>(
+            "class Example {
+                boolean m1(boolean a, boolean b) {
+                    boolean r = false
+                    if (a && b == a || b) {
+                        r = true
+                    }
+                    return r
+                }
+                boolean m2(int n) {
+                    for (int i = 0; i < n; i++) {
+                        int j = n
+                        while (j > i) {
+                            j--
+                        }
+                    }
+                    return (n % 2 == 0) ? true : false
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // m1: entry(1) + if(1) + &&(1) + ||(1) = 4
+                // m2: entry(1) + for(1) + while(1) + ternary(1) = 4
+                // WMC = 4 + 4 = 8
+                assert_eq!(metric.wmc.class_wmc_sum(), 8.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_empty_class() {
+        check_metrics::<GroovyParser>("class Empty {}", "foo.groovy", |metric| {
+            assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+        });
+    }
+
+    #[test]
+    fn groovy_class_with_single_method() {
+        check_metrics::<GroovyParser>(
+            "class A {
+                void foo() {
+                    println 'hi'
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // single method has entry +1 = 1
+                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_multiple_classes() {
+        check_metrics::<GroovyParser>(
+            "class A {
+                void f() { if (true) {} }
+            }
+            class B {
+                void g() {}
+            }",
+            "foo.groovy",
+            |metric| {
+                // A.f: 1 + 1 (if) = 2, B.g: 1 → total = 3
+                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_class_with_branching_methods() {
+        check_metrics::<GroovyParser>(
+            "class Calc {
+                int abs(int x) {
+                    if (x < 0) {
+                        return -x
+                    }
+                    return x
+                }
+                int sign(int x) {
+                    if (x > 0) return 1
+                    if (x < 0) return -1
+                    return 0
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // abs: 1 + 1 (if) = 2; sign: 1 + 2 (two ifs) = 3 → 5
+                assert_eq!(metric.wmc.class_wmc_sum(), 5.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_interface_wmc_is_zero() {
+        // Interfaces declare method signatures with no body — wmc = 0.
+        check_metrics::<GroovyParser>(
+            "interface I {
+                void a()
+                void b()
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_static_nested_class() {
+        // Mirrors `java_static_nested_class`: nested classes get
+        // their own WMC space tied to their parent class's scope.
+        check_metrics::<GroovyParser>(
+            "class TopLevelClass {
+                static class StaticNestedClass {
+                    private void m() {
+                        println 'Test'
+                    }
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // TopLevelClass(0) + StaticNestedClass(1 = entry only).
+                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_nested_inner_classes_wmc() {
+        // Three nested classes each with one trivial method.
+        // Mirrors `java_nested_inner_classes` (wmc.rs flavor).
+        check_metrics::<GroovyParser>(
+            "class X {
+                void a() {}
+                class Y {
+                    void b() {}
+                    class Z {
+                        void c() {}
+                    }
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // 3 classes, each with one method => 1 + 1 + 1 = 3.
+                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_local_inner_class() {
+        // A class declared inside a method body. WMC counts its
+        // method like any other class. amaanq's grammar parses
+        // Outer.m's body as a `closure`, so Outer.m is counted
+        // twice (function space + closure space), each with
+        // entry=1. Local.l adds entry(1)+if(1)=2 → total 6.
+        check_metrics::<GroovyParser>(
+            "class Outer {
+                void m() {
+                    class Local {
+                        void l() {
+                            if (true) {}
+                        }
+                    }
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 6.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_anonymous_inner_class_wmc() {
+        // `new Runnable() { ... }` anonymous inner class. WMC
+        // includes the inner's method bodies.
+        check_metrics::<GroovyParser>(
+            "abstract class Base {
+                abstract void m1()
+            }
+            class Top {
+                void m() {
+                    def b = new Base() {
+                        void m1() {
+                            for (int i = 0; i < 5; i++) {
+                                println i
+                            }
+                        }
+                    }
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // Base.m1(1) + Top.m(1) + anonymous.m1(1+for(1)) = 4
+                assert_eq!(metric.wmc.class_wmc_sum(), 4.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_lambda_expression_wmc() {
+        // Lambdas inside a method body don't form their own class
+        // space, but the surrounding methods still count toward WMC.
+        check_metrics::<GroovyParser>(
+            "class Top {
+                void m1() {
+                    def list = [1, 2, 3]
+                    list.each { n -> println n }
+                }
+                void m2() {
+                    if (true) {}
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // m1(1) + m2(1 + if(1)) = 3
+                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_single_interface_wmc() {
+        // Default methods inside an interface contribute to WMC.
+        // Mirrors `java_single_interface`.
+        check_metrics::<GroovyParser>(
+            "interface Example {
+                default boolean m1(boolean a, boolean b) {
+                    return (a && b == a || b)
+                }
+                default int m2(int n) {
+                    return (n != 0) ? 1/n : n
+                }
+                void m3()
+            }",
+            "foo.groovy",
+            |metric| {
+                // m1(1 + && + ||) + m2(1 + ternary) + m3(1) = 6
+                assert_eq!(metric.wmc.interface_wmc_sum(), 6.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_class_in_interface() {
+        // Inner class inside an interface — its methods count
+        // toward `class_wmc`, not `interface_wmc`.
+        check_metrics::<GroovyParser>(
+            "interface Outer {
+                void api()
+                class Inner {
+                    void f() {
+                        if (true) {}
+                    }
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // Outer interface: api(1) = 1; Inner class: f(1+if) = 2.
+                assert_eq!(metric.wmc.interface_wmc_sum(), 1.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+            },
+        );
+    }
+
     // Constructors are considered as methods
     // Reference: https://pdepend.org/documentation/software-metrics/weighted-method-count.html
     #[test]

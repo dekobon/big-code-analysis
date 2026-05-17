@@ -388,6 +388,21 @@ mod tests {
         });
     }
 
+    #[test]
+    fn groovy_tokens_line_comments_excluded() {
+        // Groovy mirror — `// …` line comments must not contribute.
+        check_metrics::<GroovyParser>(
+            "class A { void foo() { // hi\n return\n } }",
+            "A.groovy",
+            |m| {
+                // class, A, {, void, foo, (, ), {, return, newline,
+                // }, } = 11 tokens (Groovy's newline acts as the
+                // statement terminator that Java spells `;`).
+                assert_eq!(m.tokens.tokens_sum(), 11.0);
+            },
+        );
+    }
+
     /// Rust doc comments may split into structured children under
     /// some grammars; the ancestor walk must filter every inner leaf.
     #[test]

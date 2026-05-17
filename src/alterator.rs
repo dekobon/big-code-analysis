@@ -446,4 +446,66 @@ mod tests {
         let root = build_ast::<crate::TsxParser>(code, "test.tsx");
         assert_strings_flattened(&root);
     }
+
+    #[test]
+    fn groovy_string_literal_preserved_verbatim() {
+        // Regression for the `impl Alterator for GroovyCode` arms:
+        // single-line `StringLiteral`/`StringLiteral2` and the
+        // `CharacterLiteral` arm must keep the literal's text intact.
+        let code = br#"
+            class A {
+                String single = 'hello'
+                String double = "world"
+                char ch = 'x'
+            }
+        "#;
+        let root = build_ast::<crate::GroovyParser>(code, "test.groovy");
+        // tree-sitter-groovy reports string_literal / character_literal
+        // as the kind names; both should be flattened to a non-empty
+        // value with no children.
+        let mut strings = Vec::new();
+        collect_nodes_by_kind(&root, "string_literal", &mut strings);
+        collect_nodes_by_kind(&root, "character_literal", &mut strings);
+        assert!(
+            !strings.is_empty(),
+            "expected at least one string/character literal in the AST"
+        );
+        for node in &strings {
+            assert!(
+                node.children.is_empty(),
+                "string-like node should be flattened (no children); got {} children, value={:?}",
+                node.children.len(),
+                node.value,
+            );
+            assert!(
+                !node.value.is_empty(),
+                "flattened string-like node should have non-empty text value"
+            );
+        }
+    }
+
+    #[test]
+    fn groovy_multiline_string_fragment_preserves_newlines() {
+        // The `StringLiteral`/`MultilineStringFragment` arms route
+        // through `get_text_span(..., true)` to keep the body text
+        // verbatim. A regression that flips that boolean to `false`
+        // would trim embedded whitespace — including the newlines
+        // inside triple-quoted strings. The outer `StringLiteral`
+        // node is flattened by the alterator and carries the entire
+        // triple-quoted body as its value.
+        let code = b"def s = \"\"\"first line\nsecond line\nthird line\"\"\"";
+        let root = build_ast::<crate::GroovyParser>(code, "test.groovy");
+        let mut strings = Vec::new();
+        collect_nodes_by_kind(&root, "string_literal", &mut strings);
+        assert!(
+            !strings.is_empty(),
+            "expected at least one string_literal node for the triple-quoted body"
+        );
+        let any_with_newline = strings.iter().any(|n| n.value.contains('\n'));
+        assert!(
+            any_with_newline,
+            "expected the flattened string_literal to keep its embedded newlines; got values: {:?}",
+            strings.iter().map(|n| &n.value).collect::<Vec<_>>()
+        );
+    }
 }

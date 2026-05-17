@@ -1839,6 +1839,77 @@ mod tests {
     }
 
     #[test]
+    fn groovy_no_functions_and_closures() {
+        check_metrics::<GroovyParser>("int x = 1", "foo.groovy", |metric| {
+            assert_eq!(metric.nargs.nargs_total(), 0.0);
+        });
+    }
+
+    #[test]
+    fn groovy_single_method() {
+        check_metrics::<GroovyParser>(
+            "class A {
+                void greet(String name, int times) {
+                    println name
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.nargs.fn_args_sum(), 2.0);
+                assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_multiple_methods() {
+        check_metrics::<GroovyParser>(
+            "class A {
+                int add(int x, int y) { x + y }
+                int sub(int x, int y, int z) { x - y - z }
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.nargs.fn_args_sum(), 5.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_lambda_args() {
+        // Two-parameter lambda inside a method body.
+        check_metrics::<GroovyParser>(
+            "class Foo {
+                void run() {
+                    def f = (int a, int b) -> a + b
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.nargs.closure_args_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_implicit_it_not_counted() {
+        // The `it` implicit closure parameter is just an identifier in
+        // the grammar — no `formal_parameters` node. `nargs` counts
+        // declared parameters only, so this closure has 0.
+        check_metrics::<GroovyParser>(
+            "class A {
+                void apply() {
+                    [1, 2, 3].each { println it }
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+            },
+        );
+    }
+
+    #[test]
     fn csharp_no_functions() {
         check_metrics::<CsharpParser>(
             "class Foo {

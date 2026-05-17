@@ -1680,4 +1680,67 @@ mod tests {
         // body node (parallel to a JS template string with `${x}`).
         assert_eq!(count_strings("cat <<EOF\nhi $name\nEOF\n"), 1);
     }
+
+    // Walk the AST and return the first node whose `kind_id` equals
+    // `target`. Used by the `is_else_if` tests below to fish a
+    // specific node out of the parse tree without depending on the
+    // `count` helper above.
+    fn find_first_kind<P: ParserTrait>(parser: &P, target: u16) -> Option<Node<'_>> {
+        let mut stack = vec![parser.get_root()];
+        while let Some(node) = stack.pop() {
+            if node.kind_id() == target {
+                return Some(node);
+            }
+            for i in (0..node.child_count()).rev() {
+                if let Some(c) = node.child(i) {
+                    stack.push(c);
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn groovy_is_else_if_recognises_else_followed_by_if() {
+        // Direct assertion that `GroovyCode::is_else_if` returns true
+        // for an `if_statement` whose previous sibling is the `else`
+        // token. Defends the sibling-token strategy against accidental
+        // regression to a `false` stub (lesson 10, #115 / #239).
+        let src = "if (x) { } else if (y) { } else { }";
+        let parser =
+            GroovyParser::new(src.as_bytes().to_vec(), &PathBuf::from("test.groovy"), None);
+        let outer =
+            find_first_kind(&parser, Groovy::IfStatement as u16).expect("outer if_statement");
+        // Locate the inner if_statement (in the `alternative` slot of
+        // the outer if, after the `else` token).
+        let mut inner: Option<Node> = None;
+        for i in 0..outer.child_count() {
+            if let Some(c) = outer.child(i)
+                && c.kind_id() == Groovy::IfStatement as u16
+            {
+                inner = Some(c);
+                break;
+            }
+        }
+        let inner = inner.expect("expected an inner if_statement");
+        assert!(
+            GroovyCode::is_else_if(&inner),
+            "inner if_statement after `else` must be recognised as else-if"
+        );
+        assert!(
+            !GroovyCode::is_else_if(&outer),
+            "outer if_statement must not be recognised as else-if"
+        );
+    }
+
+    #[test]
+    fn groovy_is_else_if_false_for_standalone_if() {
+        // A bare `if` (no `else` preceding it) must NOT register as
+        // an else-if.
+        let src = "if (x) { println x }";
+        let parser =
+            GroovyParser::new(src.as_bytes().to_vec(), &PathBuf::from("test.groovy"), None);
+        let node = find_first_kind(&parser, Groovy::IfStatement as u16).expect("if_statement");
+        assert!(!GroovyCode::is_else_if(&node));
+    }
 }
