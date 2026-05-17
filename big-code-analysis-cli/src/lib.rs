@@ -29,6 +29,7 @@
     // section on the entry point adds noise without adding signal.
     clippy::missing_panics_doc
 )]
+mod check_format;
 mod format_util;
 mod formats;
 mod html_report;
@@ -46,9 +47,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::available_parallelism;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 
+use check_format::{AggregatedFormat, violation_to_offender};
 use formats::{CBOR_STDOUT_ERROR, MetricsDispatch, MetricsFormat, ReportFormat, dump_csv};
 use html_report::generate_html_report;
 use markdown_report::{FunctionSummary, extract_summaries, generate_report};
@@ -280,6 +282,17 @@ struct CheckArgs {
     /// Default: exit 2 when any threshold is exceeded.
     #[clap(long = "no-fail")]
     no_fail: bool,
+    /// CI/IDE document format for offender records (Checkstyle 4.3 XML,
+    /// SARIF 2.1.0 JSON, clang/GCC warning lines, MSVC warning lines).
+    /// When omitted, only the human-readable stderr stream is emitted;
+    /// the exit-code contract is unaffected.
+    #[clap(long = "output-format", short = 'O', value_enum)]
+    output_format: Option<AggregatedFormat>,
+    /// File path for the aggregated offender document. Stdout if omitted.
+    /// Only meaningful together with `--output-format`. Parent
+    /// directories are created on demand.
+    #[clap(long, short, value_parser)]
+    output: Option<PathBuf>,
 }
 
 #[derive(Args, Debug)]
@@ -484,10 +497,6 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
                         MetricsDispatch::Csv => {
                             dump_csv(&space, path, cfg.output.as_ref())?;
                         }
-                        // Aggregated formats are emitted once after
-                        // the walk in the run() entry point, not per
-                        // file — skip silently here.
-                        MetricsDispatch::Aggregated(_) => {}
                     }
                 }
                 Ok(())
@@ -500,16 +509,16 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
         Action::Ops { format, pretty } => {
             if let Some(fmt) = format {
                 if let Some(ops) = get_ops(&language, source, &path, pr) {
-                    // Aggregated and CSV formats are rejected upstream
-                    // in `run()` for the Ops command, so the dispatch
-                    // here is always Generic. The match is still
-                    // exhaustive to keep the compiler honest if those
-                    // upstream guards ever drift.
+                    // CSV is rejected upstream in `run()` for the
+                    // Ops command, so the dispatch here is always
+                    // Generic. The match is still exhaustive to keep
+                    // the compiler honest if that upstream guard ever
+                    // drifts.
                     match fmt.dispatch() {
                         MetricsDispatch::Generic(g) => {
                             g.dump(ops, path, cfg.output.as_ref(), *pretty)?;
                         }
-                        MetricsDispatch::Csv | MetricsDispatch::Aggregated(_) => {}
+                        MetricsDispatch::Csv => {}
                     }
                 }
                 Ok(())
@@ -832,6 +841,23 @@ fn load_threshold_config(path: &Path) -> BTreeMap<String, f64> {
 /// Drive the `check` subcommand: build the threshold set, walk the
 /// source tree, drain violations, and exit 0 / 2 per the contract.
 fn run_check(globals: GlobalOpts, args: CheckArgs, preproc: Option<Arc<PreprocResults>>) {
+    // Validate --output / --output-format pairing before the walk so
+    // a misconfigured invocation fails fast instead of after a full
+    // parse. `--output` without `--output-format` is silently ignored
+    // — only the human stderr stream is emitted, which is the
+    // default contract — to keep the simplest invocation
+    // (`bca check --threshold ... --no-fail > /dev/null`) frictionless.
+    if let Some(fmt) = args.output_format
+        && let Some(ref out) = args.output
+        && out.exists()
+        && out.is_dir()
+    {
+        die(format_args!(
+            "--output must be a file path for `check --output-format {}`",
+            fmt.name()
+        ));
+    }
+
     let mut merged: BTreeMap<String, f64> = args
         .config
         .as_deref()
@@ -886,6 +912,16 @@ fn run_check(globals: GlobalOpts, args: CheckArgs, preproc: Option<Arc<PreprocRe
         let _ = writeln!(stderr, "{v}");
     }
 
+    // Emit the aggregated CI/IDE document if requested. Empty input
+    // produces a well-formed but offender-free document, which CI
+    // consumers can ingest unchanged on clean runs. The exit-code
+    // contract below is unaffected by this branch.
+    if let Some(fmt) = args.output_format {
+        let offenders: Vec<_> = violations.iter().map(violation_to_offender).collect();
+        fmt.dump(&offenders, args.output.as_deref())
+            .unwrap_or_else(|e| die(format_args!("failed to write {}: {e}", fmt.name())));
+    }
+
     if !violations.is_empty() && !args.no_fail {
         process::exit(2);
     }
@@ -923,6 +959,7 @@ pub fn run() {
                 err.kind(),
                 clap::error::ErrorKind::UnknownArgument
                     | clap::error::ErrorKind::InvalidSubcommand
+                    | clap::error::ErrorKind::InvalidValue
                     | clap::error::ErrorKind::MissingSubcommand
                     | clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
             ) && let Some(hint) = legacy_hint(std::env::args_os())
@@ -957,27 +994,6 @@ pub fn run() {
             if matches!(args.output_format, Some(MetricsFormat::Cbor)) && args.output.is_none() {
                 die(CBOR_STDOUT_ERROR);
             }
-            // Aggregated formats (e.g. checkstyle) emit a single
-            // document covering every offender, so `--output` (when
-            // present) names a *file*, not a directory. The threshold
-            // producer (#96) is not wired yet — for now we emit an
-            // empty offender list, which yields a well-formed, stable
-            // document that CI consumers can already integrate against.
-            if let Some(MetricsDispatch::Aggregated(agg)) =
-                args.output_format.map(MetricsFormat::dispatch)
-            {
-                if let Some(ref out) = args.output
-                    && out.exists()
-                    && out.is_dir()
-                {
-                    die(
-                        "--output must be a file path for aggregated formats (e.g. checkstyle, sarif, clang-warning, msvc-warning)",
-                    );
-                }
-                agg.dump(&[], args.output.as_deref())
-                    .unwrap_or_else(|e| die(format_args!("failed to write {}: {e}", agg.name())));
-                return;
-            }
             if args.output_format.is_some()
                 && let Some(ref out) = args.output
                 && out.exists()
@@ -998,13 +1014,6 @@ pub fn run() {
         Command::Ops(args) => {
             if matches!(args.output_format, Some(MetricsFormat::Cbor)) && args.output.is_none() {
                 die(CBOR_STDOUT_ERROR);
-            }
-            if let Some(MetricsDispatch::Aggregated(_)) =
-                args.output_format.map(MetricsFormat::dispatch)
-            {
-                die(
-                    "aggregated formats (checkstyle, sarif, clang-warning, msvc-warning) are not supported by `ops`; use `bca metrics --output-format <fmt>`",
-                );
             }
             if let Some(MetricsDispatch::Csv) = args.output_format.map(MetricsFormat::dispatch) {
                 die(
@@ -1137,6 +1146,37 @@ const SUBCOMMANDS: &[&str] = &[
     "check",
 ];
 
+/// Decode the value of `-O <v>` / `--output-format <v>` /
+/// `--output-format=<v>` / `-O<v>` from a flat argv slice. Returns
+/// the first match (callers pre-filter the slice to the legacy
+/// invocation's tokens, so a single occurrence is the realistic
+/// case).
+fn parse_output_format_value(args: &[String]) -> Option<&str> {
+    args.iter().enumerate().find_map(|(i, a)| {
+        let s = a.as_str();
+        if s == "-O" || s == "--output-format" {
+            args.get(i + 1).map(String::as_str)
+        } else if let Some(rest) = s.strip_prefix("--output-format=") {
+            Some(rest)
+        } else {
+            s.strip_prefix("-O").filter(|r| !r.is_empty())
+        }
+    })
+}
+
+/// Scan `args` for `-O <offender>` / `--output-format <offender>` /
+/// `--output-format=<offender>` against the four moved formats (any
+/// variant of [`AggregatedFormat`]) and build a migration hint
+/// pointing at `bca check`. Returns `None` when no offender format
+/// is found, so the caller can fall through to clap's own error.
+fn offender_format_migration_hint(args: &[String]) -> Option<String> {
+    let fmt =
+        parse_output_format_value(args).filter(|f| AggregatedFormat::from_str(f, true).is_ok())?;
+    Some(format!(
+        "note: -O {fmt} moved to `bca check` in #235; offender formats are no longer accepted on `bca metrics` / `bca ops`.\n  bca metrics -O {fmt} ...  ->  bca check --threshold <metric>=<limit> --output-format {fmt} [--output FILE]\n  Run `bca check --help` for the threshold and output-format flags.\n"
+    ))
+}
+
 /// If `argv` looks like an invocation of the pre-restructure CLI, return a
 /// hint pointing the user at the new equivalent. Called only when clap
 /// rejects the input, so the goal is to make the failure actionable.
@@ -1154,11 +1194,20 @@ fn legacy_hint(argv: impl IntoIterator<Item = OsString>) -> Option<String> {
         return None;
     }
 
-    // If the user invoked a known new-CLI subcommand, they're not on the
-    // legacy CLI; stay quiet so we don't second-guess legitimate args
-    // that happen to look like old flags (e.g. `find --dump` where the
-    // user intended `--dump` as a positional node-type value).
-    if args.iter().any(|a| SUBCOMMANDS.contains(&a.as_str())) {
+    // If the user invoked a known new-CLI subcommand, they're not on
+    // the legacy CLI; stay quiet so we don't second-guess legitimate
+    // args that happen to look like old flags (e.g. `find --dump`
+    // where the user intended `--dump` as a positional node-type
+    // value). The one exception is `bca metrics|ops --output-format
+    // <offender>` — the four offender formats moved to `bca check`
+    // (issue #235) and the user still needs a one-line pointer at
+    // the new home.
+    if let Some(sub) = args.iter().find(|a| SUBCOMMANDS.contains(&a.as_str())) {
+        if matches!(sub.as_str(), "metrics" | "ops")
+            && let Some(hint) = offender_format_migration_hint(&args)
+        {
+            return Some(hint);
+        }
         return None;
     }
 
@@ -1197,16 +1246,7 @@ fn legacy_hint(argv: impl IntoIterator<Item = OsString>) -> Option<String> {
     // -O markdown / --output-format markdown is the canonical legacy form
     // for the aggregated report. `markdown` is no longer a valid metrics
     // format value, so seeing it here is unambiguous.
-    let format_value = args.iter().enumerate().find_map(|(i, a)| {
-        let s = a.as_str();
-        if s == "-O" || s == "--output-format" {
-            args.get(i + 1).map(String::as_str)
-        } else if let Some(rest) = s.strip_prefix("--output-format=") {
-            Some(rest)
-        } else {
-            s.strip_prefix("-O").filter(|r| !r.is_empty())
-        }
-    });
+    let format_value = parse_output_format_value(&args);
     if format_value == Some("markdown") {
         saw_legacy_action = true;
         lines.push(String::from(
@@ -1344,30 +1384,69 @@ mod tests {
         assert!(parse(&["metrics", "-O", "json"]).is_ok());
     }
 
+    // Offender formats (Checkstyle, SARIF, clang-warning,
+    // msvc-warning) moved from `bca metrics` to
+    // `bca check --output-format` in issue #235. `MetricsFormat` no
+    // longer enumerates them, so clap rejects them at parse time on
+    // `metrics` and `ops`.
     #[test]
-    fn metrics_accepts_checkstyle_format() {
-        assert!(parse(&["metrics", "-O", "checkstyle"]).is_ok());
+    fn metrics_rejects_checkstyle_format() {
+        assert!(parse(&["metrics", "-O", "checkstyle"]).is_err());
     }
 
     #[test]
-    fn metrics_accepts_sarif_format() {
-        assert!(parse(&["metrics", "-O", "sarif"]).is_ok());
+    fn metrics_rejects_sarif_format() {
+        assert!(parse(&["metrics", "-O", "sarif"]).is_err());
     }
 
     #[test]
-    fn metrics_accepts_clang_warning_format() {
-        assert!(parse(&["metrics", "-O", "clang-warning"]).is_ok());
+    fn metrics_rejects_clang_warning_format() {
+        assert!(parse(&["metrics", "-O", "clang-warning"]).is_err());
     }
 
     #[test]
-    fn metrics_accepts_msvc_warning_format() {
-        assert!(parse(&["metrics", "-O", "msvc-warning"]).is_ok());
+    fn metrics_rejects_msvc_warning_format() {
+        assert!(parse(&["metrics", "-O", "msvc-warning"]).is_err());
     }
 
-    // Note: runtime rejection of `ops -O checkstyle|sarif|...|csv`
-    // is covered by `ops_rejects_aggregated_formats_at_runtime` /
+    #[test]
+    fn check_accepts_sarif_output_format() {
+        assert!(parse(&["check", "--threshold", "cyclomatic=10", "-O", "sarif"]).is_ok());
+    }
+
+    #[test]
+    fn check_accepts_checkstyle_output_format() {
+        assert!(
+            parse(&[
+                "check",
+                "--threshold",
+                "cyclomatic=10",
+                "--output-format",
+                "checkstyle",
+            ])
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn check_rejects_per_file_format_as_output_format() {
+        // Per-file formats (json, csv, ...) live on `bca metrics`;
+        // `bca check` only accepts the four offender formats.
+        assert!(
+            parse(&[
+                "check",
+                "--threshold",
+                "cyclomatic=10",
+                "--output-format",
+                "json",
+            ])
+            .is_err()
+        );
+    }
+
+    // Note: runtime rejection of `ops -O csv` is covered by
     // `ops_rejects_csv_format_at_runtime` in
-    // tests/action_enforcement.rs, which spawn the binary so the
+    // tests/action_enforcement.rs, which spawns the binary so the
     // dispatcher's die() can be observed.
 
     #[test]
@@ -1542,6 +1621,44 @@ mod tests {
         // pre-restructure CLI.
         let hint = legacy_hint(os_args(&["cli", "-O", "markdown"])).expect("hint");
         assert!(hint.contains("report markdown"), "{hint}");
+    }
+
+    #[test]
+    fn legacy_hint_redirects_metrics_offender_format_to_check() {
+        // Issue #235: `bca metrics -O sarif` is no longer valid — the
+        // offender formats live on `bca check` now. The hint should
+        // point at the new home.
+        let hint = legacy_hint(os_args(&["cli", "metrics", "-O", "sarif"])).expect("hint");
+        assert!(hint.contains("bca check"), "{hint}");
+        assert!(hint.contains("sarif"), "{hint}");
+    }
+
+    #[test]
+    fn legacy_hint_redirects_metrics_checkstyle_long_form() {
+        let hint = legacy_hint(os_args(&[
+            "cli",
+            "metrics",
+            "--output-format",
+            "checkstyle",
+        ]))
+        .expect("hint");
+        assert!(hint.contains("bca check"), "{hint}");
+        assert!(hint.contains("checkstyle"), "{hint}");
+    }
+
+    #[test]
+    fn legacy_hint_redirects_ops_offender_format_to_check() {
+        // Same migration story for `bca ops -O <offender>`.
+        let hint = legacy_hint(os_args(&["cli", "ops", "-O", "clang-warning"])).expect("hint");
+        assert!(hint.contains("bca check"), "{hint}");
+        assert!(hint.contains("clang-warning"), "{hint}");
+    }
+
+    #[test]
+    fn legacy_hint_quiet_for_metrics_with_per_file_format() {
+        // `bca metrics -O json` is still valid — no hint should fire.
+        let hint = legacy_hint(os_args(&["cli", "metrics", "-O", "json"]));
+        assert!(hint.is_none(), "{hint:?}");
     }
 
     #[test]

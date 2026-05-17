@@ -7,10 +7,7 @@ use std::path::{Component, Path, PathBuf};
 use clap::ValueEnum;
 use serde::Serialize;
 
-use big_code_analysis::{
-    CSV_EXTENSION, FuncSpace, OffenderRecord, write_checkstyle, write_clang_warning, write_csv,
-    write_msvc_warning, write_sarif,
-};
+use big_code_analysis::{CSV_EXTENSION, FuncSpace, write_csv};
 
 pub(crate) const CBOR_STDOUT_ERROR: &str =
     "CBOR is binary and cannot be printed to stdout; use --output";
@@ -19,22 +16,18 @@ fn ser_err(e: impl std::error::Error + Send + Sync + 'static) -> std::io::Error 
     std::io::Error::new(std::io::ErrorKind::InvalidData, e)
 }
 
-/// Per-file serialization formats accepted by `bca metrics` and `bca ops`.
-/// Aggregated formats (e.g. markdown) live on `bca report` instead — see
-/// [`ReportFormat`]. CI/IDE formats (e.g. Checkstyle) aggregate offender
-/// records across the whole walk and bypass the per-file dispatch.
+/// Per-file serialization formats accepted by `bca metrics` and
+/// `bca ops`. Aggregated report formats (Markdown / HTML) live on
+/// `bca report` — see [`ReportFormat`]. CI/IDE offender formats
+/// (Checkstyle, SARIF, clang-warning, msvc-warning) live on
+/// `bca check --output-format` — see
+/// [`crate::check_format::AggregatedFormat`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 #[clap(rename_all = "lower")]
 pub(crate) enum MetricsFormat {
     Cbor,
-    Checkstyle,
-    #[value(name = "clang-warning")]
-    ClangWarning,
     Csv,
     Json,
-    #[value(name = "msvc-warning")]
-    MsvcWarning,
-    Sarif,
     Toml,
     Yaml,
 }
@@ -61,9 +54,6 @@ pub(crate) enum MetricsDispatch {
     /// needs a concrete `&FuncSpace` rather than the generic
     /// `T: Serialize` writer.
     Csv,
-    /// Single document aggregated across the whole walk; emitted
-    /// after the walk completes.
-    Aggregated(AggregatedFormat),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,14 +62,6 @@ pub(crate) enum GenericFormat {
     Json,
     Toml,
     Yaml,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum AggregatedFormat {
-    Checkstyle,
-    Sarif,
-    ClangWarning,
-    MsvcWarning,
 }
 
 impl GenericFormat {
@@ -114,36 +96,6 @@ impl GenericFormat {
     }
 }
 
-impl AggregatedFormat {
-    /// Human-readable name used in error messages when the writer
-    /// fails.
-    pub(crate) fn name(self) -> &'static str {
-        match self {
-            Self::Checkstyle => "checkstyle",
-            Self::Sarif => "sarif",
-            Self::ClangWarning => "clang-warning",
-            Self::MsvcWarning => "msvc-warning",
-        }
-    }
-
-    /// Emit a well-formed (and stable) document for the given offender
-    /// records. Until the threshold engine (#96) lands, callers pass
-    /// an empty slice so CI consumers can wire up the format
-    /// immediately.
-    pub(crate) fn dump(
-        self,
-        offenders: &[OffenderRecord],
-        output_path: Option<&Path>,
-    ) -> std::io::Result<()> {
-        match self {
-            Self::Checkstyle => dump_checkstyle(offenders, output_path),
-            Self::Sarif => dump_sarif(offenders, output_path),
-            Self::ClangWarning => dump_clang_warning(offenders, output_path),
-            Self::MsvcWarning => dump_msvc_warning(offenders, output_path),
-        }
-    }
-}
-
 impl MetricsFormat {
     /// Classify this format for dispatch. Exhaustive — adding a new
     /// `MetricsFormat` variant is a compile error here, which is the
@@ -155,34 +107,7 @@ impl MetricsFormat {
             Self::Toml => MetricsDispatch::Generic(GenericFormat::Toml),
             Self::Yaml => MetricsDispatch::Generic(GenericFormat::Yaml),
             Self::Csv => MetricsDispatch::Csv,
-            Self::Checkstyle => MetricsDispatch::Aggregated(AggregatedFormat::Checkstyle),
-            Self::Sarif => MetricsDispatch::Aggregated(AggregatedFormat::Sarif),
-            Self::ClangWarning => MetricsDispatch::Aggregated(AggregatedFormat::ClangWarning),
-            Self::MsvcWarning => MetricsDispatch::Aggregated(AggregatedFormat::MsvcWarning),
         }
-    }
-}
-
-/// Run `write` against either `path` (creating any missing parent
-/// directories) or stdout. Shared scaffolding for the aggregated
-/// `dump_*` helpers; the writer signature is generic over `W: Write`,
-/// and `&mut dyn Write` satisfies that bound.
-fn write_to_path_or_stdout<F>(output_path: Option<&Path>, write: F) -> std::io::Result<()>
-where
-    F: FnOnce(&mut dyn Write) -> std::io::Result<()>,
-{
-    if let Some(path) = output_path {
-        if let Some(parent) = path.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            create_dir_all(parent)?;
-        }
-        let mut file = File::create(path)?;
-        write(&mut file)
-    } else {
-        let stdout = std::io::stdout();
-        let mut handle = stdout.lock();
-        write(&mut handle)
     }
 }
 
@@ -225,56 +150,6 @@ pub(crate) fn dump_csv(
     write_per_file_or_stdout(&path, output_path, CSV_EXTENSION, |w| {
         write_csv(space, &path, w)
     })
-}
-
-/// Emit a Checkstyle 4.3 XML document for `offenders`. If
-/// `output_path` is `Some`, the document is written there (parent
-/// directories created as needed); otherwise it goes to stdout.
-///
-/// Until the threshold engine (#96) lands, the CLI invokes this with
-/// an empty slice so `--format checkstyle` produces a well-formed
-/// (and stable) document that CI consumers can already wire up.
-pub(crate) fn dump_checkstyle(
-    offenders: &[OffenderRecord],
-    output_path: Option<&Path>,
-) -> std::io::Result<()> {
-    write_to_path_or_stdout(output_path, |w| write_checkstyle(offenders, w))
-}
-
-/// Emit a SARIF 2.1.0 JSON document for `offenders`. If `output_path`
-/// is `Some`, the document is written there (parent directories
-/// created as needed); otherwise it goes to stdout.
-///
-/// Until the threshold engine (#96) lands, the CLI invokes this with
-/// an empty slice so `--format sarif` produces a well-formed (and
-/// stable) document that GitHub Code Scanning can already ingest.
-pub(crate) fn dump_sarif(
-    offenders: &[OffenderRecord],
-    output_path: Option<&Path>,
-) -> std::io::Result<()> {
-    write_to_path_or_stdout(output_path, |w| write_sarif(offenders, w))
-}
-
-/// Emit Clang/GCC-style warning lines for `offenders`. If
-/// `output_path` is `Some`, the output is written to that single
-/// `.txt` file (parent directories created as needed); otherwise it
-/// streams to stdout, one line per offender.
-pub(crate) fn dump_clang_warning(
-    offenders: &[OffenderRecord],
-    output_path: Option<&Path>,
-) -> std::io::Result<()> {
-    write_to_path_or_stdout(output_path, |w| write_clang_warning(offenders, w))
-}
-
-/// Emit MSVC-style warning lines for `offenders`. If `output_path` is
-/// `Some`, the output is written to that single `.txt` file (parent
-/// directories created as needed); otherwise it streams to stdout,
-/// one line per offender.
-pub(crate) fn dump_msvc_warning(
-    offenders: &[OffenderRecord],
-    output_path: Option<&Path>,
-) -> std::io::Result<()> {
-    write_to_path_or_stdout(output_path, |w| write_msvc_warning(offenders, w))
 }
 
 #[inline]

@@ -91,22 +91,32 @@ fn count_without_nodes_rejected() {
         .stderr(predicate::str::contains("<NODES>"));
 }
 
-/// Aggregated CI/IDE formats (Checkstyle / SARIF / Clang / MSVC warning) are
-/// shared via `MetricsFormat` so clap parses them on `ops`, but the dispatch
-/// rejects them at runtime because `ops` emits operands/operators, not
-/// offender records. Asserting both the failure exit code AND a substring of
-/// the rejection message guards against the runtime guard being silently
-/// removed (which would otherwise let `ops -O checkstyle` succeed with no
-/// output and exit 0).
+/// Issue #235 moved the offender formats off `metrics` / `ops` and
+/// onto `bca check --output-format`. `MetricsFormat` no longer
+/// enumerates them, so clap rejects the values at parse time on both
+/// commands. The hint we install in `legacy_hint` then points the
+/// user at the new home.
 #[test]
-fn ops_rejects_aggregated_formats_at_runtime() {
+fn metrics_rejects_offender_formats_with_migration_hint() {
+    for fmt in ["checkstyle", "sarif", "clang-warning", "msvc-warning"] {
+        cli()
+            .args(["metrics", "-O", fmt])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("bca check"))
+            .stderr(predicate::str::contains(fmt));
+    }
+}
+
+#[test]
+fn ops_rejects_offender_formats_with_migration_hint() {
     for fmt in ["checkstyle", "sarif", "clang-warning", "msvc-warning"] {
         cli()
             .args(["ops", "-O", fmt])
             .assert()
             .failure()
-            .stderr(predicate::str::contains("aggregated formats"))
-            .stderr(predicate::str::contains("not supported by `ops`"));
+            .stderr(predicate::str::contains("bca check"))
+            .stderr(predicate::str::contains(fmt));
     }
 }
 

@@ -1,6 +1,13 @@
 [package]
 name = "big-code-analysis-cli"
-version.workspace = true
+# CLI version is bumped independently of the workspace floor when a
+# CLI-only change makes a user-visible break that the library API
+# does not. Issue #235 (move offender formats from `bca metrics` to
+# `bca check`) is the first such bump; older entries reused the
+# workspace version. Once a workspace-wide release lifts the floor
+# past this value, drop the override and go back to
+# `version.workspace = true`.
+version = "0.1.0"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true

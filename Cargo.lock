@@ -400,7 +400,7 @@ dependencies = [
 
 [[package]]
 name = "big-code-analysis-cli"
-version = "0.0.25"
+version = "0.1.0"
 dependencies = [
  "assert_cmd",
  "big-code-analysis",

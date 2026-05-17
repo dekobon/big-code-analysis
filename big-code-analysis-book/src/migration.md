@@ -24,6 +24,7 @@ verb has its own scoped flag set.
 | --- | --- |
 | `--metrics -O markdown` (+ `--top`, `--strip-prefix`) | `report markdown` |
 | `--metrics -O json/yaml/toml/cbor` | `metrics -O json/yaml/toml/cbor` |
+| `--metrics -O checkstyle/sarif/clang-warning/msvc-warning` | `check --threshold ... --output-format <fmt> [--output FILE]` |
 | `--ops -O ...` | `ops -O ...` |
 | `--dump` | `dump` |
 | `--find <NODE>` | `find <NODE> [<NODE>...]` |
