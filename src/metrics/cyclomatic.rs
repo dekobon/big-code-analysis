@@ -540,8 +540,12 @@ impl Cyclomatic for KotlinCode {
                 stats.cyclomatic_modified += 1.;
             }
             // Both standard and modified.
+            //
+            // Kotlin's Elvis operator `?:` (`QMARKCOLON`) is a short-circuit
+            // nullish operator analogous to JS `??` and each occurrence is a
+            // distinct decision point, mirroring `&&` / `||`.
             IfExpression | ForStatement | WhileStatement | DoWhileStatement | CatchBlock
-            | AMPAMP | PIPEPIPE => {
+            | AMPAMP | PIPEPIPE | QMARKCOLON => {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }
@@ -3731,6 +3735,42 @@ f() {
                 assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
                 assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
                 insta::assert_json_snapshot!(metric.cyclomatic);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_elvis_operator_239() {
+        // Regression for issue #239: Kotlin's Elvis operator `?:` is a
+        // short-circuit nullish operator analogous to JS `??` and each
+        // occurrence is a distinct decision point, mirroring `&&` /
+        // `||`. `a ?: b ?: c` contributes +2 to the function's
+        // cyclomatic complexity (base 1 + two `?:` = 3).
+        check_metrics::<KotlinParser>(
+            "fun pick(a: String?, b: String?, c: String): String { // +2 (+1 unit)
+             return a ?: b ?: c  // +2 (two ?: short-circuits)
+         }",
+            "foo.kt",
+            |metric| {
+                // unit(1) + fn(base 1 + ?: 1 + ?: 1) = sum 4, max 3.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 2.0,
+                      "min": 1.0,
+                      "max": 3.0,
+                      "modified": {
+                        "sum": 4.0,
+                        "average": 2.0,
+                        "min": 1.0,
+                        "max": 3.0
+                      }
+                    }"###
+                );
             },
         );
     }
