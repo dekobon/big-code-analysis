@@ -476,7 +476,6 @@ fn csharp_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
                     | True
                     | False
             ) && matches!(list_kind, BinaryExpression)
-                && !matches!(list_kind, ArgumentList)
             {
                 *conditions += 1.;
             } else {
@@ -507,7 +506,6 @@ fn java_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             // Checks if the node is a unary condition
             if matches!(node_kind, MethodInvocation | Identifier | True | False)
                 && matches!(list_kind, BinaryExpression)
-                && !matches!(list_kind, ArgumentList)
             {
                 *conditions += 1.;
             } else {
