@@ -525,7 +525,12 @@ macro_rules! js_cognitive {
                     stats.boolean_seq.not_operator();
                 }
                 BinaryExpression => {
-                    compute_booleans(node, stats, AMPAMP, PIPEPIPE);
+                    // `??` (`QMARKQMARK`) short-circuits like `&&` /
+                    // `||`, so a chain of `??` collapses to a single
+                    // boolean-sequence increment under Sonar B1.
+                    compute_booleans_with(node, stats, |id| {
+                        matches!(id.into(), AMPAMP | PIPEPIPE | QMARKQMARK)
+                    });
                 }
                 FunctionDeclaration => {
                     // Reset lambda nesting at function for JS
@@ -656,7 +661,12 @@ impl Cognitive for CsharpCode {
                 stats.boolean_seq.not_operator();
             }
             BinaryExpression => {
-                compute_booleans(node, stats, AMPAMP, PIPEPIPE);
+                // C#'s null-coalescing `??` short-circuits like `&&` /
+                // `||` and forms boolean sequences alongside them.
+                // Mirrors the C# cyclomatic operator set.
+                compute_booleans_with(node, stats, |id| {
+                    matches!(id.into(), AMPAMP | PIPEPIPE | QMARKQMARK)
+                });
             }
             LambdaExpression | AnonymousMethodExpression => {
                 lambda += 1;
@@ -1015,7 +1025,14 @@ impl Cognitive for PhpCode {
                 stats.boolean_seq.not_operator();
             }
             BinaryExpression => {
-                compute_booleans(node, stats, AMPAMP, PIPEPIPE);
+                // PHP's null-coalescing `??` short-circuits like `&&` /
+                // `||` and the word-form `and` / `or` / `xor`, so it
+                // forms boolean sequences alongside them. Mirrors the
+                // PHP cyclomatic operator set minus the assignment
+                // form `??=`, which is not a `BinaryExpression`.
+                compute_booleans_with(node, stats, |id| {
+                    matches!(id.into(), AMPAMP | PIPEPIPE | And | Or | Xor | QMARKQMARK)
+                });
             }
             AnonymousFunction | ArrowFunction => {
                 lambda += 1;
@@ -5839,6 +5856,245 @@ end",
                 assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
                 assert_eq!(metric.cognitive.cognitive_max(), 2.0);
                 insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_nullish_coalescing_chain_230() {
+        // Regression for issue #230: `??` is a short-circuit operator and
+        // must form a boolean sequence. `a ?? b ?? c` is a single chain
+        // of identical operators and collapses to a single +1 under
+        // Sonar B1 (same rule as `&&` / `||`).
+        check_metrics::<JavascriptParser>(
+            "function pick(a, b, c) {
+                 return a ?? b ?? c; // +1 (chain of ??)
+             }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_nullish_coalescing_with_if_230() {
+        // Regression for issue #230: the example from the issue body.
+        // Boolean sequences pay a flat +1 (no nesting penalty) per Sonar
+        // B1, so the issue body's stated total of 3 was wrong — the
+        // correct answer is if(+1) + ?? chain (+1) = 2. Previously the
+        // `??` chain was not counted at all (= 1).
+        check_metrics::<TypescriptParser>(
+            "function risky(x: string | null, fallback: string | null): string {
+                 if (x === \"y\") { // +1
+                     return x ?? fallback ?? \"unknown\"; // +1 (chain of ??)
+                 }
+                 return \"no\";
+             }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 2.0,
+                      "min": 0.0,
+                      "max": 2.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_nullish_coalescing_chain_230() {
+        // Regression for issue #230: TSX parity with JS/TS for `??`.
+        check_metrics::<TsxParser>(
+            "function pick(a: number | null, b: number | null, c: number): number {
+                 return a ?? b ?? c; // +1 (chain of ??)
+             }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_nullish_coalescing_chain_230() {
+        // Regression for issue #230: Mozjs parity with JS for `??`.
+        check_metrics::<MozjsParser>(
+            "function pick(a, b, c) {
+                 return a ?? b ?? c; // +1 (chain of ??)
+             }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_null_coalescing_cognitive_230() {
+        // Regression for issue #230: C# `??` must form a boolean sequence
+        // just like `&&` / `||`. Boolean sequences pay a flat +1 (no
+        // nesting penalty) per Sonar B1.
+        // if(+1) + ?? chain (+1) = 2. Previously the `??` chain
+        // contributed nothing and the function scored 1.
+        check_metrics::<CsharpParser>(
+            "class C {
+                 string Risky(string x, string fallback) {
+                     if (x == \"y\") { // +1
+                         return x ?? fallback ?? \"unknown\"; // +1 (chain of ??)
+                     }
+                     return \"no\";
+                 }
+             }",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 2.0,
+                      "min": 0.0,
+                      "max": 2.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn php_null_coalescing_cognitive_230() {
+        // Regression for issue #230: PHP `??` must form a boolean sequence
+        // just like `&&` / `||`. Parallels the PHP cyclomatic
+        // null-coalescing handling. Boolean sequences pay a flat +1 (no
+        // nesting penalty) per Sonar B1.
+        // if(+1) + ?? chain (+1) = 2.
+        check_metrics::<PhpParser>(
+            "<?php
+            function risky($x, $fallback) {
+                if ($x === \"y\") { // +1
+                    return $x ?? $fallback ?? \"unknown\"; // +1 (chain of ??)
+                }
+                return \"no\";
+            }",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 2.0,
+                      "min": 0.0,
+                      "max": 2.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    // Companions to `php_null_coalescing_cognitive_230`: the PHP
+    // cognitive operator set extends past `&&` / `||` / `??` to include
+    // the word-form `and` / `or` / `xor`, mirroring PHP cyclomatic. A
+    // chain of identical word-form operators collapses to a single
+    // boolean-sequence increment under Sonar B1, the same way `&&` /
+    // `||` chains do. Each word-form gets its own test so a regression
+    // that drops a single variant (e.g. only `Or`) is still caught.
+
+    #[test]
+    fn php_word_form_and_forms_boolean_sequence_230() {
+        check_metrics::<PhpParser>(
+            "<?php
+            function check_and($a, $b, $c, $d) {
+                if ($a and $b and $c and $d) { // +1 (if) + 1 (and chain)
+                    return true;
+                }
+                return false;
+            }",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn php_word_form_or_forms_boolean_sequence_230() {
+        check_metrics::<PhpParser>(
+            "<?php
+            function check_or($a, $b, $c, $d) {
+                if ($a or $b or $c or $d) { // +1 (if) + 1 (or chain)
+                    return true;
+                }
+                return false;
+            }",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn php_word_form_xor_forms_boolean_sequence_230() {
+        check_metrics::<PhpParser>(
+            "<?php
+            function check_xor($a, $b, $c, $d) {
+                if ($a xor $b xor $c xor $d) { // +1 (if) + 1 (xor chain)
+                    return true;
+                }
+                return false;
+            }",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
             },
         );
     }
