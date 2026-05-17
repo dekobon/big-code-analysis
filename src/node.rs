@@ -113,14 +113,6 @@ impl<'a> Node<'a> {
         self.0.prev_sibling().map(Node)
     }
 
-    // Retained alongside `previous_sibling` and `parent` even though the
-    // last in-tree caller moved off it — Node's navigation surface stays
-    // symmetric and the wrapper is one line.
-    #[allow(dead_code)]
-    pub(crate) fn next_sibling(&self) -> Option<Node<'a>> {
-        self.0.next_sibling().map(Node)
-    }
-
     /// Returns `true` if any direct child has the given grammar
     /// `kind_id`. Walks via `child(0)` + `next_sibling()` instead of
     /// `children(&mut self.0.walk())` so the implementation avoids
