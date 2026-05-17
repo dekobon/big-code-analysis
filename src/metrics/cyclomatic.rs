@@ -249,25 +249,10 @@ impl Cyclomatic for PythonCode {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }
-            CaseClause => {
-                let mut pattern_is_bare_underscore = false;
-                let mut has_guard = false;
-                for child in node.children() {
-                    match child.kind_id().into() {
-                        CasePattern => {
-                            pattern_is_bare_underscore =
-                                crate::metrics::npa::pattern_is_bare_underscore(
-                                    &child,
-                                    UNDERSCORE as u16,
-                                );
-                        }
-                        IfClause => has_guard = true,
-                        _ => {}
-                    }
-                }
-                if !pattern_is_bare_underscore || has_guard {
-                    stats.cyclomatic += 1.;
-                }
+            CaseClause
+                if crate::metrics::npa::python_case_clause_counts(node, UNDERSCORE as u16) =>
+            {
+                stats.cyclomatic += 1.;
             }
             MatchStatement => {
                 stats.cyclomatic_modified += 1.;

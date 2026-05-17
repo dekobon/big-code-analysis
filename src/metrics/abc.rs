@@ -961,25 +961,10 @@ impl Abc for PythonCode {
             // `default:` rule. The bare wildcard is detected by: (a)
             // `case_pattern` is `_`, AND (b) no `if_clause` sibling
             // on the `case_clause` — `case _ if g:` carries a guard
-            // and still counts.
-            CaseClause => {
-                let mut pattern_is_bare_underscore = false;
-                let mut has_guard = false;
-                for child in node.children() {
-                    match child.kind_id().into() {
-                        CasePattern => {
-                            pattern_is_bare_underscore = super::npa::pattern_is_bare_underscore(
-                                &child,
-                                Python::UNDERSCORE as u16,
-                            );
-                        }
-                        IfClause => has_guard = true,
-                        _ => {}
-                    }
-                }
-                if !pattern_is_bare_underscore || has_guard {
-                    stats.conditions += 1.;
-                }
+            // and still counts. The shared classifier lives in
+            // `super::npa` next to `pattern_is_bare_underscore`.
+            CaseClause if super::npa::python_case_clause_counts(node, UNDERSCORE as u16) => {
+                stats.conditions += 1.;
             }
             _ => {}
         }
