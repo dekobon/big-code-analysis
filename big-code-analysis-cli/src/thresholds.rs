@@ -13,6 +13,7 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::path::{Path, PathBuf};
 
 use big_code_analysis::{CodeMetrics, FuncSpace, SpaceKind};
 use serde::Deserialize;
@@ -183,7 +184,12 @@ pub(crate) struct ThresholdConfig {
 #[derive(Debug, Clone)]
 pub(crate) struct Violation {
     /// Source file path, as the user supplied it (no canonicalization).
-    pub(crate) path: String,
+    ///
+    /// Held as [`PathBuf`] so non-UTF-8 path components round-trip
+    /// through the threshold pipeline byte-for-byte; downstream
+    /// consumers (Display, offender records) decide how to surface
+    /// non-UTF-8 bytes at their own boundaries.
+    pub(crate) path: PathBuf,
     /// 1-based start line of the offending function space.
     pub(crate) start_line: usize,
     /// 1-based end line of the offending function space.
@@ -203,10 +209,15 @@ impl fmt::Display for Violation {
     /// Stable, parseable single-line format:
     /// `<path>:<start>-<end>: <function>: <metric> = <value> (limit <limit>)`.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // `Path::display` is lossy on non-UTF-8 paths (U+FFFD
+        // substitution); acceptable here because Display is the
+        // human-facing stderr line, not an identifier. The raw bytes
+        // are preserved on `self.path` itself for downstream
+        // structured consumers.
         write!(
             f,
             "{}:{}-{}: {}: {} = {} (limit {})",
-            self.path,
+            self.path.display(),
             self.start_line,
             self.end_line,
             self.function,
@@ -275,10 +286,11 @@ impl ThresholdSet {
     /// input matters. See lesson 13 in `docs/development/lessons_learned.md`
     /// for the analogous web-service DoS vector.
     ///
-    /// `path` is the UTF-8 path to use in violation records; the caller
-    /// is responsible for handling non-UTF-8 paths (skip + warn) so this
-    /// module never has to emit a lossy U+FFFD into the structured
-    /// stderr contract.
+    /// `path` is the source-file path to stamp on each emitted
+    /// violation. It is held as [`Path`] (and stored as [`PathBuf`] on
+    /// the resulting [`Violation`]) so non-UTF-8 components survive
+    /// the pipeline byte-for-byte rather than being collapsed through
+    /// `to_str()` / `to_string_lossy()` at this boundary.
     ///
     /// For the top-level (`SpaceKind::Unit`) space we substitute the
     /// literal `<file>` for the function slot: `FuncSpace::name` is the
@@ -287,7 +299,7 @@ impl ThresholdSet {
     /// — the path doubled. `<file>` makes the file-level emission
     /// distinguishable and keeps aggregate metrics like `loc.sloc`
     /// usable.
-    pub(crate) fn evaluate(&self, path: &str, space: &FuncSpace, out: &mut Vec<Violation>) {
+    pub(crate) fn evaluate(&self, path: &Path, space: &FuncSpace, out: &mut Vec<Violation>) {
         let mut stack: Vec<&FuncSpace> = vec![space];
         while let Some(current) = stack.pop() {
             let function = function_token(current);
@@ -295,7 +307,7 @@ impl ThresholdSet {
                 let value = (extractor.extract)(&current.metrics);
                 if value > *limit {
                     out.push(Violation {
-                        path: path.to_string(),
+                        path: path.to_path_buf(),
                         start_line: current.start_line,
                         end_line: current.end_line,
                         function: function.to_owned(),
@@ -445,5 +457,42 @@ mod tests {
         };
         assert!(v.to_string().contains("= 12.5"), "{v}");
         assert!(v.to_string().contains("limit 10)"), "{v}");
+    }
+
+    /// Non-UTF-8 path bytes must survive the threshold pipeline
+    /// byte-for-byte. Pre-#240 the `Violation::path: String` field
+    /// (built from `&str` via `to_string()`) discarded them at the
+    /// `evaluate` boundary. Gated on `cfg(unix)` because
+    /// `OsString::from_vec` is Unix-only — Windows paths are
+    /// constrained differently (WTF-8) and out of scope for this
+    /// regression.
+    #[cfg(unix)]
+    #[test]
+    fn violation_path_preserves_non_utf8_bytes() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+        use std::path::PathBuf;
+
+        // 0xFF / 0xFE form a lone surrogate pair under UTF-8 and
+        // would have been replaced with U+FFFD by `to_string_lossy`.
+        let raw_bytes: &[u8] = b"non-utf8-\xff\xfe.rs";
+        let path = PathBuf::from(OsString::from_vec(raw_bytes.to_vec()));
+
+        let v = Violation {
+            path: path.clone(),
+            start_line: 1,
+            end_line: 1,
+            function: "f".to_string(),
+            metric: "cyclomatic",
+            value: 5.0,
+            limit: 1.0,
+        };
+
+        // Raw bytes round-trip identically — no lossy substitution.
+        assert_eq!(v.path.as_os_str().as_encoded_bytes(), raw_bytes);
+        // Display does not panic on non-UTF-8 bytes (uses
+        // `Path::display`, which substitutes U+FFFD).
+        let rendered = v.to_string();
+        assert!(rendered.contains("cyclomatic"), "{rendered}");
     }
 }

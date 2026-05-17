@@ -619,21 +619,13 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
             ) && let (Some(set), Some(tx)) = (cfg.threshold_set.as_ref(), cfg.check_tx.as_ref())
                 && !matches!(language, LANG::Preproc | LANG::Ccomment)
             {
-                // Skip non-UTF-8 paths: the offender format is part of a
-                // parseable stderr contract, so we'd rather drop a file
-                // (with a warning) than emit a U+FFFD that desyncs
-                // downstream tooling.
-                let Some(path_str) = path.to_str() else {
-                    if cfg.warning {
-                        eprintln!(
-                            "warning: skipping non-UTF-8 path in check: {}",
-                            path.display()
-                        );
-                    }
-                    return Ok(());
-                };
+                // Pass the path through as `&Path` so non-UTF-8 bytes
+                // are preserved on each emitted `Violation`. Display /
+                // offender serialization decide their own lossy
+                // strategy at the output boundary; the threshold
+                // pipeline itself stays byte-faithful.
                 let mut violations = Vec::new();
-                set.evaluate(path_str, &space, &mut violations);
+                set.evaluate(&path, &space, &mut violations);
                 if !violations.is_empty() {
                     let Ok(sender) = tx.lock() else {
                         if cfg.warning {
