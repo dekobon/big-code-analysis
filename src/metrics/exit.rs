@@ -207,8 +207,7 @@ impl Exit for RustCode {
         if matches!(
             node.kind_id().into(),
             Rust::ReturnExpression | Rust::TryExpression
-        ) || Self::is_func(node) && node.child_by_field_name("return_type").is_some()
-        {
+        ) {
             stats.exit += 1;
         }
     }
@@ -421,6 +420,117 @@ mod tests {
                       "min": 3.0,
                       "max": 3.0
                     }"###
+            );
+        });
+    }
+
+    // Regression for #243: `Exit for RustCode` used to add 1 whenever
+    // a function_item with an explicit `-> T` was visited. Because the
+    // spaces traversal pushes a new State *before* Exit::compute runs
+    // for that function_item, every Rust function with an explicit
+    // return type was getting one extra exit on top of its real
+    // `return` / `?` exits. The fix drops the spurious clause; this
+    // test pins exit == 1 for a function with one explicit return.
+    #[test]
+    fn rust_explicit_return_with_return_type() {
+        check_metrics::<RustParser>("fn foo() -> i32 { return 1; }", "foo.rs", |metric| {
+            // 1 explicit return / 1 space
+            insta::assert_json_snapshot!(
+                metric.nexits,
+                @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+            );
+        });
+    }
+
+    // Regression for #243: an implicit final-expression return must
+    // NOT count as an exit — matching every other language's
+    // convention (Java, C++, Go, etc. don't count implicit returns).
+    #[test]
+    fn rust_implicit_return_not_counted() {
+        check_metrics::<RustParser>("fn foo() -> i32 { 0 }", "foo.rs", |metric| {
+            // 0 explicit exits / 1 space
+            insta::assert_json_snapshot!(
+                metric.nexits,
+                @r###"
+                {
+                  "sum": 0.0,
+                  "average": 0.0,
+                  "min": 0.0,
+                  "max": 0.0
+                }"###
+            );
+        });
+    }
+
+    // Regression for #243: a function with both an explicit return on
+    // one branch and an implicit final expression should count only
+    // the explicit return.
+    #[test]
+    fn rust_mixed_explicit_and_implicit_return() {
+        check_metrics::<RustParser>(
+            "fn foo(x: bool) -> i32 { if x { return 1; } 0 }",
+            "foo.rs",
+            |metric| {
+                // 1 explicit return; the implicit `0` is not an exit
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    // Regression for #243: `?` inside a function body is the only
+    // implicit-exit form that does count, and the function having an
+    // explicit `Result` return type must not double it.
+    #[test]
+    fn rust_question_mark_in_function() {
+        check_metrics::<RustParser>(
+            "fn foo() -> Result<i32, ()> { Ok(do_thing()?) }",
+            "foo.rs",
+            |metric| {
+                // 1 `?` operator, no explicit `return`
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    // Regression for #243: a unit-returning function with no
+    // explicit `return` or `?` must report 0 exits.
+    #[test]
+    fn rust_unit_return_no_exit() {
+        check_metrics::<RustParser>("fn foo() { let _x = 1; }", "foo.rs", |metric| {
+            // 0 exits / 1 space
+            insta::assert_json_snapshot!(
+                metric.nexits,
+                @r###"
+                {
+                  "sum": 0.0,
+                  "average": 0.0,
+                  "min": 0.0,
+                  "max": 0.0
+                }"###
             );
         });
     }
