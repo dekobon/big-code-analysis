@@ -32,6 +32,15 @@ use std::fmt;
 use crate::macros::implement_metric_trait;
 use crate::*;
 
+// Collapse the `usize::MAX` sentinel that `*_min` fields are
+// initialised to on `Default` into `0.0`, so a never-observed space
+// serializes to a meaningful number rather than `1.8446744e19`.
+// Mirrors `tokens::Stats::tokens_min`'s guard.
+#[inline]
+fn min_or_zero(v: usize) -> f64 {
+    if v == usize::MAX { 0.0 } else { v as f64 }
+}
+
 /// The `SLoc` metric suite.
 #[derive(Debug, Clone)]
 pub struct Sloc {
@@ -70,11 +79,12 @@ impl Sloc {
         sloc as f64
     }
 
-    /// The `Sloc` metric minimum value.
+    /// The `Sloc` metric minimum value. See [`min_or_zero`] for the
+    /// `usize::MAX` sentinel guard.
     #[inline]
     #[must_use]
     pub fn sloc_min(&self) -> f64 {
-        self.sloc_min as f64
+        min_or_zero(self.sloc_min)
     }
 
     /// The `Sloc` metric maximum value.
@@ -128,11 +138,12 @@ impl Ploc {
         self.lines.len() as f64
     }
 
-    /// The `Ploc` metric minimum value.
+    /// The `Ploc` metric minimum value. See [`min_or_zero`] for the
+    /// `usize::MAX` sentinel guard.
     #[inline]
     #[must_use]
     pub fn ploc_min(&self) -> f64 {
-        self.ploc_min as f64
+        min_or_zero(self.ploc_min)
     }
 
     /// The `Ploc` metric maximum value.
@@ -195,11 +206,12 @@ impl Cloc {
         (self.only_comment_lines + self.code_comment_lines) as f64
     }
 
-    /// The `Cloc` metric minimum value.
+    /// The `Cloc` metric minimum value. See [`min_or_zero`] for the
+    /// `usize::MAX` sentinel guard.
     #[inline]
     #[must_use]
     pub fn cloc_min(&self) -> f64 {
-        self.cloc_min as f64
+        min_or_zero(self.cloc_min)
     }
 
     /// The `Cloc` metric maximum value.
@@ -257,11 +269,12 @@ impl Lloc {
         self.logical_lines as f64
     }
 
-    /// The `Lloc` metric minimum value.
+    /// The `Lloc` metric minimum value. See [`min_or_zero`] for the
+    /// `usize::MAX` sentinel guard.
     #[inline]
     #[must_use]
     pub fn lloc_min(&self) -> f64 {
-        self.lloc_min as f64
+        min_or_zero(self.lloc_min)
     }
 
     /// The `Lloc` metric maximum value.
@@ -537,11 +550,12 @@ impl Stats {
         self.lloc.lloc_max()
     }
 
-    /// The `Blank` metric minimum value.
+    /// The `Blank` metric minimum value. See [`min_or_zero`] for the
+    /// `usize::MAX` sentinel guard.
     #[inline]
     #[must_use]
     pub fn blank_min(&self) -> f64 {
-        self.blank_min as f64
+        min_or_zero(self.blank_min)
     }
 
     /// The `Blank` metric maximum value.
@@ -1468,6 +1482,21 @@ mod tests {
     use crate::tools::check_metrics;
 
     use super::*;
+
+    /// A `Stats::default()` that never sees an observation must not leak
+    /// the `usize::MAX` sentinel for any of the LOC `_min` accumulators
+    /// (`sloc_min`, `ploc_min`, `lloc_min`, `cloc_min`, `blank_min`).
+    /// The getters collapse the sentinel to `0.0` so JSON never emits
+    /// `1.8446744e19`.
+    #[test]
+    fn loc_empty_file_min_is_zero() {
+        let stats = Stats::default();
+        assert_eq!(stats.sloc_min(), 0.0);
+        assert_eq!(stats.ploc_min(), 0.0);
+        assert_eq!(stats.lloc_min(), 0.0);
+        assert_eq!(stats.cloc_min(), 0.0);
+        assert_eq!(stats.blank_min(), 0.0);
+    }
 
     /// Parses `source` with `PerlParser` and asserts the resulting tree has
     /// no `ERROR` nodes. Use alongside metric assertions whose expected
