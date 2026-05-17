@@ -165,6 +165,17 @@ func f(x int) string {
         "def f(x):\n    match x:\n        case 1:\n            return 'one'\n        case _:\n            return 'other'\n",
         "py",
     );
+    let groovy = cognitive_max(
+        LANG::Groovy,
+        r"def f(x) {
+    switch (x) {
+        case 1: break
+        default: break
+    }
+}
+",
+        "groovy",
+    );
 
     // expected: one explicit arm + wildcard/default in a single
     // switch/match contributes one cognitive decision point.
@@ -180,4 +191,5 @@ func f(x int) string {
     assert_eq!(go, expected, "go");
     assert_eq!(bash, expected, "bash");
     assert_eq!(python, expected, "python");
+    assert_eq!(groovy, expected, "groovy");
 }

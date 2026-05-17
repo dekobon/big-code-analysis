@@ -157,6 +157,18 @@ f() {
 ",
         "kt",
     );
+    let groovy = exit_max(
+        LANG::Groovy,
+        r"def f(x, y) {
+    while (x) {
+        if (y) {
+            return
+        }
+    }
+}
+",
+        "groovy",
+    );
     // Go has no `while`; `for` with a single condition is the idiomatic
     // equivalent and parses to the same loop-body structure.
     let go = exit_max(
@@ -187,4 +199,5 @@ func f(x bool, y bool) {
     assert_eq!(bash, expected, "bash");
     assert_eq!(kotlin, expected, "kotlin");
     assert_eq!(go, expected, "go");
+    assert_eq!(groovy, expected, "groovy");
 }
