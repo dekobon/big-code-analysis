@@ -145,6 +145,16 @@ changes are marked with **(breaking)** in the entries below.
 
 ### Added
 
+- Support for Groovy source files (`.groovy`, `.gradle`, `.gvy`,
+  `.gy`, `.gsh`), wired up to `tree-sitter-groovy = "=0.1.2"`
+  (amaanq). All twelve metric traits get real impls mirroring Java's
+  with Groovy-specific extensions for closures, `juxt_function_call`,
+  GStrings, the `def` keyword, and the explicit `**` / `..` / `in`
+  operator tokens. Several Groovy-specific operators (Elvis `?:`,
+  safe-navigation `?.`, spread `*.` / `*:`, spaceship `<=>`, regex
+  `=~` / `==~`, identity `===` / `!==`, exclusive ranges `..<`,
+  trait declarations) are not yet supported by the upstream grammar
+  and are tracked as follow-up issues.
 - Python `Abc` impl now counts unary `not` as one condition,
   closing the parity gap with Java / C# / Kotlin. `if not flag:`
   reports `conditions = 1` (was `0`); `not (x > 0)` reports `2`

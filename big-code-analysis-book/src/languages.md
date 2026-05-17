@@ -12,6 +12,7 @@ This is the list of programming languages parsed by
 - [x] Elixir
 - [x] Preproc
 - [x] Go
+- [x] Groovy
 - [x] Java
 - [x] JavaScript
 - [x] Kotlin
