@@ -30,7 +30,7 @@ pub(crate) const METRICS: &[MetricEntry] = &[
     },
     MetricEntry {
         name: "cyclomatic",
-        description: "Cyclomatic Complexity: linearly independent paths through the code; the modified variant collapses switch/match arms (Lizard `-m`).",
+        description: "Cyclomatic Complexity: linearly independent paths through the code; the modified variant collapses switch/match/when arms in a single switch statement into one decision point.",
     },
     MetricEntry {
         name: "halstead",
