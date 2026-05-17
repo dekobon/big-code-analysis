@@ -15,6 +15,22 @@ changes are marked with **(breaking)** in the entries below.
 
 ### Changed
 
+- **(breaking)** Offender-record output formats (Checkstyle, SARIF,
+  clang/GCC warning lines, MSVC warning lines) moved from `bca metrics
+  --output-format <fmt>` to `bca check --output-format <fmt>` with a
+  new `--output <path>` option. `bca metrics` keeps the per-file
+  serializations (`json` / `yaml` / `toml` / `cbor` / `csv`). Legacy
+  invocations now exit with a migration hint pointing at the new
+  command; the empty-document placeholder behaviour is removed. The
+  CLI version bumps to `0.1.0` and the book chapters for `metrics`,
+  `report`, and `check` are updated to be internally consistent about
+  which command owns which output kind
+  ([#235](https://github.com/dekobon/big-code-analysis/issues/235)).
+- Python `case_clause` bare-`_`-plus-guard classifier is now shared
+  between `Cyclomatic for PythonCode` and `Abc for PythonCode` via
+  a single `python_case_clause_counts` helper in
+  `src/metrics/npa.rs`. No behaviour change; pure code-quality
+  refactor ([#223](https://github.com/dekobon/big-code-analysis/issues/223)).
 - **(breaking)** `Abc::compute` and `Cognitive::compute` now take the
   source bytes as a third parameter — `fn compute<'a>(node: &Node<'a>,
   code: &'a [u8], stats: &mut Stats)` — mirroring `Cyclomatic::compute`
@@ -414,6 +430,21 @@ changes are marked with **(breaking)** in the entries below.
 
 ### Fixed
 
+- `Cognitive` now counts the nullish-coalescing operator `??` as a
+  boolean-sequence operator (Sonar B1) in JavaScript, TypeScript,
+  TSX, Mozjs, C#, and PHP. The `compute_booleans` two-operator helper
+  is replaced at these call sites by the slice-friendly
+  `compute_booleans_with`, mirroring Ruby / Perl / Elixir. Kotlin
+  keeps the `&&` / `||` pair (no `??`). Closes the parity gap left by
+  #226 on the cyclomatic side
+  ([#230](https://github.com/dekobon/big-code-analysis/issues/230)).
+- LOC `_min` getters (`sloc_min`, `ploc_min`, `lloc_min`, `cloc_min`,
+  `blank_min`) now collapse the `usize::MAX` sentinel to `0.0`
+  instead of leaking `1.8446744e19` from a raw `Stats::default()`
+  that bypasses the metric pipeline. Mirrors the guard pattern
+  already documented on `tokens::Stats::tokens_min` and applied to
+  six other metrics in #227
+  ([#233](https://github.com/dekobon/big-code-analysis/issues/233)).
 - `NExit` now counts `yield` as an exit edge in Python, JavaScript,
   TypeScript, TSX, and Mozjs, matching the long-standing C# / PHP
   behaviour. Generator suspension hands control back to the caller —
