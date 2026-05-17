@@ -274,6 +274,151 @@ fn check_uses_file_sentinel_for_top_level_space() {
 }
 
 #[test]
+fn check_sarif_output_to_file_with_violations_exits_two() {
+    // Issue #235: `bca check --output-format sarif --output FILE`
+    // writes a SARIF 2.1.0 document with one `result` per offender,
+    // returns exit 2 when offenders exist, and creates parent
+    // directories on demand.
+    let dir = TempDir::new().unwrap();
+    let fixture = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    // Use a nested path to exercise parent-directory creation.
+    let out_path = dir.path().join("nested").join("report.sarif.json");
+
+    cli()
+        .args([
+            "--paths",
+            &fixture,
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--output-format",
+            "sarif",
+            "--output",
+            out_path.to_str().unwrap(),
+        ])
+        .assert()
+        .code(2);
+
+    let body = fs::read_to_string(&out_path).expect("sarif file readable");
+    let doc: serde_json::Value = serde_json::from_str(&body).expect("sarif is valid JSON");
+    assert_eq!(doc["version"], "2.1.0");
+    let results = doc["runs"][0]["results"]
+        .as_array()
+        .expect("runs[0].results is array");
+    assert!(
+        !results.is_empty(),
+        "expected at least one SARIF result for branchy fixture; doc was:\n{body}"
+    );
+}
+
+#[test]
+fn check_no_fail_with_sarif_output_exits_zero() {
+    // The `--no-fail` flag should keep exit 0 even when offenders
+    // exist; the SARIF document is still emitted with the results
+    // populated so reporting pipelines see the data.
+    let dir = TempDir::new().unwrap();
+    let fixture = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let out_path = dir.path().join("report.sarif.json");
+
+    cli()
+        .args([
+            "--paths",
+            &fixture,
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--output-format",
+            "sarif",
+            "--output",
+            out_path.to_str().unwrap(),
+            "--no-fail",
+        ])
+        .assert()
+        .success();
+
+    let body = fs::read_to_string(&out_path).expect("sarif file readable");
+    let doc: serde_json::Value = serde_json::from_str(&body).expect("sarif is valid JSON");
+    let results = doc["runs"][0]["results"]
+        .as_array()
+        .expect("runs[0].results is array");
+    assert!(
+        !results.is_empty(),
+        "--no-fail should still emit offender records; doc was:\n{body}"
+    );
+}
+
+#[test]
+fn check_clean_run_emits_empty_sarif_document() {
+    // Acceptance criterion 3: empty offender output should still be
+    // a well-formed document (here SARIF runs[].results = []).
+    let dir = TempDir::new().unwrap();
+    let fixture = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
+    let out_path = dir.path().join("report.sarif.json");
+
+    cli()
+        .args([
+            "--paths",
+            &fixture,
+            "check",
+            "--threshold",
+            "cyclomatic=10",
+            "--output-format",
+            "sarif",
+            "--output",
+            out_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let body = fs::read_to_string(&out_path).expect("sarif file readable");
+    let doc: serde_json::Value = serde_json::from_str(&body).expect("sarif is valid JSON");
+    assert_eq!(doc["version"], "2.1.0");
+    let results = doc["runs"][0]["results"]
+        .as_array()
+        .expect("runs[0].results is array");
+    assert!(
+        results.is_empty(),
+        "clean run should emit empty results array; doc was:\n{body}"
+    );
+}
+
+#[test]
+fn check_clang_warning_output_streams_one_line_per_offender() {
+    // Clang warning lines stream to stdout when --output is omitted.
+    let dir = TempDir::new().unwrap();
+    let fixture = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+
+    let output = cli()
+        .args([
+            "--paths",
+            &fixture,
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--output-format",
+            "clang-warning",
+            "--no-fail",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8(output).expect("utf-8 stdout");
+    // At least one offender line should follow the clang/GCC warning
+    // shape `<path>:<line>:<col>: warning: <metric> ...`. Checking
+    // both `warning:` and the metric name guards against a routing
+    // regression that emits a different format (e.g. MSVC's
+    // `warning :` with a space) when clang-warning was requested.
+    assert!(
+        stdout
+            .lines()
+            .any(|l| l.contains("warning:") && l.contains("cyclomatic")),
+        "expected at least one clang-warning line mentioning cyclomatic; stdout was:\n{stdout}",
+    );
+}
+
+#[test]
 fn check_walks_nested_function_spaces() {
     let dir = TempDir::new().unwrap();
     let body = r"

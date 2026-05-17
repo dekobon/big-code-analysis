@@ -1,20 +1,23 @@
 //! End-to-end format-validity smoke tests.
 //!
-//! Each test runs `bca metrics -O <fmt> --paths <fixture>` against a
-//! small Rust fixture in a `tempfile::tempdir()`, captures stdout, and
-//! pipes the captured bytes through the matching format validator
-//! (the duplicates of the lib-crate helpers under
+//! Each test runs the binary against a small Rust fixture in a
+//! `tempfile::tempdir()`, captures stdout, and pipes the captured
+//! bytes through the matching format validator (the duplicates of
+//! the lib-crate helpers under
 //! `big-code-analysis-cli/tests/common/validators.rs`). This catches
 //! CLI-dispatch bugs that bypass the writer-level tests in the lib
 //! crate (e.g., a routing regression that emits Checkstyle XML when
 //! `--output-format sarif` was requested).
 //!
-//! The aggregated formats (Checkstyle, SARIF) currently emit empty
-//! documents because the threshold engine (issue #96) hasn't landed.
-//! The validators must accept these well-formed-but-empty shapes —
-//! which they do, by design — so the smoke tests still run today.
-//! Once #96 lands, the same tests automatically exercise real
-//! offender content with no test changes needed.
+//! The offender formats (Checkstyle, SARIF) are emitted by
+//! `bca check --output-format <fmt>`. Each test sets a tight
+//! threshold against a deliberately branchy Rust fixture so the
+//! `check` walk produces at least one offender record; the resulting
+//! document is run through the format validator. (Clean runs are
+//! valid input for the validators too, but exercising the document
+//! with real offender records catches more dispatch regressions —
+//! e.g. a route that emits an empty SARIF run even when offenders
+//! were found.)
 
 use assert_cmd::Command;
 use big_code_analysis::CSV_HEADER;
@@ -47,11 +50,35 @@ fn run_metrics(format: &str, fixture_path: &str) -> String {
     String::from_utf8(output).expect("CLI output is UTF-8")
 }
 
+/// Run `bca check --threshold cyclomatic=1 --output-format <fmt>
+/// --no-fail` so the walk produces offender records (branchy fixture
+/// vs cyclomatic=1) without bumping the exit code. Returns the
+/// document stdout.
+fn run_check_offender_doc(format: &str, fixture_path: &str) -> String {
+    let output = cli()
+        .args([
+            "--paths",
+            fixture_path,
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--output-format",
+            format,
+            "--no-fail",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    String::from_utf8(output).expect("CLI output is UTF-8")
+}
+
 #[test]
-fn cli_sarif_output_validates_against_schema() {
+fn cli_check_sarif_output_validates_against_schema() {
     let dir = TempDir::new().unwrap();
     let fixture = write_rust_fixture(&dir);
-    let out = run_metrics("sarif", &fixture);
+    let out = run_check_offender_doc("sarif", &fixture);
     if let Err(violations) = validate_sarif(&out) {
         panic!(
             "SARIF schema violations from CLI output:\n  {}\n\nfull document:\n{}",
@@ -59,14 +86,41 @@ fn cli_sarif_output_validates_against_schema() {
             out,
         );
     }
+    // The fixture has an `if` branch, so cyclomatic=1 produces an
+    // offender. Guard against a routing regression that would emit
+    // an empty results array: parse the JSON and require at least one
+    // entry in `runs[0].results[]`. (A substring check on `"results"`
+    // would still match the empty-array case `"results": []`.)
+    let doc: serde_json::Value = serde_json::from_str(&out).expect("SARIF stdout parses as JSON");
+    let results = doc["runs"][0]["results"]
+        .as_array()
+        .expect("runs[0].results is an array");
+    assert!(
+        !results.is_empty(),
+        "expected at least one SARIF result for branchy fixture; doc was:\n{out}",
+    );
 }
 
 #[test]
-fn cli_checkstyle_output_is_well_formed() {
+fn cli_check_checkstyle_output_is_well_formed() {
     let dir = TempDir::new().unwrap();
     let fixture = write_rust_fixture(&dir);
-    let out = run_metrics("checkstyle", &fixture);
+    let out = run_check_offender_doc("checkstyle", &fixture);
     assert_checkstyle_well_formed_and_structural(&out);
+    // Same routing-regression guard as the SARIF test: an empty
+    // `<checkstyle version="4.3"/>` document is well-formed but
+    // wouldn't catch a route that drops offenders silently. With
+    // `cyclomatic=1` against a fixture that has an `if` branch, the
+    // document must carry at least one `<file>` element with an
+    // `<error>` child carrying the cyclomatic metric name.
+    assert!(
+        out.contains("<file"),
+        "expected at least one <file> element in checkstyle output; out was:\n{out}",
+    );
+    assert!(
+        out.contains("cyclomatic"),
+        "expected cyclomatic metric in checkstyle output; out was:\n{out}",
+    );
 }
 
 #[test]

@@ -5,7 +5,9 @@ or to a directory of structured files.
 
 > **Migrating?** This command replaces the pre-restructure `--metrics`
 > flag. The aggregated report previously selected with `-O markdown`
-> now lives under [`bca report`](report.md). See the
+> now lives under [`bca report`](report.md), and the CI/IDE offender
+> formats (Checkstyle, SARIF, clang-warning, msvc-warning) moved to
+> [`bca check --output-format <fmt>`](check.md). See the
 > [migration guide](../migration.md).
 
 ## Display metrics
@@ -31,17 +33,22 @@ bca --paths /path/to/your/file/or/directory metrics
 
 Both JSON and TOML can be exported as pretty-printed.
 
-It also supports two aggregated CI/IDE formats that combine findings
-from every analyzed file into a single document:
+The three top-level output kinds map to three separate commands so
+each one stays consistent with its data model:
 
-- Checkstyle (Checkstyle 4.3 XML, the lingua franca for Jenkins,
-  SonarQube, GitLab, and most "warnings plugin" CI integrations)
-- SARIF (SARIF 2.1.0 JSON, the OASIS standard ingested natively by
-  GitHub Code Scanning and most modern IDE/security tooling)
-- Clang/GCC warning lines (one offender per line, recognized by
-  editor quickfix parsers and GitHub Actions problem matchers)
-- MSVC warning lines (Visual Studio's `cl.exe` diagnostic format,
-  recognized by Visual Studio, VS Code, and Windows CI runners)
+| Command                            | Output                          | Audience          |
+| ---------------------------------- | ------------------------------- | ----------------- |
+| `bca metrics`                      | Per-file metric trees           | Downstream tooling |
+| [`bca report`](report.md)          | Aggregated quality dashboards   | Humans / PRs      |
+| [`bca check`](check.md)            | Threshold-violation reports     | CI / IDE          |
+
+The CI/IDE offender formats (Checkstyle, SARIF, clang-warning,
+msvc-warning) used to live on `bca metrics -O <fmt>`. They moved to
+`bca check --output-format <fmt>` in #235 because their input is a
+list of threshold violations, not the per-file metric tree that the
+other formats above carry. See the
+[`bca check` chapter](check.md#exporting-offender-records) for the
+new invocation.
 
 ### Export command
 
@@ -53,15 +60,10 @@ bca --paths /path/to/your/file/or/directory metrics \
 ```
 
 - `-O, --output-format`: per-file output format (`cbor`, `csv`,
-  `json`, `toml`, `yaml`) or aggregated CI format
-  (`checkstyle`, `sarif`, `clang-warning`, `msvc-warning`).
-- `-o, --output`: directory to save output files for per-file formats.
-  Filenames mirror the input file plus the format extension. If
-  omitted, results are printed to stdout. CBOR is binary and therefore
-  requires `-o`. For aggregated formats (`checkstyle`, `sarif`,
-  `clang-warning`, `msvc-warning`), `--output` names a single output
-  **file** (extension `.checkstyle.xml`, `.sarif.json`, or `.txt`)
-  rather than a directory.
+  `json`, `toml`, `yaml`).
+- `-o, --output`: directory to save output files. Filenames mirror
+  the input file plus the format extension. If omitted, results are
+  printed to stdout. CBOR is binary and therefore requires `-o`.
 
 ### CSV (spreadsheets and Pandas)
 
@@ -101,129 +103,6 @@ produces a `<input>.csv` mirror under the output directory.
 > per-file `bca metrics -O html` writer was removed because it
 > degraded to an unopenable single-file table on real-world repos —
 > CSV is the right shape for flat per-`FuncSpace` rows.
-
-### Checkstyle (CI integration)
-
-```bash
-bca --paths /path/to/your/code metrics \
-    -O checkstyle -o report.checkstyle.xml
-```
-
-The Checkstyle writer emits a single `<checkstyle version="4.3">`
-document containing one `<file>` element per source path, each
-holding one `<error>` per metric-threshold violation. The threshold
-engine that produces these violation records is tracked under
-[issue #96](https://github.com/dekobon/big-code-analysis/issues/96).
-Until that lands the writer emits a well-formed but empty
-`<checkstyle version="4.3"/>` document, so CI pipelines can already
-wire up the consumer without waiting on the producer.
-
-### SARIF (GitHub Code Scanning)
-
-```bash
-bca --paths /path/to/your/code metrics \
-    -O sarif -o report.sarif.json
-```
-
-The SARIF writer emits a single SARIF 2.1.0 JSON document with one
-`runs[]` element. Each metric-threshold violation becomes a `result`
-under `runs[0].results[]`; the metric names appearing in the run are
-deduplicated into `runs[0].tool.driver.rules[]` with short
-descriptions. The threshold engine that produces these records is
-tracked under
-[issue #96](https://github.com/dekobon/big-code-analysis/issues/96).
-Until that lands the writer emits a well-formed run with empty
-`results` and `rules` arrays, so CI pipelines can already wire up the
-consumer without waiting on the producer.
-
-To upload a SARIF file to GitHub Code Scanning from a workflow:
-
-```yaml
-name: bca-sarif
-on: [push, pull_request]
-jobs:
-  scan:
-    runs-on: ubuntu-latest
-    permissions:
-      security-events: write
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run big-code-analysis
-        run: |
-          bca --paths . metrics \
-              -O sarif -o report.sarif.json
-      - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: report.sarif.json
-```
-
-### Clang/GCC warning lines (editor quickfix and CI annotators)
-
-```bash
-bca --paths /path/to/your/code metrics \
-    -O clang-warning -o report.txt
-```
-
-The Clang format emits one offender per line in the conventional
-compiler-warning shape:
-
-```text
-path/to/file.rs:42:5: warning: cyclomatic 17 exceeds limit 15 [big-code-analysis-cyclomatic]
-```
-
-This is the format `clang -fdiagnostics-format=` produces and the
-shape every editor quickfix parser (VS Code, IntelliJ, Vim) and most
-CI annotators understand without configuration. The threshold engine
-that produces these violation records is tracked under
-[issue #96](https://github.com/dekobon/big-code-analysis/issues/96);
-until it lands the writer emits an empty file (zero bytes), so CI
-pipelines can already wire up the consumer.
-
-GitHub Actions surfaces the lines as inline annotations on the PR
-diff via the built-in GCC problem matcher (or any community
-`compiler-problem-matchers` action):
-
-```yaml
-name: bca-clang-warnings
-on: [push, pull_request]
-jobs:
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Enable GCC problem matcher
-        run: echo "::add-matcher::$RUNNER_TOOL_CACHE/problem-matchers/gcc.json"
-      - name: Run big-code-analysis
-        run: |
-          bca --paths . metrics \
-              -O clang-warning -o /dev/stdout
-```
-
-If your runner does not ship a GCC matcher, fall back to streaming
-the lines and re-emitting them as `::warning file=...,line=...::`
-workflow commands.
-
-### MSVC warning lines (Visual Studio and Windows CI)
-
-```bash
-bca --paths /path/to/your/code metrics \
-    -O msvc-warning -o report.txt
-```
-
-The MSVC format emits one offender per line in Visual Studio's
-`cl.exe` diagnostic shape:
-
-```text
-path\to\file.rs(42,5): warning : cyclomatic 17 exceeds limit 15
-```
-
-Note the space before the colon after `warning`/`error` — that is
-the MSVC convention. On Windows the path is normalized to use `\`
-separators (matching cl.exe output); on other platforms the path is
-emitted as-is. Visual Studio, VS Code with the C/C++ extension, and
-Windows CI runners (Azure Pipelines, GitHub Actions on
-`windows-latest`) parse these inline without extra configuration.
 
 ### Pretty print
 
