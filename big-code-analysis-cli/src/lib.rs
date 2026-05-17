@@ -577,6 +577,14 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
             ) && let Some(ref tx) = cfg.markdown_tx
                 && !matches!(language, LANG::Preproc | LANG::Ccomment)
             {
+                // Markdown reports are human-readable text and the
+                // downstream `FunctionSummary::file: String` is rendered
+                // into the report body, so non-UTF-8 paths cannot
+                // round-trip through this pipeline regardless of how we
+                // carry them upstream. Skip with a warning. The
+                // threshold pipeline (Action::Check) carries `&Path`
+                // end-to-end because its JSON/SARIF outputs can
+                // preserve raw bytes.
                 let Some(file_str) = path.to_str() else {
                     if cfg.warning {
                         eprintln!(
@@ -908,13 +916,14 @@ fn run_check(globals: GlobalOpts, args: CheckArgs, preproc: Option<Arc<PreprocRe
     // produces a well-formed but offender-free document, which CI
     // consumers can ingest unchanged on clean runs. The exit-code
     // contract below is unaffected by this branch.
+    let any_violations = !violations.is_empty();
     if let Some(fmt) = args.output_format {
-        let offenders: Vec<_> = violations.iter().map(violation_to_offender).collect();
+        let offenders: Vec<_> = violations.into_iter().map(violation_to_offender).collect();
         fmt.dump(&offenders, args.output.as_deref())
             .unwrap_or_else(|e| die(format_args!("failed to write {}: {e}", fmt.name())));
     }
 
-    if !violations.is_empty() && !args.no_fail {
+    if any_violations && !args.no_fail {
         process::exit(2);
     }
 }

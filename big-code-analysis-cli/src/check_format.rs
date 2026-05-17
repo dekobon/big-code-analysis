@@ -79,29 +79,25 @@ impl AggregatedFormat {
     }
 }
 
-/// Convert a CLI-local [`Violation`] into the library-side
-/// [`OffenderRecord`] used by the aggregated writers. The two carry
-/// the same per-row content; the conversion lives at the dump
-/// boundary so the CLI-internal `Violation` shape can evolve
-/// independently of the published `OffenderRecord` surface.
-///
-/// `start_line` / `end_line` are clamped to `u32::MAX` because the
-/// SARIF (`region.startLine`) and Checkstyle schemas both type line
-/// numbers as 32-bit ints — values past that range cannot round-trip
-/// through the offender document regardless of what tree-sitter
-/// reports as `usize`. An empty `function` collapses to `None` to
-/// match `OffenderRecord::function`'s documented "file-level
-/// violation" semantics.
-pub(crate) fn violation_to_offender(v: &Violation) -> OffenderRecord {
+pub(crate) fn violation_to_offender(v: Violation) -> OffenderRecord {
+    let Violation {
+        path,
+        function,
+        start_line,
+        end_line,
+        metric,
+        value,
+        limit,
+    } = v;
     OffenderRecord {
-        path: v.path.clone(),
-        function: (!v.function.is_empty()).then(|| v.function.clone()),
-        start_line: u32::try_from(v.start_line).unwrap_or(u32::MAX),
-        end_line: u32::try_from(v.end_line).unwrap_or(u32::MAX),
+        path,
+        function: (!function.is_empty()).then_some(function),
+        start_line: u32::try_from(start_line).unwrap_or(u32::MAX),
+        end_line: u32::try_from(end_line).unwrap_or(u32::MAX),
         start_col: None,
-        metric: v.metric.to_string(),
-        value: v.value,
-        limit: v.limit,
+        metric: metric.to_string(),
+        value,
+        limit,
         severity: big_code_analysis::Severity::default(),
     }
 }
@@ -152,13 +148,13 @@ mod tests {
         // function name must round-trip to `None`, not `Some("")`,
         // so SARIF / Checkstyle consumers see a clean omission
         // rather than a stray empty-string `<function>` element.
-        let offender = violation_to_offender(&violation(""));
+        let offender = violation_to_offender(violation(""));
         assert_eq!(offender.function, None);
     }
 
     #[test]
     fn violation_to_offender_preserves_non_empty_function() {
-        let offender = violation_to_offender(&violation("compute"));
+        let offender = violation_to_offender(violation("compute"));
         assert_eq!(offender.function.as_deref(), Some("compute"));
     }
 
@@ -186,7 +182,7 @@ mod tests {
             value: 5.0,
             limit: 1.0,
         };
-        let offender = violation_to_offender(&v);
+        let offender = violation_to_offender(v);
         assert_eq!(offender.path, path);
         assert_eq!(offender.path.as_os_str().as_encoded_bytes(), raw_bytes);
     }
