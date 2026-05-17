@@ -153,6 +153,14 @@ impl<'a> Node<'a> {
         self.0.child(pos as u32).map(Node)
     }
 
+    /// Returns the tree-sitter grammar field name through which this
+    /// node reaches the child at `child_index`, if any. Used by the
+    /// AST builder to thread the parent's `field_name` into each child
+    /// without a parallel cursor walk.
+    pub(crate) fn field_name_for_child(&self, child_index: u32) -> Option<&'static str> {
+        self.0.field_name_for_child(child_index)
+    }
+
     pub(crate) fn children(&self) -> impl ExactSizeIterator<Item = Node<'a>> + use<'a> {
         let mut cursor = self.cursor();
         cursor.goto_first_child();
@@ -244,15 +252,6 @@ impl<'a> Cursor<'a> {
 
     pub(crate) fn node(&self) -> Node<'a> {
         Node(self.0.node())
-    }
-
-    /// Field name through which the cursor reached the current node.
-    ///
-    /// Returns `None` when the node is not addressed by a grammar field
-    /// (e.g. anonymous tokens such as punctuation, or unnamed children of
-    /// repetitions). The string is interned by the grammar and `'static`.
-    pub(crate) fn field_name(&self) -> Option<&'static str> {
-        self.0.field_name()
     }
 }
 

@@ -115,77 +115,71 @@ impl AstNode {
 }
 
 fn build<T: ParserTrait>(parser: &T, span: bool, comment: bool) -> Option<AstNode> {
+    // Iterative depth-first walk that materializes `AstNode`s bottom-up.
+    // Each frame holds the pending parent node, the grammar field name
+    // through which its own parent reached it (None for the root), the
+    // already-materialized child `AstNode`s, and the next child index to
+    // descend into. The parent's `field_name_for_child(idx)` lookup is
+    // O(1) and avoids the parallel cursor walk that was required when
+    // field names had to be captured via `TreeCursor::field_name()`.
+    struct Frame<'a> {
+        node: crate::Node<'a>,
+        field: Option<&'static str>,
+        children: Vec<AstNode>,
+        next_child_index: usize,
+    }
+
     let code = parser.get_code();
     let root = parser.get_root();
-    let mut node_stack: Vec<crate::Node<'_>> = Vec::new();
-    let mut child_stack: Vec<Vec<AstNode>> = Vec::new();
-    // Parallel to `node_stack`: tree-sitter grammar field name (if any)
-    // through which the parent reaches each pending node. The root
-    // has no parent and therefore no field name.
-    let mut field_stack: Vec<Option<&'static str>> = Vec::new();
-    // Parallel to `node_stack`: remaining (sibling, field_name) pairs
-    // for each pending node, materialized eagerly on descent and
-    // consumed in left-to-right order via `pop()` (stored reversed).
-    //
-    // Field names cannot be recovered from `Node` alone —
-    // `TreeCursor::field_name()` requires parent context that a fresh
-    // `cursor.reset()` discards — so we capture them in a single
-    // cursor walk per parent.
-    let mut sibling_stack: Vec<Vec<(crate::Node<'_>, Option<&'static str>)>> = Vec::new();
+    let mut stack: Vec<Frame<'_>> = vec![Frame {
+        node: root,
+        field: None,
+        children: Vec::with_capacity(root.child_count()),
+        next_child_index: 0,
+    }];
 
-    node_stack.push(root);
-    field_stack.push(None);
-    child_stack.push(Vec::new());
-    sibling_stack.push(Vec::new());
-
-    /* To avoid Rc, RefCell and stuff like that (or use of unsafe)
-    the idea here is to build AstNode from bottom-to-top and from left-to-right.
-    So once we have built the array of children we can build the node itself until the root. */
     loop {
-        let ts_node = *node_stack.last().unwrap();
-        let mut cursor = ts_node.cursor();
-        if cursor.goto_first_child() {
-            let mut siblings = Vec::new();
-            loop {
-                siblings.push((cursor.node(), cursor.field_name()));
-                if !cursor.goto_next_sibling() {
-                    break;
-                }
-            }
-            // Stored reverse-ordered so left-to-right consumption uses
-            // `pop()` from the back of the vector.
-            siblings.reverse();
-            let (first_node, first_field) = siblings.pop().unwrap();
-            child_stack.push(Vec::with_capacity(first_node.child_count()));
-            node_stack.push(first_node);
-            field_stack.push(first_field);
-            sibling_stack.push(siblings);
+        let frame = stack
+            .last_mut()
+            .expect("stack invariant: loop only runs while stack is non-empty");
+        let child_count = frame.node.child_count();
+        if frame.next_child_index < child_count {
+            let idx = frame.next_child_index;
+            frame.next_child_index += 1;
+            // `Node::child` is O(1) (direct tree-sitter pointer
+            // arithmetic); `field_name_for_child` returns the static
+            // grammar field for that child position. Tree-sitter caps
+            // child indices at u32, so the cast is safe by invariant.
+            let child = frame
+                .node
+                .child(idx)
+                .expect("stack invariant: idx < child_count so the child exists");
+            let field = frame.node.field_name_for_child(
+                u32::try_from(idx).expect("invariant: tree-sitter caps child indices at u32::MAX"),
+            );
+            stack.push(Frame {
+                node: child,
+                field,
+                children: Vec::with_capacity(child.child_count()),
+                next_child_index: 0,
+            });
         } else {
-            loop {
-                let ts_node = node_stack.pop().unwrap();
-                let field = field_stack.pop().unwrap();
-                let mut remaining = sibling_stack.pop().unwrap();
-                if let Some(node) = T::Checker::get_ast_node(
-                    &ts_node,
-                    code,
-                    child_stack.pop().unwrap(),
-                    span,
-                    comment,
-                    field,
-                ) {
-                    if !child_stack.is_empty() {
-                        child_stack.last_mut().unwrap().push(node);
-                    } else {
-                        return Some(node);
-                    }
-                }
-                if let Some((next_node, next_field)) = remaining.pop() {
-                    child_stack.push(Vec::with_capacity(next_node.child_count()));
-                    node_stack.push(next_node);
-                    field_stack.push(next_field);
-                    sibling_stack.push(remaining);
-                    break;
-                }
+            let frame = stack
+                .pop()
+                .expect("stack invariant: just observed non-empty via last_mut()");
+            let node = T::Checker::get_ast_node(
+                &frame.node,
+                code,
+                frame.children,
+                span,
+                comment,
+                frame.field,
+            );
+            match (node, stack.last_mut()) {
+                (Some(ast), Some(parent)) => parent.children.push(ast),
+                (Some(ast), None) => return Some(ast),
+                (None, None) => return None,
+                (None, Some(_)) => {}
             }
         }
     }

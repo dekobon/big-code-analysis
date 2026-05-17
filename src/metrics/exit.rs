@@ -204,6 +204,11 @@ impl_exit_match_kinds!(
 
 impl Exit for RustCode {
     fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+        // Count only explicit `return` and `?` (TryExpression). The
+        // implicit final-expression path is NOT an exit — peer-language
+        // impls have the same convention. See #243 for the prior bug
+        // that added a spurious +1 for every function with a return
+        // type.
         if matches!(
             node.kind_id().into(),
             Rust::ReturnExpression | Rust::TryExpression
