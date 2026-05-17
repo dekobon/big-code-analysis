@@ -30,7 +30,7 @@ use crate::*;
 /// leaf tokens, excluding any leaf whose ancestor chain includes a
 /// comment node.
 ///
-/// This is a Lizard-style size proxy: it counts the lexer's tokens
+/// This is a token-based size proxy: it counts the lexer's tokens
 /// (identifiers, literals, keywords, punctuation) rather than lines or
 /// Halstead operators/operands. Punctuation that Halstead skips
 /// (parentheses, semicolons, separators) does contribute, so

@@ -35,9 +35,9 @@
 //! - ABC: it measures the size of a source code based on
 //!   assignments, branches, and conditions.
 //! - CC: it calculates the code complexity examining the control flow of a
-//!   program.  Both standard and modified (Lizard `-m`) flavours are
-//!   exposed: the modified variant collapses all case/match arms inside a
-//!   single switch/match/when/select into one decision point.
+//!   program.  Both standard and modified flavours are exposed: the
+//!   modified variant collapses all case/match arms inside a single
+//!   switch/match/when/select into one decision point.
 //! - Cognitive Complexity: it measures how difficult it is
 //!   to understand a unit of code.
 //! - SLOC: it counts the number of lines in a source file.
