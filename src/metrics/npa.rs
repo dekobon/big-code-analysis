@@ -1037,6 +1037,35 @@ pub(crate) fn pattern_is_bare_underscore(pat: &Node, underscore_id: u16) -> bool
     found_underscore
 }
 
+// Returns `true` iff a Python `case_clause` should count as a
+// non-trivial decision: either the pattern is not a bare `_`, or
+// the clause carries an `if`-guard (`case _ if g:`).
+//
+// Shared between the `Cyclomatic` and `Abc` implementations for
+// `PythonCode`. The bare wildcard without a guard is Python's
+// `default:`-equivalent and is filtered out, matching Rust's bare-`_`
+// MatchArm rule and Java/C#'s `default:` rule.
+//
+// `underscore_id` is the grammar's `Python::UNDERSCORE` kind id,
+// passed in so the helper does not assume a particular module-path
+// to the language enum.
+pub(crate) fn python_case_clause_counts(node: &Node, underscore_id: u16) -> bool {
+    let mut bare_underscore = false;
+    for child in node.children() {
+        match child.kind_id().into() {
+            Python::IfClause => return true,
+            Python::CasePattern => {
+                bare_underscore = pattern_is_bare_underscore(&child, underscore_id);
+                if !bare_underscore {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+    !bare_underscore
+}
+
 // Returns true if `node`'s first child is a `visibility_modifier`
 // containing the `pub` keyword. Matches Rust's "public-only-when-`pub`"
 // model — `pub(crate)` / `pub(super)` / `pub(in path)` are also
