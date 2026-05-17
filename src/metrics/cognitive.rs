@@ -363,8 +363,7 @@ impl Cognitive for PythonCode {
                 increment_by_one(stats);
             }
             ExceptClause => {
-                nesting += 1;
-                increment(stats);
+                increase_nesting(stats, &mut nesting, depth, lambda);
             }
             ExpressionList | ExpressionStatement | Tuple => {
                 stats.boolean_seq.reset();
@@ -2416,6 +2415,136 @@ mod tests {
                       "average": 4.0,
                       "min": 0.0,
                       "max": 4.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn python_flat_try_except() {
+        // Regression for #242: flat try/except at function top level
+        // must still score +1 for the except clause (no enclosing
+        // control-flow nesting). Before the fix this happened to be
+        // correct because `stats.nesting` was zero; after the fix the
+        // value is the same — `increase_nesting` records nesting=0 and
+        // bumps structural by 0+1.
+        check_metrics::<PythonParser>(
+            "def f():
+                try:
+                    pass
+                except Exception:  # +1
+                    pass",
+            "foo.py",
+            |metric| {
+                // expected: only the except clause contributes (+1).
+                assert_eq!(metric.cognitive.cognitive_sum() as u32, 1);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn python_except_inside_if() {
+        // Regression for #242: try/except nested inside an `if` must
+        // apply a nesting penalty to the except clause. Before the
+        // fix, the except contributed +1 because `stats.nesting` was
+        // stale (0 from the previous `increase_nesting` call on the
+        // if). After the fix the except sees nesting=1 and contributes
+        // +2.
+        check_metrics::<PythonParser>(
+            "def f(x):
+                if x:  # +1
+                    try:
+                        pass
+                    except Exception:  # +2 (nesting = 1)
+                        pass",
+            "foo.py",
+            |metric| {
+                // expected: if (+1) + except inside if (+2) = 3
+                assert_eq!(metric.cognitive.cognitive_sum() as u32, 3);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 3.0,
+                      "min": 0.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn python_except_inside_for() {
+        // Regression for #242: try/except nested inside a `for` must
+        // apply the for's nesting penalty to the except clause.
+        check_metrics::<PythonParser>(
+            "def f(xs):
+                for x in xs:  # +1
+                    try:
+                        pass
+                    except Exception:  # +2 (nesting = 1)
+                        pass",
+            "foo.py",
+            |metric| {
+                // expected: for (+1) + except inside for (+2) = 3
+                assert_eq!(metric.cognitive.cognitive_sum() as u32, 3);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 3.0,
+                      "min": 0.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn python_multi_except_inside_if() {
+        // Regression for #242: every clause in a multi-except chain
+        // nested inside an `if` must reflect the nesting penalty.
+        // Before the fix, all three except clauses contributed +1;
+        // after the fix each contributes +2 (nesting = 1 from the
+        // enclosing if).
+        check_metrics::<PythonParser>(
+            "def f(x):
+                if x:  # +1
+                    try:
+                        pass
+                    except ValueError:    # +2
+                        pass
+                    except TypeError:     # +2
+                        pass
+                    except Exception:     # +2
+                        pass",
+            "foo.py",
+            |metric| {
+                // expected: if (+1) + 3 * except inside if (+2 each) = 7
+                assert_eq!(metric.cognitive.cognitive_sum() as u32, 7);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 7.0,
+                      "average": 7.0,
+                      "min": 0.0,
+                      "max": 7.0
                     }"###
                 );
             },
