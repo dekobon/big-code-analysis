@@ -121,7 +121,7 @@ changes are marked with **(breaking)** in the entries below.
 - Lesson-9 partial-input tests split into two suites for honesty:
   16 `*_top_level_space_is_unit_contract` tests pin the public API
   contract, and `lua_partial_input_yields_synthetic_unit_wrapper`
-  + `cpp_error_root_yields_unit_top_level_space` are the only two
+  and `cpp_error_root_yields_unit_top_level_space` are the only two
   that today actually exercise the synthetic-Unit wrapper in
   `metrics()`. The naming was previously uniform and implied all
   18 tests exercised the wrapper
@@ -414,6 +414,14 @@ changes are marked with **(breaking)** in the entries below.
 
 ### Fixed
 
+- `NExit` now counts `yield` as an exit edge in Python, JavaScript,
+  TypeScript, TSX, and Mozjs, matching the long-standing C# / PHP
+  behaviour. Generator suspension hands control back to the caller —
+  the function does leave its frame, just resumably — so it belongs
+  alongside `return` / `throw` / `raise` in the exit-point count.
+  Follow-up to #228, which closed the throw/raise parity gap and
+  scoped `yield` out as a separate design call
+  ([#232](https://github.com/dekobon/big-code-analysis/issues/232)).
 - Python cyclomatic complexity no longer over-counts plain `if/else` by
   one. Root cause: the `has_ancestors` helper in `src/node.rs` did not
   actually verify both predicates against the expected ancestor chain;
@@ -516,7 +524,6 @@ changes are marked with **(breaking)** in the entries below.
   through to `Unknown` (plain backtick strings contributed zero,
   interpolated literals dropped the wrapper entirely)
   ([#192](https://github.com/dekobon/big-code-analysis/issues/192)).
-
 
 - Bash `variable_name` and `special_variable_name` are now classified
   as Halstead operands in every parse-table context. tree-sitter-bash

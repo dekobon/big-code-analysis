@@ -164,19 +164,33 @@ macro_rules! impl_exit_match_kinds {
     };
 }
 
-impl_exit_match_kinds!(PythonCode, Python, [ReturnStatement, RaiseStatement]);
-impl_exit_match_kinds!(MozjsCode, Mozjs, [ReturnStatement, ThrowStatement]);
+// `Python::Yield` is the yield-expression node (kind text "yield"); Python
+// has no dedicated yield-statement variant. Counting it as an exit mirrors
+// `CsharpCode` / `PhpCode`: generator suspension hands control back to the
+// caller, so the function does leave even though it may later resume.
+impl_exit_match_kinds!(PythonCode, Python, [ReturnStatement, RaiseStatement, Yield]);
+// JS-family generators: `yield` / `yield*` parse as `YieldExpression`.
+// Counted for the same reason as Python — see comment above.
+impl_exit_match_kinds!(
+    MozjsCode,
+    Mozjs,
+    [ReturnStatement, ThrowStatement, YieldExpression]
+);
 impl_exit_match_kinds!(
     JavascriptCode,
     Javascript,
-    [ReturnStatement, ThrowStatement]
+    [ReturnStatement, ThrowStatement, YieldExpression]
 );
 impl_exit_match_kinds!(
     TypescriptCode,
     Typescript,
-    [ReturnStatement, ThrowStatement]
+    [ReturnStatement, ThrowStatement, YieldExpression]
 );
-impl_exit_match_kinds!(TsxCode, Tsx, [ReturnStatement, ThrowStatement]);
+impl_exit_match_kinds!(
+    TsxCode,
+    Tsx,
+    [ReturnStatement, ThrowStatement, YieldExpression]
+);
 impl_exit_match_kinds!(CppCode, Cpp, [ReturnStatement, ThrowStatement]);
 impl_exit_match_kinds!(JavaCode, Java, [ReturnStatement, ThrowStatement]);
 
@@ -1897,6 +1911,142 @@ end",
                   "average": 2.0,
                   "min": 0.0,
                   "max": 2.0
+                }
+                "###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn python_yield_counts_as_exit() {
+        // Generator suspension via `yield` hands control back to the
+        // caller — the function does leave its frame, just resumably.
+        // Mirrors the long-standing C# / PHP behaviour. Two yields plus
+        // one return == 3 exits inside the one generator function.
+        check_metrics::<PythonParser>(
+            "def gen():
+                 yield 1
+                 yield 2
+                 return",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                {
+                  "sum": 3.0,
+                  "average": 3.0,
+                  "min": 0.0,
+                  "max": 3.0
+                }
+                "###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_yield_counts_as_exit() {
+        // `function*` generator: each `yield` is an exit edge, same as
+        // Python/C#/PHP. Two yields + one return == 3.
+        check_metrics::<JavascriptParser>(
+            "function* gen() {
+                 yield 1;
+                 yield 2;
+                 return;
+             }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                {
+                  "sum": 3.0,
+                  "average": 3.0,
+                  "min": 0.0,
+                  "max": 3.0
+                }
+                "###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_yield_counts_as_exit() {
+        // Same shape as plain JavaScript.
+        check_metrics::<MozjsParser>(
+            "function* gen() {
+                 yield 1;
+                 yield 2;
+                 return;
+             }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                {
+                  "sum": 3.0,
+                  "average": 3.0,
+                  "min": 0.0,
+                  "max": 3.0
+                }
+                "###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_yield_counts_as_exit() {
+        check_metrics::<TypescriptParser>(
+            "function* gen(): Generator<number> {
+                 yield 1;
+                 yield 2;
+                 return;
+             }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                {
+                  "sum": 3.0,
+                  "average": 3.0,
+                  "min": 0.0,
+                  "max": 3.0
+                }
+                "###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_yield_counts_as_exit() {
+        check_metrics::<TsxParser>(
+            "function* gen(): Generator<number> {
+                 yield 1;
+                 yield 2;
+                 return;
+             }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.nexits,
+                    @r###"
+                {
+                  "sum": 3.0,
+                  "average": 3.0,
+                  "min": 0.0,
+                  "max": 3.0
                 }
                 "###
                 );
