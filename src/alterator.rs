@@ -15,13 +15,20 @@ where
     Self: Checker,
 {
     /// Creates a new `AST` node containing the code associated to the node,
-    /// its span, and its children.
+    /// its span, the grammar field name through which the parent reaches
+    /// it (if any), and its children.
     ///
     /// This function can be overloaded according to the needs of each
     /// programming language.
     #[must_use]
-    fn alterate(node: &Node, code: &[u8], span: bool, children: Vec<AstNode>) -> AstNode {
-        Self::get_default(node, code, span, children)
+    fn alterate(
+        node: &Node,
+        code: &[u8],
+        span: bool,
+        field_name: Option<&'static str>,
+        children: Vec<AstNode>,
+    ) -> AstNode {
+        Self::get_default(node, code, span, field_name, children)
     }
 
     /// Gets the code as text and the span associated to a node.
@@ -46,12 +53,19 @@ where
         }
     }
 
-    /// Gets a default `AST` node containing the code associated to the node,
-    /// its span, and its children.
+    /// Gets a default `AST` node containing the code associated to the
+    /// node, its span, its grammar field name (if any), and its
+    /// children.
     #[must_use]
-    fn get_default(node: &Node, code: &[u8], span: bool, children: Vec<AstNode>) -> AstNode {
+    fn get_default(
+        node: &Node,
+        code: &[u8],
+        span: bool,
+        field_name: Option<&'static str>,
+        children: Vec<AstNode>,
+    ) -> AstNode {
         let (text, span) = Self::get_text_span(node, code, span, node.child_count() == 0);
-        AstNode::new(node.kind(), text, span, children)
+        AstNode::with_field_name(node.kind(), text, span, field_name, children)
     }
 
     /// Gets a new `AST` node if and only if the code is not a comment,
@@ -63,11 +77,12 @@ where
         children: Vec<AstNode>,
         span: bool,
         comment: bool,
+        field_name: Option<&'static str>,
     ) -> Option<AstNode> {
         if comment && Self::is_comment(node) {
             None
         } else {
-            Some(Self::alterate(node, code, span, children))
+            Some(Self::alterate(node, code, span, field_name, children))
         }
     }
 }
@@ -77,11 +92,17 @@ impl Alterator for PreprocCode {}
 impl Alterator for CcommentCode {}
 
 impl Alterator for CppCode {
-    fn alterate(node: &Node, code: &[u8], span: bool, mut children: Vec<AstNode>) -> AstNode {
+    fn alterate(
+        node: &Node,
+        code: &[u8],
+        span: bool,
+        field_name: Option<&'static str>,
+        mut children: Vec<AstNode>,
+    ) -> AstNode {
         match Cpp::from(node.kind_id()) {
             Cpp::StringLiteral | Cpp::CharLiteral => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::new(node.kind(), text, span, Vec::new())
+                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
             }
             Cpp::PreprocDef | Cpp::PreprocFunctionDef | Cpp::PreprocCall => {
                 if let Some(last) = children.last()
@@ -89,9 +110,9 @@ impl Alterator for CppCode {
                 {
                     children.pop();
                 }
-                Self::get_default(node, code, span, children)
+                Self::get_default(node, code, span, field_name, children)
             }
-            _ => Self::get_default(node, code, span, children),
+            _ => Self::get_default(node, code, span, field_name, children),
         }
     }
 }
@@ -102,7 +123,13 @@ impl Alterator for JavaCode {}
 impl Alterator for KotlinCode {}
 
 impl Alterator for CsharpCode {
-    fn alterate(node: &Node, code: &[u8], span: bool, children: Vec<AstNode>) -> AstNode {
+    fn alterate(
+        node: &Node,
+        code: &[u8],
+        span: bool,
+        field_name: Option<&'static str>,
+        children: Vec<AstNode>,
+    ) -> AstNode {
         match Csharp::from(node.kind_id()) {
             Csharp::StringLiteral
             | Csharp::VerbatimStringLiteral
@@ -110,101 +137,149 @@ impl Alterator for CsharpCode {
             | Csharp::InterpolatedStringExpression
             | Csharp::CharacterLiteral => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::new(node.kind(), text, span, Vec::new())
+                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
             }
-            _ => Self::get_default(node, code, span, children),
+            _ => Self::get_default(node, code, span, field_name, children),
         }
     }
 }
 
 impl Alterator for GoCode {
-    fn alterate(node: &Node, code: &[u8], span: bool, children: Vec<AstNode>) -> AstNode {
+    fn alterate(
+        node: &Node,
+        code: &[u8],
+        span: bool,
+        field_name: Option<&'static str>,
+        children: Vec<AstNode>,
+    ) -> AstNode {
         match Go::from(node.kind_id()) {
             Go::InterpretedStringLiteral | Go::RawStringLiteral | Go::RuneLiteral => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::new(node.kind(), text, span, Vec::new())
+                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
             }
-            _ => Self::get_default(node, code, span, children),
+            _ => Self::get_default(node, code, span, field_name, children),
         }
     }
 }
 
 impl Alterator for LuaCode {
-    fn alterate(node: &Node, code: &[u8], span: bool, children: Vec<AstNode>) -> AstNode {
+    fn alterate(
+        node: &Node,
+        code: &[u8],
+        span: bool,
+        field_name: Option<&'static str>,
+        children: Vec<AstNode>,
+    ) -> AstNode {
         match Lua::from(node.kind_id()) {
             Lua::String => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::new(node.kind(), text, span, Vec::new())
+                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
             }
-            _ => Self::get_default(node, code, span, children),
+            _ => Self::get_default(node, code, span, field_name, children),
         }
     }
 }
 
 impl Alterator for MozjsCode {
-    fn alterate(node: &Node, code: &[u8], span: bool, children: Vec<AstNode>) -> AstNode {
+    fn alterate(
+        node: &Node,
+        code: &[u8],
+        span: bool,
+        field_name: Option<&'static str>,
+        children: Vec<AstNode>,
+    ) -> AstNode {
         match Mozjs::from(node.kind_id()) {
             Mozjs::String | Mozjs::String2 => {
                 // Template strings may have interpolation children;
                 // stripping them here is intentional (by design).
                 let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::new(node.kind(), text, span, Vec::new())
+                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
             }
-            _ => Self::get_default(node, code, span, children),
+            _ => Self::get_default(node, code, span, field_name, children),
         }
     }
 }
 
 impl Alterator for JavascriptCode {
-    fn alterate(node: &Node, code: &[u8], span: bool, children: Vec<AstNode>) -> AstNode {
+    fn alterate(
+        node: &Node,
+        code: &[u8],
+        span: bool,
+        field_name: Option<&'static str>,
+        children: Vec<AstNode>,
+    ) -> AstNode {
         match Javascript::from(node.kind_id()) {
             Javascript::String | Javascript::String2 => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::new(node.kind(), text, span, Vec::new())
+                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
             }
-            _ => Self::get_default(node, code, span, children),
+            _ => Self::get_default(node, code, span, field_name, children),
         }
     }
 }
 
 impl Alterator for TypescriptCode {
-    fn alterate(node: &Node, code: &[u8], span: bool, children: Vec<AstNode>) -> AstNode {
+    fn alterate(
+        node: &Node,
+        code: &[u8],
+        span: bool,
+        field_name: Option<&'static str>,
+        children: Vec<AstNode>,
+    ) -> AstNode {
         match Typescript::from(node.kind_id()) {
             Typescript::String | Typescript::String2 => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::new(node.kind(), text, span, Vec::new())
+                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
             }
-            _ => Self::get_default(node, code, span, children),
+            _ => Self::get_default(node, code, span, field_name, children),
         }
     }
 }
 
 impl Alterator for TsxCode {
-    fn alterate(node: &Node, code: &[u8], span: bool, children: Vec<AstNode>) -> AstNode {
+    fn alterate(
+        node: &Node,
+        code: &[u8],
+        span: bool,
+        field_name: Option<&'static str>,
+        children: Vec<AstNode>,
+    ) -> AstNode {
         match Tsx::from(node.kind_id()) {
             Tsx::String | Tsx::String2 | Tsx::String3 => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::new(node.kind(), text, span, Vec::new())
+                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
             }
-            _ => Self::get_default(node, code, span, children),
+            _ => Self::get_default(node, code, span, field_name, children),
         }
     }
 }
 
 impl Alterator for RustCode {
-    fn alterate(node: &Node, code: &[u8], span: bool, children: Vec<AstNode>) -> AstNode {
+    fn alterate(
+        node: &Node,
+        code: &[u8],
+        span: bool,
+        field_name: Option<&'static str>,
+        children: Vec<AstNode>,
+    ) -> AstNode {
         match Rust::from(node.kind_id()) {
             Rust::StringLiteral | Rust::CharLiteral => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::new(node.kind(), text, span, Vec::new())
+                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
             }
-            _ => Self::get_default(node, code, span, children),
+            _ => Self::get_default(node, code, span, field_name, children),
         }
     }
 }
 
 impl Alterator for PerlCode {
-    fn alterate(node: &Node, code: &[u8], span: bool, children: Vec<AstNode>) -> AstNode {
+    fn alterate(
+        node: &Node,
+        code: &[u8],
+        span: bool,
+        field_name: Option<&'static str>,
+        children: Vec<AstNode>,
+    ) -> AstNode {
         match Perl::from(node.kind_id()) {
             Perl::StringSingleQuoted
             | Perl::StringDoubleQuoted
@@ -213,40 +288,58 @@ impl Alterator for PerlCode {
             | Perl::BacktickQuoted
             | Perl::CommandQxQuoted => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::new(node.kind(), text, span, Vec::new())
+                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
             }
-            _ => Self::get_default(node, code, span, children),
+            _ => Self::get_default(node, code, span, field_name, children),
         }
     }
 }
 
 impl Alterator for BashCode {
-    fn alterate(node: &Node, code: &[u8], span: bool, children: Vec<AstNode>) -> AstNode {
+    fn alterate(
+        node: &Node,
+        code: &[u8],
+        span: bool,
+        field_name: Option<&'static str>,
+        children: Vec<AstNode>,
+    ) -> AstNode {
         match Bash::from(node.kind_id()) {
             Bash::String | Bash::RawString | Bash::AnsiCString | Bash::TranslatedString => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::new(node.kind(), text, span, Vec::new())
+                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
             }
-            _ => Self::get_default(node, code, span, children),
+            _ => Self::get_default(node, code, span, field_name, children),
         }
     }
 }
 
 impl Alterator for TclCode {
-    fn alterate(node: &Node, code: &[u8], span: bool, children: Vec<AstNode>) -> AstNode {
+    fn alterate(
+        node: &Node,
+        code: &[u8],
+        span: bool,
+        field_name: Option<&'static str>,
+        children: Vec<AstNode>,
+    ) -> AstNode {
         match Tcl::from(node.kind_id()) {
             // Preserve string literals verbatim to avoid whitespace trimming.
             Tcl::QuotedWord | Tcl::BracedWord | Tcl::BracedWordSimple => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::new(node.kind(), text, span, Vec::new())
+                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
             }
-            _ => Self::get_default(node, code, span, children),
+            _ => Self::get_default(node, code, span, field_name, children),
         }
     }
 }
 
 impl Alterator for PhpCode {
-    fn alterate(node: &Node, code: &[u8], span: bool, children: Vec<AstNode>) -> AstNode {
+    fn alterate(
+        node: &Node,
+        code: &[u8],
+        span: bool,
+        field_name: Option<&'static str>,
+        children: Vec<AstNode>,
+    ) -> AstNode {
         match Php::from(node.kind_id()) {
             Php::String
             | Php::EncapsedString
@@ -254,15 +347,21 @@ impl Alterator for PhpCode {
             | Php::Nowdoc
             | Php::ShellCommandExpression => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::new(node.kind(), text, span, Vec::new())
+                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
             }
-            _ => Self::get_default(node, code, span, children),
+            _ => Self::get_default(node, code, span, field_name, children),
         }
     }
 }
 
 impl Alterator for RubyCode {
-    fn alterate(node: &Node, code: &[u8], span: bool, children: Vec<AstNode>) -> AstNode {
+    fn alterate(
+        node: &Node,
+        code: &[u8],
+        span: bool,
+        field_name: Option<&'static str>,
+        children: Vec<AstNode>,
+    ) -> AstNode {
         // Preserve verbatim text for string-like literals (regular strings,
         // chained strings, heredocs, regexes, subshells, symbol arrays,
         // delimited/simple symbols, character literals). Interpolation
@@ -280,15 +379,21 @@ impl Alterator for RubyCode {
             | Ruby::SimpleSymbol
             | Ruby::Character => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::new(node.kind(), text, span, Vec::new())
+                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
             }
-            _ => Self::get_default(node, code, span, children),
+            _ => Self::get_default(node, code, span, field_name, children),
         }
     }
 }
 
 impl Alterator for ElixirCode {
-    fn alterate(node: &Node, code: &[u8], span: bool, children: Vec<AstNode>) -> AstNode {
+    fn alterate(
+        node: &Node,
+        code: &[u8],
+        span: bool,
+        field_name: Option<&'static str>,
+        children: Vec<AstNode>,
+    ) -> AstNode {
         // Preserve string-like literal text verbatim. `Charlist` (single-
         // quoted) and `Sigil` (`~r/.../`, `~w[...]`, etc.) are treated
         // alongside ordinary strings so report output never trims their
@@ -296,15 +401,21 @@ impl Alterator for ElixirCode {
         match Elixir::from(node.kind_id()) {
             Elixir::String | Elixir::Charlist | Elixir::Sigil => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::new(node.kind(), text, span, Vec::new())
+                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
             }
-            _ => Self::get_default(node, code, span, children),
+            _ => Self::get_default(node, code, span, field_name, children),
         }
     }
 }
 
 impl Alterator for GroovyCode {
-    fn alterate(node: &Node, code: &[u8], span: bool, children: Vec<AstNode>) -> AstNode {
+    fn alterate(
+        node: &Node,
+        code: &[u8],
+        span: bool,
+        field_name: Option<&'static str>,
+        children: Vec<AstNode>,
+    ) -> AstNode {
         // Preserve string and GString fragment text verbatim so report
         // output never trims their bodies. `StringLiteral2` and
         // `MultilineStringFragment2` are the aliased lexer variants of
@@ -317,9 +428,9 @@ impl Alterator for GroovyCode {
             | Groovy::MultilineStringFragment
             | Groovy::MultilineStringFragment2 => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
-                AstNode::new(node.kind(), text, span, Vec::new())
+                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
             }
-            _ => Self::get_default(node, code, span, children),
+            _ => Self::get_default(node, code, span, field_name, children),
         }
     }
 }

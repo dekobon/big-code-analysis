@@ -113,6 +113,10 @@ impl<'a> Node<'a> {
         self.0.prev_sibling().map(Node)
     }
 
+    // Retained alongside `previous_sibling` and `parent` even though the
+    // last in-tree caller moved off it — Node's navigation surface stays
+    // symmetric and the wrapper is one line.
+    #[allow(dead_code)]
     pub(crate) fn next_sibling(&self) -> Option<Node<'a>> {
         self.0.next_sibling().map(Node)
     }
@@ -248,6 +252,15 @@ impl<'a> Cursor<'a> {
 
     pub(crate) fn node(&self) -> Node<'a> {
         Node(self.0.node())
+    }
+
+    /// Field name through which the cursor reached the current node.
+    ///
+    /// Returns `None` when the node is not addressed by a grammar field
+    /// (e.g. anonymous tokens such as punctuation, or unnamed children of
+    /// repetitions). The string is interned by the grammar and `'static`.
+    pub(crate) fn field_name(&self) -> Option<&'static str> {
+        self.0.field_name()
     }
 }
 
