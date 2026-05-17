@@ -861,7 +861,13 @@ impl Cognitive for KotlinCode {
                 stats.boolean_seq.not_operator();
             }
             BinaryExpression => {
-                compute_booleans(node, stats, AMPAMP, PIPEPIPE);
+                // Kotlin's Elvis operator `?:` (token `QMARKCOLON`) is a
+                // short-circuit nullish operator analogous to JS `??` and
+                // forms boolean sequences alongside `&&` / `||` per
+                // SonarSource Cognitive Complexity B1.
+                compute_booleans_with(node, stats, |id| {
+                    matches!(id.into(), AMPAMP | PIPEPIPE | QMARKCOLON)
+                });
             }
             FunctionDeclaration | SecondaryConstructor => {
                 nesting = 0;
@@ -6837,6 +6843,65 @@ end",
                 assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
                 assert_eq!(metric.cognitive.cognitive_max(), 2.0);
                 insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_elvis_chain_239() {
+        // Regression for issue #239: Kotlin's Elvis operator `?:` is a
+        // short-circuit nullish operator analogous to JS `??` and must
+        // form a boolean sequence. `a ?: b ?: c` is a single chain of
+        // identical operators and collapses to a single +1 under Sonar
+        // B1 (same rule as `&&` / `||`). Previously the Elvis chain was
+        // not counted at all (= 0).
+        check_metrics::<KotlinParser>(
+            "fun pick(a: String?, b: String?, c: String): String = a ?: b ?: c // +1 (Elvis chain)",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_elvis_inside_if_239() {
+        // Regression for issue #239: Elvis chain inside an `if` body.
+        // Boolean sequences pay a flat +1 (no nesting penalty) per
+        // Sonar B1: if(+1) + ?: chain(+1) = 2. Previously the Elvis
+        // chain was not counted at all and the function scored 1.
+        check_metrics::<KotlinParser>(
+            "fun f(a: String?, b: String?): String {
+                 if (a != null) { // +1
+                     return a ?: b ?: \"x\" // +1 (Elvis chain)
+                 }
+                 return \"no\"
+             }",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 2.0,
+                      "min": 0.0,
+                      "max": 2.0
+                    }"###
+                );
             },
         );
     }
