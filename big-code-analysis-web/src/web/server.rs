@@ -883,7 +883,7 @@ mod tests {
                                    "nom": {"functions": 1.0, "closures": 0.0, "functions_average": 0.5, "closures_average": 0.0, "total": 1.0, "average": 0.5, "closures_min": 0.0, "closures_max": 0.0, "functions_min": 0.0, "functions_max": 1.0},
                                    "tokens": {"tokens": 6.0, "tokens_average": 3.0, "tokens_min": 0.0, "tokens_max": 6.0},
                                    "mi": {"mi_original": 139.974_331_558_152_1,
-                                          "mi_sei": 161.414_455_240_662_22,
+                                          "mi_sei": 176.151_664_509_301_33,
                                           "mi_visual_studio": 81.856_334_244_533_39},
                                    "abc": {"assignments": 0.0, "branches": 0.0, "conditions": 0.0, "magnitude": 0.0, "assignments_average": 0.0, "branches_average": 0.0, "conditions_average": 0.0, "assignments_min": 0.0, "assignments_max": 0.0, "branches_min": 0.0, "branches_max": 0.0, "conditions_min": 0.0, "conditions_max": 0.0},
                                    "wmc": {"classes": 0.0, "interfaces": 0.0, "total": 0.0}},

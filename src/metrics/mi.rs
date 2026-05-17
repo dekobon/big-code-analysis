@@ -27,6 +27,9 @@ pub struct Stats {
     halstead_volume: f64,
     cyclomatic: f64,
     sloc: f64,
+    /// Comment lines as a percentage in [0, 100] (not a ratio in [0, 1]).
+    /// Only `mi_sei` consumes this — the SEI MI formula uses `perCM` on
+    /// the percentage scale; see issue #241.
     comments_percentage: f64,
 }
 
@@ -126,10 +129,14 @@ where
         stats.halstead_volume = halstead.volume();
         stats.cyclomatic = cyclomatic.cyclomatic_sum();
         stats.sloc = loc.sloc();
+        // The SEI Maintainability Index expects `perCM` as a percentage
+        // in [0, 100], not a ratio in [0, 1] — `50·sin(√(2.4·CM))` is
+        // nonsensical when CM is two orders of magnitude too small. See
+        // issue #241 and Welker/Oman's original MI definition.
         stats.comments_percentage = if stats.sloc == 0.0 {
             0.0
         } else {
-            loc.cloc() / stats.sloc
+            loc.cloc() / stats.sloc * 100.0
         };
     }
 }
@@ -210,6 +217,53 @@ mod tests {
                     }"###
                 );
             },
+        );
+    }
+
+    #[test]
+    fn mi_sei_uses_comments_as_percentage() {
+        // Regression test for #241. `Stats::comments_percentage` is stored
+        // as a percentage in [0, 100], so `mi_sei` plugs it directly into
+        // `50·sin(√(2.4·CM))`. Constructing `Stats` directly isolates the
+        // formula from the parsing pipeline and pins the scale the SEI
+        // formula expects: `perCM` is a percentage, not a ratio. With
+        // the pre-fix ratio scaling, this assertion would fail by ~50.
+        let stats = Stats {
+            halstead_length: 4.0,
+            halstead_vocabulary: 3.0,
+            halstead_volume: 4.0 * f64::log2(3.0),
+            cyclomatic: 1.0,
+            sloc: 10.0,
+            // 50% of lines are comments — drives the sin term hard.
+            comments_percentage: 50.0,
+        };
+        // Hand-derived: 171 − 5.2·log2(V) − 0.23·G − 16.2·log2(SLOC)
+        // + 50·sin(√(2.4·50)). The fifth term equals
+        // 50·sin(√120) ≈ 50·sin(10.954) ≈ −50·0.99989… ≈ −49.99…,
+        // which only lands in this neighborhood when CM is treated
+        // as a percentage; the ratio-scaled bug would put the term
+        // near +47 instead. Asserting a tight epsilon catches a
+        // reintroduction of the ratio-vs-percentage scaling bug.
+        let expected = 171.0
+            - 5.2 * stats.halstead_volume.log2()
+            - 0.23 * stats.cyclomatic
+            - 16.2 * stats.sloc.log2()
+            + 50.0 * (2.4_f64 * 50.0).sqrt().sin();
+        let actual = stats.mi_sei();
+        assert!(
+            (actual - expected).abs() < 1e-9,
+            "mi_sei = {actual}, expected {expected}",
+        );
+        // Sanity check against the pre-fix (ratio) behaviour: ensure
+        // the value is nowhere near the ratio-scaled answer.
+        let buggy = 171.0
+            - 5.2 * stats.halstead_volume.log2()
+            - 0.23 * stats.cyclomatic
+            - 16.2 * stats.sloc.log2()
+            + 50.0 * (2.4_f64 * 0.5).sqrt().sin();
+        assert!(
+            (actual - buggy).abs() > 1.0,
+            "mi_sei should differ from the ratio-scaled value by >1; got actual={actual}, buggy={buggy}",
         );
     }
 
