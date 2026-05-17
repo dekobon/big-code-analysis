@@ -15,6 +15,21 @@ changes are marked with **(breaking)** in the entries below.
 
 ### Changed
 
+- Bumped `jsonschema` from `0.46.4` to `0.46.5` (patch: percent-
+  encoded characters in `$ref` URI fragments are now decoded when
+  stored as `schema_path`)
+  ([#237](https://github.com/dekobon/big-code-analysis/issues/237)).
+- Bumped seven GitHub Actions to their latest pinned versions:
+  `actions/checkout` v4.3.1 → v6.0.2 (mutation-test.yml),
+  `EmbarkStudios/cargo-deny-action` v2.0.17 → v2.0.18,
+  `taiki-e/install-action` v2.62.x → v2.78.2,
+  `actions/setup-python` v5.6.0 → v6.2.0,
+  `actions/setup-node` v5.0.0 → v6.4.0,
+  `github/codeql-action` v4.35.2 → v4.35.5,
+  `actions/upload-artifact` v4.6.2 → v7.0.1
+  (mutation-test.yml). Also corrected a stale `# v2.62.23`
+  comment in release.yml that sat next to the v2.78.2 SHA
+  ([#238](https://github.com/dekobon/big-code-analysis/issues/238)).
 - **(breaking)** Offender-record output formats (Checkstyle, SARIF,
   clang/GCC warning lines, MSVC warning lines) moved from `bca metrics
   --output-format <fmt>` to `bca check --output-format <fmt>` with a
@@ -145,6 +160,20 @@ changes are marked with **(breaking)** in the entries below.
 
 ### Added
 
+- **(breaking)** `AstNode` JSON output now carries a `FieldName`
+  key holding the tree-sitter grammar field through which each
+  node was reached (`left`, `right`, `name`, `parameters`,
+  `body`, ...). Consumers can distinguish structurally
+  equivalent children without grammar-specific positional
+  knowledge. The `Alterator` trait's `get_ast_node` /
+  `get_default` / `alterate` methods gain a `field_name:
+  Option<&'static str>` parameter; downstream `impl Alterator
+  for X` consumers must update signatures. `AstNode::new` keeps
+  its existing signature (defaulting `field_name` to `None`)
+  and a new `AstNode::with_field_name` constructor accepts the
+  field. `AstNode` also gains a public `field_name` field,
+  which breaks callers using positional struct construction
+  ([#244](https://github.com/dekobon/big-code-analysis/issues/244)).
 - Support for Groovy source files (`.groovy`, `.gradle`, `.gvy`,
   `.gy`, `.gsh`), wired up to `tree-sitter-groovy = "=0.1.2"`
   (amaanq). All twelve metric traits get real impls mirroring Java's
@@ -440,6 +469,57 @@ changes are marked with **(breaking)** in the entries below.
 
 ### Fixed
 
+- `Cognitive` now counts the compound short-circuit assignment
+  operators (`&&=`, `||=`, `??=`) in JavaScript / TypeScript /
+  TSX / Mozjs and `??=` in C# / PHP. Pre-existing gap: cognitive
+  inspected only `BinaryExpression` children, missing the
+  `augmented_assignment_expression` container these operators sit
+  in. Mirrors the cyclomatic fix from #231
+  ([#236](https://github.com/dekobon/big-code-analysis/issues/236)).
+- Kotlin's Elvis operator `?:` is now counted as a boolean-sequence
+  operator in `Cognitive` (Sonar B1) and as a short-circuit
+  decision in `Cyclomatic`, mirroring the JS `??` treatment from
+  #226 / #230
+  ([#239](https://github.com/dekobon/big-code-analysis/issues/239)).
+- Python `Cognitive` ExceptClause now applies the correct nesting
+  penalty for `except` clauses nested inside control-flow
+  constructs (`if`, `for`, `while`, lambdas). The arm was using
+  the stale `stats.nesting` because it bypassed the shared
+  `increase_nesting` helper that every other language's
+  catch/rescue path uses
+  ([#242](https://github.com/dekobon/big-code-analysis/issues/242)).
+- `Exit for RustCode` no longer adds a spurious `+1` for every
+  Rust function with an explicit return type. The visit of the
+  function's own `function_item` node was incrementing
+  `stats.exit` inside the function's own state, double-counting
+  any function with both an explicit return statement and a
+  return type. Aligned with peer-language behaviour: only
+  explicit `return` and `?` (TryExpression) count
+  ([#243](https://github.com/dekobon/big-code-analysis/issues/243)).
+- `mi_sei` now treats `comments_percentage` as a percentage in
+  `[0, 100]` as the SEI formula `50·sin(√(2.4·CM))` requires.
+  Previously stored as a ratio in `[0, 1]`, the argument to the
+  `sqrt` was 100× too small and `MI_SEI` was wildly incorrect for
+  any file with comments. The storage site was rescaled (private
+  field; no public JSON schema change). All `mi_sei` values for
+  files with non-zero comments will shift
+  ([#241](https://github.com/dekobon/big-code-analysis/issues/241)).
+- **(breaking — CLI internals)** `Violation::path` in
+  `big-code-analysis-cli` is now `PathBuf` instead of `String`,
+  and `ThresholdSet::evaluate` takes `&Path` instead of `&str`.
+  The threshold pipeline previously dropped non-UTF-8 path bytes
+  via `Path::to_str()` with a skip-and-warn fallback, so non-UTF-8
+  source files could not surface in offender output at all. The
+  bytes now round-trip through `Violation` and
+  `violation_to_offender` end-to-end (lossy only at the
+  human-facing `Display` boundary, via `Path::display()`)
+  ([#240](https://github.com/dekobon/big-code-analysis/issues/240)).
+- Dead `!matches!(list_kind, ArgumentList | …)` post-conditions
+  in `java_count_unary_conditions` / `csharp_count_unary_conditions`
+  removed. The preceding `matches!(list_kind, BinaryExpression)`
+  already pinned `list_kind` to a single variant; the negated
+  match was unreachable. Pure code-quality cleanup
+  ([#245](https://github.com/dekobon/big-code-analysis/issues/245)).
 - `Cognitive` now counts the nullish-coalescing operator `??` as a
   boolean-sequence operator (Sonar B1) in JavaScript, TypeScript,
   TSX, Mozjs, C#, and PHP. The `compute_booleans` two-operator helper
