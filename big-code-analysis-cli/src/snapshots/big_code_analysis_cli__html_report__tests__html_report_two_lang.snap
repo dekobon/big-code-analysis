@@ -19,7 +19,7 @@ expression: out
 </div>
 <h2>Per-language overview</h2>
 <table class="hotspot">
-<thead><tr><th>Language</th><th data-numeric="1" title="Number of source files analysed.">Files</th><th data-numeric="1" title="Source Lines Of Code: non-blank, non-comment source lines.">SLOC</th><th data-numeric="1" title="Number of functions and methods analysed.">Functions</th><th data-numeric="1" title="Maintainability Index (Visual Studio scale, 0–100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable.">Avg MI</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">Avg CC</th><th data-numeric="1" title="Cognitive complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Avg Cognitive</th></tr></thead>
+<thead><tr><th>Language</th><th data-numeric="1" title="Number of source files analysed.">Files</th><th data-numeric="1" title="Source Lines Of Code: non-blank, non-comment source lines.">SLOC</th><th data-numeric="1" title="Number of functions and methods analysed.">Functions</th><th data-numeric="1" title="Maintainability Index (Visual Studio scale, 0–100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable.">Avg MI</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">Avg CC</th><th data-numeric="1" title="Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Avg Cognitive</th></tr></thead>
 <tbody>
 <tr><td>Python</td><td class="numeric">1</td><td class="numeric">20</td><td class="numeric">1</td><td class="numeric">50.0</td><td class="numeric">3.0</td><td class="numeric">2.0</td></tr>
 <tr><td>Rust</td><td class="numeric">1</td><td class="numeric">20</td><td class="numeric">2</td><td class="numeric">50.0</td><td class="numeric">3.0</td><td class="numeric">2.0</td></tr>
@@ -38,7 +38,7 @@ expression: out
 </table>
 <h3>Cyclomatic Complexity Hotspots</h3>
 <table class="hotspot">
-<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">CC</th><th data-numeric="1" title="Cognitive complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Cognitive</th><th data-numeric="1" title="Source Lines Of Code: non-blank, non-comment source lines.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) in the unit.">Tokens</th></tr></thead>
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">CC</th><th data-numeric="1" title="Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Cognitive</th><th data-numeric="1" title="Source Lines Of Code: non-blank, non-comment source lines.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) in the unit.">Tokens</th></tr></thead>
 <tbody>
 <tr><td>greet</td><td>src/main.py</td><td class="numeric">1</td><td class="numeric">3</td><td class="numeric">2</td><td class="numeric">20</td><td class="numeric">30</td></tr>
 </tbody>
@@ -46,7 +46,7 @@ expression: out
 <p class="note">Average CC: 3.0 | Max: 3 | CC &gt; 10: 0 functions | CC &gt; 20: 0 functions</p>
 <h3>Cognitive Complexity Hotspots</h3>
 <table class="hotspot">
-<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="Cognitive complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Cognitive</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">CC</th><th data-numeric="1" title="Source Lines Of Code: non-blank, non-comment source lines.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) in the unit.">Tokens</th></tr></thead>
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Cognitive</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">CC</th><th data-numeric="1" title="Source Lines Of Code: non-blank, non-comment source lines.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) in the unit.">Tokens</th></tr></thead>
 <tbody>
 <tr><td>greet</td><td>src/main.py</td><td class="numeric">1</td><td class="numeric">2</td><td class="numeric">3</td><td class="numeric">20</td><td class="numeric">30</td></tr>
 </tbody>
@@ -60,7 +60,7 @@ expression: out
 </table>
 <h3>Largest Functions by SLOC</h3>
 <table class="hotspot">
-<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="Source Lines Of Code: non-blank, non-comment source lines.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) in the unit.">Tokens</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">CC</th><th data-numeric="1" title="Cognitive complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Cognitive</th></tr></thead>
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="Source Lines Of Code: non-blank, non-comment source lines.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) in the unit.">Tokens</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">CC</th><th data-numeric="1" title="Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Cognitive</th></tr></thead>
 <tbody>
 <tr><td>greet</td><td>src/main.py</td><td class="numeric">1</td><td class="numeric">20</td><td class="numeric">30</td><td class="numeric">3</td><td class="numeric">2</td></tr>
 </tbody>
@@ -95,7 +95,7 @@ expression: out
 </table>
 <h3>Cyclomatic Complexity Hotspots</h3>
 <table class="hotspot">
-<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">CC</th><th data-numeric="1" title="Cognitive complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Cognitive</th><th data-numeric="1" title="Source Lines Of Code: non-blank, non-comment source lines.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) in the unit.">Tokens</th></tr></thead>
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">CC</th><th data-numeric="1" title="Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Cognitive</th><th data-numeric="1" title="Source Lines Of Code: non-blank, non-comment source lines.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) in the unit.">Tokens</th></tr></thead>
 <tbody>
 <tr><td>compute</td><td>src/lib.rs</td><td class="numeric">1</td><td class="numeric">3</td><td class="numeric">2</td><td class="numeric">20</td><td class="numeric">30</td></tr>
 <tr><td>do_stuff</td><td>src/lib.rs</td><td class="numeric">1</td><td class="numeric">3</td><td class="numeric">2</td><td class="numeric">20</td><td class="numeric">30</td></tr>
@@ -104,7 +104,7 @@ expression: out
 <p class="note">Average CC: 3.0 | Max: 3 | CC &gt; 10: 0 functions | CC &gt; 20: 0 functions</p>
 <h3>Cognitive Complexity Hotspots</h3>
 <table class="hotspot">
-<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="Cognitive complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Cognitive</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">CC</th><th data-numeric="1" title="Source Lines Of Code: non-blank, non-comment source lines.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) in the unit.">Tokens</th></tr></thead>
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Cognitive</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">CC</th><th data-numeric="1" title="Source Lines Of Code: non-blank, non-comment source lines.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) in the unit.">Tokens</th></tr></thead>
 <tbody>
 <tr><td>compute</td><td>src/lib.rs</td><td class="numeric">1</td><td class="numeric">2</td><td class="numeric">3</td><td class="numeric">20</td><td class="numeric">30</td></tr>
 <tr><td>do_stuff</td><td>src/lib.rs</td><td class="numeric">1</td><td class="numeric">2</td><td class="numeric">3</td><td class="numeric">20</td><td class="numeric">30</td></tr>
@@ -120,7 +120,7 @@ expression: out
 </table>
 <h3>Largest Functions by SLOC</h3>
 <table class="hotspot">
-<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="Source Lines Of Code: non-blank, non-comment source lines.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) in the unit.">Tokens</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">CC</th><th data-numeric="1" title="Cognitive complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Cognitive</th></tr></thead>
+<thead><tr><th>Function</th><th>File</th><th data-numeric="1">Line</th><th data-numeric="1" title="Source Lines Of Code: non-blank, non-comment source lines.">SLOC</th><th data-numeric="1" title="Total lexical tokens (AST leaves excluding comments) in the unit.">Tokens</th><th data-numeric="1" title="Cyclomatic Complexity: number of linearly independent control-flow paths through the function.">CC</th><th data-numeric="1" title="Cognitive Complexity: how hard the code is for a human to follow; nesting and breaks in linear flow add weight.">Cognitive</th></tr></thead>
 <tbody>
 <tr><td>compute</td><td>src/lib.rs</td><td class="numeric">1</td><td class="numeric">20</td><td class="numeric">30</td><td class="numeric">3</td><td class="numeric">2</td></tr>
 <tr><td>do_stuff</td><td>src/lib.rs</td><td class="numeric">1</td><td class="numeric">20</td><td class="numeric">30</td><td class="numeric">3</td><td class="numeric">2</td></tr>

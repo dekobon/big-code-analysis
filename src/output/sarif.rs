@@ -39,11 +39,11 @@ const SARIF_VERSION: &str = "2.1.0";
 const RULE_DESCRIPTIONS: &[(&str, &str)] = &[
     (
         "cyclomatic",
-        "Cyclomatic complexity exceeds the configured threshold.",
+        "Cyclomatic Complexity exceeds the configured threshold.",
     ),
     (
         "cognitive",
-        "Cognitive complexity exceeds the configured threshold.",
+        "Cognitive Complexity exceeds the configured threshold.",
     ),
     (
         "loc.sloc",
@@ -107,19 +107,19 @@ const RULE_DESCRIPTIONS: &[(&str, &str)] = &[
     ),
     (
         "wmc.total",
-        "Weighted methods per class exceed the configured threshold.",
+        "Weighted Methods per Class exceeds the configured threshold.",
     ),
     (
         "mi.mi_original",
-        "Maintainability index falls below the configured threshold.",
+        "Maintainability Index falls below the configured threshold.",
     ),
     (
         "mi.mi_sei",
-        "Maintainability index (SEI) falls below the configured threshold.",
+        "Maintainability Index (SEI) falls below the configured threshold.",
     ),
     (
         "mi.mi_visual_studio",
-        "Maintainability index (Visual Studio) falls below the configured threshold.",
+        "Maintainability Index (Visual Studio) falls below the configured threshold.",
     ),
 ];
 
