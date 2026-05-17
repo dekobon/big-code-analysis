@@ -360,6 +360,25 @@ f() {
             "sh",
         ),
     );
+    sums.insert(
+        "groovy",
+        ccn_sum(
+            LANG::Groovy,
+            r"def f(x) {
+    if (x == 1) {
+        return 10
+    } else if (x == 2) {
+        return 20
+    } else if (x == 3) {
+        return 30
+    } else {
+        return 0
+    }
+}
+",
+            "groovy",
+        ),
+    );
     let offsets = BTreeMap::from([("java", JAVA_CLASS_OFFSET)]);
     assert_parity("if_else_if_else_chain", &sums, &offsets);
 }
@@ -452,6 +471,19 @@ f() {
 }
 "#,
             "sh",
+        ),
+    );
+    sums.insert(
+        "groovy",
+        ccn_sum(
+            LANG::Groovy,
+            r"def f(x) {
+    if (x == 1) {
+        println x
+    }
+}
+",
+            "groovy",
         ),
     );
     let offsets = BTreeMap::from([("java", JAVA_CLASS_OFFSET)]);

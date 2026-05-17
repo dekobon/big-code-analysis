@@ -108,6 +108,12 @@ func f(a int, b int, c int) {}
 ",
         "go",
     );
+    let groovy = fn_args_sum(
+        LANG::Groovy,
+        r"def f(int a, int b, int c) {}
+",
+        "groovy",
+    );
 
     // expected: three formal parameters.
     let expected = 3.0;
@@ -121,4 +127,5 @@ func f(a int, b int, c int) {}
     assert_eq!(csharp, expected, "csharp");
     assert_eq!(kotlin, expected, "kotlin");
     assert_eq!(go, expected, "go");
+    assert_eq!(groovy, expected, "groovy");
 }
