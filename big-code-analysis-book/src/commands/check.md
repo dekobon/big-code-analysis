@@ -96,9 +96,10 @@ the full reference and the `--no-suppress` CI-audit flag.
 
 ## Reporting without failing
 
-`--no-fail` (also written `--report-only` in some CI vocabularies)
-prints offenders to stderr but exits `0`. Useful while adopting
-baselines without flipping CI red.
+`--no-fail` prints offenders to stderr but exits `0`. Useful while
+adopting baselines without flipping CI red. Other CI tools call this
+behavior `--report-only` or `--soft-fail`; here the flag is spelled
+`--no-fail`.
 
 ```bash
 bca --paths src/ check \
