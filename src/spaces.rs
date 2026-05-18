@@ -188,45 +188,37 @@ impl Serialize for CodeMetrics {
             + usize::from(emit_npa);
 
         let mut st = serializer.serialize_struct("CodeMetrics", field_count)?;
-        if sel.contains(Metric::NArgs) {
-            st.serialize_field("nargs", &self.nargs)?;
+        // Each arm must match exactly one of the booleans counted into
+        // `field_count` above — drift here will make CBOR reject the
+        // payload at `st.end()`.
+        macro_rules! emit_if {
+            ($cond:expr, $key:literal, $field:expr) => {
+                if $cond {
+                    st.serialize_field($key, $field)?;
+                }
+            };
         }
-        if sel.contains(Metric::Exit) {
-            st.serialize_field("nexits", &self.nexits)?;
-        }
-        if sel.contains(Metric::Cognitive) {
-            st.serialize_field("cognitive", &self.cognitive)?;
-        }
-        if sel.contains(Metric::Cyclomatic) {
-            st.serialize_field("cyclomatic", &self.cyclomatic)?;
-        }
-        if sel.contains(Metric::Halstead) {
-            st.serialize_field("halstead", &self.halstead)?;
-        }
-        if sel.contains(Metric::Loc) {
-            st.serialize_field("loc", &self.loc)?;
-        }
-        if sel.contains(Metric::Nom) {
-            st.serialize_field("nom", &self.nom)?;
-        }
-        if sel.contains(Metric::Tokens) {
-            st.serialize_field("tokens", &self.tokens)?;
-        }
-        if sel.contains(Metric::Mi) {
-            st.serialize_field("mi", &self.mi)?;
-        }
-        if sel.contains(Metric::Abc) {
-            st.serialize_field("abc", &self.abc)?;
-        }
-        if emit_wmc {
-            st.serialize_field("wmc", &self.wmc)?;
-        }
-        if emit_npm {
-            st.serialize_field("npm", &self.npm)?;
-        }
-        if emit_npa {
-            st.serialize_field("npa", &self.npa)?;
-        }
+        emit_if!(sel.contains(Metric::NArgs), "nargs", &self.nargs);
+        emit_if!(sel.contains(Metric::Exit), "nexits", &self.nexits);
+        emit_if!(
+            sel.contains(Metric::Cognitive),
+            "cognitive",
+            &self.cognitive
+        );
+        emit_if!(
+            sel.contains(Metric::Cyclomatic),
+            "cyclomatic",
+            &self.cyclomatic
+        );
+        emit_if!(sel.contains(Metric::Halstead), "halstead", &self.halstead);
+        emit_if!(sel.contains(Metric::Loc), "loc", &self.loc);
+        emit_if!(sel.contains(Metric::Nom), "nom", &self.nom);
+        emit_if!(sel.contains(Metric::Tokens), "tokens", &self.tokens);
+        emit_if!(sel.contains(Metric::Mi), "mi", &self.mi);
+        emit_if!(sel.contains(Metric::Abc), "abc", &self.abc);
+        emit_if!(emit_wmc, "wmc", &self.wmc);
+        emit_if!(emit_npm, "npm", &self.npm);
+        emit_if!(emit_npa, "npa", &self.npa);
         st.end()
     }
 }

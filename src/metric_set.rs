@@ -275,19 +275,20 @@ mod tests {
         assert!(set.contains(Metric::Nom), "Wmc depends on Nom");
     }
 
-    // The closure must follow transitive dependencies, not just a
-    // single hop. We exercise this by feeding the slice an entry
-    // whose deps' own deps would be missed by a one-pass loop.
-    // Today no metric has a derived dependency, so we simulate the
-    // shape by listing Mi alongside an unrelated metric and asserting
-    // the worklist still terminates at the same closure as
-    // `&[Metric::Mi]` alone.
+    // Listing a metric that is already in another entry's closure
+    // is a no-op and does not corrupt or duplicate state. Today's
+    // dependency graph is flat (Mi/Wmc both depend only on leaf
+    // metrics), so this test cannot exercise the worklist's
+    // transitive resolution — a single-pass implementation that
+    // pulls in only direct dependencies would also pass. When a
+    // derived-of-derived metric lands, replace this with a test
+    // that actually exercises the multi-hop closure (e.g. by
+    // feeding an entry whose dependency itself has a non-empty
+    // `dependencies()` list).
     #[test]
     fn closure_is_idempotent_for_mixed_input() {
         let a = MetricSet::from_slice_with_deps(&[Metric::Mi, Metric::Loc]);
         let b = MetricSet::from_slice_with_deps(&[Metric::Mi]);
-        // Loc was already in Mi's closure; explicitly adding it is a
-        // no-op and must not corrupt or duplicate state.
         assert_eq!(a, b);
     }
 

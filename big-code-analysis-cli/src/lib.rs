@@ -59,6 +59,14 @@ use thresholds::{ThresholdConfig, ThresholdSet, Violation, parse_cli_threshold};
 
 use big_code_analysis::LANG;
 use big_code_analysis::ParserTrait;
+
+/// `expect` message used at every `action::<_>` call site below.
+///
+/// The CLI pins `big-code-analysis` with `features = ["all-languages"]`,
+/// so a `LANG` value that reached this point must be enabled at compile
+/// time. Any future caller that loosens the feature pin must change
+/// this invariant explicitly.
+const FEATURES_PINNED: &str = "CLI pins big-code-analysis features = [\"all-languages\"]";
 use big_code_analysis::{
     CommentRm, CommentRmCfg, ConcurrentRunner, Count, CountCfg, Dump, DumpCfg, FilesData, Find,
     FindCfg, Function, FunctionCfg, Metrics, MetricsCfg, MetricsOptions, OpsCfg, OpsCode,
@@ -514,8 +522,7 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
             // The CLI pins the library's `all-languages` feature, so
             // `LanguageDisabled` from `action::<T>` is unreachable; the
             // `expect` documents that invariant.
-            action::<Dump>(&language, source, &path, pr, dump_cfg)
-                .expect("CLI pins big-code-analysis features = [\"all-languages\"]")
+            action::<Dump>(&language, source, &path, pr, dump_cfg).expect(FEATURES_PINNED)
         }
         Action::Metrics { format, pretty } => {
             if let Some(fmt) = format {
@@ -539,8 +546,7 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
             } else {
                 let metrics_cfg = MetricsCfg::new(path).with_options(cfg.metrics_options());
                 let path = metrics_cfg.path.clone();
-                action::<Metrics>(&language, source, &path, pr, metrics_cfg)
-                    .expect("CLI pins big-code-analysis features = [\"all-languages\"]")
+                action::<Metrics>(&language, source, &path, pr, metrics_cfg).expect(FEATURES_PINNED)
             }
         }
         Action::Ops { format, pretty } => {
@@ -562,8 +568,7 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
             } else {
                 let ops_cfg = OpsCfg { path };
                 let path = ops_cfg.path.clone();
-                action::<OpsCode>(&language, source, &path, pr, ops_cfg)
-                    .expect("CLI pins big-code-analysis features = [\"all-languages\"]")
+                action::<OpsCode>(&language, source, &path, pr, ops_cfg).expect(FEATURES_PINNED)
             }
         }
         Action::StripComments { in_place } => {
@@ -579,13 +584,11 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
             } else {
                 language
             };
-            action::<CommentRm>(&lang, source, &path, pr, comment_cfg)
-                .expect("CLI pins big-code-analysis features = [\"all-languages\"]")
+            action::<CommentRm>(&lang, source, &path, pr, comment_cfg).expect(FEATURES_PINNED)
         }
         Action::Functions => {
             let fn_cfg = FunctionCfg { path: path.clone() };
-            action::<Function>(&language, source, &path, pr, fn_cfg)
-                .expect("CLI pins big-code-analysis features = [\"all-languages\"]")
+            action::<Function>(&language, source, &path, pr, fn_cfg).expect(FEATURES_PINNED)
         }
         Action::Find(filters) => {
             let find_cfg = FindCfg {
@@ -594,8 +597,7 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
                 line_start: cfg.line_start,
                 line_end: cfg.line_end,
             };
-            action::<Find>(&language, source, &path, pr, find_cfg)
-                .expect("CLI pins big-code-analysis features = [\"all-languages\"]")
+            action::<Find>(&language, source, &path, pr, find_cfg).expect(FEATURES_PINNED)
         }
         Action::Count(filters) => {
             let stats = cfg
@@ -606,8 +608,7 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
                 filters: Arc::clone(filters),
                 stats,
             };
-            action::<Count>(&language, source, &path, pr, count_cfg)
-                .expect("CLI pins big-code-analysis features = [\"all-languages\"]")
+            action::<Count>(&language, source, &path, pr, count_cfg).expect(FEATURES_PINNED)
         }
         Action::Report => {
             if let Ok(space) = get_function_spaces_with_options(
