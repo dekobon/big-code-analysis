@@ -215,3 +215,49 @@ impl<
         Filter { filters: res }
     }
 }
+
+impl<
+    T: 'static
+        + LanguageInfo
+        + Alterator
+        + Checker
+        + Getter
+        + Abc
+        + Cognitive
+        + Cyclomatic
+        + Exit
+        + Halstead
+        + Loc
+        + Mi
+        + NArgs
+        + Nom
+        + Npa
+        + Npm
+        + Tokens
+        + Wmc,
+> Parser<T>
+{
+    /// Builds a [`Parser`] from a pre-parsed [`tree_sitter::Tree`]
+    /// and the matching source bytes.
+    ///
+    /// Use this when the caller already drives `tree-sitter` for
+    /// other purposes (e.g. an editor doing incremental reparsing)
+    /// and wants the metric walker to reuse the parse instead of
+    /// running its own. The standard byte-based entry point
+    /// remains [`ParserTrait::new`].
+    ///
+    /// The supplied `tree` must have been produced from `code` with
+    /// the tree-sitter language matching `T` — typically obtained
+    /// via [`crate::LANG::get_tree_sitter_language`]. A mismatch is
+    /// not `unsafe`, but metric values will be nonsensical because
+    /// the tree's `kind_id` values will not correspond to the per-
+    /// language enum the metric `compute` functions match on.
+    #[must_use]
+    pub fn from_tree(tree: tree_sitter::Tree, code: Vec<u8>) -> Self {
+        Self {
+            code,
+            tree: Tree::from_ts_tree(tree),
+            phantom: PhantomData,
+        }
+    }
+}

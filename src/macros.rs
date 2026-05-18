@@ -159,6 +159,32 @@ macro_rules! mk_lang {
                         )*
                     }
             }
+
+            /// Returns the [`tree_sitter::Language`] grammar used by
+            /// this variant.
+            ///
+            /// Useful when feeding a caller-built
+            /// [`tree_sitter::Parser`] into the
+            /// [`crate::metrics_from_tree`] / [`crate::Parser::from_tree`]
+            /// entry points — the language returned here is the one
+            /// the metric walker expects for `kind_id` matching, so
+            /// the trees agree structurally.
+            ///
+            /// This method is part of the value-not-stable surface:
+            /// the underlying `tree-sitter-*` grammar pin may bump
+            /// in any minor release, which can change `Language`
+            /// equality on the caller side.
+            ///
+            /// # Examples
+            ///
+            /// ```
+            /// use big_code_analysis::LANG;
+            ///
+            /// let _lang = LANG::Rust.get_tree_sitter_language();
+            /// ```
+            pub fn get_tree_sitter_language(&self) -> ::tree_sitter::Language {
+                self.get_ts_language()
+            }
         }
     };
 }
@@ -273,6 +299,93 @@ macro_rules! mk_action {
                 $(
                     LANG::$camel => {
                         let parser = $parser::new(source, &path, pr);
+                        metrics_with_options(&parser, &path, options)
+                    },
+                )*
+            }
+        }
+
+        /// Returns all function spaces data of a code, reusing a
+        /// caller-supplied [`tree_sitter::Tree`] instead of running
+        /// the bundled parser.
+        ///
+        /// Use this when the caller already drives `tree-sitter` for
+        /// other purposes (e.g. an editor doing incremental
+        /// reparsing) and wants the metric walker to share that
+        /// parse. The supplied `tree` must have been produced from
+        /// `source` with the [`tree_sitter::Language`] returned by
+        /// [`LANG::get_tree_sitter_language`] for `lang`; a mismatch
+        /// is not `unsafe` but yields nonsensical metric values.
+        ///
+        /// Equivalent to [`get_function_spaces_with_options`] on the
+        /// same `(lang, source, path)` triple when the same tree is
+        /// reproduced internally.
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// use std::path::PathBuf;
+        ///
+        /// use big_code_analysis::{
+        ///     get_function_spaces, metrics_from_tree, tree_sitter, LANG,
+        ///     MetricsOptions,
+        /// };
+        ///
+        /// let source_code = "fn main() { if true { 1 } else { 2 }; }";
+        /// let path = PathBuf::from("foo.rs");
+        /// let source = source_code.as_bytes().to_vec();
+        ///
+        /// let mut parser = tree_sitter::Parser::new();
+        /// parser
+        ///     .set_language(&LANG::Rust.get_tree_sitter_language())
+        ///     .expect("rust grammar pinned to a compatible version");
+        /// let tree = parser
+        ///     .parse(&source, None)
+        ///     .expect("parser has a language set");
+        ///
+        /// let from_tree = metrics_from_tree(
+        ///     &LANG::Rust,
+        ///     tree,
+        ///     source.clone(),
+        ///     &path,
+        ///     None,
+        ///     MetricsOptions::default(),
+        /// )
+        /// .unwrap();
+        /// let from_bytes =
+        ///     get_function_spaces(&LANG::Rust, source, &path, None).unwrap();
+        ///
+        /// assert_eq!(
+        ///     from_tree.metrics.cyclomatic.cyclomatic_sum(),
+        ///     from_bytes.metrics.cyclomatic.cyclomatic_sum(),
+        /// );
+        /// ```
+        ///
+        /// # Errors
+        ///
+        /// Returns [`MetricsError::EmptyRoot`] when the AST walker
+        /// cannot produce a top-level [`FuncSpace`].
+        #[inline]
+        pub fn metrics_from_tree(
+            lang: &LANG,
+            tree: ::tree_sitter::Tree,
+            source: Vec<u8>,
+            path: &Path,
+            pr: Option<Arc<PreprocResults>>,
+            options: MetricsOptions,
+        ) -> Result<FuncSpace, MetricsError> {
+            // `pr` is accepted for parity with the byte-based entry
+            // points so callers can swap one for the other without
+            // changing call shape. Today only the C/C++ pre-pass uses
+            // it, and that pre-pass runs before parsing — if the
+            // caller built the tree themselves, they have already
+            // accepted whatever macro expansion (or lack thereof) the
+            // tree reflects, so the parameter is currently a no-op.
+            let _ = pr;
+            match lang {
+                $(
+                    LANG::$camel => {
+                        let parser = $parser::from_tree(tree, source);
                         metrics_with_options(&parser, &path, options)
                     },
                 )*
