@@ -122,7 +122,6 @@ but are `#[deprecated]` in favour of `analyze`. They derive
 `FuncSpace::name` from the supplied `&Path` via lossy UTF-8
 conversion and are otherwise equivalent.
 
-[FuncSpace]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.FuncSpace.html
 [`analyze`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.analyze.html
 [`Source`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Source.html
 [`guess_language`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.guess_language.html

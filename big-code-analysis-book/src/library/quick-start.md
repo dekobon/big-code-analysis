@@ -141,6 +141,5 @@ naming, per-language features, and the parse seam.
 [`MetricsOptions`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.MetricsOptions.html
 [`FuncSpace::name`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.FuncSpace.html#structfield.name
 [`guess_language`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.guess_language.html
-[FuncSpace]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.FuncSpace.html
 [MetricsError]: https://docs.rs/big-code-analysis/*/big_code_analysis/enum.MetricsError.html
 [CodeMetrics]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.CodeMetrics.html
