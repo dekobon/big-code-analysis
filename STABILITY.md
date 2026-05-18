@@ -48,6 +48,13 @@ them the [CHANGELOG][changelog] entry will say so under
     minor release for backwards compatibility.
   - `MetricsOptions`, `MetricsCfg` — both already carry
     `#[non_exhaustive]`, so adding fields is *not* a break.
+  - `Metric`, `MetricSet` in `src/metric_set.rs` — `Metric` carries
+    `#[non_exhaustive]`, so adding variants is additive. `MetricSet`
+    is the opaque bitfield consumed by
+    `MetricsOptions::with_only(&[Metric])` and read back through
+    `CodeMetrics::selected()`. Its constructors (`empty`, `all`,
+    `with`, `union`) and inspectors (`contains`) are stable; the
+    underlying integer representation is not.
   - `function`, `find`, `count`, `operands_and_operators`,
     `rm_comments` in their respective modules.
   - `MetricsError` in `src/error.rs` — carries `#[non_exhaustive]`,
@@ -188,8 +195,9 @@ the library-DX umbrella (#250):
 - `metrics`/`metrics_with_options` returning `Option<FuncSpace>`
   instead of `Result<FuncSpace, MetricsError>` (#253).
 - Hiding `ParserTrait` from the public surface (#256).
-- Per-metric and per-language Cargo features so consumers can
-  shrink the dependency footprint (#252, #257).
+- Per-language Cargo features so consumers can shrink the
+  dependency footprint (#252). (Per-metric runtime selection
+  shipped via `MetricsOptions::with_only(&[Metric])` in #257.)
 - A curated `pub use` set / prelude (#255).
 
 Each of those, when it lands, will be a minor bump and will appear

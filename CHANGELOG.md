@@ -20,6 +20,21 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Added
 
+- `MetricsOptions::with_only(&[Metric])` for selective metric
+  computation. Pass a slice of [`Metric`] values to restrict the
+  walker to those metrics; everything outside the set is skipped at
+  the per-node level (no `T::Halstead::compute`, no
+  `T::Cognitive::compute`, etc.) and elided from `CodeMetrics`
+  serialization output. Derived metrics auto-resolve their
+  dependencies — `with_only(&[Metric::Mi])` silently adds
+  `Loc + Cyclomatic + Halstead`, and `with_only(&[Metric::Wmc])`
+  adds `Cyclomatic + Nom`. The `Metric` enum is `#[non_exhaustive]`
+  and the backing bitfield (`MetricSet`) is exposed alongside it so
+  callers can introspect which metrics were computed via the new
+  `CodeMetrics::selected()` accessor. Defaults are unchanged:
+  `MetricsOptions::default()` selects every metric, matching the
+  pre-#257 behaviour byte-for-byte
+  ([#257](https://github.com/dekobon/big-code-analysis/issues/257)).
 - New library entry point `analyze(Source, MetricsOptions) ->
   Result<FuncSpace, MetricsError>` in `src/spaces.rs`. `Source<'a>`
   is `#[non_exhaustive]` and carries the language, source bytes,
