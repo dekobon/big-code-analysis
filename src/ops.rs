@@ -156,6 +156,10 @@ fn finalize<T: ParserTrait>(state_stack: &mut Vec<State>, diff_level: usize) {
     }
 }
 
+// Hidden from rustdoc because the signature exposes `ParserTrait`,
+// which is `#[doc(hidden)]` per issue #256. The non-generic
+// `get_ops(&LANG, ...)` entry point is the documented surface.
+#[doc(hidden)]
 /// Retrieves all the operators and operands of a code.
 ///
 /// # Errors

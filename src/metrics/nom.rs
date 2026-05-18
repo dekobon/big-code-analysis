@@ -231,6 +231,7 @@ impl Stats {
     }
 }
 
+#[doc(hidden)]
 /// Per-language counting of methods (functions + closures).
 pub trait Nom
 where

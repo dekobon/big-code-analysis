@@ -146,6 +146,7 @@ impl Stats {
     }
 }
 
+#[doc(hidden)]
 /// Per-language counting of tokens.
 pub trait Tokens
 where

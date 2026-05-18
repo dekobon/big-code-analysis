@@ -37,6 +37,10 @@ pub struct FunctionSpan {
     pub error: bool,
 }
 
+// Hidden from rustdoc because the signature exposes `ParserTrait`,
+// which is `#[doc(hidden)]` per issue #256. The CLI's `Function`
+// callback remains the documented surface.
+#[doc(hidden)]
 /// Detects the span of each function in a code.
 ///
 /// Returns a vector containing the [`FunctionSpan`] of each function

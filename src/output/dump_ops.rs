@@ -14,24 +14,18 @@ use crate::tools::{color, intense_color};
 /// ```
 /// use std::path::PathBuf;
 ///
-/// use big_code_analysis::{dump_ops, operands_and_operators, CppParser, ParserTrait};
+/// use big_code_analysis::{dump_ops, get_ops, LANG};
 ///
-/// # fn main() {
 /// let source_code = "int a = 42;";
-///
-/// // The path to a dummy file used to contain the source code
 /// let path = PathBuf::from("foo.c");
 /// let source_as_vec = source_code.as_bytes().to_vec();
 ///
-/// // The parser of the code, in this case a CPP parser
-/// let parser = CppParser::new(source_as_vec, &path, None);
-///
-/// // Retrieve all operands and operators
-/// let ops = operands_and_operators(&parser, &path).unwrap();
+/// // Retrieve all operands and operators via the non-generic
+/// // `get_ops` entry point.
+/// let ops = get_ops(&LANG::Cpp, source_as_vec, &path, None).unwrap();
 ///
 /// // Dump all operands and operators
 /// dump_ops(&ops).unwrap();
-/// # }
 /// ```
 ///
 /// [`Result`]: #variant.Result

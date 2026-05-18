@@ -22,24 +22,18 @@ use crate::traits::*;
 /// # Examples
 ///
 /// ```
-/// use std::path::PathBuf;
+/// use big_code_analysis::{dump_node, tree_sitter, LANG, Node};
 ///
-/// use big_code_analysis::{dump_node, CppParser, ParserTrait};
-///
-/// let source_code = "int a = 42;";
-///
-/// // The path to a dummy file used to contain the source code
-/// let path = PathBuf::from("foo.c");
-/// let source_as_vec = source_code.as_bytes().to_vec();
-///
-/// // The parser of the code, in this case a CPP parser
-/// let parser = CppParser::new(source_as_vec.clone(), &path, None);
-///
-/// // The root of the AST
-/// let root = parser.get_root();
+/// let source = b"int a = 42;";
+/// let mut parser = tree_sitter::Parser::new();
+/// parser
+///     .set_language(&LANG::Cpp.get_tree_sitter_language())
+///     .expect("cpp grammar pinned to a compatible version");
+/// let tree = parser.parse(source, None).expect("parser has a language set");
+/// let root = Node(tree.root_node());
 ///
 /// // Dump the AST from the first line of code in a file to the last one
-/// dump_node(&source_as_vec, &root, -1, None, None).unwrap();
+/// dump_node(source, &root, -1, None, None).unwrap();
 /// ```
 ///
 /// [`Result`]: #variant.Result

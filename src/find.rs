@@ -15,6 +15,10 @@ use crate::dump::*;
 use crate::error::MetricsError;
 use crate::traits::*;
 
+// Hidden from rustdoc because the signature exposes `ParserTrait`,
+// which is `#[doc(hidden)]` per issue #256. The CLI's `Find` callback
+// remains the documented surface for this functionality.
+#[doc(hidden)]
 /// Finds the types of nodes specified in the input slice.
 ///
 /// "No matches" is represented by `Ok(Vec::new())` rather than an

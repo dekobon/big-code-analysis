@@ -91,7 +91,7 @@ pub enum MetricsError {
     /// `Source::name: Option<String>` so callers never need to round-
     /// trip a non-UTF-8 path through lossy conversion in the first
     /// place. The deprecated path-positional entry points
-    /// ([`crate::metrics`], [`crate::get_function_spaces`], …) still
+    /// (`metrics`, [`crate::get_function_spaces`], …) still
     /// fall back to `Path::to_string_lossy`. This variant is not
     /// produced today; it is kept for future strict-identifier
     /// validators that reject lossy names up front.

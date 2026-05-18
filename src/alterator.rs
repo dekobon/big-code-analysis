@@ -8,6 +8,7 @@
 
 use crate::*;
 
+#[doc(hidden)]
 /// A trait to create a richer `AST` node for a programming language, mainly
 /// thought to be sent on the network.
 pub trait Alterator

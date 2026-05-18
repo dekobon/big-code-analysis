@@ -218,6 +218,7 @@ impl Stats {
     }
 }
 
+#[doc(hidden)]
 /// Per-language computation of cyclomatic complexity.
 pub trait Cyclomatic
 where

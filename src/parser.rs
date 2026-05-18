@@ -34,6 +34,7 @@ use crate::node::{Node, Tree};
 use crate::preproc::{PreprocResults, get_macros};
 use crate::traits::*;
 
+#[doc(hidden)]
 /// Parsed source plus the tree-sitter `Tree` for a given language `T`.
 ///
 /// Construct with [`Parser::new`] and feed the result into the metric,
@@ -67,6 +68,7 @@ pub struct Parser<
 
 type FilterFn = dyn Fn(&Node) -> bool;
 
+#[doc(hidden)]
 /// Collection of node-matching predicates used by the AST-walking
 /// metric and dump routines to decide whether to visit a node.
 pub struct Filter {

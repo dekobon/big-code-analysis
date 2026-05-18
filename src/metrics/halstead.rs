@@ -315,6 +315,7 @@ impl Stats {
     }
 }
 
+#[doc(hidden)]
 /// Per-language extraction of Halstead operator/operand maps.
 pub trait Halstead
 where

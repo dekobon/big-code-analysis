@@ -102,6 +102,7 @@ fn get_aho_corasick_match(code: &[u8]) -> bool {
         .is_match(code)
 }
 
+#[doc(hidden)]
 pub trait Checker {
     fn is_comment(_: &Node) -> bool;
     fn is_useful_comment(_: &Node, _: &[u8]) -> bool;
