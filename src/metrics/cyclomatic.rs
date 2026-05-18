@@ -289,9 +289,10 @@ impl Cyclomatic for PythonCode {
 /// name varies (`TernaryExpression` for JS-family, `ConditionalExpression`
 /// for Cpp), so it's a parameter.  The short-circuit operator list is
 /// also a parameter because JS-family languages include nullish
-/// coalescing (`??`, token `QMARKQMARK`) and its compound assignment form
-/// (`??=`, token `QMARKQMARKEQ`) on top of `&&` and `||`, while C++ has
-/// only `&&` and `||` (issues #226, #231).
+/// coalescing (`??`, token `QMARKQMARK`) and the three compound short-
+/// circuit assignment forms `&&=` (`AMPAMPEQ`), `||=` (`PIPEPIPEEQ`),
+/// `??=` (`QMARKQMARKEQ`) on top of `&&` and `||`, while C++ has only
+/// `&&` and `||` (issues #226, #231, #248).
 macro_rules! impl_cyclomatic_c_family {
     ($code:ty, $lang:ident, $ternary:ident, [$($short_circuit:ident),+ $(,)?]) => {
         impl Cyclomatic for $code {
@@ -311,34 +312,32 @@ macro_rules! impl_cyclomatic_c_family {
     };
 }
 
-// JS-family: include nullish coalescing (`??`, `??=`) as a short-circuit
-// decision in addition to `&&` and `||` (issues #226, #231). `??=` is
-// semantically `x = x ?? y` — one short-circuit decision edge, same as
-// `??`.
-impl_cyclomatic_c_family!(
-    MozjsCode,
-    Mozjs,
-    TernaryExpression,
-    [AMPAMP, PIPEPIPE, QMARKQMARK, QMARKQMARKEQ]
-);
-impl_cyclomatic_c_family!(
-    JavascriptCode,
-    Javascript,
-    TernaryExpression,
-    [AMPAMP, PIPEPIPE, QMARKQMARK, QMARKQMARKEQ]
-);
-impl_cyclomatic_c_family!(
-    TypescriptCode,
-    Typescript,
-    TernaryExpression,
-    [AMPAMP, PIPEPIPE, QMARKQMARK, QMARKQMARKEQ]
-);
-impl_cyclomatic_c_family!(
-    TsxCode,
-    Tsx,
-    TernaryExpression,
-    [AMPAMP, PIPEPIPE, QMARKQMARK, QMARKQMARKEQ]
-);
+// JS-family: include nullish coalescing (`??`) and the three compound
+// short-circuit assignments `&&=`, `||=`, `??=` as short-circuit
+// decisions in addition to `&&` and `||` (issues #226, #231, #248).
+// Each `op=` is semantically `x = x op y` — one short-circuit decision
+// edge, same as the bare operator. Cognitive parity comes from #236.
+macro_rules! impl_cyclomatic_js_family {
+    ($code:ty, $lang:ident) => {
+        impl_cyclomatic_c_family!(
+            $code,
+            $lang,
+            TernaryExpression,
+            [
+                AMPAMP,
+                PIPEPIPE,
+                QMARKQMARK,
+                AMPAMPEQ,
+                PIPEPIPEEQ,
+                QMARKQMARKEQ
+            ]
+        );
+    };
+}
+impl_cyclomatic_js_family!(MozjsCode, Mozjs);
+impl_cyclomatic_js_family!(JavascriptCode, Javascript);
+impl_cyclomatic_js_family!(TypescriptCode, Typescript);
+impl_cyclomatic_js_family!(TsxCode, Tsx);
 
 impl Cyclomatic for RustCode {
     fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
@@ -515,6 +514,13 @@ impl Cyclomatic for PerlCode {
             | P::AMPAMP
             | P::PIPEPIPE
             | P::SLASHSLASH
+            // Compound short-circuit assignments `&&=`, `||=`, `//=`
+            // are semantically `x = x op y` and each carries one short-
+            // circuit decision edge, parallel to the JS-family fix in
+            // #248 (issue #249).
+            | P::AMPAMPEQ
+            | P::PIPEPIPEEQ
+            | P::SLASHSLASHEQ
             | P::And
             | P::Or
             | P::TernaryExpression => {
@@ -2599,6 +2605,46 @@ mod tests {
     }
 
     #[test]
+    fn perl_compound_short_circuit_assignment_249() {
+        // Regression for issue #249: `&&=`, `||=`, `//=` are each one
+        // short-circuit decision edge — semantically `$x = $x op $y`.
+        // Perl exposes the operator token inside `binary_expression`,
+        // so adding the three `*EQ` tokens to the cyclomatic arm picks
+        // them up alongside the bare `&&` / `||` / `//`.
+        check_metrics::<PerlParser>(
+            "sub f { # +1 (unit) +1 (sub)
+                my ($x, $y, $z) = @_;
+                $x ||= 1; # +1 (||=)
+                $y &&= 2; # +1 (&&=)
+                $z //= 3; # +1 (//=)
+                return $x;
+            }",
+            "foo.pl",
+            |metric| {
+                // unit(1) + fn(entry 1 + 3 assignments = 4) = sum 5, max 4.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4.0);
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 5.0,
+                      "average": 2.5,
+                      "min": 1.0,
+                      "max": 4.0,
+                      "modified": {
+                        "sum": 5.0,
+                        "average": 2.5,
+                        "min": 1.0,
+                        "max": 4.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
     fn perl_foreach_loop() {
         check_metrics::<PerlParser>(
             "sub f { # +1 (unit) +1 (sub)
@@ -3505,6 +3551,148 @@ f() {
                         "average": 2.0,
                         "min": 1.0,
                         "max": 3.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_short_circuit_assignments_248() {
+        // `&&=`, `||=`, `??=` are each one short-circuit decision edge —
+        // semantically `x = x op y`. #231 added only `??=`; #248 adds the
+        // sibling `&&=` and `||=`.
+        check_metrics::<JavascriptParser>(
+            "function f(x, y, z) { // +1 (entry)
+                 x ??= 1; // +1 (??=)
+                 y &&= 2; // +1 (&&=)
+                 z ||= 3; // +1 (||=)
+                 return x;
+             }",
+            "foo.js",
+            |metric| {
+                // unit(1) + fn(entry 1 + 3 assignments = 4) = sum 5, max 4.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4.0);
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 5.0,
+                      "average": 2.5,
+                      "min": 1.0,
+                      "max": 4.0,
+                      "modified": {
+                        "sum": 5.0,
+                        "average": 2.5,
+                        "min": 1.0,
+                        "max": 4.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_short_circuit_assignments_248() {
+        // TypeScript parallel of #248: `&&=` / `||=` / `??=` each +1.
+        check_metrics::<TypescriptParser>(
+            "function f(x: number | null, y: number | null, z: number | null): number { // +1 (entry)
+                 x ??= 1; // +1 (??=)
+                 y &&= 2; // +1 (&&=)
+                 z ||= 3; // +1 (||=)
+                 return x ?? 0; // +1 (??)
+             }",
+            "foo.ts",
+            |metric| {
+                // unit(1) + fn(entry 1 + 3 op= + 1 `??` = 5) = sum 6, max 5.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 6.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 5.0);
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 6.0,
+                      "average": 3.0,
+                      "min": 1.0,
+                      "max": 5.0,
+                      "modified": {
+                        "sum": 6.0,
+                        "average": 3.0,
+                        "min": 1.0,
+                        "max": 5.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_short_circuit_assignments_248() {
+        // TSX parallel of #248: `&&=` / `||=` / `??=` each +1.
+        check_metrics::<TsxParser>(
+            "function f(x: number | null, y: number | null, z: number | null): number { // +1 (entry)
+                 x ??= 1; // +1 (??=)
+                 y &&= 2; // +1 (&&=)
+                 z ||= 3; // +1 (||=)
+                 return x ?? 0; // +1 (??)
+             }",
+            "foo.tsx",
+            |metric| {
+                // unit(1) + fn(entry 1 + 3 op= + 1 `??` = 5) = sum 6, max 5.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 6.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 5.0);
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 6.0,
+                      "average": 3.0,
+                      "min": 1.0,
+                      "max": 5.0,
+                      "modified": {
+                        "sum": 6.0,
+                        "average": 3.0,
+                        "min": 1.0,
+                        "max": 5.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_short_circuit_assignments_248() {
+        // Mozjs parallel of #248: `&&=` / `||=` / `??=` each +1.
+        check_metrics::<MozjsParser>(
+            "function f(x, y, z) { // +1 (entry)
+                 x ??= 1; // +1 (??=)
+                 y &&= 2; // +1 (&&=)
+                 z ||= 3; // +1 (||=)
+                 return x;
+             }",
+            "foo.js",
+            |metric| {
+                // unit(1) + fn(entry 1 + 3 assignments = 4) = sum 5, max 4.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4.0);
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 5.0,
+                      "average": 2.5,
+                      "min": 1.0,
+                      "max": 4.0,
+                      "modified": {
+                        "sum": 5.0,
+                        "average": 2.5,
+                        "min": 1.0,
+                        "max": 4.0
                       }
                     }"###
                 );

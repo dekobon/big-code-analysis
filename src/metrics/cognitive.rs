@@ -226,13 +226,23 @@ fn compute_ruby_booleans(node: &Node, stats: &mut Stats) {
 }
 
 /// Folds a Perl `binary_expression`'s short-circuit operator children
-/// into the boolean-sequence counter — Perl has five (`&&`, `||`, `//`,
-/// `and`, `or`).
+/// into the boolean-sequence counter — Perl has five bare forms (`&&`,
+/// `||`, `//`, `and`, `or`) plus three compound short-circuit
+/// assignments (`&&=`, `||=`, `//=`). The grammar exposes each `op=`
+/// as a distinct operator token inside the same `binary_expression`,
+/// so they fold into the same predicate (issue #249).
 fn compute_perl_booleans(node: &Node, stats: &mut Stats) {
     compute_booleans_with(node, stats, |id| {
         matches!(
             id.into(),
-            Perl::AMPAMP | Perl::PIPEPIPE | Perl::SLASHSLASH | Perl::And | Perl::Or
+            Perl::AMPAMP
+                | Perl::PIPEPIPE
+                | Perl::SLASHSLASH
+                | Perl::And
+                | Perl::Or
+                | Perl::AMPAMPEQ
+                | Perl::PIPEPIPEEQ
+                | Perl::SLASHSLASHEQ
         )
     });
 }
@@ -4287,6 +4297,40 @@ mod tests {
                   "max": 3.0
                 }
                 "#);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_compound_short_circuit_assignment_249() {
+        // Regression for issue #249: `&&=`, `||=`, `//=` are compound
+        // short-circuit assignments (e.g. `$x //= 1` ≡ `$x = $x // 1`)
+        // and each carries one boolean-sequence decision. The grammar
+        // exposes the operator token inside `binary_expression`, so the
+        // existing arm picks them up once `compute_perl_booleans`
+        // recognises the three `*EQ` tokens.
+        check_metrics::<PerlParser>(
+            "sub f {
+                 my ($x, $y, $z) = @_;
+                 $x ||= 1; # +1 (||=)
+                 $y &&= 2; # +1 (&&=)
+                 $z //= 3; # +1 (//=)
+                 return $x;
+             }",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 3.0,
+                      "min": 0.0,
+                      "max": 3.0
+                    }"###
+                );
             },
         );
     }
