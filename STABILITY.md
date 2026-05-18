@@ -144,10 +144,13 @@ underlying dependency rather than our own SemVer:
   this module. Treat the re-exported API as value-not-stable in
   the same sense the rest of this document means it.
 - **`LANG::get_tree_sitter_language`** returns the
-  `tree_sitter::Language` paired with each enum variant. The
-  language identity follows the grammar pin (`tree-sitter-rust =
-  "=0.24.2"`, …) and will change whenever those pins move,
-  typically under a minor bump.
+  `tree_sitter::Language` paired with each enum variant, wrapped in
+  `Result<…, MetricsError>` so feature-gated builds can report
+  `Err(MetricsError::LanguageDisabled(_))` when the matching
+  per-language Cargo feature is off (see #252). The language
+  identity follows the grammar pin (`tree-sitter-rust = "=0.24.2"`,
+  …) and will change whenever those pins move, typically under a
+  minor bump.
 - **`Parser::from_tree`** / **`metrics_from_tree`** are the two
   public entry points of the parse seam. Both accept a caller-
   built `tree_sitter::Tree` directly; the internal `Tree` wrapper
@@ -203,8 +206,14 @@ the library-DX umbrella (#250):
   per-metric compute traits, `Parser<T>`, `Filter`, and the
   deprecated generic shims (#256).
 - Per-language Cargo features so consumers can shrink the
-  dependency footprint (#252). (Per-metric runtime selection
-  shipped via `MetricsOptions::with_only(&[Metric])` in #257.)
+  dependency footprint — **shipped in `[Unreleased]`** (#252). The
+  default feature set `all-languages` matches the previous "every
+  grammar always compiled in" behaviour; disabling a feature is a
+  pure compile-time strip and is not a SemVer break on its own.
+  Adding or removing a language feature in a future release *is*
+  a minor-bump break and will be flagged in the changelog. (Per-
+  metric runtime selection shipped via
+  `MetricsOptions::with_only(&[Metric])` in #257.)
 - A curated `pub use` set / prelude — shipped in `[Unreleased]`:
   `src/lib.rs` re-exports are now explicit (no `pub use module::*`
   globs), and a new [`prelude`] module exposes the recommended

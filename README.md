@@ -53,6 +53,39 @@ walking `FuncSpace` results, and error handling — see the
 [**Using as a Library**](https://dekobon.github.io/big-code-analysis/library/index.html)
 section of the book.
 
+### Per-language Cargo features
+
+Every tree-sitter grammar is gated behind a per-language Cargo
+feature. The default feature set is `all-languages`, so a bare
+
+```toml
+big-code-analysis = "0.0.25"
+```
+
+pulls every grammar in (matching the library's historical behaviour
+and what the `bca` / `bca-web` binaries ship). Library consumers that
+only need a subset of languages can opt out of the defaults and
+re-enable just the grammars they want:
+
+```toml
+big-code-analysis = { version = "0.0.25", default-features = false, features = ["rust", "typescript"] }
+```
+
+Supported language features: `bash`, `cpp`, `csharp`, `elixir`,
+`go`, `groovy`, `java`, `javascript`, `kotlin`, `lua`, `mozjs`,
+`perl`, `php`, `python`, `ruby`, `rust`, `tcl`, `typescript`. The
+`cpp` feature covers the `Cpp`, `Ccomment`, and `Preproc` LANG
+variants and pulls in `tree-sitter-mozcpp`, `tree-sitter-ccomment`,
+and `tree-sitter-preproc` together.
+
+The `LANG` enum keeps every variant defined regardless of the active
+feature set; selecting a [`LANG`] variant whose feature is off
+returns `Err(MetricsError::LanguageDisabled(LANG))` from every
+dispatch entry point (`analyze`, `metrics_from_tree`, `action`,
+`get_ops`, the deprecated `get_function_spaces*` shims, and
+`LANG::get_tree_sitter_language`). The set of compiled-in variants
+is queryable via `LANG::is_enabled`.
+
 ## Building
 
 The repository ships a `Makefile` that wraps every common build, test,

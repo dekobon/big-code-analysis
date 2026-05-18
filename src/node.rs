@@ -30,8 +30,17 @@ pub(crate) struct Tree(OtherTree);
 impl Tree {
     pub(crate) fn new<T: LanguageInfo>(code: &[u8]) -> Self {
         let mut parser = Parser::new();
+        // `Tree::new::<T>` is only reachable from the `mk_action!`
+        // dispatchers, which themselves cfg-gate each `LANG::*` arm
+        // behind the matching per-language feature (see #252). When
+        // the feature is off the dispatcher returns
+        // `Err(LanguageDisabled)` before we get here, so
+        // `get_ts_language` is provably `Ok` at this call site.
+        let language = T::get_lang().get_ts_language().expect(
+            "invariant: dispatcher cfg-gates this call behind the per-language Cargo feature",
+        );
         parser
-            .set_language(&T::get_lang().get_ts_language())
+            .set_language(&language)
             .expect("invariant: grammar version is pinned and compatible with bundled tree-sitter");
 
         Self(

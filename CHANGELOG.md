@@ -20,6 +20,22 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Added
 
+- Per-language Cargo features (default: `all-languages`) so library
+  consumers can compile only the grammars they need. Each supported
+  language now has its own feature (`rust`, `typescript`, `python`,
+  `cpp`, …) that gates the matching `tree-sitter-*` grammar crate
+  in the dependency graph. The default feature set keeps the
+  library's historical "every grammar compiled in" behaviour
+  (`bca` and `bca-web` both pin `features = ["all-languages"]`
+  explicitly); downstream library consumers can opt into a narrower
+  set with `default-features = false, features = ["rust", "typescript", …]`.
+  The `LANG` enum keeps every variant defined regardless of the
+  active feature set; selecting a variant whose feature is off
+  produces `Err(MetricsError::LanguageDisabled(LANG))` from every
+  dispatch entry point. A new `LANG::is_enabled` predicate lets
+  callers query the compiled-in set without going through a
+  dispatcher
+  ([#252](https://github.com/dekobon/big-code-analysis/issues/252)).
 - New `big_code_analysis::prelude` module exposing the recommended
   entry points for the 90% case: `analyze`, `metrics_from_tree`,
   `Source`, `MetricsOptions`, `MetricsError`, `Metric`, `LANG`,
@@ -57,6 +73,19 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Changed
 
+- **(library API, breaking)** `LANG::get_tree_sitter_language`
+  returns `Result<tree_sitter::Language, MetricsError>` instead of
+  `tree_sitter::Language` directly. Feature-gated builds need a
+  way to report "this variant's grammar isn't compiled in" and
+  panicking would violate the no-panic rule on disabled-language
+  paths; the new signature surfaces the disabled state as
+  `Err(MetricsError::LanguageDisabled(LANG))`. Callers that
+  previously wrote `.set_language(&LANG::Rust.get_tree_sitter_language())`
+  need to add `.expect("rust feature enabled")` (or propagate the
+  error). This method is part of the value-not-stable surface (see
+  STABILITY.md); the matching `action::<T>` shim was widened from
+  `T::Res` to `Result<T::Res, MetricsError>` for the same reason
+  ([#252](https://github.com/dekobon/big-code-analysis/issues/252)).
 - **(library API)** `src/lib.rs` re-exports are now explicit:
   every previous `pub use module::*` glob has been replaced with a
   named `pub use module::{X, Y, Z}` list. Helpers that were only
