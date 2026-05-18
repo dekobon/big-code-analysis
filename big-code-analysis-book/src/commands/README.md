@@ -31,7 +31,7 @@ Nodes can be used to:
 - Discover if a construct of a language is present in the analyzed
   code
 - Count the number of constructs of a certain kind
-- Detect errors i the source code
+- Detect errors in the source code
 
 ## REST API
 
