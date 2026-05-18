@@ -20,6 +20,23 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Changed
 
+- **(breaking)** Library entry points now return
+  `Result<FuncSpace, MetricsError>` (and `Result<Ops, MetricsError>` /
+  `Result<Vec<Node>, MetricsError>` for the sibling APIs) instead of
+  `Option<…>`. Affected: `metrics`, `metrics_with_options`,
+  `get_function_spaces`, `get_function_spaces_with_options`,
+  `operands_and_operators`, `get_ops`, and `find`. The new
+  `MetricsError` enum (`#[non_exhaustive]`, implements
+  `std::error::Error` + `Display`) distinguishes empty-input
+  (`EmptyRoot`), disabled-language (`LanguageDisabled(LANG)`),
+  non-UTF-8 paths (`NonUtf8Path`), and strict-mode parse errors
+  (`ParseHasErrors`); only `EmptyRoot` is produced today, the rest
+  are reserved for the matching follow-up issues (#252, #254, and a
+  future strict-parse toggle). The CLI and web crates adapt; the
+  REST `WebMetricsResponse.spaces` schema is intentionally
+  unchanged and keeps `Option<FuncSpace>` (parallels the
+  `AstResponse.root` decision)
+  ([#253](https://github.com/dekobon/big-code-analysis/issues/253)).
 - Bumped `jsonschema` from `0.46.4` to `0.46.5` (patch: percent-
   encoded characters in `$ref` URI fragments are now decoded when
   stored as `schema_path`)

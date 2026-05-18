@@ -222,8 +222,14 @@ macro_rules! mk_action {
         ///
         /// get_function_spaces(&language, source_as_vec, &path, None).unwrap();
         /// ```
+        ///
+        /// # Errors
+        ///
+        /// Returns [`MetricsError::EmptyRoot`] when the AST walker
+        /// cannot produce a top-level [`FuncSpace`] (typically empty
+        /// input or input whose only content is comments).
         #[inline]
-        pub fn get_function_spaces(lang: &LANG, source: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>) -> Option<FuncSpace> {
+        pub fn get_function_spaces(lang: &LANG, source: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>) -> Result<FuncSpace, MetricsError> {
             match lang {
                 $(
                     LANG::$camel => {
@@ -256,8 +262,13 @@ macro_rules! mk_action {
         ///
         /// get_function_spaces_with_options(&language, source_as_vec, &path, None, options).unwrap();
         /// ```
+        ///
+        /// # Errors
+        ///
+        /// Returns [`MetricsError::EmptyRoot`] when the AST walker
+        /// cannot produce a top-level [`FuncSpace`].
         #[inline]
-        pub fn get_function_spaces_with_options(lang: &LANG, source: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>, options: MetricsOptions) -> Option<FuncSpace> {
+        pub fn get_function_spaces_with_options(lang: &LANG, source: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>, options: MetricsOptions) -> Result<FuncSpace, MetricsError> {
             match lang {
                 $(
                     LANG::$camel => {
@@ -288,8 +299,13 @@ macro_rules! mk_action {
         /// get_ops(&language, source_as_vec, &path, None).unwrap();
         /// # }
         /// ```
+        ///
+        /// # Errors
+        ///
+        /// Returns [`MetricsError::EmptyRoot`] when the AST walker
+        /// cannot produce a top-level [`Ops`].
         #[inline]
-        pub fn get_ops(lang: &LANG, source: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>) -> Option<Ops> {
+        pub fn get_ops(lang: &LANG, source: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>) -> Result<Ops, MetricsError> {
             match lang {
                 $(
                     LANG::$camel => {

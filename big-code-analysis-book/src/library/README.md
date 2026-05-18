@@ -43,7 +43,7 @@ the [`bca` CLI](../commands/README.md) is faster to wire up.
 - [Selecting metrics](selecting-metrics.md) — *(stub — planned)*.
 - [Walking `FuncSpace` results](walking-funcspace.md) — recurse
   into nested function / class / impl spaces.
-- [Error handling](error-handling.md) — what `Option<FuncSpace>`
+- [Error handling](error-handling.md) — what `Result<FuncSpace, MetricsError>`
   means today and how to turn it into a useful diagnostic.
 - [Stability and versioning](stability.md) — what you can and
   cannot rely on across `0.x` versions.

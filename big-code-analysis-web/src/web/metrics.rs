@@ -99,21 +99,22 @@ impl Callback for WebMetricsCallback {
     type Cfg = WebMetricsCfg;
 
     fn call<T: ParserTrait>(cfg: Self::Cfg, parser: &T) -> Self::Res {
+        // The REST schema carries `spaces: Option<FuncSpace>` — keeping
+        // it `Option` is explicitly out of scope of #253 (parallels the
+        // `AstResponse.root` decision). Collapse `MetricsError` into
+        // `None` here so the REST wire format is unchanged.
         let spaces = metrics_with_options(
             parser,
             &cfg.path,
             MetricsOptions::default().with_exclude_tests(cfg.exclude_tests),
-        );
-        let spaces = if cfg.unit {
-            if let Some(mut spaces) = spaces {
-                spaces.spaces.clear();
-                Some(spaces)
-            } else {
-                None
+        )
+        .ok()
+        .map(|mut s| {
+            if cfg.unit {
+                s.spaces.clear();
             }
-        } else {
-            spaces
-        };
+            s
+        });
 
         serde_json::to_value(WebMetricsResponse {
             id: cfg.id,

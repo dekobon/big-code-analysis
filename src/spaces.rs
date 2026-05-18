@@ -24,6 +24,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use crate::checker::Checker;
+use crate::error::MetricsError;
 use crate::node::Node;
 use crate::suppression::{
     Suppression, SuppressionKind, SuppressionScope, parse_marker as parse_suppression_marker,
@@ -351,6 +352,12 @@ struct State<'a> {
 /// through this entry point. Pass an explicit [`MetricsOptions`]
 /// (e.g. `exclude_tests: true`) to opt in to subtree filtering.
 ///
+/// # Errors
+///
+/// Returns [`MetricsError::EmptyRoot`] when the AST walker cannot
+/// produce a top-level [`FuncSpace`] (typically empty input or input
+/// whose only content is comments).
+///
 /// # Examples
 ///
 /// ```
@@ -370,7 +377,10 @@ struct State<'a> {
 /// // Gets all function spaces data of the code contained in foo.c
 /// metrics(&parser, &path).unwrap();
 /// ```
-pub fn metrics<'a, T: ParserTrait>(parser: &'a T, path: &'a Path) -> Option<FuncSpace> {
+pub fn metrics<'a, T: ParserTrait>(
+    parser: &'a T,
+    path: &'a Path,
+) -> Result<FuncSpace, MetricsError> {
     metrics_with_options(parser, path, MetricsOptions::default())
 }
 
@@ -389,11 +399,16 @@ pub fn metrics<'a, T: ParserTrait>(parser: &'a T, path: &'a Path) -> Option<Func
 /// the enclosing [`FuncSpace::suppressed`]. Malformed `bca:` markers
 /// produce a warning to stderr — they do not abort the walk, so a
 /// single typo in one file cannot derail a workspace-wide run.
+///
+/// # Errors
+///
+/// Returns [`MetricsError::EmptyRoot`] when the AST walker cannot
+/// produce a top-level [`FuncSpace`] (typically empty input).
 pub fn metrics_with_options<'a, T: ParserTrait>(
     parser: &'a T,
     path: &'a Path,
     options: MetricsOptions,
-) -> Option<FuncSpace> {
+) -> Result<FuncSpace, MetricsError> {
     let code = parser.get_code();
     let node = parser.get_root();
     let mut cursor = node.cursor();
@@ -520,21 +535,23 @@ pub fn metrics_with_options<'a, T: ParserTrait>(
 
     finalize::<T>(&mut state_stack, usize::MAX);
 
-    state_stack.pop().map(|mut state| {
-        // `path.to_str()` returns `None` for non-UTF-8 paths (valid on
-        // Linux ext4/tmpfs, and possible on Windows for invalid UTF-16),
-        // which would silently collapse into the same `None` that signals
-        // a parse error for nested spaces. Use lossy conversion so the
-        // top-level space is always identifiable, and surface the lossy
-        // bit in `name_was_lossy` so consumers can opt out of using the
-        // U+FFFD-bearing name as an identifier (see the doc comment on
-        // `FuncSpace::name`).
-        let was_lossy = path.to_str().is_none();
-        state.space.name = Some(path.to_string_lossy().into_owned());
-        state.space.name_was_lossy = was_lossy;
-        attach_suppressions(&mut state.space, &pending);
-        state.space
-    })
+    // `None` here means the walker never produced a top-level
+    // `FuncSpace` — typically empty input or input whose only content
+    // is comments. Surfaced as `MetricsError::EmptyRoot` rather than a
+    // bare `None` so library callers can tell empty-input apart from
+    // future failure modes (parse-error, disabled-language, …).
+    let mut state = state_stack.pop().ok_or(MetricsError::EmptyRoot)?;
+    // `path.to_str()` returns `None` for non-UTF-8 paths (valid on
+    // Linux ext4/tmpfs, and possible on Windows for invalid UTF-16).
+    // Use lossy conversion so the top-level space is always
+    // identifiable, and surface the lossy bit in `name_was_lossy` so
+    // consumers can opt out of using the U+FFFD-bearing name as an
+    // identifier (see the doc comment on `FuncSpace::name`).
+    let was_lossy = path.to_str().is_none();
+    state.space.name = Some(path.to_string_lossy().into_owned());
+    state.space.name_was_lossy = was_lossy;
+    attach_suppressions(&mut state.space, &pending);
+    Ok(state.space)
 }
 
 /// Attach parsed [`Suppression`] directives to the matching `FuncSpace`
@@ -715,8 +732,8 @@ impl Callback for Metrics {
 
     fn call<T: ParserTrait>(cfg: Self::Cfg, parser: &T) -> Self::Res {
         match metrics_with_options(parser, &cfg.path, cfg.options) {
-            Some(space) => dump_root(&space),
-            _ => Ok(()),
+            Ok(space) => dump_root(&space),
+            Err(_) => Ok(()),
         }
     }
 }

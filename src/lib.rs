@@ -130,3 +130,6 @@ pub use crate::comment_rm::*;
 
 mod suppression;
 pub use crate::suppression::{MetricKind, SuppressionPolicy, SuppressionScope};
+
+mod error;
+pub use crate::error::MetricsError;

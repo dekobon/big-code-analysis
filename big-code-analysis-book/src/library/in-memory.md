@@ -27,12 +27,16 @@ fn analyze_buffer(source: &[u8]) -> Option<f64> {
     // is meaningful for downstream consumers (logs, JSON output).
     let path = PathBuf::from("<stdin>");
 
+    // `get_function_spaces` returns `Result<FuncSpace, MetricsError>`;
+    // collapse to `Option` at the boundary so this helper's signature
+    // matches the caller's expectations.
     let space = get_function_spaces(
         &LANG::Python,
         source.to_vec(),
         &path,
         None,
-    )?;
+    )
+    .ok()?;
 
     Some(space.metrics.cognitive.cognitive_sum())
 }
@@ -56,14 +60,17 @@ fn main() -> io::Result<()> {
     io::stdin().read_to_end(&mut source)?;
 
     let path = PathBuf::from("<stdin>");
-    let Some(space) = get_function_spaces(
+    let space = match get_function_spaces(
         &LANG::Javascript,
         source,
         &path,
         None,
-    ) else {
-        eprintln!("parse failed");
-        std::process::exit(1);
+    ) {
+        Ok(space) => space,
+        Err(err) => {
+            eprintln!("parse failed: {err}");
+            std::process::exit(1);
+        }
     };
 
     println!("{}", space.metrics.cyclomatic.cyclomatic_sum());
@@ -86,7 +93,10 @@ use big_code_analysis::{get_function_spaces, guess_language};
 fn analyze(path: PathBuf, source: Vec<u8>) -> Option<()> {
     let (lang, _name) = guess_language(&source, &path);
     let lang = lang?;
-    let _space = get_function_spaces(&lang, source, &path, None)?;
+    // `.ok()?` collapses `MetricsError` into `None` so this helper's
+    // `Option` return shape is preserved. See `error-handling.md` for
+    // a richer mapping that preserves the variant.
+    let _space = get_function_spaces(&lang, source, &path, None).ok()?;
     Some(())
 }
 ```
