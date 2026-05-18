@@ -134,6 +134,9 @@ pub use crate::suppression::{MetricKind, SuppressionPolicy, SuppressionScope};
 mod error;
 pub use crate::error::MetricsError;
 
+mod metric_set;
+pub use crate::metric_set::{Metric, MetricSet};
+
 /// Re-export of the underlying `tree-sitter` crate.
 ///
 /// Lets callers build a [`tree_sitter::Tree`] (via

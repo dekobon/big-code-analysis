@@ -20,11 +20,13 @@
 use std::collections::HashMap;
 
 use serde::Serialize;
+use serde::ser::SerializeStruct;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::langs::LANG;
+use crate::metric_set::{Metric, MetricSet};
 use crate::preproc::PreprocResults;
 
 use crate::checker::Checker;
@@ -95,7 +97,15 @@ impl fmt::Display for SpaceKind {
 }
 
 /// All metrics data.
-#[derive(Default, Debug, Clone, Serialize)]
+///
+/// The set of metrics actually computed is governed by
+/// [`MetricsOptions::with_only`]. By default every metric is
+/// populated; when `with_only` restricts the set, unselected fields
+/// remain at their `Default` value and are elided from
+/// `Serialize` output. The `selected` mask is the source of truth
+/// for which fields are populated — read it via
+/// [`CodeMetrics::selected`].
+#[derive(Default, Debug, Clone)]
 pub struct CodeMetrics {
     /// `NArgs` data
     pub nargs: nargs::Stats,
@@ -118,14 +128,129 @@ pub struct CodeMetrics {
     /// `Abc` data
     pub abc: abc::Stats,
     /// `Wmc` data
-    #[serde(skip_serializing_if = "wmc::Stats::is_disabled")]
     pub wmc: wmc::Stats,
     /// `Npm` data
-    #[serde(skip_serializing_if = "npm::Stats::is_disabled")]
     pub npm: npm::Stats,
     /// `Npa` data
-    #[serde(skip_serializing_if = "npa::Stats::is_disabled")]
     pub npa: npa::Stats,
+    /// Which metrics were actually computed for this space.
+    ///
+    /// Default is [`MetricSet::all`] — every metric was run, matching
+    /// the pre-#257 behaviour. After
+    /// [`MetricsOptions::with_only`] the bitfield is restricted to the
+    /// caller's selection plus auto-added dependencies.
+    ///
+    /// The [`Serialize`] impl consults this set to elide fields the
+    /// caller did not select. The field itself is not serialized.
+    pub selected: MetricSet,
+}
+
+impl Serialize for CodeMetrics {
+    // Per-metric serialization gated by `self.selected`. We
+    // pre-count the number of fields that will be emitted so the
+    // `SerializeStruct` header is accurate (formats like CBOR write
+    // the field count up front and reject mismatches at the end).
+    //
+    // The existing skip-when-disabled predicates for `wmc`, `npm`, and
+    // `npa` are honored alongside the selection mask: a metric is
+    // emitted iff it was selected AND not flagged as disabled by the
+    // metric itself.
+    #[allow(clippy::similar_names)] // wmc / npm / npa are domain terms
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let sel = self.selected;
+        let emit_wmc = sel.contains(Metric::Wmc) && !self.wmc.is_disabled();
+        let emit_npm = sel.contains(Metric::Npm) && !self.npm.is_disabled();
+        let emit_npa = sel.contains(Metric::Npa) && !self.npa.is_disabled();
+
+        // 10 always-on metrics (nargs, nexits, cognitive, cyclomatic,
+        // halstead, loc, nom, tokens, mi, abc) plus up to 3 from the
+        // class-only group (wmc, npm, npa). The count must track the
+        // serialize_field arms below 1:1 — CBOR writes the field
+        // count up front and rejects mismatches at end().
+        let always_on = [
+            Metric::NArgs,
+            Metric::Exit,
+            Metric::Cognitive,
+            Metric::Cyclomatic,
+            Metric::Halstead,
+            Metric::Loc,
+            Metric::Nom,
+            Metric::Tokens,
+            Metric::Mi,
+            Metric::Abc,
+        ];
+        let field_count = always_on.iter().filter(|m| sel.contains(**m)).count()
+            + usize::from(emit_wmc)
+            + usize::from(emit_npm)
+            + usize::from(emit_npa);
+
+        let mut st = serializer.serialize_struct("CodeMetrics", field_count)?;
+        if sel.contains(Metric::NArgs) {
+            st.serialize_field("nargs", &self.nargs)?;
+        }
+        if sel.contains(Metric::Exit) {
+            st.serialize_field("nexits", &self.nexits)?;
+        }
+        if sel.contains(Metric::Cognitive) {
+            st.serialize_field("cognitive", &self.cognitive)?;
+        }
+        if sel.contains(Metric::Cyclomatic) {
+            st.serialize_field("cyclomatic", &self.cyclomatic)?;
+        }
+        if sel.contains(Metric::Halstead) {
+            st.serialize_field("halstead", &self.halstead)?;
+        }
+        if sel.contains(Metric::Loc) {
+            st.serialize_field("loc", &self.loc)?;
+        }
+        if sel.contains(Metric::Nom) {
+            st.serialize_field("nom", &self.nom)?;
+        }
+        if sel.contains(Metric::Tokens) {
+            st.serialize_field("tokens", &self.tokens)?;
+        }
+        if sel.contains(Metric::Mi) {
+            st.serialize_field("mi", &self.mi)?;
+        }
+        if sel.contains(Metric::Abc) {
+            st.serialize_field("abc", &self.abc)?;
+        }
+        if emit_wmc {
+            st.serialize_field("wmc", &self.wmc)?;
+        }
+        if emit_npm {
+            st.serialize_field("npm", &self.npm)?;
+        }
+        if emit_npa {
+            st.serialize_field("npa", &self.npa)?;
+        }
+        st.end()
+    }
+}
+
+impl CodeMetrics {
+    /// Construct a `CodeMetrics` whose `selected` mask is the given
+    /// [`MetricSet`]. All metric fields are at their `Default` value;
+    /// the walker fills them in for whichever metrics the mask
+    /// admits.
+    #[inline]
+    #[must_use]
+    pub fn with_selected(selected: MetricSet) -> Self {
+        Self {
+            selected,
+            ..Self::default()
+        }
+    }
+
+    /// Returns the set of metrics that were computed for this space.
+    #[inline]
+    #[must_use]
+    pub fn selected(&self) -> MetricSet {
+        self.selected
+    }
 }
 
 impl fmt::Display for CodeMetrics {
@@ -159,6 +284,14 @@ impl CodeMetrics {
         self.wmc.merge(&other.wmc);
         self.npm.merge(&other.npm);
         self.npa.merge(&other.npa);
+        // Union the selection masks so a parent space's emitted
+        // fields are the union of every nested space's selection.
+        // In practice every nested space shares the same mask (set
+        // once from `MetricsOptions::metrics`), so this is the
+        // identity operation; we union rather than assign to keep
+        // `merge` correct under future callers that mix
+        // independently-built `FuncSpace` values.
+        self.selected = self.selected.union(other.selected);
     }
 }
 
@@ -212,7 +345,7 @@ pub struct FuncSpace {
 }
 
 impl FuncSpace {
-    fn new<T: Getter>(node: &Node, code: &[u8], kind: SpaceKind) -> Self {
+    fn new<T: Getter>(node: &Node, code: &[u8], kind: SpaceKind, selected: MetricSet) -> Self {
         let (start_position, end_position) = match kind {
             SpaceKind::Unit => {
                 if node.child_count() == 0 {
@@ -238,7 +371,7 @@ impl FuncSpace {
         Self {
             name,
             spaces: Vec::new(),
-            metrics: CodeMetrics::default(),
+            metrics: CodeMetrics::with_selected(selected),
             kind,
             start_line: start_position,
             end_line: end_position,
@@ -248,60 +381,104 @@ impl FuncSpace {
 }
 
 #[inline]
-fn compute_halstead_mi_and_wmc<T: ParserTrait>(state: &mut State) {
-    state
-        .halstead_maps
-        .finalize(&mut state.space.metrics.halstead);
-    T::Mi::compute(
-        &state.space.metrics.loc,
-        &state.space.metrics.cyclomatic,
-        &state.space.metrics.halstead,
-        &mut state.space.metrics.mi,
-    );
-    T::Wmc::compute(
-        state.space.kind,
-        &state.space.metrics.cyclomatic,
-        &mut state.space.metrics.wmc,
-    );
+fn compute_halstead_mi_and_wmc<T: ParserTrait>(state: &mut State, selected: MetricSet) {
+    if selected.contains(Metric::Halstead) {
+        state
+            .halstead_maps
+            .finalize(&mut state.space.metrics.halstead);
+    }
+    if selected.contains(Metric::Mi) {
+        // `MetricsOptions::with_only` guarantees Mi's dependencies
+        // (Loc + Cyclomatic + Halstead) are also selected, so the
+        // Stats values feeding into the MI formula here are populated
+        // — not the zero defaults that would silently produce a
+        // garbage MI score.
+        T::Mi::compute(
+            &state.space.metrics.loc,
+            &state.space.metrics.cyclomatic,
+            &state.space.metrics.halstead,
+            &mut state.space.metrics.mi,
+        );
+    }
+    if selected.contains(Metric::Wmc) {
+        T::Wmc::compute(
+            state.space.kind,
+            &state.space.metrics.cyclomatic,
+            &mut state.space.metrics.wmc,
+        );
+    }
 }
 
 #[inline]
-fn compute_averages(state: &mut State) {
+fn compute_averages(state: &mut State, selected: MetricSet) {
+    // `Nom::functions_sum / closures_sum / total` are only meaningful
+    // if Nom was selected; when it isn't, the divisor is the Stats
+    // default (0) and the per-metric `finalize` calls treat that as
+    // "no functions, no closures, no items". Compute the divisors
+    // once and feed them into each gated finalize.
     let nom_functions = state.space.metrics.nom.functions_sum() as usize;
     let nom_closures = state.space.metrics.nom.closures_sum() as usize;
     let nom_total = state.space.metrics.nom.total() as usize;
     // Cognitive average
-    state.space.metrics.cognitive.finalize(nom_total);
+    if selected.contains(Metric::Cognitive) {
+        state.space.metrics.cognitive.finalize(nom_total);
+    }
     // Nexit average
-    state.space.metrics.nexits.finalize(nom_total);
+    if selected.contains(Metric::Exit) {
+        state.space.metrics.nexits.finalize(nom_total);
+    }
     // Nargs average
-    state
-        .space
-        .metrics
-        .nargs
-        .finalize(nom_functions, nom_closures);
+    if selected.contains(Metric::NArgs) {
+        state
+            .space
+            .metrics
+            .nargs
+            .finalize(nom_functions, nom_closures);
+    }
 }
 
 #[inline]
-fn compute_minmax(state: &mut State) {
-    state.space.metrics.cyclomatic.compute_minmax();
-    state.space.metrics.nexits.compute_minmax();
-    state.space.metrics.cognitive.compute_minmax();
-    state.space.metrics.nargs.compute_minmax();
-    state.space.metrics.nom.compute_minmax();
-    state.space.metrics.loc.compute_minmax();
-    state.space.metrics.abc.compute_minmax();
-    state.space.metrics.tokens.compute_minmax();
+fn compute_minmax(state: &mut State, selected: MetricSet) {
+    if selected.contains(Metric::Cyclomatic) {
+        state.space.metrics.cyclomatic.compute_minmax();
+    }
+    if selected.contains(Metric::Exit) {
+        state.space.metrics.nexits.compute_minmax();
+    }
+    if selected.contains(Metric::Cognitive) {
+        state.space.metrics.cognitive.compute_minmax();
+    }
+    if selected.contains(Metric::NArgs) {
+        state.space.metrics.nargs.compute_minmax();
+    }
+    if selected.contains(Metric::Nom) {
+        state.space.metrics.nom.compute_minmax();
+    }
+    if selected.contains(Metric::Loc) {
+        state.space.metrics.loc.compute_minmax();
+    }
+    if selected.contains(Metric::Abc) {
+        state.space.metrics.abc.compute_minmax();
+    }
+    if selected.contains(Metric::Tokens) {
+        state.space.metrics.tokens.compute_minmax();
+    }
 }
 
 #[inline]
-fn compute_sum(state: &mut State) {
-    state.space.metrics.wmc.compute_sum();
-    state.space.metrics.npm.compute_sum();
-    state.space.metrics.npa.compute_sum();
+fn compute_sum(state: &mut State, selected: MetricSet) {
+    if selected.contains(Metric::Wmc) {
+        state.space.metrics.wmc.compute_sum();
+    }
+    if selected.contains(Metric::Npm) {
+        state.space.metrics.npm.compute_sum();
+    }
+    if selected.contains(Metric::Npa) {
+        state.space.metrics.npa.compute_sum();
+    }
 }
 
-fn finalize<T: ParserTrait>(state_stack: &mut Vec<State>, diff_level: usize) {
+fn finalize<T: ParserTrait>(state_stack: &mut Vec<State>, diff_level: usize, selected: MetricSet) {
     if state_stack.is_empty() {
         return;
     }
@@ -310,25 +487,25 @@ fn finalize<T: ParserTrait>(state_stack: &mut Vec<State>, diff_level: usize) {
             let last_state = state_stack
                 .last_mut()
                 .expect("invariant: state_stack has exactly one element");
-            compute_minmax(last_state);
-            compute_sum(last_state);
-            compute_halstead_mi_and_wmc::<T>(last_state);
-            compute_averages(last_state);
+            compute_minmax(last_state, selected);
+            compute_sum(last_state, selected);
+            compute_halstead_mi_and_wmc::<T>(last_state, selected);
+            compute_averages(last_state, selected);
             break;
         }
         let mut state = state_stack
             .pop()
             .expect("invariant: state_stack has more than one element");
-        compute_minmax(&mut state);
-        compute_sum(&mut state);
-        compute_halstead_mi_and_wmc::<T>(&mut state);
-        compute_averages(&mut state);
+        compute_minmax(&mut state, selected);
+        compute_sum(&mut state, selected);
+        compute_halstead_mi_and_wmc::<T>(&mut state, selected);
+        compute_averages(&mut state, selected);
 
         let last_state = state_stack
             .last_mut()
             .expect("invariant: state_stack has remaining elements after pop");
         last_state.halstead_maps.merge(&state.halstead_maps);
-        compute_halstead_mi_and_wmc::<T>(last_state);
+        compute_halstead_mi_and_wmc::<T>(last_state, selected);
 
         // Merge function spaces
         last_state.space.metrics.merge(&state.space.metrics);
@@ -580,6 +757,60 @@ pub fn metrics_with_options<'a, T: ParserTrait>(
     metrics_inner(parser, Some(path.to_string_lossy().into_owned()), options)
 }
 
+// Per-node metric dispatch. Each `compute` call is paired with a bit
+// check against the caller's selection. The bit tests are cheap
+// (single AND-and-compare on a u16) and an unselected metric saves
+// both the call overhead and any per-node text-slice / token-table
+// work the metric does internally — Halstead in particular owns
+// `HalsteadMaps` allocations and is the headline cost saving for
+// `with_only(&[Metric::Loc])`. Extracted from `metrics_inner` so the
+// walker stays under clippy's 100-line ceiling.
+#[inline]
+fn compute_per_node<'a, T: ParserTrait>(
+    state: &mut State<'a>,
+    node: &Node<'a>,
+    code: &'a [u8],
+    selected: MetricSet,
+    func_space: bool,
+    unit: bool,
+    nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
+) {
+    let last = &mut state.space;
+    if selected.contains(Metric::Cognitive) {
+        T::Cognitive::compute(node, code, &mut last.metrics.cognitive, nesting_map);
+    }
+    if selected.contains(Metric::Cyclomatic) {
+        T::Cyclomatic::compute(node, code, &mut last.metrics.cyclomatic);
+    }
+    if selected.contains(Metric::Halstead) {
+        T::Halstead::compute(node, code, &mut state.halstead_maps);
+    }
+    if selected.contains(Metric::Loc) {
+        T::Loc::compute(node, &mut last.metrics.loc, func_space, unit);
+    }
+    if selected.contains(Metric::Nom) {
+        T::Nom::compute(node, &mut last.metrics.nom);
+    }
+    if selected.contains(Metric::Tokens) {
+        T::Tokens::compute(node, &mut last.metrics.tokens);
+    }
+    if selected.contains(Metric::NArgs) {
+        T::NArgs::compute(node, &mut last.metrics.nargs);
+    }
+    if selected.contains(Metric::Exit) {
+        T::Exit::compute(node, code, &mut last.metrics.nexits);
+    }
+    if selected.contains(Metric::Abc) {
+        T::Abc::compute(node, code, &mut last.metrics.abc);
+    }
+    if selected.contains(Metric::Npm) {
+        T::Npm::compute(node, code, &mut last.metrics.npm);
+    }
+    if selected.contains(Metric::Npa) {
+        T::Npa::compute(node, code, &mut last.metrics.npa);
+    }
+}
+
 pub(crate) fn metrics_inner<T: ParserTrait>(
     parser: &T,
     name: Option<String>,
@@ -591,6 +822,7 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
     // shims pass a lossy-stringified path here, matching pre-#254
     // behaviour byte-for-byte.
     let diagnostic_path = name.as_deref().unwrap_or("<input>");
+    let selected = options.metrics;
     let code = parser.get_code();
     let node = parser.get_root();
     let mut cursor = node.cursor();
@@ -614,7 +846,7 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
     // file so the top-level FuncSpace upholds the LOC invariant
     // `blank = sloc - ploc - only_comment_lines >= 0`.
     if T::Getter::get_space_kind(&node) != SpaceKind::Unit {
-        let mut synthetic = FuncSpace::new::<T::Getter>(&node, code, SpaceKind::Unit);
+        let mut synthetic = FuncSpace::new::<T::Getter>(&node, code, SpaceKind::Unit, selected);
         synthetic
             .metrics
             .loc
@@ -637,7 +869,7 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
         }
 
         if level < last_level {
-            finalize::<T>(&mut state_stack, last_level - level);
+            finalize::<T>(&mut state_stack, last_level - level, selected);
             last_level = level;
         }
 
@@ -648,7 +880,7 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
 
         let new_level = if func_space {
             let state = State {
-                space: FuncSpace::new::<T::Getter>(&node, code, kind),
+                space: FuncSpace::new::<T::Getter>(&node, code, kind, selected),
                 halstead_maps: HalsteadMaps::new(),
             };
             state_stack.push(state);
@@ -687,18 +919,15 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
         }
 
         if let Some(state) = state_stack.last_mut() {
-            let last = &mut state.space;
-            T::Cognitive::compute(&node, code, &mut last.metrics.cognitive, &mut nesting_map);
-            T::Cyclomatic::compute(&node, code, &mut last.metrics.cyclomatic);
-            T::Halstead::compute(&node, code, &mut state.halstead_maps);
-            T::Loc::compute(&node, &mut last.metrics.loc, func_space, unit);
-            T::Nom::compute(&node, &mut last.metrics.nom);
-            T::Tokens::compute(&node, &mut last.metrics.tokens);
-            T::NArgs::compute(&node, &mut last.metrics.nargs);
-            T::Exit::compute(&node, code, &mut last.metrics.nexits);
-            T::Abc::compute(&node, code, &mut last.metrics.abc);
-            T::Npm::compute(&node, code, &mut last.metrics.npm);
-            T::Npa::compute(&node, code, &mut last.metrics.npa);
+            compute_per_node::<T>(
+                state,
+                &node,
+                code,
+                selected,
+                func_space,
+                unit,
+                &mut nesting_map,
+            );
         }
 
         cursor.reset(&node);
@@ -715,7 +944,7 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
         }
     }
 
-    finalize::<T>(&mut state_stack, usize::MAX);
+    finalize::<T>(&mut state_stack, usize::MAX, selected);
 
     // `None` here means the walker never produced a top-level
     // `FuncSpace` — typically empty input or input whose only content
@@ -831,6 +1060,10 @@ pub struct MetricsOptions {
     /// [`Checker::should_skip_subtree`] honor this; others ignore
     /// the flag.
     pub exclude_tests: bool,
+    /// Which metrics to compute. Defaults to [`MetricSet::all`] —
+    /// every metric is enabled, matching the pre-#257 behaviour.
+    /// Restrict via [`MetricsOptions::with_only`].
+    pub metrics: MetricSet,
 }
 
 impl MetricsOptions {
@@ -844,6 +1077,44 @@ impl MetricsOptions {
     #[must_use]
     pub fn with_exclude_tests(mut self, exclude_tests: bool) -> Self {
         self.exclude_tests = exclude_tests;
+        self
+    }
+
+    /// Restrict computation to the given metrics. Metrics outside
+    /// this set are skipped during the walk; their `Stats` fields on
+    /// [`CodeMetrics`] remain at their `Default` value and are
+    /// elided from the [`Serialize`] output. Pass an empty slice to
+    /// disable every metric (the walker still runs and produces the
+    /// space tree, but no metric values are populated).
+    ///
+    /// # Dependencies
+    ///
+    /// Derived metrics implicitly pull in the inputs they require:
+    ///
+    /// - [`Metric::Mi`] adds [`Metric::Loc`], [`Metric::Cyclomatic`],
+    ///   [`Metric::Halstead`].
+    /// - [`Metric::Wmc`] adds [`Metric::Cyclomatic`] and
+    ///   [`Metric::Nom`].
+    ///
+    /// This auto-resolution is silent: a caller asking for `Mi`
+    /// alone gets a populated `Mi` value, not a zero. See
+    /// [`Metric::dependencies`] for the source of truth.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use big_code_analysis::{Metric, MetricsOptions};
+    ///
+    /// // Compute LoC only.
+    /// let _opts = MetricsOptions::default().with_only(&[Metric::Loc]);
+    ///
+    /// // Compute Mi: Loc + Cyclomatic + Halstead are auto-added.
+    /// let _opts = MetricsOptions::default().with_only(&[Metric::Mi]);
+    /// ```
+    #[inline]
+    #[must_use]
+    pub fn with_only(mut self, metrics: &[Metric]) -> Self {
+        self.metrics = MetricSet::from_slice_with_deps(metrics);
         self
     }
 }
@@ -1354,8 +1625,12 @@ mod tests {
         fn analyse(source: &str, exclude_tests: bool) -> crate::FuncSpace {
             let path = PathBuf::from("lib.rs");
             let parser = RustParser::new(source.as_bytes().to_vec(), &path, None);
-            metrics_with_options(&parser, &path, MetricsOptions { exclude_tests })
-                .expect("metrics must yield a top-level space")
+            metrics_with_options(
+                &parser,
+                &path,
+                MetricsOptions::default().with_exclude_tests(exclude_tests),
+            )
+            .expect("metrics must yield a top-level space")
         }
 
         // Production function plus an outer-attribute `#[test]`
@@ -1571,18 +1846,14 @@ int helper() { return 2; }
             let baseline = metrics_with_options(
                 &parser,
                 &path,
-                MetricsOptions {
-                    exclude_tests: false,
-                },
+                MetricsOptions::default().with_exclude_tests(false),
             )
             .expect("baseline must yield a top-level space");
             let parser = CppParser::new(source.as_bytes().to_vec(), &path, None);
             let pruned = metrics_with_options(
                 &parser,
                 &path,
-                MetricsOptions {
-                    exclude_tests: true,
-                },
+                MetricsOptions::default().with_exclude_tests(true),
             )
             .expect("pruned must yield a top-level space");
             // Anchor on the absolute count (2) so a regression that
@@ -1590,6 +1861,195 @@ int helper() { return 2; }
             // `baseline == pruned` check.
             assert_eq!(baseline.metrics.nom.functions_sum() as usize, 2);
             assert_eq!(pruned.metrics.nom.functions_sum() as usize, 2);
+        }
+    }
+
+    // --- #257: per-metric selection via with_only --------------------
+    //
+    // Exercise the gating bitfield through the recommended public
+    // entry point (`analyze` + `Source`) rather than the deprecated
+    // path-positional shims, so the tests pin the surface library
+    // consumers actually use.
+
+    mod with_only {
+        use crate::{LANG, Metric, MetricSet, MetricsOptions, Source, analyze};
+
+        const SOURCE: &str = "\
+fn prod(x: i32) -> i32 {
+    if x > 0 { x + 1 } else { x - 1 }
+}
+";
+
+        fn analyse(metrics: &[Metric]) -> crate::FuncSpace {
+            let opts = MetricsOptions::default().with_only(metrics);
+            analyze(
+                Source::new(LANG::Rust, SOURCE.as_bytes()).with_name(Some("lib.rs".to_owned())),
+                opts,
+            )
+            .expect("analyze must yield a top-level space")
+        }
+
+        // `with_only(&[Metric::Loc])` records exactly that bit on
+        // `CodeMetrics.selected` and leaves the dependent metrics
+        // (cognitive / cyclomatic / halstead / ...) at their default
+        // values. The dependent-metric anchors guard against the
+        // walker silently running them anyway.
+        #[test]
+        fn loc_only_skips_other_metrics() {
+            let full = analyze(
+                Source::new(LANG::Rust, SOURCE.as_bytes()).with_name(Some("lib.rs".to_owned())),
+                MetricsOptions::default(),
+            )
+            .expect("full analyze must yield a top-level space");
+            let pruned = analyse(&[Metric::Loc]);
+
+            assert_eq!(
+                pruned.metrics.selected(),
+                MetricSet::empty().with(Metric::Loc),
+                "with_only(&[Loc]) must record exactly the Loc bit"
+            );
+            // LoC populated: the production function span is >= 1 ploc.
+            assert!(pruned.metrics.loc.ploc() >= 1.0);
+            // Full run has > 0 cognitive/cyclomatic; pruned must be
+            // exactly zero because the compute call is gated off.
+            assert!(full.metrics.cognitive.cognitive_sum() > 0.0);
+            assert_eq!(pruned.metrics.cognitive.cognitive_sum(), 0.0);
+            assert!(full.metrics.cyclomatic.cyclomatic_sum() > 0.0);
+            assert_eq!(pruned.metrics.cyclomatic.cyclomatic_sum(), 0.0);
+            // Halstead operators count is at the default (0) — no
+            // per-node token text was hashed.
+            assert_eq!(pruned.metrics.halstead.u_operators(), 0.0);
+        }
+
+        // Selecting `Mi` alone must auto-add its dependencies
+        // (Loc + Cyclomatic + Halstead) — otherwise the MI formula
+        // would compute against zero inputs and return a meaningless
+        // score.
+        #[test]
+        fn mi_auto_pulls_dependencies() {
+            let pruned = analyse(&[Metric::Mi]);
+            let sel = pruned.metrics.selected();
+            assert!(sel.contains(Metric::Mi));
+            assert!(sel.contains(Metric::Loc), "Mi depends on Loc");
+            assert!(sel.contains(Metric::Cyclomatic), "Mi depends on Cyclomatic");
+            assert!(sel.contains(Metric::Halstead), "Mi depends on Halstead");
+            // Unrelated metrics must NOT be selected.
+            assert!(!sel.contains(Metric::Abc));
+            assert!(!sel.contains(Metric::Tokens));
+            // The dependencies must actually be populated — not just
+            // selected. Otherwise the MI formula receives zero inputs
+            // and `mi_original`'s `inputs_are_empty` short-circuit
+            // returns 0.0, which would also be `is_finite`. We anchor
+            // on the dependency values themselves (Loc ploc > 0,
+            // Cyclomatic sum > 0) so the test would fail if the
+            // walker silently skipped the dependency compute.
+            assert!(
+                pruned.metrics.loc.ploc() > 0.0,
+                "Loc must have run (Mi dependency); got ploc=0"
+            );
+            assert!(
+                pruned.metrics.cyclomatic.cyclomatic_sum() > 0.0,
+                "Cyclomatic must have run (Mi dependency); got sum=0"
+            );
+            // With non-zero inputs feeding the MI formula, the result
+            // is a finite non-zero number (the MI for this snippet is
+            // around 150 — a positive value well above the 0.0 that
+            // `inputs_are_empty` would short-circuit to).
+            let mi_value = pruned.metrics.mi.mi_original();
+            assert!(
+                mi_value.is_finite() && mi_value != 0.0,
+                "MI must be finite and non-default when its dependencies were computed; got {mi_value}"
+            );
+        }
+
+        // `with_only(&[Metric::Wmc])` auto-adds Cyclomatic + Nom.
+        #[test]
+        fn wmc_auto_pulls_dependencies() {
+            let pruned = analyse(&[Metric::Wmc]);
+            let sel = pruned.metrics.selected();
+            assert!(sel.contains(Metric::Wmc));
+            assert!(
+                sel.contains(Metric::Cyclomatic),
+                "Wmc depends on Cyclomatic"
+            );
+            assert!(sel.contains(Metric::Nom), "Wmc depends on Nom");
+            assert!(!sel.contains(Metric::Halstead));
+            // Dependency must actually be computed, not just bit-set:
+            // selecting Wmc alone must populate Cyclomatic & Nom.
+            assert!(
+                pruned.metrics.cyclomatic.cyclomatic_sum() > 0.0,
+                "Cyclomatic must have run (Wmc dependency); got sum=0"
+            );
+            assert!(
+                pruned.metrics.nom.functions_sum() > 0.0,
+                "Nom must have run (Wmc dependency); got functions_sum=0"
+            );
+        }
+
+        // `MetricsOptions::default()` selects every metric (#257's
+        // default-preservation contract).
+        #[test]
+        fn default_options_select_every_metric() {
+            let full = analyze(
+                Source::new(LANG::Rust, SOURCE.as_bytes()).with_name(Some("lib.rs".to_owned())),
+                MetricsOptions::default(),
+            )
+            .expect("analyze must yield a top-level space");
+            assert_eq!(full.metrics.selected(), MetricSet::all());
+        }
+
+        // JSON serialization elides unselected metrics. Anchored on
+        // the field names emitted at the top level of the
+        // `metrics` object rather than the full payload so a future
+        // additive change (new metric, new sub-field) doesn't shift
+        // unrelated tests.
+        #[test]
+        fn unselected_metrics_are_skipped_in_json() {
+            let pruned = analyse(&[Metric::Loc]);
+            let json =
+                serde_json::to_value(&pruned.metrics).expect("CodeMetrics must serialize cleanly");
+            let metrics = json.as_object().expect("CodeMetrics serializes as object");
+
+            assert!(
+                metrics.contains_key("loc"),
+                "loc must be serialized when selected"
+            );
+            for skipped in [
+                "cognitive",
+                "cyclomatic",
+                "halstead",
+                "nom",
+                "tokens",
+                "nargs",
+                "nexits",
+                "abc",
+                "mi",
+                "wmc",
+                "npm",
+                "npa",
+            ] {
+                assert!(
+                    !metrics.contains_key(skipped),
+                    "{skipped} must be elided when not selected"
+                );
+            }
+        }
+
+        // Empty slice = nothing selected. Every metric must be
+        // elided from JSON output; the space tree is still
+        // produced.
+        #[test]
+        fn empty_slice_selects_nothing() {
+            let pruned = analyse(&[]);
+            assert_eq!(pruned.metrics.selected(), MetricSet::empty());
+            let json =
+                serde_json::to_value(&pruned.metrics).expect("CodeMetrics must serialize cleanly");
+            let metrics = json.as_object().expect("CodeMetrics serializes as object");
+            assert!(
+                metrics.is_empty(),
+                "with_only(&[]) must elide every metric, got keys {:?}",
+                metrics.keys().collect::<Vec<_>>()
+            );
         }
     }
 }

@@ -1,74 +1,145 @@
 # Selecting metrics
 
-*Planned — not yet shipped. See [issue #257].*
+By default, every call to [`analyze`] computes the full metric
+suite — ABC, cognitive, cyclomatic, Halstead, LoC, MI, NArgs,
+NExits, NOM, NPA, NPM, tokens, and WMC. That is the right default
+for the CLI, where the user has just asked for *the* metrics, but
+it is heavyweight for callers that only want one number per file.
 
-[issue #257]: https://github.com/dekobon/big-code-analysis/issues/257
+`MetricsOptions::with_only(&[Metric])` lets you restrict the walker
+to a subset of metrics. Unselected metrics are skipped at the
+per-node level — no `T::Halstead::compute`, no
+`T::Cognitive::compute`, etc. — and elided from the
+[`CodeMetrics`][CodeMetrics] serialization output.
 
-## What this page will cover
+## A worked example
 
-Today, every call to [`analyze`] runs the full metric suite — ABC,
-cognitive, cyclomatic, Halstead, LoC, MI, NArgs, NExits, NOM, NPA,
-NPM, tokens, WMC. That is the right default for the CLI, where the
-user has just asked for "the metrics", but it is heavyweight for
-callers that want one number per file.
+Compute LoC only, then read the result:
 
-The planned [#257] work splits each metric behind its own Cargo
-feature flag so consumers can compile the library with only the
-metrics they need. Compile time, binary size, and runtime cost all
-drop in tandem.
+```rust
+use big_code_analysis::{analyze, LANG, Metric, MetricsOptions, Source};
 
-## What you can do today
+fn main() {
+    let source = b"fn f(x: i32) -> i32 { if x > 0 { 1 } else { 0 } }";
 
-Two interim options:
+    let opts = MetricsOptions::default().with_only(&[Metric::Loc]);
+    let space = analyze(
+        Source::new(LANG::Rust, source).with_name(Some("snippet.rs".to_owned())),
+        opts,
+    )
+    .expect("parses");
 
-1. **Run the full suite and read one field.** Every metric value
-   lives on [`FuncSpace::metrics`][FuncSpace]. Computing the
-   others alongside is cheap enough that this is the right call
-   for one-shot tools and CI.
+    // LoC was selected — it carries real numbers.
+    println!("ploc = {}", space.metrics.loc.ploc());
 
-   ```rust
-   use big_code_analysis::{analyze, LANG, MetricsOptions, Source};
+    // Halstead, cognitive, cyclomatic, … were skipped. Their
+    // `Stats` fields are at `Default` and elided from JSON output.
+    let json = serde_json::to_string_pretty(&space.metrics).unwrap();
+    println!("{json}");
+}
+```
 
-   fn main() {
-       let space = analyze(
-           Source::new(
-               LANG::Rust,
-               b"fn f(x: i32) -> i32 { if x > 0 { 1 } else { 0 } }",
-           )
-           .with_name(Some("snippet.rs".to_owned())),
-           MetricsOptions::default(),
-       )
-       .expect("parses");
+The JSON output for that call contains only the `loc` object;
+every other metric is absent.
 
-       // Read just one metric; ignore the rest.
-       println!("{}", space.metrics.cognitive.cognitive_sum());
-   }
-   ```
+## Dependencies between metrics
 
-2. **Use [`MetricsOptions`][MetricsOptions] for the knobs that
-   already exist.** Today the only switch is `exclude_tests`,
-   which prunes Rust `#[test]` / `#[cfg(test)]` subtrees before
-   the metric walk runs. That is closer to "scope selection" than
-   "metric selection", but if you only care about non-test code it
-   keeps the numbers tighter:
+Two metrics are *derived* — they consume the outputs of other
+metrics during the finalize step:
 
-   ```rust
-   use big_code_analysis::{analyze, LANG, MetricsOptions, Source};
+| Metric | Dependencies |
+|---|---|
+| `Metric::Mi`  | `Loc`, `Cyclomatic`, `Halstead` |
+| `Metric::Wmc` | `Cyclomatic`, `Nom` |
 
-   fn main() {
-       let options = MetricsOptions::default().with_exclude_tests(true);
-       let _space = analyze(
-           Source::new(LANG::Rust, b"fn lib() {} #[test] fn t() {}")
-               .with_name(Some("snippet.rs".to_owned())),
-           options,
-       );
-   }
-   ```
+`with_only` resolves these closures silently. Asking for `Mi`
+alone still computes `Loc + Cyclomatic + Halstead`, so the MI
+value is meaningful rather than a function of zero-default
+inputs:
 
-When [#257] lands this page will document the feature-flag
-matrix and any opt-in flags on `MetricsOptions` that replace the
-"run-everything-and-ignore" workaround.
+```rust
+# use big_code_analysis::{Metric, MetricSet, MetricsOptions};
+let opts = MetricsOptions::default().with_only(&[Metric::Mi]);
+// opts.metrics now contains Mi + Loc + Cyclomatic + Halstead.
+```
+
+You can introspect the final set from the resulting
+[`FuncSpace`][FuncSpace] via `space.metrics.selected()`:
+
+```rust,no_run
+# use big_code_analysis::{analyze, LANG, Metric, MetricsOptions, Source};
+let space = analyze(
+    Source::new(LANG::Rust, b"fn f() {}"),
+    MetricsOptions::default().with_only(&[Metric::Mi]),
+).unwrap();
+let sel = space.metrics.selected();
+assert!(sel.contains(Metric::Mi));
+assert!(sel.contains(Metric::Loc)); // auto-added dependency
+```
+
+## Default behaviour is unchanged
+
+`MetricsOptions::default()` selects every metric. The
+pre-#257 entry points (`analyze` without `with_only`, plus the
+deprecated `metrics` / `metrics_with_options` shims) produce
+byte-for-byte the same JSON they always did.
+
+## What about "everything except *X*"?
+
+There is no built-in complement API — `with_only` takes a positive
+selection, not an exclusion list. The intentional asymmetry keeps
+the dependency closure unambiguous: a positive list always grows
+through `Metric::dependencies`, whereas an exclusion list would
+need to decide what to do when the caller excludes a dependency
+of a metric they kept.
+
+If you genuinely want "all except Halstead", build the list
+explicitly. Because `Metric` is `#[non_exhaustive]`, downstream
+crates can construct the variants but cannot exhaustively `match`
+on them, so the conventional pattern is to enumerate the variants
+you want and accept that adding a future `Metric` variant will not
+silently opt you in:
+
+```rust
+use big_code_analysis::{Metric, MetricsOptions};
+
+let opts = MetricsOptions::default().with_only(&[
+    Metric::Cognitive,
+    Metric::Cyclomatic,
+    Metric::Loc,
+    Metric::Nom,
+    Metric::Tokens,
+    Metric::NArgs,
+    Metric::Exit,
+    Metric::Abc,
+    Metric::Npm,
+    Metric::Npa,
+    Metric::Wmc,
+    // Metric::Mi intentionally omitted: it would pull Halstead
+    // back in via the dependency closure.
+]);
+```
+
+Note the trap: keeping `Metric::Mi` re-adds `Metric::Halstead`
+through `Metric::dependencies`. To truly drop Halstead you must
+also drop `Mi`.
+
+## When to reach for `with_only`
+
+- **Hot paths** that need only one or two metrics per file —
+  Halstead in particular owns its own per-space `HalsteadMaps`
+  allocation and is the headline saving for an LoC-only run.
+- **CI integrations** that only display one number (e.g. a
+  cognitive-complexity gate) and want the rest of `CodeMetrics`
+  to drop out of the cached JSON payload.
+- **Library callers** wiring `big-code-analysis` into their own
+  reports who would otherwise see fields for every metric in
+  their own UI.
+
+Per-metric Cargo features (compile-time stripping) are not
+covered by this knob; they remain tracked separately under the
+grammar-feature work (#252).
 
 [`analyze`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.analyze.html
 [FuncSpace]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.FuncSpace.html
-[MetricsOptions]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.MetricsOptions.html
+[CodeMetrics]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.CodeMetrics.html
