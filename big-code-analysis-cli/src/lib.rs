@@ -62,7 +62,7 @@ use big_code_analysis::ParserTrait;
 use big_code_analysis::{
     CommentRm, CommentRmCfg, ConcurrentRunner, Count, CountCfg, Dump, DumpCfg, FilesData, Find,
     FindCfg, Function, FunctionCfg, Metrics, MetricsCfg, MetricsOptions, OpsCfg, OpsCode,
-    PreprocParser, PreprocResults,
+    PreprocParser, PreprocResults, SuppressionPolicy,
 };
 use big_code_analysis::{
     action, fix_includes, get_from_ext, get_function_spaces_with_options, get_ops, guess_language,
@@ -282,6 +282,12 @@ struct CheckArgs {
     /// Default: exit 2 when any threshold is exceeded.
     #[clap(long = "no-fail")]
     no_fail: bool,
+    /// Ignore in-source suppression markers (`bca: allow`,
+    /// `#lizard forgives`, etc.). Every threshold violation is
+    /// reported regardless of comment-based silencers. CI auditors
+    /// pass this to see the raw, un-silenced offender list.
+    #[clap(long = "no-suppress")]
+    no_suppress: bool,
     /// CI/IDE document format for offender records (Checkstyle 4.3 XML,
     /// SARIF 2.1.0 JSON, clang/GCC warning lines, MSVC warning lines).
     /// When omitted, only the human-readable stderr stream is emitted;
@@ -358,6 +364,12 @@ struct Config {
     /// no violations) from "no files matched" (counter == 0), so a
     /// typo in `--paths` does not silently pass CI.
     files_dispatched: Option<Arc<AtomicUsize>>,
+    /// Whether to honor or ignore in-source suppression markers when
+    /// emitting threshold violations. Only meaningful for
+    /// `Action::Check`; the field is defaulted to `Honor` for every
+    /// other action so the new code path is invisible to existing
+    /// flows. Flipped to `Ignore` by `--no-suppress`.
+    suppression_policy: SuppressionPolicy,
     warning: bool,
     /// When true, files whose head matches a generated-code marker are
     /// skipped before parsing. Defaults on; flipped off by
@@ -399,6 +411,7 @@ impl Config {
             threshold_set: None,
             check_tx: None,
             files_dispatched: None,
+            suppression_policy: SuppressionPolicy::Honor,
             warning: globals.warning,
             skip_generated: !globals.no_skip_generated,
             report_skipped: globals.report_skipped,
@@ -633,7 +646,7 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
                 // strategy at the output boundary; the threshold
                 // pipeline itself stays byte-faithful.
                 let mut violations = Vec::new();
-                set.evaluate(&path, &space, &mut violations);
+                set.evaluate_with_policy(&path, &space, cfg.suppression_policy, &mut violations);
                 if !violations.is_empty() {
                     let Ok(sender) = tx.lock() else {
                         if cfg.warning {
@@ -879,6 +892,7 @@ fn run_check(globals: GlobalOpts, args: CheckArgs, preproc: Option<Arc<PreprocRe
         threshold_set: Some(Arc::clone(&set)),
         check_tx: Some(Mutex::new(tx)),
         files_dispatched: Some(Arc::clone(&files_dispatched)),
+        suppression_policy: SuppressionPolicy::from_no_suppress(args.no_suppress),
         ..Config::new(Action::Check, &globals, preproc)
     };
     run_walk(globals, cfg);
@@ -1306,6 +1320,7 @@ mod tests {
             threshold_set: None,
             check_tx: None,
             files_dispatched: None,
+            suppression_policy: SuppressionPolicy::Honor,
             warning: false,
             skip_generated: true,
             report_skipped: false,

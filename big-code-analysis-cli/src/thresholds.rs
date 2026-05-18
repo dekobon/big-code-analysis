@@ -5,7 +5,7 @@
 //! such as `halstead.volume` or `loc.lloc`) to scalar extractors that read
 //! per-function values out of [`big_code_analysis::CodeMetrics`].
 //!
-//! `ThresholdSet::evaluate` walks a [`FuncSpace`] tree and yields one
+//! `ThresholdSet::evaluate_with_policy` walks a [`FuncSpace`] tree and yields one
 //! [`Violation`] per `(function, metric)` pair whose value exceeds its
 //! configured limit.
 
@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use big_code_analysis::{CodeMetrics, FuncSpace, SpaceKind};
+use big_code_analysis::{CodeMetrics, FuncSpace, MetricKind, SpaceKind, SuppressionPolicy};
 use serde::Deserialize;
 
 use crate::format_util::MetricScalar;
@@ -278,7 +278,8 @@ impl ThresholdSet {
 
     /// Walk `space`, comparing each function's metrics against every
     /// configured threshold, and append a [`Violation`] per offending
-    /// `(function, metric)` pair to `out`.
+    /// `(function, metric)` pair to `out`. `policy` decides whether to
+    /// honor in-source suppression markers.
     ///
     /// The walk is iterative (not recursive) so an adversarially deeply
     /// nested AST cannot overflow the worker thread's stack — the
@@ -299,23 +300,55 @@ impl ThresholdSet {
     /// — the path doubled. `<file>` makes the file-level emission
     /// distinguishable and keeps aggregate metrics like `loc.sloc`
     /// usable.
-    pub(crate) fn evaluate(&self, path: &Path, space: &FuncSpace, out: &mut Vec<Violation>) {
+    ///
+    /// File-scoped suppressions live on the top-level Unit space; they
+    /// apply to every nested function as well. Function-scoped
+    /// suppressions live on the function's own space and apply only
+    /// there.
+    pub(crate) fn evaluate_with_policy(
+        &self,
+        path: &Path,
+        space: &FuncSpace,
+        policy: SuppressionPolicy,
+        out: &mut Vec<Violation>,
+    ) {
+        // The top-level Unit's `suppressed` carries every `allow-file`
+        // marker in the file; it ORs with each function's own scope
+        // during the per-violation check below. `honor` gates the
+        // entire suppression path so `--no-suppress` (Ignore) emits
+        // every threshold violation regardless of source markers.
+        //
+        // On the root iteration `current` *is* `space`, so the OR
+        // below evaluates the same `BTreeSet::contains` twice on the
+        // same reference. The second probe is O(log n) on a tiny set
+        // and dominated by the threshold-check loop itself; keeping
+        // the OR uniform avoids a special-case branch.
+        let honor = matches!(policy, SuppressionPolicy::Honor);
+        let file_scope = &space.suppressed;
+
         let mut stack: Vec<&FuncSpace> = vec![space];
         while let Some(current) = stack.pop() {
             let function = function_token(current);
             for (extractor, limit) in &self.entries {
                 let value = (extractor.extract)(&current.metrics);
-                if value > *limit {
-                    out.push(Violation {
-                        path: path.to_path_buf(),
-                        start_line: current.start_line,
-                        end_line: current.end_line,
-                        function: function.to_owned(),
-                        metric: extractor.name,
-                        value,
-                        limit: *limit,
-                    });
+                if value <= *limit {
+                    continue;
                 }
+                if honor
+                    && let Some(kind) = MetricKind::for_threshold_name(extractor.name)
+                    && (file_scope.covers(kind) || current.suppressed.covers(kind))
+                {
+                    continue;
+                }
+                out.push(Violation {
+                    path: path.to_path_buf(),
+                    start_line: current.start_line,
+                    end_line: current.end_line,
+                    function: function.to_owned(),
+                    metric: extractor.name,
+                    value,
+                    limit: *limit,
+                });
             }
             // Push children in reverse so `pop()` visits them in source
             // order, matching the recursive form's traversal.
@@ -339,6 +372,26 @@ impl ThresholdSet {
 )]
 mod tests {
     use super::*;
+
+    /// Locks the threshold-engine extractor vocabulary against
+    /// `MetricKind::for_threshold_name` so the two stay in sync.
+    /// If a new threshold extractor is added without a matching
+    /// suppression mapping (or vice versa), this test fails loudly
+    /// rather than silently dropping suppression for the new metric.
+    /// `tokens` is the documented exception: it is never suppressible
+    /// (see `src/suppression.rs::for_threshold_name`).
+    #[test]
+    fn every_extractor_resolves_to_metric_kind_or_is_tokens() {
+        for extractor in EXTRACTORS {
+            let is_suppressible = MetricKind::for_threshold_name(extractor.name).is_some();
+            let expected = extractor.name != "tokens";
+            assert_eq!(
+                is_suppressible, expected,
+                "extractor `{}` suppressibility mismatch — expected {expected}, got {is_suppressible}",
+                extractor.name,
+            );
+        }
+    }
 
     #[test]
     fn parse_cli_threshold_accepts_integer() {
@@ -494,5 +547,164 @@ mod tests {
         // `Path::display`, which substitutes U+FFFD).
         let rendered = v.to_string();
         assert!(rendered.contains("cyclomatic"), "{rendered}");
+    }
+
+    use big_code_analysis::{SpaceKind, SuppressionScope};
+    use std::collections::BTreeSet;
+
+    /// Build a leaf `FuncSpace` with no children. Cyclomatic defaults to
+    /// `1.0`, so a `limit = 0` makes the threshold fire deterministically
+    /// without forcing the suppression tests to construct a real parse.
+    fn space(name: &str, kind: SpaceKind, suppressed: SuppressionScope) -> FuncSpace {
+        FuncSpace {
+            name: Some(name.into()),
+            name_was_lossy: false,
+            start_line: 1,
+            end_line: 10,
+            kind,
+            spaces: Vec::new(),
+            metrics: CodeMetrics::default(),
+            suppressed,
+        }
+    }
+
+    fn threshold_set(name: &str, limit: f64) -> ThresholdSet {
+        let mut raw = BTreeMap::new();
+        raw.insert(name.into(), limit);
+        ThresholdSet::build(&raw).expect("threshold builds")
+    }
+
+    fn only_func_scope(metric: MetricKind) -> SuppressionScope {
+        SuppressionScope::Some(BTreeSet::from([metric]))
+    }
+
+    #[test]
+    fn honor_policy_suppresses_matching_function_scope() {
+        // `bca: allow(cyclomatic)` on the function silences a cyclomatic
+        // violation when the policy honors markers — the headline
+        // behaviour the CLI relies on.
+        let mut out = Vec::new();
+        let s = space(
+            "noisy",
+            SpaceKind::Function,
+            only_func_scope(MetricKind::Cyclomatic),
+        );
+        threshold_set("cyclomatic", 0.0).evaluate_with_policy(
+            Path::new("fixture.rs"),
+            &s,
+            SuppressionPolicy::Honor,
+            &mut out,
+        );
+        assert!(
+            out.is_empty(),
+            "matching function-scoped marker should silence, got {out:?}",
+        );
+    }
+
+    #[test]
+    fn honor_policy_emits_for_non_matching_metric() {
+        // A marker covering only `cognitive` must not silence a
+        // `cyclomatic` violation — symmetry with the previous test.
+        let mut out = Vec::new();
+        let s = space(
+            "noisy",
+            SpaceKind::Function,
+            only_func_scope(MetricKind::Cognitive),
+        );
+        threshold_set("cyclomatic", 0.0).evaluate_with_policy(
+            Path::new("fixture.rs"),
+            &s,
+            SuppressionPolicy::Honor,
+            &mut out,
+        );
+        assert_eq!(out.len(), 1, "expected one violation; got {out:?}");
+        assert_eq!(out[0].metric, "cyclomatic");
+    }
+
+    #[test]
+    fn ignore_policy_emits_despite_matching_marker() {
+        // `--no-suppress` (Ignore) must surface violations even when the
+        // function carries a covering marker — that's the audit path.
+        let mut out = Vec::new();
+        let s = space(
+            "noisy",
+            SpaceKind::Function,
+            only_func_scope(MetricKind::Cyclomatic),
+        );
+        threshold_set("cyclomatic", 0.0).evaluate_with_policy(
+            Path::new("fixture.rs"),
+            &s,
+            SuppressionPolicy::Ignore,
+            &mut out,
+        );
+        assert_eq!(out.len(), 1, "expected one violation; got {out:?}");
+    }
+
+    #[test]
+    fn file_scope_silences_nested_function() {
+        // `allow-file(cyclomatic)` lives on the top-level Unit space
+        // and must apply to every nested function too. The nested
+        // function carries the default (empty) scope; suppression
+        // comes entirely from the file scope.
+        let mut out = Vec::new();
+        let mut unit = space(
+            "fixture.rs",
+            SpaceKind::Unit,
+            only_func_scope(MetricKind::Cyclomatic),
+        );
+        unit.spaces.push(space(
+            "inner",
+            SpaceKind::Function,
+            SuppressionScope::default(),
+        ));
+        threshold_set("cyclomatic", 0.0).evaluate_with_policy(
+            Path::new("fixture.rs"),
+            &unit,
+            SuppressionPolicy::Honor,
+            &mut out,
+        );
+        assert!(
+            out.is_empty(),
+            "file-scoped marker should also silence nested fn; got {out:?}",
+        );
+    }
+
+    #[test]
+    fn tokens_threshold_never_suppressed() {
+        // `MetricKind::for_threshold_name("tokens")` returns None, so
+        // the evaluator cannot map the threshold name onto any
+        // suppression metric family. Result: even a function carrying
+        // `SuppressionScope::All` fails to silence a `tokens`
+        // violation. This is intentional — `tokens` is a hard
+        // resource cap (not a maintainability heuristic), and we
+        // don't want markers turning it off.
+        //
+        // We construct ThresholdSet manually with limit `-0.5` so
+        // tokens_sum default of 0.0 still exceeds it, since
+        // `ThresholdSet::build` rejects negative limits.
+        assert_eq!(MetricKind::for_threshold_name("tokens"), None);
+
+        let extractor = EXTRACTORS
+            .iter()
+            .find(|e| e.name == "tokens")
+            .expect("tokens extractor exists");
+        let set = ThresholdSet {
+            entries: vec![(extractor, -0.5)],
+        };
+
+        let mut out = Vec::new();
+        let s = space("noisy", SpaceKind::Function, SuppressionScope::All);
+        set.evaluate_with_policy(
+            Path::new("fixture.rs"),
+            &s,
+            SuppressionPolicy::Honor,
+            &mut out,
+        );
+        assert_eq!(
+            out.len(),
+            1,
+            "tokens violation must survive SuppressionScope::All",
+        );
+        assert_eq!(out[0].metric, "tokens");
     }
 }

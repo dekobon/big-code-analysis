@@ -265,6 +265,7 @@ mod tests {
             kind,
             spaces: Vec::new(),
             metrics: CodeMetrics::default(),
+            suppressed: crate::SuppressionScope::default(),
         }
     }
 
