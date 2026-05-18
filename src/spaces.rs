@@ -25,6 +25,9 @@ use std::path::{Path, PathBuf};
 
 use crate::checker::Checker;
 use crate::node::Node;
+use crate::suppression::{
+    Suppression, SuppressionKind, SuppressionScope, parse_marker as parse_suppression_marker,
+};
 
 use crate::abc::{self, Abc};
 use crate::cognitive::{self, Cognitive};
@@ -187,6 +190,24 @@ pub struct FuncSpace {
     pub spaces: Vec<FuncSpace>,
     /// All metrics of a function space
     pub metrics: CodeMetrics,
+    /// In-source suppression markers that apply to this space.
+    ///
+    /// Populated during the spaces pass from comment-embedded
+    /// directives (see [`crate::suppression`]). The top-level
+    /// (file-level) `FuncSpace` aggregates every file-scoped marker;
+    /// nested function spaces aggregate every function-scoped marker
+    /// whose comment lies inside their source range. Metric
+    /// computation itself is unaffected — this field is consumed by
+    /// downstream *threshold-check* code (e.g. `bca check`) to decide
+    /// whether to surface a violation.
+    ///
+    /// Defaults to `SuppressionScope::default()` (an empty `Some`), so
+    /// pre-existing code paths that do not honor suppressions see no
+    /// behaviour change. The field is elided from JSON output when
+    /// empty so the existing schema is unchanged for files without
+    /// markers.
+    #[serde(default, skip_serializing_if = "SuppressionScope::is_empty")]
+    pub suppressed: SuppressionScope,
 }
 
 impl FuncSpace {
@@ -220,6 +241,7 @@ impl FuncSpace {
             kind,
             start_line: start_position,
             end_line: end_position,
+            suppressed: SuppressionScope::default(),
         }
     }
 }
@@ -361,6 +383,12 @@ pub fn metrics<'a, T: ParserTrait>(parser: &'a T, path: &'a Path) -> Option<Func
 /// `exclude_tests = true` is a no-op except where a language module
 /// overrides it (today: `RustCode`, which filters Rust `#[test]` /
 /// `#[cfg(test)]` items).
+///
+/// Comment nodes are additionally scanned for in-source suppression
+/// markers (see [`crate::suppression`]); any matches are attached to
+/// the enclosing [`FuncSpace::suppressed`]. Malformed `bca:` markers
+/// produce a warning to stderr — they do not abort the walk, so a
+/// single typo in one file cannot derail a workspace-wide run.
 pub fn metrics_with_options<'a, T: ParserTrait>(
     parser: &'a T,
     path: &'a Path,
@@ -377,6 +405,12 @@ pub fn metrics_with_options<'a, T: ParserTrait>(
     // Three type of nesting info: conditionals, functions and lambdas
     let mut nesting_map = HashMap::<usize, (usize, usize, usize)>::default();
     nesting_map.insert(node.id(), (0, 0, 0));
+
+    // Collected here during the walk and resolved after `finalize` so
+    // we already have the final space tree to attach markers to.
+    // Each entry pairs a parsed suppression with the 1-based source
+    // line the comment started on.
+    let mut pending: Vec<(Suppression, usize)> = Vec::new();
 
     // Some grammars (e.g. tree-sitter-mozcpp on unparseable input) return a
     // non-Unit root. Wrap with a synthetic Unit space spanning the whole
@@ -427,6 +461,34 @@ pub fn metrics_with_options<'a, T: ParserTrait>(
             level
         };
 
+        // Scan comment nodes for suppression markers. We deliberately
+        // do this on the same walk rather than a second pass so we
+        // pay one tree-sitter cursor traversal, not two. Markers are
+        // queued and attached after `finalize` runs — at that point
+        // every `FuncSpace` exists with its final source range and
+        // child relationships, which is what scope resolution needs.
+        if T::Checker::is_comment(&node)
+            && let Some(text) = node.utf8_text(code)
+        {
+            match parse_suppression_marker(text) {
+                Ok(Some(s)) => {
+                    // Tree-sitter rows are 0-based; the rest of this
+                    // module treats line numbers as 1-based (see
+                    // `FuncSpace::start_line` / `end_line`).
+                    pending.push((s, node.start_row() + 1));
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    // Logged but non-fatal so a typo in one file
+                    // cannot derail a workspace-wide walk. The
+                    // malformed marker is dropped (no scope attached),
+                    // which is the conservative behaviour: a typo
+                    // should not accidentally silence anything.
+                    eprintln!("warning: {}:{}: {e}", path.display(), node.start_row() + 1);
+                }
+            }
+        }
+
         if let Some(state) = state_stack.last_mut() {
             let last = &mut state.space;
             T::Cognitive::compute(&node, code, &mut last.metrics.cognitive, &mut nesting_map);
@@ -470,8 +532,90 @@ pub fn metrics_with_options<'a, T: ParserTrait>(
         let was_lossy = path.to_str().is_none();
         state.space.name = Some(path.to_string_lossy().into_owned());
         state.space.name_was_lossy = was_lossy;
+        attach_suppressions(&mut state.space, &pending);
         state.space
     })
+}
+
+/// Attach parsed [`Suppression`] directives to the matching `FuncSpace`
+/// nodes in `root`.
+///
+/// Scope resolution mirrors the issue's specification:
+///
+/// - File-scoped markers (`bca: allow-file`, `#lizard forgive global`)
+///   merge into `root.suppressed`. Their position inside or outside
+///   function bodies is irrelevant — the issue explicitly drops the
+///   "must be in first N lines" rule.
+/// - Function-scoped markers (`bca: allow`, `#lizard forgives`) attach
+///   to the *innermost* `FuncSpace` whose line range contains the
+///   comment. A marker that lies outside every function's body has no
+///   enclosing function and is therefore silently ignored — the issue
+///   does not call out a behaviour for that case, and treating it as a
+///   file-level marker would conflict with the explicit `allow-file`
+///   verb.
+fn attach_suppressions(root: &mut FuncSpace, pending: &[(Suppression, usize)]) {
+    for (suppression, line) in pending {
+        match suppression.kind {
+            SuppressionKind::File => {
+                root.suppressed.merge(&suppression.scope);
+            }
+            SuppressionKind::Function => {
+                // Return value is the recursion's sibling-short-circuit
+                // signal; the top-level caller has no siblings to probe.
+                let _ = attach_function_suppression(root, *line, &suppression.scope);
+            }
+        }
+    }
+}
+
+/// Walk `space` and apply `scope` to the innermost function-kind
+/// subspace that contains `line`. Returns `true` if a match was found
+/// in this subtree so the caller can short-circuit sibling probes.
+///
+/// "Function-kind" here means [`SpaceKind::Function`] only; class /
+/// struct / trait spaces are skipped because a `bca: allow` comment
+/// at class scope but outside any method would otherwise silence
+/// thresholds on the entire class — surprising behaviour that the
+/// issue's `Function` scope semantics don't sanction. Authors who want
+/// class-wide suppression can use `bca: allow-file` or repeat the
+/// marker on each method.
+fn attach_function_suppression(
+    space: &mut FuncSpace,
+    line: usize,
+    scope: &SuppressionScope,
+) -> bool {
+    // Top-level Unit spaces aren't function bodies; their range
+    // covers the whole file, so we walk into children unconditionally
+    // rather than returning a self-match.
+    if !matches!(space.kind, SpaceKind::Unit)
+        && !(space.start_line..=space.end_line).contains(&line)
+    {
+        return false;
+    }
+
+    // Try to find a more specific enclosing function in a child.
+    // Borrow-checker workaround: we cannot hold a mutable borrow on
+    // `space` and recurse on the same `space.spaces` in one expression,
+    // so we discover the matching index first, then re-borrow to
+    // attach. The walk is depth-first; siblings disjoint by source
+    // range cannot both match the same `line`, so the first hit wins.
+    let matched_child_idx = space
+        .spaces
+        .iter()
+        .position(|c| (c.start_line..=c.end_line).contains(&line));
+
+    if let Some(idx) = matched_child_idx
+        && attach_function_suppression(&mut space.spaces[idx], line, scope)
+    {
+        return true;
+    }
+
+    if matches!(space.kind, SpaceKind::Function) {
+        space.suppressed.merge(scope);
+        return true;
+    }
+
+    false
 }
 
 /// Per-traversal options for [`metrics_with_options`].

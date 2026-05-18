@@ -994,6 +994,7 @@ mod tests {
             kind,
             spaces: Vec::new(),
             metrics: CodeMetrics::default(),
+            suppressed: big_code_analysis::SuppressionScope::default(),
         }
     }
 

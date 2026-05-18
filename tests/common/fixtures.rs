@@ -14,7 +14,9 @@
 
 use std::path::PathBuf;
 
-use big_code_analysis::{CodeMetrics, FuncSpace, OffenderRecord, Severity, SpaceKind};
+use big_code_analysis::{
+    CodeMetrics, FuncSpace, OffenderRecord, Severity, SpaceKind, SuppressionScope,
+};
 
 /// Build a default offender record. The numeric fields use
 /// values chosen to be obvious in test output (`line=42`, `col=5`,
@@ -48,5 +50,6 @@ pub fn empty_space(name: &str, kind: SpaceKind, start: usize, end: usize) -> Fun
         kind,
         spaces: Vec::new(),
         metrics: CodeMetrics::default(),
+        suppressed: SuppressionScope::default(),
     }
 }

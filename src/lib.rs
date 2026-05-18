@@ -127,3 +127,6 @@ pub use crate::parser::*;
 
 mod comment_rm;
 pub use crate::comment_rm::*;
+
+mod suppression;
+pub use crate::suppression::{MetricKind, SuppressionPolicy, SuppressionScope};
