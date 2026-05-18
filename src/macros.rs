@@ -1,3 +1,9 @@
+// `get_language!` is invoked only from feature-gated arms in `mk_lang!`
+// (one arm per `LANG::*` variant whose per-language Cargo feature is
+// enabled). A build with `--no-default-features` and no language
+// feature has no remaining call sites; suppress the lint for that
+// pathological-but-valid configuration.
+#[allow(unused_macros)]
 macro_rules! get_language {
     (tree_sitter_cpp) => {
         tree_sitter_mozcpp::LANGUAGE.into()
@@ -107,8 +113,15 @@ macro_rules! implement_metric_trait {
 }
 
 macro_rules! mk_lang {
-    ( $( ($camel:ident, $name:ident, $display: expr, $description:expr) ),* ) => {
+    ( $( ($feature:literal, $camel:ident, $name:ident, $display: expr, $description:expr) ),* ) => {
         /// The list of supported languages.
+        ///
+        /// Every variant is always defined regardless of the Cargo
+        /// feature set: per-language features only gate the grammar
+        /// crate references, never the enum surface itself. Disabled
+        /// variants surface at runtime as
+        /// [`crate::MetricsError::LanguageDisabled`] from every entry
+        /// point that returns a `Result`.
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         pub enum LANG {
             $(
@@ -150,14 +163,40 @@ macro_rules! mk_lang {
                 }
             }
 
-            // Returns a tree-sitter language.
-            // This function is only used to construct a parser.
-            pub(crate) fn get_ts_language(&self) -> Language {
-                    match self {
-                        $(
-                            LANG::$camel => get_language!($name),
-                        )*
-                    }
+            /// Reports whether this variant's grammar crate is
+            /// compiled into the current build.
+            ///
+            /// Returns `false` for variants whose per-language Cargo
+            /// feature is disabled; calling
+            /// [`Self::get_tree_sitter_language`], [`crate::analyze`],
+            /// or any other dispatcher with such a variant will
+            /// return [`crate::MetricsError::LanguageDisabled`].
+            #[must_use]
+            pub fn is_enabled(&self) -> bool {
+                match self {
+                    $(
+                        #[cfg(feature = $feature)]
+                        LANG::$camel => true,
+                        #[cfg(not(feature = $feature))]
+                        LANG::$camel => false,
+                    )*
+                }
+            }
+
+            // Returns a tree-sitter language paired with this variant,
+            // or `Err(LanguageDisabled)` when the matching Cargo
+            // feature is off. This is the internal entry point used
+            // by `Tree::new` to construct a parser; the public
+            // counterpart is `get_tree_sitter_language`.
+            pub(crate) fn get_ts_language(&self) -> Result<Language, crate::MetricsError> {
+                match self {
+                    $(
+                        #[cfg(feature = $feature)]
+                        LANG::$camel => Ok(get_language!($name)),
+                        #[cfg(not(feature = $feature))]
+                        LANG::$camel => Err(crate::MetricsError::LanguageDisabled(*self)),
+                    )*
+                }
             }
 
             /// Returns the [`tree_sitter::Language`] grammar used by
@@ -175,14 +214,21 @@ macro_rules! mk_lang {
             /// in any minor release, which can change `Language`
             /// equality on the caller side.
             ///
+            /// # Errors
+            ///
+            /// Returns [`crate::MetricsError::LanguageDisabled`] when
+            /// the variant's per-language Cargo feature is not
+            /// enabled in the current build (see the `[features]`
+            /// table in the root `Cargo.toml`).
+            ///
             /// # Examples
             ///
             /// ```
             /// use big_code_analysis::LANG;
             ///
-            /// let _lang = LANG::Rust.get_tree_sitter_language();
+            /// let _lang = LANG::Rust.get_tree_sitter_language().expect("rust feature enabled");
             /// ```
-            pub fn get_tree_sitter_language(&self) -> ::tree_sitter::Language {
+            pub fn get_tree_sitter_language(&self) -> Result<::tree_sitter::Language, crate::MetricsError> {
                 self.get_ts_language()
             }
         }
@@ -190,9 +236,17 @@ macro_rules! mk_lang {
 }
 
 macro_rules! mk_action {
-    ( $( ($camel:ident, $parser:ident) ),* ) => {
+    ( $( ($feature:literal, $camel:ident, $parser:ident) ),* ) => {
         /// Runs a function, which implements the [`Callback`] trait,
         /// on a code written in one of the supported languages.
+        ///
+        /// # Errors
+        ///
+        /// Returns [`MetricsError::LanguageDisabled`] when `lang`
+        /// names a language whose per-language Cargo feature is not
+        /// enabled in the current build (see the `[features]` table
+        /// in the root `Cargo.toml`). All other failure modes are
+        /// reported through the callback's own `T::Res`.
         ///
         /// # Examples
         ///
@@ -214,17 +268,24 @@ macro_rules! mk_action {
         /// // Configuration options used by the function which computes the metrics
         /// let cfg = MetricsCfg::new(path);
         ///
-        /// action::<Metrics>(&language, source_as_vec, &cfg.path.clone(), None, cfg);
+        /// action::<Metrics>(&language, source_as_vec, &cfg.path.clone(), None, cfg)
+        ///     .expect("cpp feature enabled");
         /// ```
         ///
         /// [`Callback`]: trait.Callback.html
         #[inline]
-        pub fn action<T: Callback>(lang: &LANG, source: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>, cfg: T::Cfg) -> T::Res {
+        pub fn action<T: Callback>(lang: &LANG, source: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>, cfg: T::Cfg) -> Result<T::Res, MetricsError> {
             match lang {
                 $(
+                    #[cfg(feature = $feature)]
                     LANG::$camel => {
                         let parser = $parser::new(source, path, pr);
-                        T::call(cfg, &parser)
+                        Ok(T::call(cfg, &parser))
+                    },
+                    #[cfg(not(feature = $feature))]
+                    LANG::$camel => {
+                        let _ = (source, path, pr, cfg);
+                        Err(MetricsError::LanguageDisabled(*lang))
                     },
                 )*
             }
@@ -273,9 +334,15 @@ macro_rules! mk_action {
             #[allow(deprecated)]
             match lang {
                 $(
+                    #[cfg(feature = $feature)]
                     LANG::$camel => {
                         let parser = $parser::new(source, &path, pr);
                         metrics(&parser, &path)
+                    },
+                    #[cfg(not(feature = $feature))]
+                    LANG::$camel => {
+                        let _ = (source, path, pr);
+                        Err(MetricsError::LanguageDisabled(*lang))
                     },
                 )*
             }
@@ -303,9 +370,15 @@ macro_rules! mk_action {
             let source = source.to_vec();
             match lang {
                 $(
+                    #[cfg(feature = $feature)]
                     LANG::$camel => {
                         let parser = $parser::new(source, preproc_path, preproc);
                         metrics_inner(&parser, name, options)
+                    },
+                    #[cfg(not(feature = $feature))]
+                    LANG::$camel => {
+                        let _ = (source, preproc_path, preproc, name, options);
+                        Err(MetricsError::LanguageDisabled(lang))
                     },
                 )*
             }
@@ -354,9 +427,15 @@ macro_rules! mk_action {
             #[allow(deprecated)]
             match lang {
                 $(
+                    #[cfg(feature = $feature)]
                     LANG::$camel => {
                         let parser = $parser::new(source, &path, pr);
                         metrics_with_options(&parser, &path, options)
+                    },
+                    #[cfg(not(feature = $feature))]
+                    LANG::$camel => {
+                        let _ = (source, path, pr, options);
+                        Err(MetricsError::LanguageDisabled(*lang))
                     },
                 )*
             }
@@ -394,7 +473,11 @@ macro_rules! mk_action {
         ///
         /// let mut parser = tree_sitter::Parser::new();
         /// parser
-        ///     .set_language(&LANG::Rust.get_tree_sitter_language())
+        ///     .set_language(
+        ///         &LANG::Rust
+        ///             .get_tree_sitter_language()
+        ///             .expect("rust feature enabled"),
+        ///     )
         ///     .expect("rust grammar pinned to a compatible version");
         /// let tree = parser
         ///     .parse(&source, None)
@@ -409,6 +492,7 @@ macro_rules! mk_action {
         ///     MetricsOptions::default(),
         /// )
         /// .unwrap();
+        /// # #[allow(deprecated)]
         /// let from_bytes =
         ///     get_function_spaces(&LANG::Rust, source, &path, None).unwrap();
         ///
@@ -449,9 +533,15 @@ macro_rules! mk_action {
             let name = Some(path.to_string_lossy().into_owned());
             match lang {
                 $(
+                    #[cfg(feature = $feature)]
                     LANG::$camel => {
                         let parser = $parser::from_tree(tree, source);
                         metrics_inner(&parser, name, options)
+                    },
+                    #[cfg(not(feature = $feature))]
+                    LANG::$camel => {
+                        let _ = (tree, source, name, options);
+                        Err(MetricsError::LanguageDisabled(*lang))
                     },
                 )*
             }
@@ -486,9 +576,15 @@ macro_rules! mk_action {
         pub fn get_ops(lang: &LANG, source: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>) -> Result<Ops, MetricsError> {
             match lang {
                 $(
+                    #[cfg(feature = $feature)]
                     LANG::$camel => {
                         let parser = $parser::new(source, &path, pr);
                         operands_and_operators(&parser, &path)
+                    },
+                    #[cfg(not(feature = $feature))]
+                    LANG::$camel => {
+                        let _ = (source, path, pr);
+                        Err(MetricsError::LanguageDisabled(*lang))
                     },
                 )*
             }
@@ -578,9 +674,9 @@ macro_rules! mk_code {
 }
 
 macro_rules! mk_langs {
-    ( $( ($camel:ident, $description: expr, $display: expr, $code:ident, $parser:ident, $name:ident, [ $( $ext:ident ),* ], [ $( $emacs_mode:expr ),* ]) ),* ) => {
-        mk_lang!($( ($camel, $name, $display, $description) ),*);
-        mk_action!($( ($camel, $parser) ),*);
+    ( $( ($feature:literal, $camel:ident, $description: expr, $display: expr, $code:ident, $parser:ident, $name:ident, [ $( $ext:ident ),* ], [ $( $emacs_mode:expr ),* ]) ),* ) => {
+        mk_lang!($( ($feature, $camel, $name, $display, $description) ),*);
+        mk_action!($( ($feature, $camel, $parser) ),*);
         mk_extensions!($( ($camel, [ $( $ext ),* ]) ),*);
         mk_emacs_mode!($( ($camel, [ $( $emacs_mode ),* ]) ),*);
         mk_code!($( ($camel, $code, $parser, $name, stringify!($camel)) ),*);

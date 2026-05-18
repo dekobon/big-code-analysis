@@ -10,6 +10,11 @@ use std::path::Path;
 use std::sync::Arc;
 use tree_sitter::Language;
 
+// `get_language` is referenced from feature-gated arms inside the
+// `mk_lang!` expansion; an `--no-default-features` build with no
+// language features compiles every arm out, leaving the import
+// nominally unused. The macro itself carries the same allow.
+#[allow(unused_imports)]
 use crate::macros::{
     get_language, mk_action, mk_code, mk_emacs_mode, mk_extensions, mk_lang, mk_langs,
 };
@@ -17,15 +22,33 @@ use crate::preproc::PreprocResults;
 use crate::*;
 
 mk_langs!(
-    // 1) Name for enum
-    // 2) Language description
-    // 3) Display name
-    // 4) Empty struct name to implement
-    // 5) Parser name
-    // 6) tree-sitter function to call to get a Language
-    // 7) file extensions
-    // 8) emacs modes
+    // 1) Cargo feature name that enables this variant's grammar
+    // 2) Name for enum
+    // 3) Language description
+    // 4) Display name
+    // 5) Empty struct name to implement
+    // 6) Parser name
+    // 7) tree-sitter function to call to get a Language
+    // 8) file extensions
+    // 9) emacs modes
+    //
+    // Per #252, each variant carries a Cargo feature that gates the
+    // grammar crate references in `mk_lang!` / `mk_action!`. The enum
+    // surface (variants, file-extension lookup, emacs-mode lookup,
+    // per-language `*Code` / `*Parser` tags) is always compiled in;
+    // disabling a feature only strips the grammar crate from the dep
+    // graph and turns every dispatcher into
+    // `Err(MetricsError::LanguageDisabled(_))`.
+    //
+    // `Ccomment` and `Preproc` ride the `cpp` feature because they
+    // are internal helpers for the C/C++ pipeline; they share the
+    // `tree-sitter-ccomment` / `tree-sitter-preproc` crates that
+    // `cpp` (and `mozcpp`) pull in. `Tsx` rides `typescript` because
+    // both variants resolve to the `tree-sitter-typescript` crate
+    // (TSX vs TypeScript is a per-grammar `LANGUAGE_*` constant
+    // inside that one crate, see `get_language!` in `src/macros.rs`).
     (
+        "mozjs",
         Mozjs,
         "The `Mozjs` language is variant of the `JavaScript` language",
         "javascript",
@@ -36,6 +59,7 @@ mk_langs!(
         ["js", "js2"]
     ),
     (
+        "javascript",
         Javascript,
         "The `JavaScript` language",
         "javascript",
@@ -46,6 +70,7 @@ mk_langs!(
         []
     ),
     (
+        "java",
         Java,
         "The `Java` language",
         "java",
@@ -56,6 +81,7 @@ mk_langs!(
         ["java"]
     ),
     (
+        "go",
         Go,
         "The `Go` language",
         "go",
@@ -66,6 +92,7 @@ mk_langs!(
         ["go"]
     ),
     (
+        "kotlin",
         Kotlin,
         "The `Kotlin` language",
         "kotlin",
@@ -76,6 +103,7 @@ mk_langs!(
         ["kotlin"]
     ),
     (
+        "lua",
         Lua,
         "The `Lua` language",
         "lua",
@@ -86,6 +114,7 @@ mk_langs!(
         ["lua"]
     ),
     (
+        "rust",
         Rust,
         "The `Rust` language",
         "rust",
@@ -96,6 +125,7 @@ mk_langs!(
         ["rust"]
     ),
     (
+        "tcl",
         Tcl,
         "The `Tcl` language",
         "tcl",
@@ -106,6 +136,7 @@ mk_langs!(
         ["tcl"]
     ),
     (
+        "cpp",
         Cpp,
         "The `C/C++` language",
         "c/c++",
@@ -116,6 +147,7 @@ mk_langs!(
         ["c++", "c", "objc", "objc++", "objective-c++", "objective-c"]
     ),
     (
+        "csharp",
         Csharp,
         "The `C#` language",
         "c#",
@@ -126,6 +158,7 @@ mk_langs!(
         ["csharp"]
     ),
     (
+        "elixir",
         Elixir,
         "The `Elixir` language",
         "elixir",
@@ -136,6 +169,7 @@ mk_langs!(
         ["elixir"]
     ),
     (
+        "python",
         Python,
         "The `Python` language",
         "python",
@@ -146,6 +180,7 @@ mk_langs!(
         ["python"]
     ),
     (
+        "typescript",
         Tsx,
         "The `Tsx` language incorporates the `JSX` syntax inside `TypeScript`",
         "typescript",
@@ -156,6 +191,7 @@ mk_langs!(
         []
     ),
     (
+        "typescript",
         Typescript,
         "The `TypeScript` language",
         "typescript",
@@ -166,6 +202,7 @@ mk_langs!(
         ["typescript"]
     ),
     (
+        "bash",
         Bash,
         "The `Bash` language",
         "bash",
@@ -176,6 +213,7 @@ mk_langs!(
         ["sh"]
     ),
     (
+        "cpp",
         Ccomment,
         "The `Ccomment` language is a variant of the `C` language focused on comments",
         "ccomment",
@@ -186,6 +224,7 @@ mk_langs!(
         []
     ),
     (
+        "cpp",
         Preproc,
         "The `PreProc` language is a variant of the `C/C++` language focused on macros",
         "preproc",
@@ -196,6 +235,7 @@ mk_langs!(
         []
     ),
     (
+        "perl",
         Perl,
         "The `Perl` language",
         "perl",
@@ -206,6 +246,7 @@ mk_langs!(
         ["perl", "cperl"]
     ),
     (
+        "php",
         Php,
         "The `Php` language",
         "php",
@@ -216,6 +257,7 @@ mk_langs!(
         ["php"]
     ),
     (
+        "ruby",
         Ruby,
         "The `Ruby` language",
         "ruby",
@@ -226,6 +268,7 @@ mk_langs!(
         ["ruby"]
     ),
     (
+        "groovy",
         Groovy,
         "The `Groovy` language",
         "groovy",
@@ -250,5 +293,87 @@ pub(crate) mod fake {
         } else {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::MetricsError;
+
+    // The test suite normally runs under the workspace default
+    // feature set (`all-languages` is on, see `Cargo.toml`), so
+    // every variant must report itself as enabled. A regression in
+    // the cfg-gating of `is_enabled` would flip individual arms to
+    // `false` even when the matching grammar crate is in the dep
+    // graph; this test would catch that without needing a separate
+    // `--no-default-features` build matrix entry. Gated on
+    // `feature = "all-languages"` so the CI minimal-langs matrix
+    // entry (`--no-default-features --features rust,typescript`)
+    // still compiles cleanly without a runtime failure.
+    #[cfg(feature = "all-languages")]
+    #[test]
+    fn every_lang_variant_is_enabled_under_all_languages() {
+        for lang in LANG::into_enum_iter() {
+            assert!(
+                lang.is_enabled(),
+                "{} should be enabled under the default `all-languages` feature set",
+                lang.get_name(),
+            );
+        }
+    }
+
+    // Smoke test for the `LanguageDisabled` contract on a build
+    // without the `javascript` feature: every dispatch entry point
+    // (here, `get_tree_sitter_language`) must hand back
+    // `Err(LanguageDisabled(LANG::Javascript))`. Gated on
+    // `not(feature = "javascript")` so it only runs in a feature-
+    // subset build where the language is actually disabled — the
+    // `all-languages` default would have `is_enabled` return true
+    // and `get_tree_sitter_language` succeed.
+    #[cfg(not(feature = "javascript"))]
+    #[test]
+    fn disabled_language_dispatch_returns_language_disabled() {
+        assert!(!LANG::Javascript.is_enabled());
+        match LANG::Javascript.get_tree_sitter_language() {
+            Err(MetricsError::LanguageDisabled(LANG::Javascript)) => {}
+            other => panic!(
+                "expected Err(LanguageDisabled(Javascript)) for disabled `javascript` feature, got {other:?}",
+            ),
+        }
+    }
+
+    // `is_enabled` and `get_tree_sitter_language` must agree: a
+    // variant that reports itself enabled must hand back a usable
+    // `Language`, never `Err(LanguageDisabled)`. The pairing exists
+    // so callers that branch on `is_enabled` (rather than match on
+    // the error) can rely on the language lookup succeeding.
+    #[test]
+    fn is_enabled_matches_get_tree_sitter_language() {
+        for lang in LANG::into_enum_iter() {
+            let lookup = lang.get_tree_sitter_language();
+            assert_eq!(
+                lang.is_enabled(),
+                lookup.is_ok(),
+                "{} disagrees: is_enabled={}, get_tree_sitter_language={:?}",
+                lang.get_name(),
+                lang.is_enabled(),
+                lookup.map(|_| "Ok"),
+            );
+        }
+    }
+
+    // The error variant carries the originating `LANG` so callers
+    // can distinguish "X is disabled" from "Y is disabled" in a
+    // mixed batch. Verifies the `Display` impl mentions the
+    // language name as documented in `src/error.rs`.
+    #[test]
+    fn language_disabled_display_includes_language_name() {
+        let err = MetricsError::LanguageDisabled(LANG::Rust);
+        let rendered = err.to_string();
+        assert!(
+            rendered.contains("rust"),
+            "expected LanguageDisabled display to mention `rust`, got {rendered:?}",
+        );
     }
 }

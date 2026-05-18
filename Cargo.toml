@@ -96,26 +96,101 @@ termcolor = "^1.2"
 walkdir = "^2.3"
 
 tree-sitter.workspace = true
-tree-sitter-bash.workspace = true
-tree-sitter-c-sharp.workspace = true
-tree-sitter-elixir.workspace = true
-tree-sitter-go.workspace = true
-tree-sitter-groovy.workspace = true
-tree-sitter-java.workspace = true
-tree-sitter-javascript.workspace = true
-tree-sitter-kotlin-ng.workspace = true
-tree-sitter-lua.workspace = true
-tree-sitter-perl.workspace = true
-tree-sitter-php.workspace = true
-tree-sitter-python.workspace = true
-tree-sitter-ruby.workspace = true
-tree-sitter-rust.workspace = true
-tree-sitter-typescript.workspace = true
-tree-sitter-ccomment.workspace = true
-tree-sitter-mozcpp.workspace = true
-tree-sitter-mozjs.workspace = true
-tree-sitter-preproc.workspace = true
-tree-sitter-tcl.workspace = true
+# Grammar crates are gated behind per-language Cargo features (see
+# `[features]` below). The default feature set `all-languages` enables
+# every grammar so a bare `cargo build` matches the historical
+# behaviour; consumers that only need a subset of languages can opt
+# into a narrower set with `--no-default-features --features rust,…`.
+tree-sitter-bash = { workspace = true, optional = true }
+tree-sitter-c-sharp = { workspace = true, optional = true }
+tree-sitter-elixir = { workspace = true, optional = true }
+tree-sitter-go = { workspace = true, optional = true }
+tree-sitter-groovy = { workspace = true, optional = true }
+tree-sitter-java = { workspace = true, optional = true }
+tree-sitter-javascript = { workspace = true, optional = true }
+tree-sitter-kotlin-ng = { workspace = true, optional = true }
+tree-sitter-lua = { workspace = true, optional = true }
+tree-sitter-perl = { workspace = true, optional = true }
+tree-sitter-php = { workspace = true, optional = true }
+tree-sitter-python = { workspace = true, optional = true }
+tree-sitter-ruby = { workspace = true, optional = true }
+tree-sitter-rust = { workspace = true, optional = true }
+tree-sitter-typescript = { workspace = true, optional = true }
+tree-sitter-ccomment = { workspace = true, optional = true }
+tree-sitter-mozcpp = { workspace = true, optional = true }
+tree-sitter-mozjs = { workspace = true, optional = true }
+tree-sitter-preproc = { workspace = true, optional = true }
+tree-sitter-tcl = { workspace = true, optional = true }
+
+# Per-language Cargo features. `default = ["all-languages"]` keeps the
+# library's historical "every grammar compiled in" behaviour for
+# callers that take the crate as a black box (the CLI and web crates
+# pin to `features = ["all-languages"]` for exactly this reason).
+#
+# Each language feature pulls in only the grammar crate(s) the
+# matching `src/languages/language_*.rs` module needs at runtime — the
+# token enums themselves carry no grammar-crate references and stay
+# unconditionally compiled, so the `LANG` enum, the per-language
+# `*Code` / `*Parser` tags, and the `Tree::new` / `analyze` dispatch
+# surface remain identical across feature sets. Disabling a feature
+# strips the grammar crate from the dep graph; calling into a
+# disabled variant produces `Err(MetricsError::LanguageDisabled(LANG))`
+# from every entry point that returns a `Result`.
+#
+# `cpp` shares grammar crates with `mozcpp` (`tree-sitter-mozcpp`,
+# `tree-sitter-ccomment`, `tree-sitter-preproc`); listing the deps on
+# both leaves their union enabled when either feature is on.
+[features]
+default = ["all-languages"]
+all-languages = [
+  "bash",
+  "cpp",
+  "csharp",
+  "elixir",
+  "go",
+  "groovy",
+  "java",
+  "javascript",
+  "kotlin",
+  "lua",
+  "mozjs",
+  "perl",
+  "php",
+  "python",
+  "ruby",
+  "rust",
+  "tcl",
+  "typescript",
+]
+bash = ["dep:tree-sitter-bash"]
+# The `Cpp` LANG variant uses `tree-sitter-mozcpp` as its grammar
+# (see `get_language!(tree_sitter_cpp)` in `src/macros.rs`); the
+# `Ccomment` and `Preproc` LANG variants share the `cpp` feature
+# because they are internal helpers for the C/C++ pipeline. There
+# is no standalone `mozcpp` feature because no LANG variant rides
+# it independently of `cpp` — adding one would be a SemVer break
+# documented in the changelog.
+cpp = [
+  "dep:tree-sitter-mozcpp",
+  "dep:tree-sitter-ccomment",
+  "dep:tree-sitter-preproc",
+]
+csharp = ["dep:tree-sitter-c-sharp"]
+elixir = ["dep:tree-sitter-elixir"]
+go = ["dep:tree-sitter-go"]
+groovy = ["dep:tree-sitter-groovy"]
+java = ["dep:tree-sitter-java"]
+javascript = ["dep:tree-sitter-javascript"]
+kotlin = ["dep:tree-sitter-kotlin-ng"]
+lua = ["dep:tree-sitter-lua"]
+mozjs = ["dep:tree-sitter-mozjs"]
+perl = ["dep:tree-sitter-perl"]
+php = ["dep:tree-sitter-php"]
+python = ["dep:tree-sitter-python"]
+ruby = ["dep:tree-sitter-ruby"]
+rust = ["dep:tree-sitter-rust"]
+tcl = ["dep:tree-sitter-tcl"]
+typescript = ["dep:tree-sitter-typescript"]
 
 [lints]
 workspace = true

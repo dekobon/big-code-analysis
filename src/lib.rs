@@ -32,19 +32,33 @@
 //!
 //! ## Supported Languages
 //!
-//! - Bash
-//! - C++
-//! - Go
-//! - Java
-//! - JavaScript
-//! - JavaScript (Firefox-internal, "MozJS")
-//! - Kotlin
-//! - Perl
-//! - PHP
-//! - Python
-//! - Rust
-//! - TSX
-//! - TypeScript
+//! Each grammar is gated behind a per-language Cargo feature; the
+//! default `all-languages` feature enables every grammar so the
+//! historical "every language compiled in" behaviour is preserved.
+//! Library consumers that only need a subset can opt out of the
+//! defaults — see [Per-language Cargo features][feat] in the book.
+//!
+//! - Bash (`bash`)
+//! - C/C++ (`cpp`, also exposes the internal `Ccomment` / `Preproc` helpers)
+//! - C# (`csharp`)
+//! - Elixir (`elixir`)
+//! - Go (`go`)
+//! - Groovy (`groovy`)
+//! - Java (`java`)
+//! - JavaScript (`javascript`)
+//! - JavaScript, Firefox-internal "MozJS" (`mozjs`)
+//! - Kotlin (`kotlin`)
+//! - Lua (`lua`)
+//! - Perl (`perl`)
+//! - PHP (`php`)
+//! - Python (`python`)
+//! - Ruby (`ruby`)
+//! - Rust (`rust`)
+//! - Tcl (`tcl`)
+//! - TSX (`typescript`)
+//! - TypeScript (`typescript`)
+//!
+//! [feat]: https://dekobon.github.io/big-code-analysis/library/cargo-features.html
 //!
 //! ## Supported Metrics
 //!
@@ -146,6 +160,12 @@ pub use crate::spaces::{
 // `#[deprecated]` at their definition site; re-export them so the
 // previously-globbed API surface keeps working, scoped with
 // `#[allow(deprecated)]` to avoid lint noise at this seam.
+// `metrics_inner` is consumed by feature-gated arms in `mk_action!`.
+// With `--no-default-features` and no language feature, every arm
+// compiles out and the re-export becomes nominally unused; the
+// language-features that ship in the default set keep the symbol
+// live in any normal build.
+#[allow(unused_imports)]
 pub(crate) use crate::spaces::metrics_inner;
 #[allow(deprecated)]
 pub use crate::spaces::{metrics, metrics_with_options};

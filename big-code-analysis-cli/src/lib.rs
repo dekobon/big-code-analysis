@@ -511,7 +511,11 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
                 line_start: cfg.line_start,
                 line_end: cfg.line_end,
             };
+            // The CLI pins the library's `all-languages` feature, so
+            // `LanguageDisabled` from `action::<T>` is unreachable; the
+            // `expect` documents that invariant.
             action::<Dump>(&language, source, &path, pr, dump_cfg)
+                .expect("CLI pins big-code-analysis features = [\"all-languages\"]")
         }
         Action::Metrics { format, pretty } => {
             if let Some(fmt) = format {
@@ -536,6 +540,7 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
                 let metrics_cfg = MetricsCfg::new(path).with_options(cfg.metrics_options());
                 let path = metrics_cfg.path.clone();
                 action::<Metrics>(&language, source, &path, pr, metrics_cfg)
+                    .expect("CLI pins big-code-analysis features = [\"all-languages\"]")
             }
         }
         Action::Ops { format, pretty } => {
@@ -558,6 +563,7 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
                 let ops_cfg = OpsCfg { path };
                 let path = ops_cfg.path.clone();
                 action::<OpsCode>(&language, source, &path, pr, ops_cfg)
+                    .expect("CLI pins big-code-analysis features = [\"all-languages\"]")
             }
         }
         Action::StripComments { in_place } => {
@@ -574,10 +580,12 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
                 language
             };
             action::<CommentRm>(&lang, source, &path, pr, comment_cfg)
+                .expect("CLI pins big-code-analysis features = [\"all-languages\"]")
         }
         Action::Functions => {
             let fn_cfg = FunctionCfg { path: path.clone() };
             action::<Function>(&language, source, &path, pr, fn_cfg)
+                .expect("CLI pins big-code-analysis features = [\"all-languages\"]")
         }
         Action::Find(filters) => {
             let find_cfg = FindCfg {
@@ -587,6 +595,7 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
                 line_end: cfg.line_end,
             };
             action::<Find>(&language, source, &path, pr, find_cfg)
+                .expect("CLI pins big-code-analysis features = [\"all-languages\"]")
         }
         Action::Count(filters) => {
             let stats = cfg
@@ -598,6 +607,7 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
                 stats,
             };
             action::<Count>(&language, source, &path, pr, count_cfg)
+                .expect("CLI pins big-code-analysis features = [\"all-languages\"]")
         }
         Action::Report => {
             if let Ok(space) = get_function_spaces_with_options(

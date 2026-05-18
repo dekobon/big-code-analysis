@@ -27,7 +27,11 @@ use crate::traits::*;
 /// let source = b"int a = 42;";
 /// let mut parser = tree_sitter::Parser::new();
 /// parser
-///     .set_language(&LANG::Cpp.get_tree_sitter_language())
+///     .set_language(
+///         &LANG::Cpp
+///             .get_tree_sitter_language()
+///             .expect("cpp feature enabled"),
+///     )
 ///     .expect("cpp grammar pinned to a compatible version");
 /// let tree = parser.parse(source, None).expect("parser has a language set");
 /// let root = Node(tree.root_node());

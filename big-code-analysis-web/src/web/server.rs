@@ -134,6 +134,7 @@ async fn ast_parser(
         };
         let result = run_parse(&config, move || {
             action::<AstCallback>(&language, buf, Path::new(""), None, cfg)
+                .expect("web crate pins big-code-analysis features = [\"all-languages\"]")
         })
         .await?;
         Ok(HttpResponse::Ok().json(result))
@@ -158,6 +159,7 @@ async fn comment_removal_json(
         let language = comment_language(language);
         let result = run_parse(&config, move || {
             action::<WebCommentCallback>(&language, buf, Path::new(""), None, cfg)
+                .expect("web crate pins big-code-analysis features = [\"all-languages\"]")
         })
         .await?;
         Ok(HttpResponse::Ok().json(result))
@@ -182,6 +184,7 @@ async fn comment_removal_plain(
         let cfg = WebCommentCfg { id: String::new() };
         let res = run_parse(&config, move || {
             action::<WebCommentCallback>(&language, buf, Path::new(""), None, cfg)
+                .expect("web crate pins big-code-analysis features = [\"all-languages\"]")
         })
         .await?;
         if let Some(res_code) = res.code {
@@ -216,6 +219,7 @@ async fn metrics_json(
         let cfg = WebMetricsCfg::new(payload.id, path, payload.unit, name.to_string());
         let result = run_parse(&config, move || {
             action::<WebMetricsCallback>(&language, buf, Path::new(""), None, cfg)
+                .expect("web crate pins big-code-analysis features = [\"all-languages\"]")
         })
         .await?;
         Ok(HttpResponse::Ok().json(result))
@@ -246,6 +250,7 @@ async fn metrics_plain(
         let cfg = WebMetricsCfg::new(String::new(), path, unit, name.to_string());
         let result = run_parse(&config, move || {
             action::<WebMetricsCallback>(&language, buf, Path::new(""), None, cfg)
+                .expect("web crate pins big-code-analysis features = [\"all-languages\"]")
         })
         .await?;
         Ok(HttpResponse::Ok().json(result))
@@ -268,6 +273,7 @@ async fn function_json(
         let cfg = WebFunctionCfg { id: payload.id };
         let result = run_parse(&config, move || {
             action::<WebFunctionCallback>(&language, buf, Path::new(""), None, cfg)
+                .expect("web crate pins big-code-analysis features = [\"all-languages\"]")
         })
         .await?;
         Ok(HttpResponse::Ok().json(result))
@@ -291,6 +297,7 @@ async fn function_plain(
         let cfg = WebFunctionCfg { id: String::new() };
         let result = run_parse(&config, move || {
             action::<WebFunctionCallback>(&language, buf, Path::new(""), None, cfg)
+                .expect("web crate pins big-code-analysis features = [\"all-languages\"]")
         })
         .await?;
         Ok(HttpResponse::Ok().json(result))

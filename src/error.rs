@@ -28,12 +28,14 @@ use crate::LANG;
 ///
 /// # Examples
 ///
-/// The default entry points are infallible-by-default today — every
-/// variant below is reserved for a feature that has not yet landed
-/// (see each variant's documentation for the issue tracking it).
-/// The example therefore exercises the happy path and demonstrates
-/// the exhaustive-with-`_` match shape that callers should adopt to
-/// stay forward-compatible with future variants.
+/// Most variants are reserved for features that have not yet landed
+/// (see each variant's documentation for the issue tracking it). The
+/// exception is [`MetricsError::LanguageDisabled`], which is
+/// produced by every dispatch entry point when the caller selects a
+/// [`LANG`] whose per-language Cargo feature is not enabled in the
+/// current build (see #252). The example exercises the happy path
+/// and demonstrates the exhaustive-with-`_` match shape that callers
+/// should adopt to stay forward-compatible with future variants.
 ///
 /// ```
 /// use big_code_analysis::{analyze, MetricsError, MetricsOptions, Source, LANG};
@@ -54,7 +56,9 @@ use crate::LANG;
 ///         // Reserved: future strict-parsing toggle on `MetricsOptions`.
 ///     }
 ///     Err(MetricsError::LanguageDisabled(_lang)) => {
-///         // Reserved: per-language Cargo features (see issue #252).
+///         // The `LANG` variant the caller asked for has no grammar
+///         // crate compiled in for this build (per-language feature
+///         // disabled — see the `[features]` table in Cargo.toml).
 ///     }
 ///     Err(MetricsError::NonUtf8Path) => {
 ///         // Reserved: strict-identifier mode (see issue #254).
@@ -77,11 +81,18 @@ pub enum MetricsError {
     EmptyRoot,
     /// The requested [`LANG`] is not enabled in this build.
     ///
-    /// This variant is reserved for future per-language Cargo
-    /// features (see issue #252). The current build enables every
-    /// supported language, so this variant is never produced today;
-    /// it exists in the public surface so feature-gated consumers can
-    /// match on it without a follow-up breaking change.
+    /// Produced by every dispatch entry point
+    /// ([`crate::analyze`], [`crate::metrics_from_tree`],
+    /// [`crate::action`], [`crate::get_ops`], the deprecated
+    /// `get_function_spaces*` shims, and [`crate::LANG::get_tree_sitter_language`])
+    /// when the caller selects a [`LANG`] variant whose per-language
+    /// Cargo feature is not enabled in the current build — see the
+    /// `[features]` table in the root `Cargo.toml` for the list.
+    /// The default feature set (`default = ["all-languages"]`) keeps
+    /// every grammar compiled in, matching the library's historical
+    /// behaviour; callers that opt into a narrower set with
+    /// `--no-default-features --features rust,…` are the only ones
+    /// that observe this variant.
     LanguageDisabled(LANG),
     /// The supplied path could not be losslessly converted to UTF-8.
     ///

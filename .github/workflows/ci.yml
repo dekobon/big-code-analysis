@@ -123,6 +123,16 @@ jobs:
             flags: -p big-code-analysis
           - name: no-default-features (lib)
             flags: --no-default-features -p big-code-analysis
+          # Per-language feature subset (issue #252). Locks in the
+          # "minimal grammar set" guarantee: dropping default features
+          # and re-enabling only the languages the caller cares about
+          # must still produce a working library. `rust` + `typescript`
+          # is the canonical subset because it exercises both a
+          # single-feature grammar (`tree-sitter-rust`) and a shared-
+          # crate grammar (`tree-sitter-typescript`, also used by the
+          # `Tsx` variant).
+          - name: minimal-langs (lib)
+            flags: --no-default-features --features rust,typescript -p big-code-analysis
           - name: default (cli)
             flags: -p big-code-analysis-cli
           - name: no-default-features (cli)
