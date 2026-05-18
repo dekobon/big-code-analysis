@@ -133,3 +133,15 @@ pub use crate::suppression::{MetricKind, SuppressionPolicy, SuppressionScope};
 
 mod error;
 pub use crate::error::MetricsError;
+
+/// Re-export of the underlying `tree-sitter` crate.
+///
+/// Lets callers build a [`tree_sitter::Tree`] (via
+/// [`tree_sitter::Parser`]) against the exact grammar version this
+/// library is pinned to, and feed it back through
+/// [`Parser::from_tree`] / [`metrics_from_tree`] without taking a
+/// separate `tree-sitter` dependency that may drift out of pin.
+///
+/// This is part of the value-not-stable surface: the underlying
+/// pin may bump in any minor release (see `STABILITY.md`).
+pub use ::tree_sitter;

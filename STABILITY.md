@@ -116,11 +116,28 @@ underlying dependency rather than our own SemVer:
   directly through the `.0` field. Anything you do through `.0`
   follows the pinned `tree-sitter = "=0.26.8"` API and will move
   whenever we bump that pin (typically a minor release here).
-- **`tree_sitter` is not re-exported yet.** Consumers who construct
-  trees themselves currently depend on `tree-sitter` directly and
-  must keep their pin in lockstep with ours. A first-class re-export
-  is planned (tracked as #251); when it lands it will follow our
-  pin and can change with any minor bump.
+- **`tree_sitter` is re-exported as `big_code_analysis::tree_sitter`.**
+  Consumers who construct trees themselves should depend on the
+  re-export rather than adding a sibling `tree-sitter` dependency
+  — that guarantees the `tree_sitter::Tree` they pass into
+  `Parser::from_tree` / `metrics_from_tree` agrees with the
+  version the metric walker was compiled against. The re-export
+  follows our pin: bumping `tree-sitter = "=0.26.8"` to a new
+  version is a minor bump on our side and will move every type in
+  this module. Treat the re-exported API as value-not-stable in
+  the same sense the rest of this document means it.
+- **`LANG::get_tree_sitter_language`** returns the
+  `tree_sitter::Language` paired with each enum variant. The
+  language identity follows the grammar pin (`tree-sitter-rust =
+  "=0.24.2"`, …) and will change whenever those pins move,
+  typically under a minor bump.
+- **`Parser::from_tree`** / **`metrics_from_tree`** are the two
+  public entry points of the parse seam. Both accept a caller-
+  built `tree_sitter::Tree` directly; the internal `Tree` wrapper
+  used by the metric walker stays crate-private, so the only
+  type a consumer ever sees on this seam is `tree_sitter::Tree`
+  itself. Both follow the `tree-sitter` pin in the same value-
+  not-stable sense as the re-export above.
 - **`#[doc(hidden)]` items** are part of the macro / internal
   plumbing surface. They are not covered by any stability promise
   and may be removed or renamed in a patch bump.
@@ -164,7 +181,6 @@ the library-DX umbrella (#250):
 
 - `metrics`/`metrics_with_options` returning `Option<FuncSpace>`
   instead of `Result<FuncSpace, MetricsError>` (#253).
-- A first-class parse seam that re-exports `tree_sitter` (#251).
 - Hiding `ParserTrait` from the public surface (#256).
 - Per-metric and per-language Cargo features so consumers can
   shrink the dependency footprint (#252, #257).

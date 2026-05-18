@@ -182,6 +182,24 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Added
 
+- Parse seam for callers who already drive `tree-sitter`. New
+  `Parser::from_tree(tree, code)` accepts a pre-built
+  `tree_sitter::Tree` plus the matching source bytes, skipping the
+  bundled parse. A non-generic `metrics_from_tree(lang, tree,
+  source, path, pr, options) -> Result<FuncSpace, MetricsError>`
+  dispatches on `&LANG` for the common case. The `tree_sitter`
+  crate is re-exported as `big_code_analysis::tree_sitter` so
+  consumers can build trees against the exact version the metric
+  walker was compiled against without taking a sibling
+  dependency; `LANG::get_tree_sitter_language` returns the
+  matching grammar. Both seam entry points accept `tree_sitter::Tree`
+  directly, so the internal `Tree` wrapper stays crate-private.
+  The re-exported `tree_sitter` API and the
+  `LANG::get_tree_sitter_language` return type follow the
+  underlying grammar pin and are documented as value-not-stable
+  in `STABILITY.md`. The `library/reuse-tree` book chapter is
+  upgraded from a stub to a working example
+  ([#251](https://github.com/dekobon/big-code-analysis/issues/251)).
 - Top-level `STABILITY.md` documenting the versioning contract for
   the `0.x` line: which types and entry points are shape-stable,
   why no value stability is offered until `1.0`, the escape hatches
