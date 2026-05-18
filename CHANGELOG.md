@@ -11,6 +11,11 @@ Pre-1.0 caveat: while in `0.x`, the public Rust API surface
 and the `bca-web` REST schema) may change between minor versions. Breaking
 changes are marked with **(breaking)** in the entries below.
 
+The written stability contract starts at the `[Unreleased]` line below;
+see [STABILITY.md](./STABILITY.md) for what is held stable in shape and
+why no value stability is offered until `1.0`. Entries above the
+`[Unreleased]` heading describe pre-policy behaviour.
+
 ## [Unreleased]
 
 ### Changed
@@ -160,6 +165,14 @@ changes are marked with **(breaking)** in the entries below.
 
 ### Added
 
+- Top-level `STABILITY.md` documenting the versioning contract for
+  the `0.x` line: which types and entry points are shape-stable,
+  why no value stability is offered until `1.0`, the escape hatches
+  (`Node.0`, the still-direct `tree-sitter` dependency,
+  `#[doc(hidden)]` items), and the MSRV policy
+  (`rust-version = "1.94"` workspace-wide). Linked from the README
+  under a new "Using as a library" section
+  ([#258](https://github.com/dekobon/big-code-analysis/issues/258)).
 - In-source suppression markers for metric threshold checks. Comments
   matching `bca: allow`, `bca: allow(metric, ...)`, `bca: allow-file`,
   `bca: allow-file(metric, ...)`, `#lizard forgives`, or
