@@ -39,6 +39,15 @@ On the
 </a> page, there is a list of commands that can be run to get information
 about metrics, nodes, and other general data provided by this software.
 
+## Using as a library
+
+`big-code-analysis` is published on crates.io and can be embedded
+directly. The crate is currently pre-`1.0`, so the API surface
+(both shape and metric values) is still in flux — see
+[STABILITY.md](./STABILITY.md) for the versioning contract, MSRV
+policy, escape hatches, and what we do and do not promise across
+minor and patch bumps.
+
 ## Building
 
 The repository ships a `Makefile` that wraps every common build, test,
