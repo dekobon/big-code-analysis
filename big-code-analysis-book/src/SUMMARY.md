@@ -8,6 +8,7 @@
   - [Metrics](commands/metrics.md)
   - [Report](commands/report.md)
   - [Check](commands/check.md)
+  - [Suppression markers](commands/suppression.md)
   - [Nodes](commands/nodes.md)
   - [Rest API](commands/rest.md)
 - [Recipes](recipes/README.md)
