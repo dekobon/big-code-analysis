@@ -27,15 +27,16 @@
 //! language-mandated absence, not a metric drift; documented here
 //! rather than asserted.
 
-use std::path::PathBuf;
-
-use big_code_analysis::{LANG, get_function_spaces};
+use big_code_analysis::{LANG, MetricsOptions, Source, analyze};
 
 /// `fn_args` file-level sum for the single function in `source`.
 fn fn_args_sum(lang: LANG, source: &str, ext: &str) -> f64 {
-    let path = PathBuf::from(format!("parity.{ext}"));
-    let space = get_function_spaces(&lang, source.as_bytes().to_vec(), &path, None)
-        .expect("parser produced no FuncSpace for parity fixture");
+    let name = format!("parity.{ext}");
+    let space = analyze(
+        Source::new(lang, source.as_bytes()).with_name(Some(name)),
+        MetricsOptions::default(),
+    )
+    .expect("parser produced no FuncSpace for parity fixture");
     space.metrics.nargs.fn_args_sum()
 }
 

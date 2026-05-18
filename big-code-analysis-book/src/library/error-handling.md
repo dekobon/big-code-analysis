@@ -1,8 +1,7 @@
 # Error handling
 
-The entry point [`get_function_spaces`] returns
-`Result<FuncSpace, MetricsError>`. This page documents what each
-variant means and how to act on it.
+The entry point [`analyze`] returns `Result<FuncSpace, MetricsError>`.
+This page documents what each variant means and how to act on it.
 
 > **Heads up.** Prior to [#253] this entry point returned
 > `Option<FuncSpace>` and collapsed every failure mode into a single
@@ -15,16 +14,13 @@ variant means and how to act on it.
 ## Pattern-matching the error variants
 
 ```rust
-use std::path::PathBuf;
-
-use big_code_analysis::{get_function_spaces, LANG, MetricsError};
+use big_code_analysis::{analyze, LANG, MetricsError, MetricsOptions, Source};
 
 fn main() {
-    let result = get_function_spaces(
-        &LANG::Rust,
-        b"this is not rust".to_vec(),
-        &PathBuf::from("snippet.rs"),
-        None,
+    let result = analyze(
+        Source::new(LANG::Rust, b"this is not rust")
+            .with_name(Some("snippet.rs".to_owned())),
+        MetricsOptions::default(),
     );
 
     match result {
@@ -63,10 +59,14 @@ fn main() {
   Cargo features (see [#252]). The current build enables every
   supported language, so this variant is never produced today.
 - **`NonUtf8Path`** — Reserved for callers that opt into
-  strict-identifier mode (see [#254]). The default entry points use
-  lossy UTF-8 conversion at the [`FuncSpace::name`] boundary and
-  flag it via `name_was_lossy`, so this variant is not produced
-  today.
+  strict-identifier mode. Since [#254], the recommended [`analyze`]
+  entry point takes a caller-supplied [`Source::name`]
+  (`Option<String>`), so non-UTF-8 paths are never round-tripped
+  through lossy conversion in the first place. The deprecated
+  path-positional shims ([`get_function_spaces`],
+  [`metrics_with_options`]) still fall back to
+  `Path::to_string_lossy`. This variant is not produced today; it
+  is kept for future strict-identifier validators.
 
 [#252]: https://github.com/dekobon/big-code-analysis/issues/252
 [#254]: https://github.com/dekobon/big-code-analysis/issues/254
@@ -101,16 +101,18 @@ boilerplate:
 
 ```rust
 use std::error::Error;
-use std::path::Path;
 
-use big_code_analysis::{get_function_spaces, FuncSpace, LANG};
+use big_code_analysis::{analyze, FuncSpace, LANG, MetricsOptions, Source};
 
-pub fn analyze(
+pub fn run(
     lang: LANG,
-    source: Vec<u8>,
-    path: &Path,
+    source: &[u8],
+    name: Option<String>,
 ) -> Result<FuncSpace, Box<dyn Error>> {
-    Ok(get_function_spaces(&lang, source, path, None)?)
+    Ok(analyze(
+        Source::new(lang, source).with_name(name),
+        MetricsOptions::default(),
+    )?)
 }
 ```
 
@@ -128,7 +130,10 @@ warnings, redirect stderr at the process level — the library does
 not currently expose a programmatic warning sink. That is tracked
 under the library-DX umbrella ([#250]).
 
+[`analyze`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.analyze.html
+[`Source::name`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Source.html#structfield.name
 [`get_function_spaces`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.get_function_spaces.html
+[`metrics_with_options`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.metrics_with_options.html
 [`MetricsOptions`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.MetricsOptions.html
 [`FuncSpace`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.FuncSpace.html
 [`FuncSpace::name`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.FuncSpace.html#structfield.name

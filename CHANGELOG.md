@@ -18,8 +18,43 @@ why no value stability is offered until `1.0`. Entries above the
 
 ## [Unreleased]
 
+### Added
+
+- New library entry point `analyze(Source, MetricsOptions) ->
+  Result<FuncSpace, MetricsError>` in `src/spaces.rs`. `Source<'a>`
+  is `#[non_exhaustive]` and carries the language, source bytes,
+  optional caller-supplied display name (`Source::name`), optional
+  C++-preprocessor path (`Source::preproc_path`), and optional
+  `PreprocResults`. Construct via `Source::new(lang, code)` plus
+  the `with_name` / `with_preproc_path` / `with_preproc` setters.
+  This is the recommended entry point for in-memory analysis —
+  callers no longer need to fabricate a `&Path` to identify a
+  buffer
+  ([#254](https://github.com/dekobon/big-code-analysis/issues/254)).
+
 ### Changed
 
+- **(breaking)** Removed `FuncSpace::name_was_lossy`. The new
+  `analyze` entry point makes the top-level name an explicit
+  caller-supplied `Option<String>` (via `Source::name`), so the
+  lossy-conversion workaround disappears. The deprecated path-
+  positional shims (`metrics`, `metrics_with_options`,
+  `get_function_spaces`, `get_function_spaces_with_options`) still
+  derive `FuncSpace::name` from `path` via lossy UTF-8 conversion
+  for backwards compatibility but no longer surface a `name_was_lossy`
+  bit. Downstream consumers that read `name_was_lossy` from
+  serialized output must drop that field; consumers that need a
+  stable identifier should pass `Source::name` directly via the
+  new `analyze` entry point
+  ([#254](https://github.com/dekobon/big-code-analysis/issues/254)).
+- The path-positional entry points (`metrics`, `metrics_with_options`,
+  `get_function_spaces`, `get_function_spaces_with_options`) are
+  now `#[deprecated(since = "0.0.26", …)]` in favour of
+  `analyze(Source, MetricsOptions)`. They remain functional for one
+  minor release. The CLI and web crate still call the deprecated
+  shims internally (they always have a `&Path` in hand); library
+  consumers should migrate to `analyze`
+  ([#254](https://github.com/dekobon/big-code-analysis/issues/254)).
 - **(breaking)** Library entry points now return
   `Result<FuncSpace, MetricsError>` (and `Result<Ops, MetricsError>` /
   `Result<Vec<Node>, MetricsError>` for the sibling APIs) instead of

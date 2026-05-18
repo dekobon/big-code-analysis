@@ -558,7 +558,6 @@ mod tests {
     fn space(name: &str, kind: SpaceKind, suppressed: SuppressionScope) -> FuncSpace {
         FuncSpace {
             name: Some(name.into()),
-            name_was_lossy: false,
             start_line: 1,
             end_line: 10,
             kind,

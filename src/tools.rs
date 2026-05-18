@@ -603,6 +603,7 @@ pub(crate) fn check_func_space<T: crate::ParserTrait, F: Fn(crate::FuncSpace)>(
     let mut trimmed_bytes = normalized.trim_end().trim_matches('\n').as_bytes().to_vec();
     trimmed_bytes.push(b'\n');
     let parser = T::new(trimmed_bytes, &path, None);
+    #[allow(deprecated)]
     let func_space = crate::metrics(&parser, &path).unwrap();
 
     check(func_space);

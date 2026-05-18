@@ -19,25 +19,21 @@ Older toolchains will not build it — see the
 
 ## 2. Compute metrics from a string
 
-The simplest path is [`get_function_spaces`]: hand it a language
-selector, the source bytes, and a "virtual" path that names the
-file. The path is used purely as an identifier — nothing is read
-from disk.
+The recommended entry point is [`analyze`]: pass a [`Source`]
+carrying the language, source bytes, and an optional display name,
+plus a [`MetricsOptions`] for any per-traversal flags. No
+filesystem path is needed.
 
 ```rust
-use std::path::PathBuf;
-
-use big_code_analysis::{get_function_spaces, LANG};
+use big_code_analysis::{analyze, MetricsOptions, Source, LANG};
 
 fn main() {
     let source = "fn add(a: i32, b: i32) -> i32 { a + b }";
-    let path = PathBuf::from("snippet.rs");
 
-    let space = get_function_spaces(
-        &LANG::Rust,
-        source.as_bytes().to_vec(),
-        &path,
-        None, // No C/C++ preprocessor data.
+    let space = analyze(
+        Source::new(LANG::Rust, source.as_bytes())
+            .with_name(Some("snippet.rs".to_owned())),
+        MetricsOptions::default(),
     )
     .expect("Rust source should parse");
 
@@ -48,11 +44,19 @@ fn main() {
 }
 ```
 
-The return type is [`Result<FuncSpace, MetricsError>`][MetricsError].
-The `Err` variant tells parse-failure apart from empty-input apart
-from disabled-language; see [Error handling](error-handling.md) for
-the variant set and matching patterns. `MetricsError` is
-`#[non_exhaustive]`, so always include a `_` arm when matching.
+`Source::name` ends up as the top-level [`FuncSpace::name`]; passing
+`None` leaves the top-level name unset. The return type is
+[`Result<FuncSpace, MetricsError>`][MetricsError]. The `Err` variant
+tells parse-failure apart from empty-input apart from disabled-
+language; see [Error handling](error-handling.md) for the variant
+set and matching patterns. `MetricsError` is `#[non_exhaustive]`, so
+always include a `_` arm when matching.
+
+> The older `get_function_spaces(lang, bytes, path, pr)` and
+> `metrics_with_options(parser, path, options)` entry points are
+> still available but `#[deprecated]` — they derive the top-level
+> name from `path` via lossy UTF-8 conversion. Use them only when
+> you already have a `Parser<T>` in hand from another seam.
 
 ## 3. What you got back
 
@@ -62,9 +66,7 @@ spaces. Every node carries the same [`CodeMetrics`][CodeMetrics]
 struct, so you can read any metric at any level of granularity.
 
 ```rust
-use std::path::PathBuf;
-
-use big_code_analysis::{get_function_spaces, LANG, SpaceKind};
+use big_code_analysis::{analyze, MetricsOptions, Source, SpaceKind, LANG};
 
 fn main() {
     let source = "\
@@ -72,12 +74,10 @@ fn outer() {
     fn inner() {}
 }
 ";
-    let path = PathBuf::from("snippet.rs");
-    let space = get_function_spaces(
-        &LANG::Rust,
-        source.as_bytes().to_vec(),
-        &path,
-        None,
+    let space = analyze(
+        Source::new(LANG::Rust, source.as_bytes())
+            .with_name(Some("snippet.rs".to_owned())),
+        MetricsOptions::default(),
     )
     .expect("Rust source should parse");
 
@@ -99,7 +99,7 @@ and the shebang in that order:
 ```rust
 use std::path::PathBuf;
 
-use big_code_analysis::{get_function_spaces, guess_language};
+use big_code_analysis::{analyze, guess_language, MetricsOptions, Source};
 
 fn main() {
     let source = b"print('hi')\n";
@@ -110,7 +110,10 @@ fn main() {
         return;
     };
 
-    let _space = get_function_spaces(&lang, source.to_vec(), &path, None);
+    let _space = analyze(
+        Source::new(lang, source).with_name(Some("hello.py".to_owned())),
+        MetricsOptions::default(),
+    );
 }
 ```
 
@@ -119,13 +122,17 @@ that as "skip this file" rather than as a parse error.
 
 ## What changes when
 
-The entry point is named `get_function_spaces` and returns
-`Result<FuncSpace, MetricsError>` (per [#253]). The library-DX
-tracker collects the remaining shape changes — naming, per-language
-features, and the parse seam.
+The recommended entry point is `analyze(Source, MetricsOptions)` and
+returns `Result<FuncSpace, MetricsError>` (per [#253] and [#254]).
+The library-DX tracker collects the remaining shape changes —
+naming, per-language features, and the parse seam.
 
 [#253]: https://github.com/dekobon/big-code-analysis/issues/253
-[`get_function_spaces`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.get_function_spaces.html
+[#254]: https://github.com/dekobon/big-code-analysis/issues/254
+[`analyze`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.analyze.html
+[`Source`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Source.html
+[`MetricsOptions`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.MetricsOptions.html
+[`FuncSpace::name`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.FuncSpace.html#structfield.name
 [`guess_language`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.guess_language.html
 [FuncSpace]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.FuncSpace.html
 [MetricsError]: https://docs.rs/big-code-analysis/*/big_code_analysis/enum.MetricsError.html

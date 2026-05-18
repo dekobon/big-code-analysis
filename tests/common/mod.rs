@@ -53,10 +53,21 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
         return Ok(());
     };
 
-    // Get FuncSpace struct
-    let funcspace_struct = get_function_spaces(&language, source, &path, None).expect(
-        "get_function_spaces returned None for fixture; the parser may have rejected the source",
-    );
+    // Get FuncSpace struct.
+    //
+    // Snapshot fixtures key on the file path as the top-level
+    // identifier, so use `Source::name` to thread the path string
+    // through `analyze`. This matches the behaviour the deprecated
+    // `get_function_spaces` shim had (lossy-stringified path) for
+    // the valid-UTF-8 paths the integration corpora carry.
+    let name = Some(path.to_string_lossy().into_owned());
+    let funcspace_struct = analyze(
+        Source::new(language, &source)
+            .with_name(name)
+            .with_preproc_path(Some(&path)),
+        MetricsOptions::default(),
+    )
+    .expect("analyze returned Err for fixture; the parser may have rejected the source");
 
     insta::with_settings!({snapshot_path => Path::new(SNAPSHOT_PATH)
                 .join(path.strip_prefix(&cfg.source_root).unwrap())

@@ -6,11 +6,11 @@
 
 ## What this page will cover
 
-Today, every call to [`get_function_spaces`] runs the full metric
-suite — ABC, cognitive, cyclomatic, Halstead, LoC, MI, NArgs,
-NExits, NOM, NPA, NPM, tokens, WMC. That is the right default for
-the CLI, where the user has just asked for "the metrics", but it
-is heavyweight for callers that want one number per file.
+Today, every call to [`analyze`] runs the full metric suite — ABC,
+cognitive, cyclomatic, Halstead, LoC, MI, NArgs, NExits, NOM, NPA,
+NPM, tokens, WMC. That is the right default for the CLI, where the
+user has just asked for "the metrics", but it is heavyweight for
+callers that want one number per file.
 
 The planned [#257] work splits each metric behind its own Cargo
 feature flag so consumers can compile the library with only the
@@ -27,16 +27,16 @@ Two interim options:
    for one-shot tools and CI.
 
    ```rust
-   use std::path::PathBuf;
-
-   use big_code_analysis::{get_function_spaces, LANG};
+   use big_code_analysis::{analyze, LANG, MetricsOptions, Source};
 
    fn main() {
-       let space = get_function_spaces(
-           &LANG::Rust,
-           b"fn f(x: i32) -> i32 { if x > 0 { 1 } else { 0 } }".to_vec(),
-           &PathBuf::from("snippet.rs"),
-           None,
+       let space = analyze(
+           Source::new(
+               LANG::Rust,
+               b"fn f(x: i32) -> i32 { if x > 0 { 1 } else { 0 } }",
+           )
+           .with_name(Some("snippet.rs".to_owned())),
+           MetricsOptions::default(),
        )
        .expect("parses");
 
@@ -53,19 +53,13 @@ Two interim options:
    keeps the numbers tighter:
 
    ```rust
-   use std::path::PathBuf;
-
-   use big_code_analysis::{
-       get_function_spaces_with_options, LANG, MetricsOptions,
-   };
+   use big_code_analysis::{analyze, LANG, MetricsOptions, Source};
 
    fn main() {
        let options = MetricsOptions::default().with_exclude_tests(true);
-       let _space = get_function_spaces_with_options(
-           &LANG::Rust,
-           b"fn lib() {} #[test] fn t() {}".to_vec(),
-           &PathBuf::from("snippet.rs"),
-           None,
+       let _space = analyze(
+           Source::new(LANG::Rust, b"fn lib() {} #[test] fn t() {}")
+               .with_name(Some("snippet.rs".to_owned())),
            options,
        );
    }
@@ -75,6 +69,6 @@ When [#257] lands this page will document the feature-flag
 matrix and any opt-in flags on `MetricsOptions` that replace the
 "run-everything-and-ignore" workaround.
 
-[`get_function_spaces`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.get_function_spaces.html
+[`analyze`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.analyze.html
 [FuncSpace]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.FuncSpace.html
 [MetricsOptions]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.MetricsOptions.html

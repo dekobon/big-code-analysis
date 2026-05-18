@@ -1,6 +1,6 @@
 //! Integration tests for in-source suppression markers (#98).
 //!
-//! Exercises the comment-extraction path through `metrics_with_options`
+//! Exercises the comment-extraction path through `analyze`
 //! across a representative C-family language (C++) and a non-C-family
 //! language (Python and Rust), per the issue's acceptance criteria.
 //! Tests cover both native `bca:` markers and Lizard compatibility
@@ -8,35 +8,23 @@
 
 #![allow(clippy::needless_raw_string_hashes)]
 
-use std::path::PathBuf;
-
 use big_code_analysis::{
-    CppParser, FuncSpace, MetricKind, MetricsOptions, PythonParser, RustParser, SuppressionScope,
+    FuncSpace, LANG, MetricKind, MetricsOptions, Source, SuppressionScope, analyze,
 };
-
-fn analyze<P>(source: &str, path: &str) -> FuncSpace
-where
-    P: big_code_analysis::ParserTrait,
-{
-    // The generic plumbing here mirrors what the CLI does for every
-    // file: build the parser, walk with the default options, unwrap
-    // the resulting top-level `FuncSpace`. Tests panic on `None`
-    // because every fixture we feed is well-formed parser-input.
-    let buf: Vec<u8> = source.as_bytes().to_vec();
-    let path = PathBuf::from(path);
-    let parser = P::new(buf, &path, None);
-    big_code_analysis::metrics_with_options::<P>(&parser, &path, MetricsOptions::default())
-        .expect("parser produced no top-level FuncSpace")
-}
 
 fn analyze_lang(source: &str, path: &str) -> FuncSpace {
     let ext = path.rsplit('.').next().unwrap_or("");
-    match ext {
-        "py" => analyze::<PythonParser>(source, path),
-        "cpp" | "cc" | "hpp" | "h" => analyze::<CppParser>(source, path),
-        "rs" => analyze::<RustParser>(source, path),
+    let lang = match ext {
+        "py" => LANG::Python,
+        "cpp" | "cc" | "hpp" | "h" => LANG::Cpp,
+        "rs" => LANG::Rust,
         other => panic!("unsupported test extension {other:?}"),
-    }
+    };
+    analyze(
+        Source::new(lang, source.as_bytes()).with_name(Some(path.to_owned())),
+        MetricsOptions::default(),
+    )
+    .expect("parser produced no top-level FuncSpace")
 }
 
 /// Recursively locate the first non-Unit space whose name matches

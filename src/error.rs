@@ -36,12 +36,10 @@ use crate::LANG;
 /// stay forward-compatible with future variants.
 ///
 /// ```
-/// use std::path::Path;
+/// use big_code_analysis::{analyze, MetricsError, MetricsOptions, Source, LANG};
 ///
-/// use big_code_analysis::{metrics, CppParser, MetricsError, ParserTrait};
-///
-/// let parser = CppParser::new(b"int a = 42;".to_vec(), Path::new("foo.c"), None);
-/// let result = metrics(&parser, Path::new("foo.c"));
+/// let source = Source::new(LANG::Cpp, b"int a = 42;");
+/// let result = analyze(source, MetricsOptions::default());
 ///
 /// // Today this call succeeds; the match below documents the shape
 /// // callers must adopt so adding a future variant is non-breaking.
@@ -87,11 +85,16 @@ pub enum MetricsError {
     LanguageDisabled(LANG),
     /// The supplied path could not be losslessly converted to UTF-8.
     ///
-    /// Reserved for callers that opt into strict-identifier mode
-    /// (see issue #254). The library currently uses lossy conversion
-    /// at the [`FuncSpace::name`][crate::FuncSpace::name] boundary and
-    /// flags it via `name_was_lossy`, so this variant is not produced
-    /// from the default entry points today.
+    /// Reserved for callers that opt into strict-identifier mode.
+    /// As of #254, the recommended [`crate::analyze`] entry point
+    /// accepts a [`crate::Source`] with an explicit
+    /// `Source::name: Option<String>` so callers never need to round-
+    /// trip a non-UTF-8 path through lossy conversion in the first
+    /// place. The deprecated path-positional entry points
+    /// ([`crate::metrics`], [`crate::get_function_spaces`], …) still
+    /// fall back to `Path::to_string_lossy`. This variant is not
+    /// produced today; it is kept for future strict-identifier
+    /// validators that reject lossy names up front.
     NonUtf8Path,
     /// The tree-sitter parse tree contains syntax errors and the
     /// caller opted into strict mode.

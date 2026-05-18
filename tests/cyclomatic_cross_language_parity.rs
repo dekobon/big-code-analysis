@@ -47,15 +47,17 @@
 //! point.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 
-use big_code_analysis::{LANG, get_function_spaces};
+use big_code_analysis::{LANG, MetricsOptions, Source, analyze};
 
 /// Parses `source` as `lang` and returns the file-level standard CCN sum.
 fn ccn_sum(lang: LANG, source: &str, ext: &str) -> f64 {
-    let path = PathBuf::from(format!("parity.{ext}"));
-    let space = get_function_spaces(&lang, source.as_bytes().to_vec(), &path, None)
-        .expect("parser produced no FuncSpace for parity fixture");
+    let name = format!("parity.{ext}");
+    let space = analyze(
+        Source::new(lang, source.as_bytes()).with_name(Some(name)),
+        MetricsOptions::default(),
+    )
+    .expect("parser produced no FuncSpace for parity fixture");
     space.metrics.cyclomatic.cyclomatic_sum()
 }
 
