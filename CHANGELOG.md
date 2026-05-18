@@ -160,6 +160,17 @@ changes are marked with **(breaking)** in the entries below.
 
 ### Added
 
+- In-source suppression markers for metric threshold checks. Comments
+  matching `bca: allow`, `bca: allow(metric, ...)`, `bca: allow-file`,
+  `bca: allow-file(metric, ...)`, `#lizard forgives`, or
+  `#lizard forgive global` silence offending `bca check` violations
+  without editing source. A new `--no-suppress` flag forces all markers
+  to be ignored for CI auditors. `FuncSpace` gains a
+  `suppressed: SuppressionScope` field (elided from JSON when empty so
+  existing snapshots are unchanged). New public types: `MetricKind`,
+  `SuppressionScope`, and `SuppressionPolicy`. Documented in the new
+  *Suppression markers* book chapter
+  ([#98](https://github.com/dekobon/big-code-analysis/issues/98)).
 - **(breaking)** `AstNode` JSON output now carries a `FieldName`
   key holding the tree-sitter grammar field through which each
   node was reached (`left`, `right`, `name`, `parameters`,
@@ -469,6 +480,21 @@ changes are marked with **(breaking)** in the entries below.
 
 ### Fixed
 
+- `Cyclomatic` now counts the compound short-circuit assignment
+  operators `&&=` and `||=` in JavaScript / TypeScript / TSX /
+  Mozjs, matching the existing `??=` handling and the cognitive
+  parity from #236. Each compound short-circuit assignment is a
+  distinct control-flow decision and must contribute uniformly.
+  C# is unaffected (its grammar exposes only `??=`)
+  ([#248](https://github.com/dekobon/big-code-analysis/issues/248)).
+- `Cognitive` and `Cyclomatic` now count Perl's compound
+  short-circuit assignments `&&=`, `||=`, and `//=` as boolean-
+  sequence increments / decision edges. The Perl grammar exposes
+  these as direct operator tokens inside `binary_expression`,
+  unlike the JS family's `augmented_assignment_expression`; the
+  predicates that already handle `&&`/`||`/`//` were extended in
+  place
+  ([#249](https://github.com/dekobon/big-code-analysis/issues/249)).
 - `Cognitive` now counts the compound short-circuit assignment
   operators (`&&=`, `||=`, `??=`) in JavaScript / TypeScript /
   TSX / Mozjs and `??=` in C# / PHP. Pre-existing gap: cognitive

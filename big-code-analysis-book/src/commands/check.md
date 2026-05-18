@@ -85,6 +85,15 @@ src/parser.rs:42-117: parse_expression: cognitive = 31 (limit 20)
 Lines are sorted by path, then start line, then metric name, so output
 is deterministic across runs over the same tree.
 
+## Silencing violations with suppression markers
+
+In-source comments can silence threshold violations on individual
+functions or whole files without editing the offending code or
+excluding it from the walk. The native dialect is `bca: allow` /
+`bca: allow-file`; Lizard's `#lizard forgives` is recognized as a
+compatibility shim. See [Suppression markers](suppression.md) for
+the full reference and the `--no-suppress` CI-audit flag.
+
 ## Reporting without failing
 
 `--no-fail` (also written `--report-only` in some CI vocabularies)
