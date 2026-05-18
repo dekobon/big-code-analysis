@@ -19,6 +19,14 @@ use big_code_analysis::{AstCallback, AstCfg, AstPayload, LANG, action, guess_lan
 
 const INVALID_LANGUAGE: &str = "The file extension doesn't correspond to a valid language";
 
+/// `expect` message used at every `action::<_>` call site below.
+///
+/// The web crate pins `big-code-analysis` with `features =
+/// ["all-languages"]`, so a `LANG` value that reached this point must
+/// be enabled at compile time. Any future caller that loosens the
+/// feature pin must change this invariant explicitly.
+const FEATURES_PINNED: &str = "web crate pins big-code-analysis features = [\"all-languages\"]";
+
 /// Swaps C++ to the `Ccomment` grammar for comment-removal endpoints.
 fn comment_language(language: LANG) -> LANG {
     if language == LANG::Cpp {
@@ -133,8 +141,7 @@ async fn ast_parser(
             span: payload.span,
         };
         let result = run_parse(&config, move || {
-            action::<AstCallback>(&language, buf, Path::new(""), None, cfg)
-                .expect("web crate pins big-code-analysis features = [\"all-languages\"]")
+            action::<AstCallback>(&language, buf, Path::new(""), None, cfg).expect(FEATURES_PINNED)
         })
         .await?;
         Ok(HttpResponse::Ok().json(result))
@@ -159,7 +166,7 @@ async fn comment_removal_json(
         let language = comment_language(language);
         let result = run_parse(&config, move || {
             action::<WebCommentCallback>(&language, buf, Path::new(""), None, cfg)
-                .expect("web crate pins big-code-analysis features = [\"all-languages\"]")
+                .expect(FEATURES_PINNED)
         })
         .await?;
         Ok(HttpResponse::Ok().json(result))
@@ -184,7 +191,7 @@ async fn comment_removal_plain(
         let cfg = WebCommentCfg { id: String::new() };
         let res = run_parse(&config, move || {
             action::<WebCommentCallback>(&language, buf, Path::new(""), None, cfg)
-                .expect("web crate pins big-code-analysis features = [\"all-languages\"]")
+                .expect(FEATURES_PINNED)
         })
         .await?;
         if let Some(res_code) = res.code {
@@ -219,7 +226,7 @@ async fn metrics_json(
         let cfg = WebMetricsCfg::new(payload.id, path, payload.unit, name.to_string());
         let result = run_parse(&config, move || {
             action::<WebMetricsCallback>(&language, buf, Path::new(""), None, cfg)
-                .expect("web crate pins big-code-analysis features = [\"all-languages\"]")
+                .expect(FEATURES_PINNED)
         })
         .await?;
         Ok(HttpResponse::Ok().json(result))
@@ -250,7 +257,7 @@ async fn metrics_plain(
         let cfg = WebMetricsCfg::new(String::new(), path, unit, name.to_string());
         let result = run_parse(&config, move || {
             action::<WebMetricsCallback>(&language, buf, Path::new(""), None, cfg)
-                .expect("web crate pins big-code-analysis features = [\"all-languages\"]")
+                .expect(FEATURES_PINNED)
         })
         .await?;
         Ok(HttpResponse::Ok().json(result))
@@ -273,7 +280,7 @@ async fn function_json(
         let cfg = WebFunctionCfg { id: payload.id };
         let result = run_parse(&config, move || {
             action::<WebFunctionCallback>(&language, buf, Path::new(""), None, cfg)
-                .expect("web crate pins big-code-analysis features = [\"all-languages\"]")
+                .expect(FEATURES_PINNED)
         })
         .await?;
         Ok(HttpResponse::Ok().json(result))
@@ -297,7 +304,7 @@ async fn function_plain(
         let cfg = WebFunctionCfg { id: String::new() };
         let result = run_parse(&config, move || {
             action::<WebFunctionCallback>(&language, buf, Path::new(""), None, cfg)
-                .expect("web crate pins big-code-analysis features = [\"all-languages\"]")
+                .expect(FEATURES_PINNED)
         })
         .await?;
         Ok(HttpResponse::Ok().json(result))
