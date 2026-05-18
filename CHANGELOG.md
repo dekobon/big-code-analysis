@@ -20,6 +20,14 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Added
 
+- New `big_code_analysis::prelude` module exposing the recommended
+  entry points for the 90% case: `analyze`, `metrics_from_tree`,
+  `Source`, `MetricsOptions`, `MetricsError`, `Metric`, `LANG`,
+  `FuncSpace`, `CodeMetrics`, `SpaceKind`. Callers can now write
+  `use big_code_analysis::prelude::*;` instead of long
+  per-import lists; everything outside the prelude is still
+  reachable by its fully-qualified name from the crate root
+  ([#255](https://github.com/dekobon/big-code-analysis/issues/255)).
 - `MetricsOptions::with_only(&[Metric])` for selective metric
   computation. Pass a slice of [`Metric`] values to restrict the
   walker to those metrics; everything outside the set is skipped at
@@ -49,6 +57,21 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Changed
 
+- **(library API)** `src/lib.rs` re-exports are now explicit:
+  every previous `pub use module::*` glob has been replaced with a
+  named `pub use module::{X, Y, Z}` list. Helpers that were only
+  ever called from inside the crate but accidentally became part
+  of the published surface via those globs are now `pub(crate)`.
+  The known curated public types (`analyze`, `Source`,
+  `MetricsOptions`, `MetricsError`, `Metric`, `MetricSet`, `LANG`,
+  `FuncSpace`, `CodeMetrics`, `SpaceKind`, `Node`, `Cursor`,
+  the per-language `<Lang>Code` / `<Lang>Parser` tags, the
+  `metrics` / `output` sub-modules, the `tree_sitter` re-export,
+  and the deprecated path-positional shims) keep their crate-root
+  paths so the CLI, web crate, integration tests, and the book
+  examples continue to compile unchanged. The published API as
+  rendered by `cargo doc` is now noticeably smaller
+  ([#255](https://github.com/dekobon/big-code-analysis/issues/255)).
 - `ParserTrait`, the per-metric compute traits (`Cognitive`,
   `Cyclomatic`, `Halstead`, `Loc`, `Mi`, `Nom`, `NArgs`, `Exit`,
   `Abc`, `Npa`, `Npm`, `Tokens`, `Wmc`), and the supporting

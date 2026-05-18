@@ -11,8 +11,8 @@ use std::sync::Arc;
 
 use crate::node::Node;
 
-use crate::dump::*;
 use crate::error::MetricsError;
+use crate::output::dump::*;
 use crate::traits::*;
 
 // Hidden from rustdoc because the signature exposes `ParserTrait`,

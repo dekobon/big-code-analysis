@@ -205,7 +205,13 @@ the library-DX umbrella (#250):
 - Per-language Cargo features so consumers can shrink the
   dependency footprint (#252). (Per-metric runtime selection
   shipped via `MetricsOptions::with_only(&[Metric])` in #257.)
-- A curated `pub use` set / prelude (#255).
+- A curated `pub use` set / prelude — shipped in `[Unreleased]`:
+  `src/lib.rs` re-exports are now explicit (no `pub use module::*`
+  globs), and a new [`prelude`] module exposes the recommended
+  entry points (`analyze`, `Source`, `MetricsOptions`,
+  `MetricsError`, `LANG`, `FuncSpace`, `CodeMetrics`, `SpaceKind`,
+  `Metric`, `metrics_from_tree`) for `use big_code_analysis::prelude::*;`
+  (#255).
 
 Each of those, when it lands, will be a minor bump and will appear
 in the changelog under **(breaking)**.

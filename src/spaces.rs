@@ -51,7 +51,7 @@ use crate::npm::{self, Npm};
 use crate::tokens::{self, Tokens};
 use crate::wmc::{self, Wmc};
 
-use crate::dump_metrics::*;
+use crate::output::dump_metrics::*;
 use crate::traits::*;
 
 /// The list of supported space kinds.
