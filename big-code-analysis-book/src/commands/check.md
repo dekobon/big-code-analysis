@@ -5,6 +5,13 @@ non-zero when any function exceeds a limit. It is the CI integration
 point: wire it into a build step and a regression in code complexity
 fails the pipeline before the change lands.
 
+> **Looking for full CI recipes?** The
+> [CI integration recipe](../recipes/ci.md) consolidates the
+> `--output-format` matrix, runnable GitHub Actions and `.gitlab-ci.yml`
+> examples, the baseline / ratchet pattern, and the GitLab Code Quality
+> path. This page documents the command itself; the recipe documents
+> how to wire it into a pipeline.
+
 ## Exit codes
 
 | Code | Meaning |

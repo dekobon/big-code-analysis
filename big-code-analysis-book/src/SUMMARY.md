@@ -13,6 +13,7 @@
   - [Rest API](commands/rest.md)
 - [Recipes](recipes/README.md)
   - [Quality reports](recipes/quality-reports.md)
+  - [CI integration](recipes/ci.md)
   - [AST queries](recipes/ast-queries.md)
   - [Exporting metric data](recipes/exporting-data.md)
   - [Driving the REST API](recipes/rest-api.md)

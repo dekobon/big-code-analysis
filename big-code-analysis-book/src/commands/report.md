@@ -4,6 +4,10 @@
 across every file walked. It is designed for pasting into pull
 requests, wikis, or issue trackers.
 
+> **CI integration.** For runnable GitHub Actions and GitLab CI
+> recipes that post the Markdown report as a PR/MR comment, see the
+> [CI integration recipe](../recipes/ci.md).
+
 Two formats are available: `markdown` (plain-text, ideal for PR
 comments) and `html` (a self-contained dashboard with sortable tables,
 ideal for sharing as a build artifact).

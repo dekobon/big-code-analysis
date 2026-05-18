@@ -2,6 +2,12 @@
 
 Recipes for producing aggregated, human-readable Markdown reports.
 
+> **Wiring reports into CI?** See the
+> [CI integration recipe](ci.md) for runnable GitHub Actions and
+> GitLab CI examples that post the Markdown report as a PR/MR comment
+> and surface threshold violations through the platform's native code
+> quality widgets.
+
 ## Generate a project-wide quality report
 
 Run from the project root and write the report to a file:
