@@ -52,6 +52,13 @@ language; see [Error handling](error-handling.md) for the variant
 set and matching patterns. `MetricsError` is `#[non_exhaustive]`, so
 always include a `_` arm when matching.
 
+Tip: `use big_code_analysis::prelude::*;` brings the recommended
+entry points (`analyze`, `Source`, `MetricsOptions`, `MetricsError`,
+`LANG`, `FuncSpace`, `CodeMetrics`, `SpaceKind`, `Metric`,
+`metrics_from_tree`) into scope in one line. Anything outside the
+prelude can still be reached by name — for example
+`use big_code_analysis::guess_language;`.
+
 > The older `get_function_spaces(lang, bytes, path, pr)` and
 > `metrics_with_options(parser, path, options)` entry points are
 > still available but `#[deprecated]` — they derive the top-level

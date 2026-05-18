@@ -14,6 +14,22 @@
 //! while issues and feature requests can be posted on the respective
 //! <a href="https://github.com/dekobon/big-code-analysis/issues/" target="_blank">GitHub Issue Tracker</a>.
 //!
+//! ## Quick start
+//!
+//! Most callers want the recommended entry points exposed in
+//! [`prelude`]:
+//!
+//! ```no_run
+//! use big_code_analysis::prelude::*;
+//!
+//! let source = b"fn main() {}";
+//! let space = analyze(
+//!     Source::new(LANG::Rust, source),
+//!     MetricsOptions::default(),
+//! ).expect("Rust source parses");
+//! println!("cognitive sum: {}", space.metrics.cognitive.cognitive_sum());
+//! ```
+//!
 //! ## Supported Languages
 //!
 //! - Bash
@@ -66,76 +82,170 @@
 
 #![allow(clippy::upper_case_acronyms)]
 
+// Internal-only modules. Nothing is re-exported from these.
 mod c_langs_macros;
 mod c_macro;
+mod checker;
 mod getter;
+mod languages;
 mod macros;
 
-mod alterator;
-pub use alterator::*;
-
-mod node;
-pub use crate::node::*;
-
-mod metrics;
-pub use metrics::*;
-
-mod languages;
-pub(crate) use languages::*;
-
-mod checker;
-pub(crate) use checker::*;
-
-mod output;
-pub use output::*;
-
-mod spaces;
-pub use crate::spaces::*;
-
-mod ops;
-pub use crate::ops::*;
-
-mod find;
-pub use crate::find::*;
-
-mod function;
-pub use crate::function::*;
-
-mod ast;
-pub use crate::ast::*;
-
-mod count;
-pub use crate::count::*;
-
-mod preproc;
-pub use crate::preproc::*;
-
+// `langs` hosts the `mk_langs!` macro expansion. Every name produced
+// there — `LANG`, the `action` / `get_function_spaces` dispatch
+// helpers, per-language `<Lang>Code` tags and `<Lang>Parser` aliases —
+// is enumerated explicitly in the curated re-exports below.
 mod langs;
-pub use crate::langs::*;
+pub use crate::langs::{
+    BashCode, BashParser, CcommentCode, CcommentParser, CppCode, CppParser, CsharpCode,
+    CsharpParser, ElixirCode, ElixirParser, GoCode, GoParser, GroovyCode, GroovyParser, JavaCode,
+    JavaParser, JavascriptCode, JavascriptParser, KotlinCode, KotlinParser, LANG, LuaCode,
+    LuaParser, MozjsCode, MozjsParser, PerlCode, PerlParser, PhpCode, PhpParser, PreprocCode,
+    PreprocParser, PythonCode, PythonParser, RubyCode, RubyParser, RustCode, RustParser, TclCode,
+    TclParser, TsxCode, TsxParser, TypescriptCode, TypescriptParser, action, analyze_dispatch,
+    get_from_emacs_mode, get_from_ext, get_ops, metrics_from_tree,
+};
+// The path-positional `get_function_spaces*` shims are `#[deprecated]`
+// at their definition sites; re-exporting them at the crate root keeps
+// the previously-globbed surface intact, scoped with
+// `#[allow(deprecated)]` so the re-export itself does not warn.
+#[allow(deprecated)]
+pub use crate::langs::{get_function_spaces, get_function_spaces_with_options};
 
-mod tools;
-pub use crate::tools::*;
+// Internal crate-root re-exports. Hand-written per-language modules
+// (`src/getter.rs`, `src/checker.rs`, `src/alterator.rs`, the
+// per-language metric impls) use `use crate::*` to bring the
+// macro-generated `<Lang>Code` token enums and per-language helper
+// types into scope; the per-language token enums in
+// `src/languages/language_*.rs` are also reached through the crate
+// root. Re-exporting these as `pub(crate)` keeps internal compilation
+// working without widening the published surface.
+pub(crate) use crate::checker::*;
+pub(crate) use crate::languages::*;
 
-mod concurrent_files;
-pub use crate::concurrent_files::*;
+// Hand-written modules (`src/spaces.rs`, `src/output/dump_metrics.rs`,
+// the metric macros) refer to per-metric submodules by their short
+// crate-root path (`crate::abc`, `crate::cognitive`, ...). Re-export
+// them under those names without widening the public surface.
+pub(crate) use crate::metrics::{
+    abc, cognitive, cyclomatic, exit, halstead, loc, mi, nargs, nom, npa, npm, tokens, wmc,
+};
 
-mod traits;
-pub use crate::traits::*;
+// Module declarations. Each `pub use` line below names exactly the
+// items intended to be part of the public API surface; anything not
+// listed stays out of the crate root. Per issue #255, glob re-exports
+// (`pub use module::*`) are no longer used here because every newly
+// `pub`-marked helper in any sub-module would silently leak into the
+// published API.
 
-mod parser;
-pub use crate::parser::*;
+// --- Core analysis entry points and result types (spaces.rs) ---
+mod spaces;
+pub use crate::spaces::{
+    CodeMetrics, FuncSpace, Metrics, MetricsCfg, MetricsOptions, Source, SpaceKind, analyze,
+};
+// The path-positional `metrics` / `metrics_with_options` shims are
+// `#[deprecated]` at their definition site; re-export them so the
+// previously-globbed API surface keeps working, scoped with
+// `#[allow(deprecated)]` to avoid lint noise at this seam.
+pub(crate) use crate::spaces::metrics_inner;
+#[allow(deprecated)]
+pub use crate::spaces::{metrics, metrics_with_options};
+#[cfg(test)]
+pub(crate) use crate::tools::check_func_space;
 
-mod comment_rm;
-pub use crate::comment_rm::*;
+/// Per-metric implementations.
+///
+/// Each sub-module owns one metric — its `Stats` accumulator, the
+/// per-language trait implementations, and any small helpers used
+/// only by tests. Most callers will not need these directly; reach
+/// through [`CodeMetrics`] on a [`FuncSpace`] instead.
+pub mod metrics;
 
-mod suppression;
-pub use crate::suppression::{MetricKind, SuppressionPolicy, SuppressionScope};
-
+// --- Errors ---
 mod error;
 pub use crate::error::MetricsError;
 
+// --- Metric selection ---
 mod metric_set;
 pub use crate::metric_set::{Metric, MetricSet};
+
+// --- Suppression markers ---
+mod suppression;
+pub use crate::suppression::{MetricKind, SuppressionPolicy, SuppressionScope};
+
+/// Output formatters: CSV, SARIF, Checkstyle, clang/MSVC warning
+/// lines, and AST/metric pretty-dumps used by `bca` and the offender
+/// reporters.
+///
+/// The most commonly used writers (`write_csv`, `write_sarif`,
+/// `write_checkstyle`, `write_clang_warning`, `write_msvc_warning`)
+/// and shared types (`OffenderRecord`, `Severity`, `TOOL_ID`,
+/// `CSV_HEADER`, `CSV_EXTENSION`) are also re-exported at the crate
+/// root.
+pub mod output;
+pub use crate::output::{
+    CSV_EXTENSION, CSV_HEADER, Dump, DumpCfg, OffenderRecord, Severity, TOOL_ID, dump_node,
+    dump_ops, dump_root, write_checkstyle, write_clang_warning, write_csv, write_msvc_warning,
+    write_sarif,
+};
+
+// --- AST plumbing (Node, Cursor) ---
+mod node;
+pub use crate::node::{Cursor, Node};
+
+// --- Language detection / I/O helpers ---
+mod tools;
+pub use crate::tools::{
+    get_language_for_file, guess_language, is_generated, read_file, read_file_with_eol, write_file,
+};
+
+// --- Source walker ---
+mod concurrent_files;
+pub use crate::concurrent_files::{ConcurrentErrors, ConcurrentRunner, FilesData};
+
+// --- Comment removal ---
+mod comment_rm;
+pub use crate::comment_rm::{CommentRm, CommentRmCfg, rm_comments};
+
+// --- Per-function metric callbacks (CLI surface) ---
+mod count;
+pub use crate::count::{Count, CountCfg, count};
+
+mod find;
+pub use crate::find::{Find, FindCfg, find};
+
+mod function;
+pub use crate::function::{Function, FunctionCfg, FunctionSpan, function};
+
+// --- AST dump ---
+mod ast;
+pub use crate::ast::{AstCallback, AstCfg, AstNode, AstPayload, AstResponse, Span};
+
+// --- Halstead operator/operand callback ---
+mod ops;
+pub use crate::ops::{Ops, OpsCfg, OpsCode, operands_and_operators};
+
+// --- Preprocessor handling (C/C++) ---
+mod preproc;
+pub use crate::preproc::{PreprocFile, PreprocResults, fix_includes, get_macros, preprocess};
+
+// --- Alterator trait (per-language AST simplification) ---
+mod alterator;
+pub use crate::alterator::Alterator;
+
+// --- Generic parser plumbing ---
+//
+// `Parser`, `ParserTrait`, `Filter`, `LanguageInfo`, and `Callback`
+// are part of the value-not-stable surface — they are required for
+// callers that want to feed pre-parsed trees through the metric
+// pipeline or implement a custom `Callback`, but they are
+// `#[doc(hidden)]` at their definition sites so they do not clutter
+// the rendered rustdoc. See STABILITY.md.
+mod parser;
+pub use crate::parser::{Filter, Parser};
+
+mod traits;
+pub(crate) use crate::traits::Search;
+pub use crate::traits::{Callback, LanguageInfo, ParserTrait};
 
 /// Re-export of the underlying `tree-sitter` crate.
 ///
@@ -148,3 +258,44 @@ pub use crate::metric_set::{Metric, MetricSet};
 /// This is part of the value-not-stable surface: the underlying
 /// pin may bump in any minor release (see `STABILITY.md`).
 pub use ::tree_sitter;
+
+/// Recommended entry points for the 90% case.
+///
+/// Star-import this module to get the curated set of types and
+/// functions most callers need:
+///
+/// ```no_run
+/// use big_code_analysis::prelude::*;
+///
+/// let source = b"fn main() {}";
+/// let space = analyze(
+///     Source::new(LANG::Rust, source),
+///     MetricsOptions::default(),
+/// ).expect("Rust source parses");
+/// # let _ = space;
+/// ```
+///
+/// Anything not exposed here can still be imported with its
+/// fully-qualified name from the crate root (`use
+/// big_code_analysis::Something;`). Items deliberately omitted from
+/// the prelude are either deprecated, doc-hidden, or unlikely to
+/// appear in typical caller code.
+pub mod prelude {
+    pub use crate::{
+        // Result types
+        CodeMetrics,
+        FuncSpace,
+        // Language enum
+        LANG,
+        // Metric selection
+        Metric,
+        // Errors and options
+        MetricsError,
+        MetricsOptions,
+        Source,
+        SpaceKind,
+        // Core entry points
+        analyze,
+        metrics_from_tree,
+    };
+}

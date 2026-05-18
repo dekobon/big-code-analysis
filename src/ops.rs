@@ -18,7 +18,7 @@ use crate::spaces::SpaceKind;
 
 use crate::halstead::{Halstead, HalsteadMaps};
 
-use crate::dump_ops::*;
+use crate::output::dump_ops::*;
 use crate::traits::*;
 
 /// All operands and operators of a space.
