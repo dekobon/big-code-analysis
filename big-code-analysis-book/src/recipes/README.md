@@ -9,6 +9,9 @@ The recipes are grouped by goal:
 - [Quality reports](quality-reports.md) — generate Markdown reports
   suitable for pull requests, dashboards, or wikis, including the
   C/C++ preprocessor-aware workflow.
+- [CI integration](ci.md) — wire `bca check` and `bca report` into
+  GitHub Actions and GitLab CI, including the baseline / ratchet
+  pattern and the Code Quality widget path.
 - [AST queries](ast-queries.md) — search for syntactic constructs,
   count node types, dump trees, and detect parse errors.
 - [Exporting metric data](exporting-data.md) — emit structured output
