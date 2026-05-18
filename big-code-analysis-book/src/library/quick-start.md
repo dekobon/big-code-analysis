@@ -48,9 +48,11 @@ fn main() {
 }
 ```
 
-The return type is [`Option<FuncSpace>`][FuncSpace]. `None` means
-the parser failed to produce a usable tree — see
-[Error handling](error-handling.md) for the details.
+The return type is [`Result<FuncSpace, MetricsError>`][MetricsError].
+The `Err` variant tells parse-failure apart from empty-input apart
+from disabled-language; see [Error handling](error-handling.md) for
+the variant set and matching patterns. `MetricsError` is
+`#[non_exhaustive]`, so always include a `_` arm when matching.
 
 ## 3. What you got back
 
@@ -117,19 +119,14 @@ that as "skip this file" rather than as a parse error.
 
 ## What changes when
 
-The function above is named `get_function_spaces` today. Issue
-[#253] will rename the entry point and change the return type to
-`Result<FuncSpace, MetricsError>`. The signature will become
-something like:
-
-```text
-analyze(source, options) -> Result<FuncSpace, MetricsError>
-```
-
-Until that lands, the example on this page is the supported shape.
+The entry point is named `get_function_spaces` and returns
+`Result<FuncSpace, MetricsError>` (per [#253]). The library-DX
+tracker collects the remaining shape changes — naming, per-language
+features, and the parse seam.
 
 [#253]: https://github.com/dekobon/big-code-analysis/issues/253
 [`get_function_spaces`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.get_function_spaces.html
 [`guess_language`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.guess_language.html
 [FuncSpace]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.FuncSpace.html
+[MetricsError]: https://docs.rs/big-code-analysis/*/big_code_analysis/enum.MetricsError.html
 [CodeMetrics]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.CodeMetrics.html

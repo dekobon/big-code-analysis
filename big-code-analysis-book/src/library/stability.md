@@ -44,11 +44,10 @@ all appear under a minor bump and in the changelog under
 
 - [#251] — a first-class parse seam that re-exports `tree_sitter`,
   unblocking [Reusing an existing tree-sitter Tree](reuse-tree.md).
-- [#253] — `analyze(source, options) -> Result<FuncSpace,
-  MetricsError>` replacing today's
-  `Option<FuncSpace>`-returning entry points, used by
-  [Quick start](quick-start.md) and
-  [Error handling](error-handling.md).
+- [#253] — *landed*: every public entry point now returns
+  `Result<FuncSpace, MetricsError>` (and `Result<Ops, MetricsError>` /
+  `Result<Vec<Node>, MetricsError>` for the sibling APIs).
+  See [Error handling](error-handling.md) for the variant set.
 - [#254] — a `Source` newtype around `(path, bytes)`.
 - [#255] — a curated prelude and tighter `pub use` set.
 - [#256] — hiding `ParserTrait` from the public surface.

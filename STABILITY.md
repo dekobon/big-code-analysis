@@ -44,6 +44,12 @@ them the [CHANGELOG][changelog] entry will say so under
     `#[non_exhaustive]`, so adding fields is *not* a break.
   - `function`, `find`, `count`, `operands_and_operators`,
     `rm_comments` in their respective modules.
+  - `MetricsError` in `src/error.rs` — carries `#[non_exhaustive]`,
+    so adding variants is additive. Existing variants
+    (`EmptyRoot`, `LanguageDisabled(LANG)`, `NonUtf8Path`,
+    `ParseHasErrors`) will not be removed without a major bump.
+    The `std::error::Error` and `Display` impls are stable; the
+    exact wording of `Display` output is not.
 - **Result shapes**
   - `FuncSpace`, `CodeMetrics`, `SpaceKind`, `Metrics` in
     `src/spaces.rs`. These are the JSON / YAML / TOML / CBOR

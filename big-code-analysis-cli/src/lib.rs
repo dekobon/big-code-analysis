@@ -496,7 +496,7 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
         }
         Action::Metrics { format, pretty } => {
             if let Some(fmt) = format {
-                if let Some(space) = get_function_spaces_with_options(
+                if let Ok(space) = get_function_spaces_with_options(
                     &language,
                     source,
                     &path,
@@ -521,7 +521,7 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
         }
         Action::Ops { format, pretty } => {
             if let Some(fmt) = format {
-                if let Some(ops) = get_ops(&language, source, &path, pr) {
+                if let Ok(ops) = get_ops(&language, source, &path, pr) {
                     // CSV is rejected upstream in `run()` for the
                     // Ops command, so the dispatch here is always
                     // Generic. The match is still exhaustive to keep
@@ -581,7 +581,7 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
             action::<Count>(&language, source, &path, pr, count_cfg)
         }
         Action::Report => {
-            if let Some(space) = get_function_spaces_with_options(
+            if let Ok(space) = get_function_spaces_with_options(
                 &language,
                 source,
                 &path,
@@ -631,7 +631,7 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
             Ok(())
         }
         Action::Check => {
-            if let Some(space) = get_function_spaces_with_options(
+            if let Ok(space) = get_function_spaces_with_options(
                 &language,
                 source,
                 &path,

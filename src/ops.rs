@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use crate::checker::Checker;
+use crate::error::MetricsError;
 use crate::getter::Getter;
 use crate::node::Node;
 use crate::spaces::SpaceKind;
@@ -157,8 +158,10 @@ fn finalize<T: ParserTrait>(state_stack: &mut Vec<State>, diff_level: usize) {
 
 /// Retrieves all the operators and operands of a code.
 ///
-/// If `None`, it was not possible to retrieve the operators and operands
-/// of a code.
+/// # Errors
+///
+/// Returns [`MetricsError::EmptyRoot`] when the AST walker cannot
+/// produce a top-level [`Ops`] (typically empty input).
 ///
 /// # Examples
 ///
@@ -181,7 +184,10 @@ fn finalize<T: ParserTrait>(state_stack: &mut Vec<State>, diff_level: usize) {
 /// operands_and_operators(&parser, &path).unwrap();
 /// # }
 /// ```
-pub fn operands_and_operators<'a, T: ParserTrait>(parser: &'a T, path: &'a Path) -> Option<Ops> {
+pub fn operands_and_operators<'a, T: ParserTrait>(
+    parser: &'a T,
+    path: &'a Path,
+) -> Result<Ops, MetricsError> {
     let code = parser.get_code();
     let node = parser.get_root();
     let mut cursor = node.cursor();
@@ -234,17 +240,18 @@ pub fn operands_and_operators<'a, T: ParserTrait>(parser: &'a T, path: &'a Path)
 
     finalize::<T>(&mut state_stack, usize::MAX);
 
-    state_stack.pop().map(|mut state| {
-        // See `FuncSpace::name` rationale in `spaces.rs`: lossy conversion
-        // keeps the top-level `Ops` identifiable for non-UTF-8 paths
-        // rather than collapsing into the parse-error sentinel `None`.
-        // The `name_was_lossy` flag lets downstream consumers detect
-        // and avoid using the U+FFFD-bearing name as an identifier.
-        let was_lossy = path.to_str().is_none();
-        state.ops.name = Some(path.to_string_lossy().into_owned());
-        state.ops.name_was_lossy = was_lossy;
-        state.ops
-    })
+    // See `metrics_with_options` for the same rationale: empty AST →
+    // `MetricsError::EmptyRoot` rather than a bare `None`.
+    let mut state = state_stack.pop().ok_or(MetricsError::EmptyRoot)?;
+    // See `FuncSpace::name` rationale in `spaces.rs`: lossy conversion
+    // keeps the top-level `Ops` identifiable for non-UTF-8 paths
+    // rather than collapsing into the empty-root sentinel error. The
+    // `name_was_lossy` flag lets downstream consumers detect and
+    // avoid using the U+FFFD-bearing name as an identifier.
+    let was_lossy = path.to_str().is_none();
+    state.ops.name = Some(path.to_string_lossy().into_owned());
+    state.ops.name_was_lossy = was_lossy;
+    Ok(state.ops)
 }
 
 /// Configuration options for retrieving
@@ -265,7 +272,7 @@ impl Callback for OpsCode {
     type Cfg = OpsCfg;
 
     fn call<T: ParserTrait>(cfg: Self::Cfg, parser: &T) -> Self::Res {
-        if let Some(ops) = operands_and_operators(parser, &cfg.path) {
+        if let Ok(ops) = operands_and_operators(parser, &cfg.path) {
             dump_ops(&ops)
         } else {
             Ok(())

@@ -12,10 +12,27 @@ use std::sync::Arc;
 use crate::node::Node;
 
 use crate::dump::*;
+use crate::error::MetricsError;
 use crate::traits::*;
 
 /// Finds the types of nodes specified in the input slice.
-pub fn find<'a, T: ParserTrait>(parser: &'a T, filters: &[String]) -> Option<Vec<Node<'a>>> {
+///
+/// "No matches" is represented by `Ok(Vec::new())` rather than an
+/// error — it is a normal outcome, not a failure mode. The
+/// [`Result`] return type is for forward compatibility with the
+/// other entry points; today no [`MetricsError`] variant is produced
+/// by `find`, but future strict-parsing modes may surface
+/// [`MetricsError::ParseHasErrors`] here.
+///
+/// # Errors
+///
+/// Currently infallible; the [`Result`] wrapper aligns the signature
+/// with [`crate::metrics`] and [`crate::operands_and_operators`] so
+/// callers can use the `?` operator uniformly.
+pub fn find<'a, T: ParserTrait>(
+    parser: &'a T,
+    filters: &[String],
+) -> Result<Vec<Node<'a>>, MetricsError> {
     let filters = parser.get_filters(filters);
     let node = parser.get_root();
     let mut cursor = node.cursor();
@@ -42,7 +59,7 @@ pub fn find<'a, T: ParserTrait>(parser: &'a T, filters: &[String]) -> Option<Vec
             }
         }
     }
-    Some(good)
+    Ok(good)
 }
 
 /// Configuration options for finding different
@@ -75,7 +92,7 @@ impl Callback for Find {
     type Cfg = FindCfg;
 
     fn call<T: ParserTrait>(cfg: Self::Cfg, parser: &T) -> Self::Res {
-        if let Some(good) = find(parser, &cfg.filters)
+        if let Ok(good) = find(parser, &cfg.filters)
             && !good.is_empty()
         {
             println!("In file {}", cfg.path.display());
