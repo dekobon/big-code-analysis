@@ -28,6 +28,7 @@ macro_rules! get_operator {
     };
 }
 
+#[doc(hidden)]
 pub trait Getter {
     fn get_func_name<'a>(node: &Node, code: &'a [u8]) -> Option<&'a str> {
         Self::get_func_space_name(node, code)

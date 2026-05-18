@@ -58,6 +58,15 @@ pub trait LanguageInfo {
     fn get_lang_name() -> &'static str;
 }
 
+// Internal language-dispatch trait kept `pub` so the macro-generated
+// `Parser<T>` impls in `src/parser.rs` and the `action::<T>` /
+// `Callback` plumbing in `src/macros.rs` and `src/traits.rs` can refer
+// to it, but marked `#[doc(hidden)]` so it does not appear in the
+// curated rustdoc surface (per issue #256). The 15 associated types
+// are not part of any documented extension contract — downstream
+// consumers should drive metric extraction through the non-generic
+// `analyze` / `metrics_from_tree` entry points, not by implementing
+// this trait. See STABILITY.md.
 #[doc(hidden)]
 pub trait ParserTrait {
     type Checker: Alterator + Checker;

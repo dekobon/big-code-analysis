@@ -90,43 +90,24 @@ from bytes.
 [lang]: https://docs.rs/big-code-analysis/*/big_code_analysis/enum.LANG.html
 [lang_grammar]: https://docs.rs/big-code-analysis/*/big_code_analysis/enum.LANG.html#method.get_tree_sitter_language
 
-## Lower-level: `Parser::from_tree`
+## Lower-level: `Parser::from_tree` (internal)
 
-If you want to drive the metric walker by hand (e.g. to pass the
-resulting `Parser` to `metrics_with_options`, `find`,
-`operands_and_operators`, or `dump_root`), construct a `Parser`
-directly with [`Parser::from_tree`][pft] instead of going through
-`metrics_from_tree`:
-
-```rust,no_run
-use std::path::PathBuf;
-
-use big_code_analysis::{
-    metrics_with_options, tree_sitter, MetricsOptions, RustParser,
-    ParserTrait, LANG,
-};
-
-let source = b"fn main() {}".to_vec();
-let path = PathBuf::from("foo.rs");
-
-let mut ts_parser = tree_sitter::Parser::new();
-ts_parser
-    .set_language(&LANG::Rust.get_tree_sitter_language())
-    .expect("rust grammar pinned to a compatible version");
-let tree = ts_parser.parse(&source, None).expect("parsed");
-
-let parser = RustParser::from_tree(tree, source);
-let _space = metrics_with_options(&parser, &path, MetricsOptions::default());
-```
-
-[pft]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Parser.html#method.from_tree
+`metrics_from_tree` is the documented entry point for tree reuse —
+it dispatches on a `&LANG` and hides the generic parser plumbing
+entirely. The lower-level path goes through `Parser<T>` /
+`ParserTrait`, which are now `#[doc(hidden)]` (see issue #256). They
+remain `pub` so the in-tree macros (`mk_action!`, `action::<T>`,
+the `Callback` dispatch shared with the REST API) can refer to
+them, but they are not part of the documented surface and treating
+them as a stable extension point is at your own risk.
 
 The per-language `*Parser` aliases (`RustParser`, `PythonParser`,
-…) are emitted by the `mk_langs!` macro and are part of the
-`#[doc(hidden)]` escape-hatch surface — see [STABILITY.md][stab]
-for the caveat. For most callers, the higher-level
-`metrics_from_tree` is the right entry point because it dispatches
-on a `&LANG` at runtime.
+…) emitted by `mk_langs!` are doc-hidden for the same reason —
+see [STABILITY.md][stab] for the escape-hatch caveat. For library
+consumers, the higher-level `metrics_from_tree` shown above is the
+right entry point because it dispatches on a `&LANG` at runtime
+and does not expose any of the per-language tag types or trait
+bounds.
 
 [stab]: https://github.com/dekobon/big-code-analysis/blob/main/STABILITY.md#escape-hatches
 

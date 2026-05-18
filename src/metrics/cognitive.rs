@@ -158,6 +158,7 @@ impl Stats {
     }
 }
 
+#[doc(hidden)]
 /// Per-language computation of the cognitive complexity metric.
 pub trait Cognitive
 where

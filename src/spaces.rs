@@ -707,6 +707,11 @@ pub fn analyze(source: Source<'_>, options: MetricsOptions) -> Result<FuncSpace,
     since = "0.0.26",
     note = "Use `analyze(Source::new(lang, code).with_name(Some(name)), MetricsOptions::default())` instead — the path-positional shim derives the top-level FuncSpace name via lossy UTF-8 conversion."
 )]
+// Hidden from rustdoc because the signature exposes `ParserTrait` and
+// `Parser<T>` — both demoted to `#[doc(hidden)]` per issue #256. The
+// deprecation note already redirects callers to `analyze` / `Source`,
+// which is the documented surface.
+#[doc(hidden)]
 pub fn metrics<'a, T: ParserTrait>(
     parser: &'a T,
     path: &'a Path,
@@ -746,6 +751,8 @@ pub fn metrics<'a, T: ParserTrait>(
     since = "0.0.26",
     note = "Use `analyze(Source::new(lang, code).with_name(Some(name)), options)` instead — the path-positional shim derives the top-level FuncSpace name via lossy UTF-8 conversion and will be removed in a future release."
 )]
+// Hidden from rustdoc — see `metrics` above for the rationale (#256).
+#[doc(hidden)]
 pub fn metrics_with_options<'a, T: ParserTrait>(
     parser: &'a T,
     path: &'a Path,
@@ -1054,10 +1061,10 @@ fn attach_function_suppression(
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct MetricsOptions {
-    /// When true, the traversal asks the language [`Checker`] to
-    /// skip test-only subtrees (e.g. Rust `#[test]` / `#[cfg(test)]`
-    /// functions and modules). Only language modules that override
-    /// [`Checker::should_skip_subtree`] honor this; others ignore
+    /// When true, the traversal asks the language module to skip
+    /// test-only subtrees (e.g. Rust `#[test]` / `#[cfg(test)]`
+    /// functions and modules). Only languages that override the
+    /// internal `should_skip_subtree` hook honor this; others ignore
     /// the flag.
     pub exclude_tests: bool,
     /// Which metrics to compute. Defaults to [`MetricSet::all`] —

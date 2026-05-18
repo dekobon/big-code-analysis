@@ -228,6 +228,7 @@ impl Stats {
     }
 }
 
+#[doc(hidden)]
 /// Per-language counting of public attributes.
 pub trait Npa
 where

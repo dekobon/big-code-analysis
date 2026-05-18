@@ -229,6 +229,7 @@ impl Stats {
     }
 }
 
+#[doc(hidden)]
 /// Per-language counting of public methods.
 pub trait Npm
 where

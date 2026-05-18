@@ -88,9 +88,13 @@ The following are explicitly **not** part of the shape contract:
   through `LANG` rather than referenced by name.
 - `Parser` and the per-language `Checker` / `Getter` / `Alterator`
   trait impls — these are internal extension points. `ParserTrait`
-  is `pub` but already carries `#[doc(hidden)]`; treating it as a
-  stable trait is at your own risk (planned to be sealed entirely;
-  tracked as #256).
+  itself is `#[doc(hidden)]` (issue #256); the per-metric compute
+  traits (`Cognitive`, `Cyclomatic`, `Halstead`, `Loc`, `Mi`, `Nom`,
+  `NArgs`, `Exit`, `Abc`, `Npa`, `Npm`, `Tokens`, `Wmc`) are
+  similarly doc-hidden. `Parser<T>` and `Filter` are doc-hidden for
+  the same reason. None of these appear in the curated rustdoc and
+  none are part of the stability contract — treat them as internal
+  plumbing.
 
 [changelog]: ./CHANGELOG.md
 
@@ -194,7 +198,10 @@ the library-DX umbrella (#250):
 
 - `metrics`/`metrics_with_options` returning `Option<FuncSpace>`
   instead of `Result<FuncSpace, MetricsError>` (#253).
-- Hiding `ParserTrait` from the public surface (#256).
+- Hiding `ParserTrait` from the public surface — shipped in
+  `[Unreleased]` via `#[doc(hidden)]` on `ParserTrait`, the
+  per-metric compute traits, `Parser<T>`, `Filter`, and the
+  deprecated generic shims (#256).
 - Per-language Cargo features so consumers can shrink the
   dependency footprint (#252). (Per-metric runtime selection
   shipped via `MetricsOptions::with_only(&[Metric])` in #257.)

@@ -25,6 +25,10 @@ use std::sync::{Arc, Mutex};
 
 use crate::traits::*;
 
+// Hidden from rustdoc because the signature exposes `ParserTrait`,
+// which is `#[doc(hidden)]` per issue #256. The CLI's `Count` callback
+// remains the documented surface for this functionality.
+#[doc(hidden)]
 /// Counts the types of nodes specified in the input slice
 /// and the number of nodes in a code.
 pub fn count<T: ParserTrait>(parser: &T, filters: &[String]) -> (usize, usize) {

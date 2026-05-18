@@ -111,6 +111,7 @@ impl Stats {
     }
 }
 
+#[doc(hidden)]
 /// Per-language computation of the maintainability index.
 pub trait Mi
 where

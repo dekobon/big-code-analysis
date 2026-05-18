@@ -49,6 +49,24 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Changed
 
+- `ParserTrait`, the per-metric compute traits (`Cognitive`,
+  `Cyclomatic`, `Halstead`, `Loc`, `Mi`, `Nom`, `NArgs`, `Exit`,
+  `Abc`, `Npa`, `Npm`, `Tokens`, `Wmc`), and the supporting
+  `Checker` / `Getter` / `Alterator` traits are now
+  `#[doc(hidden)]`. `Parser<T>` and `Filter` are also `#[doc(hidden)]`.
+  The generic `ParserTrait`-bound shims (`metrics`,
+  `metrics_with_options`, `operands_and_operators`, `find`, `count`,
+  `function`, `rm_comments`) keep their signatures (they remain
+  callable from the CLI / web crates) but are likewise
+  `#[doc(hidden)]` so they no longer appear in the curated rustdoc
+  surface. `metrics` and `metrics_with_options` additionally carry
+  `#[deprecated]` in favour of `analyze` (see #253 / #254). The non-generic
+  `analyze` / `metrics_from_tree` / `get_function_spaces*` /
+  `get_ops` entry points are now the documented surface for
+  language-dispatched analysis. `Callback` and `action::<T>`
+  remain documented and unchanged; their fate is tied to the REST
+  API shape and will be re-evaluated separately
+  ([#256](https://github.com/dekobon/big-code-analysis/issues/256)).
 - **(breaking)** Removed `FuncSpace::name_was_lossy`. The new
   `analyze` entry point makes the top-level name an explicit
   caller-supplied `Option<String>` (via `Source::name`), so the

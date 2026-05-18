@@ -26,21 +26,14 @@ use crate::tools::{color, intense_color};
 /// # Examples
 ///
 /// ```
-/// use std::path::PathBuf;
+/// use big_code_analysis::{analyze, dump_root, LANG, MetricsOptions, Source};
 ///
-/// use big_code_analysis::{dump_root, metrics, CppParser, ParserTrait};
-///
-/// let source_code = "int a = 42;";
-///
-/// // The path to a dummy file used to contain the source code
-/// let path = PathBuf::from("foo.c");
-/// let source_as_vec = source_code.as_bytes().to_vec();
-///
-/// // The parser of the code, in this case a CPP parser
-/// let parser = CppParser::new(source_as_vec, &path, None);
-///
-/// // Compute metrics
-/// let space = metrics(&parser, &path).unwrap();
+/// // Compute metrics via the non-generic `analyze` entry point.
+/// let space = analyze(
+///     Source::new(LANG::Cpp, b"int a = 42;"),
+///     MetricsOptions::default(),
+/// )
+/// .expect("snippet has a top-level FuncSpace");
 ///
 /// // Dump all metrics
 /// dump_root(&space).unwrap();

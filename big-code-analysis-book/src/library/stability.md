@@ -50,7 +50,11 @@ all appear under a minor bump and in the changelog under
   See [Error handling](error-handling.md) for the variant set.
 - [#254] — a `Source` newtype around `(path, bytes)`.
 - [#255] — a curated prelude and tighter `pub use` set.
-- [#256] — hiding `ParserTrait` from the public surface.
+- [#256] — *landed*: `ParserTrait`, the per-metric compute traits,
+  `Parser<T>`, `Filter`, and the deprecated generic shims are now
+  `#[doc(hidden)]` so they no longer appear in the curated rustdoc
+  surface. `Callback` / `action::<T>` remain documented and are
+  re-evaluated separately.
 - [#257] — per-metric Cargo features, picked up by
   [Selecting metrics](selecting-metrics.md).
 - [#252] — per-language Cargo features.

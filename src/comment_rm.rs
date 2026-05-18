@@ -16,6 +16,10 @@ use crate::traits::*;
 
 const CR: [u8; 8192] = [b'\n'; 8192];
 
+// Hidden from rustdoc because the signature exposes `ParserTrait`,
+// which is `#[doc(hidden)]` per issue #256. The CLI's `CommentRm`
+// callback remains the documented surface.
+#[doc(hidden)]
 /// Removes comments from a code.
 pub fn rm_comments<T: ParserTrait>(parser: &T) -> Option<Vec<u8>> {
     let node = parser.get_root();

@@ -311,6 +311,7 @@ impl Stats {
     }
 }
 
+#[doc(hidden)]
 /// Per-language computation of the ABC metric.
 pub trait Abc
 where
