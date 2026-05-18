@@ -48,6 +48,11 @@ directly. The crate is currently pre-`1.0`, so the API surface
 policy, escape hatches, and what we do and do not promise across
 minor and patch bumps.
 
+For task-oriented walkthroughs — quick start, in-memory analysis,
+walking `FuncSpace` results, and error handling — see the
+[**Using as a Library**](https://dekobon.github.io/big-code-analysis/library/index.html)
+section of the book.
+
 ## Building
 
 The repository ships a `Makefile` that wraps every common build, test,
