@@ -39,7 +39,13 @@ them the [CHANGELOG][changelog] entry will say so under
     allowed; renaming or removing one is a minor-bump break.
   - `get_language_for_file`, `guess_language` in `src/tools.rs`.
 - **Top-level entry points**
-  - `metrics`, `metrics_with_options` in `src/spaces.rs`.
+  - `analyze` and `Source` in `src/spaces.rs` — the recommended
+    library entry point. `Source` carries `#[non_exhaustive]`, so
+    adding fields is additive; construct via `Source::new` plus
+    `with_*` setters rather than struct-literal syntax.
+  - `metrics`, `metrics_with_options` in `src/spaces.rs` —
+    deprecated since `0.0.26` in favour of `analyze`, kept for one
+    minor release for backwards compatibility.
   - `MetricsOptions`, `MetricsCfg` — both already carry
     `#[non_exhaustive]`, so adding fields is *not* a break.
   - `function`, `find`, `count`, `operands_and_operators`,
@@ -185,7 +191,6 @@ the library-DX umbrella (#250):
 - Per-metric and per-language Cargo features so consumers can
   shrink the dependency footprint (#252, #257).
 - A curated `pub use` set / prelude (#255).
-- A `Source` newtype around `(path, bytes)` (#254).
 
 Each of those, when it lands, will be a minor bump and will appear
 in the changelog under **(breaking)**.

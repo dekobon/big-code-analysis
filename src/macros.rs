@@ -232,11 +232,20 @@ macro_rules! mk_action {
 
         /// Returns all function spaces data of a code.
         ///
+        /// # Deprecated
+        ///
+        /// Prefer [`analyze`], which accepts a [`Source`] carrying an
+        /// explicit display name distinct from any on-disk path. This
+        /// shim derives [`FuncSpace::name`] from `path` via lossy
+        /// UTF-8 conversion and remains for backwards compatibility
+        /// for one minor release.
+        ///
         /// # Examples
         ///
         /// ```
         /// use std::path::PathBuf;
         ///
+        /// # #[allow(deprecated)]
         /// use big_code_analysis::{get_function_spaces, LANG};
         ///
         /// let source_code = "int a = 42;";
@@ -246,6 +255,7 @@ macro_rules! mk_action {
         /// let path = PathBuf::from("foo.c");
         /// let source_as_vec = source_code.as_bytes().to_vec();
         ///
+        /// # #[allow(deprecated)]
         /// get_function_spaces(&language, source_as_vec, &path, None).unwrap();
         /// ```
         ///
@@ -254,13 +264,48 @@ macro_rules! mk_action {
         /// Returns [`MetricsError::EmptyRoot`] when the AST walker
         /// cannot produce a top-level [`FuncSpace`] (typically empty
         /// input or input whose only content is comments).
+        #[deprecated(
+            since = "0.0.26",
+            note = "Use `analyze(Source::new(lang, &code).with_name(Some(name)), MetricsOptions::default())` instead — the path-positional shim derives the top-level FuncSpace name via lossy UTF-8 conversion."
+        )]
         #[inline]
         pub fn get_function_spaces(lang: &LANG, source: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>) -> Result<FuncSpace, MetricsError> {
+            #[allow(deprecated)]
             match lang {
                 $(
                     LANG::$camel => {
                         let parser = $parser::new(source, &path, pr);
                         metrics(&parser, &path)
+                    },
+                )*
+            }
+        }
+
+        /// Internal language-dispatch shim that backs [`analyze`].
+        /// Lives in the `mk_action!` macro so each new language only
+        /// has to declare its parser tag once.
+        #[doc(hidden)]
+        pub fn analyze_dispatch(
+            lang: LANG,
+            source: &[u8],
+            name: Option<String>,
+            preproc_path: Option<&Path>,
+            preproc: Option<Arc<PreprocResults>>,
+            options: MetricsOptions,
+        ) -> Result<FuncSpace, MetricsError> {
+            // `Parser::new` keys the C++ macro-expansion lookup off the
+            // caller-supplied path; for callers analysing in-memory
+            // snippets with no preprocessor path, fall back to an
+            // empty `Path` ("") which the lookup ignores. The empty
+            // path is *not* leaked into `FuncSpace::name` — that
+            // value comes from `name` directly.
+            let preproc_path = preproc_path.unwrap_or(Path::new(""));
+            let source = source.to_vec();
+            match lang {
+                $(
+                    LANG::$camel => {
+                        let parser = $parser::new(source, preproc_path, preproc);
+                        metrics_inner(&parser, name, options)
                     },
                 )*
             }
@@ -272,11 +317,17 @@ macro_rules! mk_action {
         /// `#[test]` subtrees from every metric). Equivalent to
         /// [`get_function_spaces`] when `options` is the default.
         ///
+        /// # Deprecated
+        ///
+        /// Prefer [`analyze`], which accepts a [`Source`] carrying an
+        /// explicit display name distinct from any on-disk path.
+        ///
         /// # Examples
         ///
         /// ```
         /// use std::path::PathBuf;
         ///
+        /// # #[allow(deprecated)]
         /// use big_code_analysis::{get_function_spaces_with_options, LANG, MetricsOptions};
         ///
         /// let source_code = "fn main() {}\n#[test] fn t() {}";
@@ -286,6 +337,7 @@ macro_rules! mk_action {
         /// let source_as_vec = source_code.as_bytes().to_vec();
         /// let options = MetricsOptions::default().with_exclude_tests(true);
         ///
+        /// # #[allow(deprecated)]
         /// get_function_spaces_with_options(&language, source_as_vec, &path, None, options).unwrap();
         /// ```
         ///
@@ -293,8 +345,13 @@ macro_rules! mk_action {
         ///
         /// Returns [`MetricsError::EmptyRoot`] when the AST walker
         /// cannot produce a top-level [`FuncSpace`].
+        #[deprecated(
+            since = "0.0.26",
+            note = "Use `analyze(Source::new(lang, &code).with_name(Some(name)), options)` instead — the path-positional shim derives the top-level FuncSpace name via lossy UTF-8 conversion."
+        )]
         #[inline]
         pub fn get_function_spaces_with_options(lang: &LANG, source: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>, options: MetricsOptions) -> Result<FuncSpace, MetricsError> {
+            #[allow(deprecated)]
             match lang {
                 $(
                     LANG::$camel => {
@@ -382,11 +439,19 @@ macro_rules! mk_action {
             // accepted whatever macro expansion (or lack thereof) the
             // tree reflects, so the parameter is currently a no-op.
             let _ = pr;
+            // Same path-name handling as the deprecated entry points
+            // so existing callers see no behaviour change. Callers
+            // who want to skip the lossy round-trip should use
+            // `Parser::from_tree` directly and call `metrics_inner`
+            // through a hand-rolled wrapper, or wait for the
+            // post-#254 follow-up that adds a `Source`-flavored
+            // tree-reuse entry point.
+            let name = Some(path.to_string_lossy().into_owned());
             match lang {
                 $(
                     LANG::$camel => {
                         let parser = $parser::from_tree(tree, source);
-                        metrics_with_options(&parser, &path, options)
+                        metrics_inner(&parser, name, options)
                     },
                 )*
             }

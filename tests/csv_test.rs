@@ -5,6 +5,16 @@
 //! Each fixture is small and self-contained so the snapshots stay
 //! reviewable in code review.
 
+// Existing tests use the generic `Parser<T>` flavour together with
+// `metrics(&parser, &path)`. Both halves of that surface remain
+// available; `metrics` is `#[deprecated]` post-#254 in favour of
+// `analyze(Source { ... }, ...)`. The two seams give equivalent
+// `FuncSpace` results for valid-UTF-8 paths, so the CSV snapshot
+// coverage is unchanged. Scope the allowance here rather than
+// migrating: these tests double as regression coverage for the
+// deprecated shim.
+#![allow(deprecated)]
+
 use std::path::{Path, PathBuf};
 
 use big_code_analysis::{

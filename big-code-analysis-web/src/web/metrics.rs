@@ -2,7 +2,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{self, Value};
 use std::path::PathBuf;
 
-use big_code_analysis::{Callback, FuncSpace, MetricsOptions, ParserTrait, metrics_with_options};
+#[allow(deprecated)]
+use big_code_analysis::metrics_with_options;
+use big_code_analysis::{Callback, FuncSpace, MetricsOptions, ParserTrait};
 
 /// Payload containing source code used to compute metrics.
 #[derive(Debug, Deserialize, Serialize)]
@@ -103,6 +105,13 @@ impl Callback for WebMetricsCallback {
         // it `Option` is explicitly out of scope of #253 (parallels the
         // `AstResponse.root` decision). Collapse `MetricsError` into
         // `None` here so the REST wire format is unchanged.
+        // The web crate has a `ParserTrait` in hand (driven by the
+        // shared `action` callback dispatch), not raw bytes, so the
+        // path-positional `metrics_with_options` shim is still the
+        // right seam here. The deprecation points callers at
+        // `analyze(Source { ... }, ...)`; the parser-trait flavour
+        // remains until issue #256 reshapes the parser surface.
+        #[allow(deprecated)]
         let spaces = metrics_with_options(
             parser,
             &cfg.path,

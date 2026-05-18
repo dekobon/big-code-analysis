@@ -22,6 +22,10 @@ use std::collections::HashMap;
 use serde::Serialize;
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use crate::langs::LANG;
+use crate::preproc::PreprocResults;
 
 use crate::checker::Checker;
 use crate::error::MetricsError;
@@ -163,24 +167,20 @@ impl CodeMetrics {
 pub struct FuncSpace {
     /// The name of a function space.
     ///
-    /// For the top-level (file-level) `FuncSpace`, this is the file path
-    /// supplied to [`metrics`] converted via lossy UTF-8 conversion, so it
-    /// is always `Some`. Non-UTF-8 path components on Linux (or invalid
-    /// UTF-16 on Windows) become U+FFFD replacement characters; in that
-    /// case [`FuncSpace::name_was_lossy`] is `true` and downstream
-    /// consumers must treat the name as display-only — never as a map
-    /// key or for error correlation.
+    /// For the top-level (file-level) `FuncSpace`, this is the value
+    /// supplied via [`Source::name`] to [`analyze`] — typically a file
+    /// path or other display identifier chosen by the caller. The
+    /// library no longer derives this from a `&Path` or applies lossy
+    /// UTF-8 conversion; callers are expected to pass an
+    /// already-stringified identifier (or `None` if they have no
+    /// meaningful name to attach). The deprecated entry points
+    /// `get_function_spaces` / [`metrics_with_options`] continue to
+    /// derive a lossy string from the `&Path` argument for backwards
+    /// compatibility.
     ///
     /// For nested spaces, `None` means an error occurred in parsing the
     /// name of the function space from the AST.
     pub name: Option<String>,
-    /// `true` when [`FuncSpace::name`] was produced by lossy conversion
-    /// (the original path contained non-UTF-8 bytes and was rendered
-    /// using U+FFFD replacement characters). Always `false` for nested
-    /// spaces and for top-level spaces with valid-UTF-8 paths. Skipped
-    /// from JSON output when `false` so existing schemas keep their shape.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub name_was_lossy: bool,
     /// The first line of a function space
     pub start_line: usize,
     /// The last line of a function space
@@ -224,9 +224,10 @@ impl FuncSpace {
             _ => (node.start_row() + 1, node.end_row() + 1),
         };
 
-        // The top-level Unit's name is unconditionally overwritten with the
-        // file path by `metrics()` before returning, so computing it here is
-        // wasted work. Other kinds keep the AST-derived name.
+        // The top-level Unit's name is overwritten by `metrics_with_options`
+        // (when called with an explicit name) before returning, so
+        // computing it here is wasted work. Other kinds keep the
+        // AST-derived name.
         let name = (kind != SpaceKind::Unit)
             .then(|| {
                 T::get_func_space_name(node, code)
@@ -236,7 +237,6 @@ impl FuncSpace {
 
         Self {
             name,
-            name_was_lossy: false,
             spaces: Vec::new(),
             metrics: CodeMetrics::default(),
             kind,
@@ -342,15 +342,162 @@ struct State<'a> {
     halstead_maps: HalsteadMaps<'a>,
 }
 
+/// In-memory source bundle handed to [`analyze`].
+///
+/// `Source` decouples the *display name* of the top-level
+/// [`FuncSpace`] (`Source::name`) from the optional *filesystem path*
+/// used by the C++ preprocessor lookup (`Source::preproc_path`). The
+/// older path-positional entry points (`get_function_spaces`,
+/// `metrics_with_options`) conflate the two and derive the name via
+/// lossy UTF-8 conversion of the path; for in-memory snippets, code
+/// fetched over the network, or test fixtures, callers can now pass
+/// `Source` directly without manufacturing a `Path`.
+///
+/// Marked `#[non_exhaustive]` so future input fields can land
+/// additively. Downstream callers must construct via
+/// [`Source::new`] plus the `with_*` builder setters rather than
+/// struct-literal syntax (rustc rejects external struct literals on
+/// non-exhaustive types with E0639).
+///
+/// # Examples
+///
+/// Analysing an in-memory snippet with no on-disk path:
+///
+/// ```
+/// use big_code_analysis::{analyze, MetricsOptions, Source, LANG};
+///
+/// let source = Source::new(LANG::Rust, b"fn main() {}")
+///     .with_name(Some("snippet.rs".to_owned()));
+/// let space = analyze(source, MetricsOptions::default()).unwrap();
+/// assert_eq!(space.name.as_deref(), Some("snippet.rs"));
+/// ```
+#[non_exhaustive]
+#[derive(Debug, Clone)]
+pub struct Source<'a> {
+    /// The source language used to select the parser.
+    pub lang: LANG,
+    /// Raw source bytes. `Source` borrows them so callers retain
+    /// ownership; `analyze` copies into the parser's owned buffer.
+    pub code: &'a [u8],
+    /// Display / identifier name for the top-level [`FuncSpace`].
+    /// If `None`, the top-level [`FuncSpace::name`] is left `None`.
+    pub name: Option<String>,
+    /// Optional path used only by the C++ preprocessor lookup
+    /// (`get_fake_code`) to resolve macro definitions in
+    /// [`PreprocResults`]. For non-C++ languages this is ignored.
+    /// Defaults to `None`.
+    pub preproc_path: Option<&'a Path>,
+    /// Preprocessor results paired with [`Source::preproc_path`].
+    /// Same shape as the `pr` arg on the deprecated entry points.
+    pub preproc: Option<Arc<PreprocResults>>,
+}
+
+impl<'a> Source<'a> {
+    /// Build a `Source` for `lang` and `code` with no name and no
+    /// preprocessor inputs. Chain `with_*` setters to attach a
+    /// display name or preprocessor results.
+    ///
+    /// `Source` is `#[non_exhaustive]`, so external callers cannot
+    /// use struct-literal syntax — this constructor plus the
+    /// builder setters are the supported construction path.
+    #[inline]
+    #[must_use]
+    pub fn new(lang: LANG, code: &'a [u8]) -> Self {
+        Self {
+            lang,
+            code,
+            name: None,
+            preproc_path: None,
+            preproc: None,
+        }
+    }
+
+    /// Builder-style setter for [`Source::name`].
+    #[inline]
+    #[must_use]
+    pub fn with_name(mut self, name: Option<String>) -> Self {
+        self.name = name;
+        self
+    }
+
+    /// Builder-style setter for [`Source::preproc_path`].
+    #[inline]
+    #[must_use]
+    pub fn with_preproc_path(mut self, preproc_path: Option<&'a Path>) -> Self {
+        self.preproc_path = preproc_path;
+        self
+    }
+
+    /// Builder-style setter for [`Source::preproc`].
+    #[inline]
+    #[must_use]
+    pub fn with_preproc(mut self, preproc: Option<Arc<PreprocResults>>) -> Self {
+        self.preproc = preproc;
+        self
+    }
+}
+
+/// Compute every metric for a [`Source`].
+///
+/// This is the recommended library entry point. Unlike the
+/// deprecated [`metrics`] / [`metrics_with_options`] family it does
+/// not conflate the top-level [`FuncSpace::name`] with a filesystem
+/// path: callers supply an explicit `Source::name` and an optional
+/// `Source::preproc_path` for C++ preprocessor lookup.
+///
+/// `options` controls per-traversal flags (e.g.
+/// `MetricsOptions::default().with_exclude_tests(true)` to elide
+/// Rust `#[test]` / `#[cfg(test)]` subtrees).
+///
+/// # Errors
+///
+/// Returns [`MetricsError::EmptyRoot`] when the AST walker cannot
+/// produce a top-level [`FuncSpace`] (typically empty input or
+/// input whose only content is comments).
+///
+/// # Examples
+///
+/// Analysing an in-memory snippet without constructing a `Path`:
+///
+/// ```
+/// use big_code_analysis::{analyze, MetricsOptions, Source, LANG};
+///
+/// let space = analyze(
+///     Source::new(LANG::Rust, b"fn main() { let x = 1 + 2; }")
+///         .with_name(Some("snippet.rs".to_owned())),
+///     MetricsOptions::default(),
+/// )
+/// .expect("snippet has a top-level FuncSpace");
+/// assert_eq!(space.name.as_deref(), Some("snippet.rs"));
+/// ```
+pub fn analyze(source: Source<'_>, options: MetricsOptions) -> Result<FuncSpace, MetricsError> {
+    let Source {
+        lang,
+        code,
+        name,
+        preproc_path,
+        preproc,
+    } = source;
+    // Reuse the language-dispatch shim that lives next to
+    // `get_function_spaces`; it owns the per-`LANG` match arm and
+    // is the single place to keep parser-trait wiring in sync.
+    crate::langs::analyze_dispatch(lang, code, name, preproc_path, preproc, options)
+}
+
 /// Returns all function spaces data of a code. This function needs a parser to
 /// be created a priori in order to work.
 ///
 /// Equivalent to calling [`metrics_with_options`] with
 /// [`MetricsOptions::default`] — every node is visited and counted.
-/// Existing callers (including [`get_function_spaces`] and the
+/// Existing callers (including `get_function_spaces` and the
 /// `Metrics` callback used by the CLI) keep their previous behaviour
 /// through this entry point. Pass an explicit [`MetricsOptions`]
 /// (e.g. `exclude_tests: true`) to opt in to subtree filtering.
+///
+/// # Deprecated
+///
+/// Prefer [`analyze`], which accepts a [`Source`] carrying an explicit
+/// display name distinct from any on-disk path.
 ///
 /// # Errors
 ///
@@ -363,6 +510,7 @@ struct State<'a> {
 /// ```
 /// use std::path::Path;
 ///
+/// # #[allow(deprecated)]
 /// use big_code_analysis::{CppParser, metrics, ParserTrait};
 ///
 /// let source_code = "int a = 42;";
@@ -375,12 +523,18 @@ struct State<'a> {
 /// let parser = CppParser::new(source_as_vec, &path, None);
 ///
 /// // Gets all function spaces data of the code contained in foo.c
+/// # #[allow(deprecated)]
 /// metrics(&parser, &path).unwrap();
 /// ```
+#[deprecated(
+    since = "0.0.26",
+    note = "Use `analyze(Source::new(lang, code).with_name(Some(name)), MetricsOptions::default())` instead — the path-positional shim derives the top-level FuncSpace name via lossy UTF-8 conversion."
+)]
 pub fn metrics<'a, T: ParserTrait>(
     parser: &'a T,
     path: &'a Path,
 ) -> Result<FuncSpace, MetricsError> {
+    #[allow(deprecated)]
     metrics_with_options(parser, path, MetricsOptions::default())
 }
 
@@ -400,15 +554,43 @@ pub fn metrics<'a, T: ParserTrait>(
 /// produce a warning to stderr — they do not abort the walk, so a
 /// single typo in one file cannot derail a workspace-wide run.
 ///
+/// # Deprecated
+///
+/// Prefer [`analyze`], which accepts a [`Source`] carrying an explicit
+/// display name distinct from any on-disk path. This entry point
+/// remains for backwards compatibility for one minor release; it
+/// derives [`FuncSpace::name`] from `path` via lossy UTF-8 conversion.
+///
 /// # Errors
 ///
 /// Returns [`MetricsError::EmptyRoot`] when the AST walker cannot
 /// produce a top-level [`FuncSpace`] (typically empty input).
+#[deprecated(
+    since = "0.0.26",
+    note = "Use `analyze(Source::new(lang, code).with_name(Some(name)), options)` instead — the path-positional shim derives the top-level FuncSpace name via lossy UTF-8 conversion and will be removed in a future release."
+)]
 pub fn metrics_with_options<'a, T: ParserTrait>(
     parser: &'a T,
     path: &'a Path,
     options: MetricsOptions,
 ) -> Result<FuncSpace, MetricsError> {
+    // Backwards-compat shim: derive the top-level name from `path` via
+    // lossy UTF-8 conversion, matching pre-#254 behaviour. The new
+    // `analyze` entry point lets callers supply a name explicitly.
+    metrics_inner(parser, Some(path.to_string_lossy().into_owned()), options)
+}
+
+pub(crate) fn metrics_inner<T: ParserTrait>(
+    parser: &T,
+    name: Option<String>,
+    options: MetricsOptions,
+) -> Result<FuncSpace, MetricsError> {
+    // The suppression-warning diagnostic uses the caller-supplied
+    // name when present; otherwise we fall back to a placeholder so
+    // the warning still locates the offending line. All path-based
+    // shims pass a lossy-stringified path here, matching pre-#254
+    // behaviour byte-for-byte.
+    let diagnostic_path = name.as_deref().unwrap_or("<input>");
     let code = parser.get_code();
     let node = parser.get_root();
     let mut cursor = node.cursor();
@@ -499,7 +681,7 @@ pub fn metrics_with_options<'a, T: ParserTrait>(
                     // malformed marker is dropped (no scope attached),
                     // which is the conservative behaviour: a typo
                     // should not accidentally silence anything.
-                    eprintln!("warning: {}:{}: {e}", path.display(), node.start_row() + 1);
+                    eprintln!("warning: {}:{}: {e}", diagnostic_path, node.start_row() + 1);
                 }
             }
         }
@@ -541,15 +723,7 @@ pub fn metrics_with_options<'a, T: ParserTrait>(
     // bare `None` so library callers can tell empty-input apart from
     // future failure modes (parse-error, disabled-language, …).
     let mut state = state_stack.pop().ok_or(MetricsError::EmptyRoot)?;
-    // `path.to_str()` returns `None` for non-UTF-8 paths (valid on
-    // Linux ext4/tmpfs, and possible on Windows for invalid UTF-16).
-    // Use lossy conversion so the top-level space is always
-    // identifiable, and surface the lossy bit in `name_was_lossy` so
-    // consumers can opt out of using the U+FFFD-bearing name as an
-    // identifier (see the doc comment on `FuncSpace::name`).
-    let was_lossy = path.to_str().is_none();
-    state.space.name = Some(path.to_string_lossy().into_owned());
-    state.space.name_was_lossy = was_lossy;
+    state.space.name = name;
     attach_suppressions(&mut state.space, &pending);
     Ok(state.space)
 }
@@ -731,7 +905,14 @@ impl Callback for Metrics {
     type Cfg = MetricsCfg;
 
     fn call<T: ParserTrait>(cfg: Self::Cfg, parser: &T) -> Self::Res {
-        match metrics_with_options(parser, &cfg.path, cfg.options) {
+        // `MetricsCfg::path` is the legacy filesystem-keyed identity
+        // for this callback. The new `analyze` entry point fully
+        // supersedes the path-positional API, but this internal
+        // callback site still has a `&Path` in hand, so use the
+        // shared `metrics_inner` directly with a lossy-string name —
+        // matching pre-#254 behaviour byte-for-byte.
+        let name = Some(cfg.path.to_string_lossy().into_owned());
+        match metrics_inner(parser, name, cfg.options) {
             Ok(space) => dump_root(&space),
             Err(_) => Ok(()),
         }
@@ -739,6 +920,13 @@ impl Callback for Metrics {
 }
 
 #[cfg(test)]
+// The lossy-path / synthetic-Unit tests below intentionally exercise
+// the deprecated path-positional entry points so we have regression
+// coverage on the shim even after the recommended seam moved to
+// `analyze(Source { ... }, ...)`. Scope the deprecation allowance to
+// the whole module so individual tests do not need per-call
+// attributes.
+#[allow(deprecated)]
 #[allow(
     clippy::float_cmp,
     clippy::cast_precision_loss,
@@ -750,7 +938,9 @@ impl Callback for Metrics {
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::{CppParser, ParserTrait, SpaceKind, check_func_space, metrics};
+    use crate::MetricsOptions;
+    use crate::metrics;
+    use crate::{CppParser, ParserTrait, SpaceKind, check_func_space};
 
     #[test]
     fn c_scope_resolution_operator() {
@@ -1059,10 +1249,18 @@ mod tests {
         );
     }
 
-    /// Regression for issue #128 — non-UTF-8 paths on Linux (valid on
-    /// ext4/tmpfs/etc.) must not be silently collapsed into `name: None`,
-    /// which is the sentinel for AST-name parse failures and would be
-    /// indistinguishable in JSON output.
+    /// Regression for issue #128 — the deprecated path-positional
+    /// entry point still derives the top-level name from `path` via
+    /// lossy UTF-8 conversion. Even when the original bytes are not
+    /// valid UTF-8 on Linux (valid on ext4/tmpfs/etc.), the top-level
+    /// name must be `Some(...)` (never the parse-error sentinel
+    /// `None`) so downstream JSON consumers can distinguish the two
+    /// cases.
+    ///
+    /// After #254, callers who want to avoid the lossy round-trip
+    /// pass an explicit `Source::name` to [`analyze`] (see the
+    /// `analyze_in_memory_snippet_carries_caller_supplied_name`
+    /// test below).
     #[cfg(unix)]
     #[test]
     fn non_utf8_path_yields_lossy_top_level_name() {
@@ -1083,6 +1281,7 @@ mod tests {
 
         let source = "int a = 42;";
         let parser = CppParser::new(source.as_bytes().to_vec(), &path, None);
+        #[allow(deprecated)]
         let space = metrics(&parser, &path).expect("metrics must yield a top-level space");
 
         let name = space
@@ -1097,24 +1296,44 @@ mod tests {
             name.starts_with("foo_") && name.ends_with("_bar.rs"),
             "lossy name must preserve the surrounding ASCII bytes, got {name:?}"
         );
-        assert!(
-            space.name_was_lossy,
-            "name_was_lossy must be true when the source path was non-UTF-8"
+    }
+
+    /// `analyze` with a caller-supplied `Source::name` skips the
+    /// lossy round-trip entirely — the top-level name is whatever
+    /// string the caller passed, byte-for-byte. This is the
+    /// post-#254 contract: callers analysing in-memory snippets no
+    /// longer need a `Path` to identify the resulting `FuncSpace`.
+    #[test]
+    fn analyze_in_memory_snippet_carries_caller_supplied_name() {
+        use crate::{Source, analyze};
+
+        let source = Source::new(crate::LANG::Cpp, b"int a = 42;")
+            .with_name(Some("in-memory.cpp".to_owned()));
+        let space = analyze(source, MetricsOptions::default())
+            .expect("analyze must yield a top-level space");
+        assert_eq!(
+            space.name.as_deref(),
+            Some("in-memory.cpp"),
+            "top-level name must be the caller-supplied string, byte-for-byte"
         );
     }
 
-    /// Top-level spaces with valid UTF-8 paths must NOT have
-    /// `name_was_lossy` set — otherwise the flag is useless.
+    /// `analyze` with `Source::name = None` leaves the top-level
+    /// `FuncSpace::name` as `None`. The pre-#254 entry points always
+    /// forced a `Some(...)`; the new API lets callers opt out.
     #[test]
-    fn utf8_path_does_not_set_name_was_lossy() {
-        use std::path::PathBuf;
-        let path = PathBuf::from("foo.cpp");
-        let source = "int a = 42;";
-        let parser = CppParser::new(source.as_bytes().to_vec(), &path, None);
-        let space = metrics(&parser, &path).expect("metrics must yield a top-level space");
+    fn analyze_without_name_leaves_top_level_name_none() {
+        use crate::{Source, analyze};
+
+        let space = analyze(
+            Source::new(crate::LANG::Cpp, b"int a = 42;"),
+            MetricsOptions::default(),
+        )
+        .expect("analyze must yield a top-level space");
         assert!(
-            !space.name_was_lossy,
-            "name_was_lossy must be false for valid-UTF-8 paths"
+            space.name.is_none(),
+            "top-level name must be None when Source::name is None, got {:?}",
+            space.name
         );
     }
 
@@ -1128,7 +1347,8 @@ mod tests {
     // because Halstead floats are bit-brittle (lessons_learned.md).
 
     mod exclude_tests_rust {
-        use crate::{MetricsOptions, ParserTrait, RustParser, metrics_with_options};
+        use crate::metrics_with_options;
+        use crate::{MetricsOptions, ParserTrait, RustParser};
         use std::path::PathBuf;
 
         fn analyse(source: &str, exclude_tests: bool) -> crate::FuncSpace {
@@ -1336,7 +1556,8 @@ mod tests {
     // they don't override `should_skip_subtree`. This is the
     // "spot-check non-Rust" check from issue #182.
     mod exclude_tests_non_rust {
-        use crate::{CppParser, MetricsOptions, ParserTrait, metrics_with_options};
+        use crate::metrics_with_options;
+        use crate::{CppParser, MetricsOptions, ParserTrait};
         use std::path::PathBuf;
 
         #[test]

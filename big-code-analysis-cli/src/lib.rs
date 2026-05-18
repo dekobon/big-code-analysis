@@ -64,9 +64,18 @@ use big_code_analysis::{
     FindCfg, Function, FunctionCfg, Metrics, MetricsCfg, MetricsOptions, OpsCfg, OpsCode,
     PreprocParser, PreprocResults, SuppressionPolicy,
 };
+// The CLI is the canonical path-based caller: `bca` walks a tree on
+// disk and naturally has a `&Path` for every file it processes, so
+// the deprecated path-positional shims (`get_function_spaces_with_options`)
+// are still the most direct entry point here. Migration to the new
+// `Source` / `analyze` API tracks issue #254's follow-up; for now,
+// scope the deprecation lint to this single import to keep the rest
+// of the file clean.
+#[allow(deprecated)]
+use big_code_analysis::get_function_spaces_with_options;
 use big_code_analysis::{
-    action, fix_includes, get_from_ext, get_function_spaces_with_options, get_ops, guess_language,
-    is_generated, preprocess, read_file, read_file_with_eol, write_file,
+    action, fix_includes, get_from_ext, get_ops, guess_language, is_generated, preprocess,
+    read_file, read_file_with_eol, write_file,
 };
 
 fn die(msg: impl Display) -> ! {
@@ -446,6 +455,16 @@ fn mk_globset(elems: Vec<String>) -> Result<GlobSet, String> {
         .map_err(|err| format!("failed to build glob set: {err}"))
 }
 
+// `act_on_file` is the per-file dispatch hub for the CLI. Every
+// Action variant that needs metric data calls
+// `get_function_spaces_with_options`, which is now `#[deprecated]`
+// in favour of `analyze(Source { ... }, ...)`. The CLI is the
+// canonical path-based caller (it always has a `&Path` for the file
+// it just read), so the deprecated shim remains the most direct
+// entry point here. Migration tracks issue #254's follow-up; the
+// function-scope `#[allow(deprecated)]` keeps the surrounding code
+// readable without per-call-site attributes.
+#[allow(deprecated)]
 fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
     if let Some(counter) = &cfg.files_dispatched {
         // Count every dispatched file, including those skipped below for

@@ -1,9 +1,9 @@
 # Walking `FuncSpace` results
 
 [`FuncSpace`][FuncSpace] is the tree the library hands back from
-[`get_function_spaces`]. The top-level node represents the whole
-file; its `spaces` field holds nested function / class / impl /
-trait / namespace spaces. Each node carries the same
+[`analyze`]. The top-level node represents the whole file; its
+`spaces` field holds nested function / class / impl / trait /
+namespace spaces. Each node carries the same
 [`CodeMetrics`][CodeMetrics] payload, so any metric is available at
 any level of granularity.
 
@@ -13,7 +13,7 @@ The fields you reach for most often are:
 
 | Field         | Type                | What it is                                    |
 |---------------|---------------------|-----------------------------------------------|
-| `name`        | `Option<String>`    | File path (top-level) or symbol name (nested) |
+| `name`        | `Option<String>`    | Caller-supplied identifier (top-level) or symbol name (nested) |
 | `kind`        | `SpaceKind`         | `Unit`, `Function`, `Class`, `Impl`, …        |
 | `start_line`  | `usize`             | First line (1-based)                          |
 | `end_line`    | `usize`             | Last line (1-based)                           |
@@ -30,10 +30,8 @@ Recursion mirrors the tree shape. Here we collect every function
 space whose cognitive complexity exceeds a threshold:
 
 ```rust
-use std::path::PathBuf;
-
 use big_code_analysis::{
-    get_function_spaces, FuncSpace, SpaceKind, LANG,
+    analyze, FuncSpace, MetricsOptions, SpaceKind, Source, LANG,
 };
 
 fn hotspots(space: &FuncSpace, threshold: f64, out: &mut Vec<String>) {
@@ -59,11 +57,9 @@ fn hard(x: i32) -> i32 {
     if x > 0 { if x > 10 { 1 } else { 2 } } else { 3 }
 }
 ";
-    let space = get_function_spaces(
-        &LANG::Rust,
-        source.to_vec(),
-        &PathBuf::from("snippet.rs"),
-        None,
+    let space = analyze(
+        Source::new(LANG::Rust, source).with_name(Some("snippet.rs".to_owned())),
+        MetricsOptions::default(),
     )
     .expect("parses");
 
@@ -150,7 +146,7 @@ fn sorted(space: &FuncSpace) -> Vec<(usize, String)> {
 }
 ```
 
-[`get_function_spaces`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.get_function_spaces.html
+[`analyze`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.analyze.html
 [FuncSpace]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.FuncSpace.html
 [CodeMetrics]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.CodeMetrics.html
 [SpaceKind]: https://docs.rs/big-code-analysis/*/big_code_analysis/enum.SpaceKind.html
