@@ -1207,3 +1207,288 @@ skim comments; CI cannot). The rule generalises beyond parity tests
 asymmetry, that test cannot catch bugs in the asymmetric path.
 
 ---
+
+## 24. Per-metric gating must cover the finalize helpers, not just per-node compute
+
+When introducing a "compute subset of metrics" optimisation, the
+obvious place to gate is the per-node `compute()` calls in the AST
+walker — but that is not where the danger lives. Some `Stats::default()`
+values are intentionally non-zero (e.g., `Cyclomatic` defaults to
+`1.0` for the McCabe baseline so every linear function reports a
+floor of 1). The finalize helpers (`compute_minmax`, `compute_sum`,
+`compute_averages`, and the derived-metric finishers) sum or average
+those defaults into the headline value. If finalize is left
+unconditional, the headline `cyclomatic_sum` reports a non-zero
+result for every function even though no `compute()` ever fired —
+and the test that verifies "this metric was skipped" by asserting
+`> 0` on selected metrics will still pass, because the default
+baseline looks indistinguishable from a real computation. The signal
+"this metric was actually skipped" can only be carried by an
+`assert_eq!(_, 0.0)` against an unselected metric whose `Stats`
+default is non-zero.
+
+**`MetricsOptions::with_only` skipped per-node compute but ran
+finalize for every metric** (#257, `1169231`, `d758f89`, `d5f9ff2`). The
+first cut of `with_only(&[Metric::Loc])` correctly gated each
+`T::X::compute(node, code, ...)` call inside `compute_per_node` but
+left `compute_minmax`/`compute_sum`/`compute_averages` /
+`compute_halstead_mi_and_wmc` unconditional. The resulting
+`FuncSpace.metrics.cyclomatic.cyclomatic_sum` reported the McCabe
+baseline (`1.0` × number of functions) even with Cyclomatic
+deselected. `loc_only_skips_other_metrics` caught it by asserting
+`pruned.metrics.cyclomatic.cyclomatic_sum() == 0.0` (strict zero,
+not `<`); without that anchor the bug would have shipped. The fix
+threaded `selected: MetricSet` through every finalize helper and
+gated them at the same granularity as `compute_per_node`.
+`mi_auto_pulls_dependencies` / `wmc_auto_pulls_dependencies` were
+strengthened in `d5f9ff2` to anchor on the dependency *values*
+(`loc.ploc() > 0`, `cyclomatic_sum() > 0`) for the same reason —
+asserting only `mi.is_finite()` would have passed against the
+`inputs_are_empty` short-circuit returning `0.0` from default-zero
+inputs.
+
+**Lesson:** "Skip computing metric X" must gate every place X is
+read or aggregated, not just the per-node compute call. Audit the
+default value of every `Stats` type before adding gating: any
+non-zero default (Cyclomatic's `1.0` baseline is the canonical one,
+but new metrics may add others) will silently propagate through
+finalize. Write at least one test per gating point that asserts
+`== 0.0` (or the metric's default) on an unselected metric whose
+default is non-zero; an `> 0` anchor on the *selected* metric is
+necessary but not sufficient.
+
+---
+
+## 25. Crate-root `pub use module::*` silently leaks every newly-`pub` sub-module item
+
+A glob `pub use submodule::*` line at the crate root makes every
+`pub` item in that submodule part of the published API surface,
+whether the author intended it or not. Reviewers cannot see what
+the line exports without enumerating every `pub` item in the file;
+internal helpers added for the CLI, types meant for testing, and
+trait methods bumped to `pub` for one call site all become
+SemVer-relevant. The leak is invisible until someone removes the
+glob and watches the curated list grow.
+
+**Wave 10 of the library-DX batch exposed 17 `pub use module::*`
+lines hiding accidentally-public items** (#255, `bab3da9`).
+`src/lib.rs` carried `pub use alterator::*; pub use node::*;
+pub use metrics::*; ...` for every sub-module — 17 globs in a row
+(the issue body cited 16 against an older snapshot of the file).
+Replacing them with curated lists revealed several items that the
+crate's own internals had been reaching at `crate::X` paths,
+working only because the glob made them `pub` at the root. Tightening required adding `pub(crate) use crate::abc::*;`,
+`pub(crate) use crate::cognitive::*;`, etc. for the in-crate consumers (`metrics_inner`, `Search`, `check_func_space`,
+the per-metric `Cognitive`/`Cyclomatic`/... type tags) so the
+internal call sites kept compiling — those types had been
+public-by-accident, and nothing other than the glob made it look
+deliberate.
+
+**Lesson:** A pre-1.0 library that uses crate-root glob re-exports
+has a latent public-API surface no reviewer can fully see. Replace
+globs with explicit `pub use module::{X, Y, Z};` before stabilising
+anything that depends on the surface (a `prelude` module, a
+`cargo-public-api` baseline, a `STABILITY.md`). The unavoidable
+side-effect is that internal callers reaching previously-leaked
+items have to be re-routed via `pub(crate) use ...` or
+fully-qualified paths — surface that drift as part of the same
+change, not as a chase later. Don't add new `pub use module::*` to
+`lib.rs` once it has been curated.
+
+---
+
+## 26. Feature-gating a generic dispatcher forces the return type to widen to `Result`
+
+When per-language Cargo features remove some `LANG` variants from
+the build, the dispatch macro (`mk_action!`, `mk_lang!`, etc.) must
+still match every variant of the always-defined enum — disabled
+variants need a `#[cfg(not(feature = ...))]` arm that returns
+*something*. The previous signature `fn action<T>(...) -> T::Res`
+is uninhabitable at the disabled-feature site: there is no way to
+construct an arbitrary `T::Res` value when the per-language type
+that defines `T::Res` is itself cfg'd out. The only escape hatch
+that preserves the always-defined-enum design is to widen the
+return to `Result<T::Res, MetricsError>`, with the disabled arm
+returning `Err(MetricsError::LanguageDisabled(lang))`. Once that
+widening lands, every caller of the generic dispatcher rises to
+match — including non-generic shims like
+`LANG::get_tree_sitter_language` that share the macro template.
+
+**Per-language features required widening `action::<T>` and
+`LANG::get_tree_sitter_language` to `Result`** (#252, `b923919`).
+Adding `#[features]` for each grammar crate kept
+`LANG` always-defined (per the issue's stability rationale) but
+introduced `#[cfg(feature)]` / `#[cfg(not(feature))]` paired arms
+across `mk_action!` and `mk_lang!`. The `not` arms had no way to
+return a `T::Res`, so `action::<T>` widened to `Result<T::Res,
+MetricsError>` and `LANG::get_tree_sitter_language` likewise.
+This rippled into the CLI and web crates, where every
+`action::<_>(...)` call site became `action::<_>(...).expect(FEATURES_PINNED)`
+because both crates pin `features = ["all-languages"]` and the
+disabled arm is provably unreachable for them. The breaking
+changes were called out in `CHANGELOG.md` and `STABILITY.md`.
+
+**Lesson:** Generic dispatch signatures that return an associated
+type cannot be feature-gated without widening the return to a
+`Result` (or some other error-carrying shape). Plan the widening
+into the same change as the feature flag — split into separate PRs
+only at the cost of an unbuildable intermediate state. Always-pinned
+downstream callers (the CLI / web crates here) can carry the
+invariant with a single `const FEATURES_PINNED: &str = "..."` plus
+`.expect(FEATURES_PINNED)` at every call site; defining the
+invariant once is more honest than scattering identical literal
+panic messages.
+
+---
+
+## 27. Share a private walker across deprecation shims to keep them thin
+
+When introducing a new public API alongside a deprecated one (a
+common pattern when widening a contract — adding a builder,
+swapping `Option` for `Result`, replacing positional args with a
+struct), the temptation is to fork the implementation: leave the
+old one alone, write a fresh one for the new API. That doubles the
+walker code, doubles the place future bug fixes have to land, and
+guarantees the deprecation cycle ships two slightly-different
+implementations that drift apart. The honest move is to extract a
+single private function (visibility `pub(crate)` if multiple
+modules call it, otherwise file-local) that takes the union of
+both APIs' inputs as ordinary parameters, then make both public
+entry points thin shims around it. The deprecated entry point
+becomes a `#[deprecated]` one-liner that constructs the new
+parameters from its old ones; the new entry point is the same
+shape. Future fixes touch the shared core, not either shim.
+
+**`Source` and `analyze` introduction kept the old walker thin via
+`metrics_inner`** (#254, `41d5005`, `8b460fb`). Wave 7 of the
+library-DX batch landed `Source<'a>` and
+`analyze(source, options) -> Result<FuncSpace, MetricsError>`
+alongside the deprecated `metrics` / `metrics_with_options` /
+`get_function_spaces*` entry points. Rather than fork the walker,
+the agent extracted
+`pub(crate) fn metrics_inner(name: Option<String>, ...) ->
+Result<FuncSpace, MetricsError>` to carry the actual tree walk.
+The deprecated shims build
+`name = Some(path.to_string_lossy().into_owned())` and call
+`metrics_inner`; `analyze` destructures `Source` and calls the
+same. `8b460fb` followed up by dropping a redundant
+`diagnostic_path` parameter once the path/name relationship was
+consolidated through `metrics_inner` — the diagnostic string is now
+derived from `name.as_deref().unwrap_or("<input>")`, eliminating
+one parameter and the matched `path.display().to_string()` /
+`path.to_string_lossy().into_owned()` double allocation at every
+shim.
+
+**Lesson:** Any deprecation cycle where the old and new APIs share
+most of the work should land a single private worker with the union
+shape, fronted by two public shims. Avoid the "leave the old code
+alone, fork a copy" pattern — it ships two implementations, doubles
+the surface where future fixes must land, and lets the
+deprecated-on-paper path silently drift. The same advice applies
+when adding a `from_X` constructor next to `new`: extract the
+common construction body, don't copy it.
+
+---
+
+## 28. Hand-rolled `Serialize` with conditional fields must pre-count for CBOR
+
+`serde`-derived `Serialize` for a struct emits a fixed field count
+known at compile time, so output formats that prefix the field
+count (CBOR, MessagePack, BSON in object mode) Just Work. The
+moment a field becomes conditional based on runtime state — and the
+conditional state lives outside the field itself, so
+`#[serde(skip_serializing_if = "...")]` cannot be a free function
+of the field — `derive(Serialize)` no longer suffices. A hand-rolled
+impl is the only escape. The trap: `SerializeStruct::serialize_struct(name, len)` writes the `len` to the
+underlying format *before* the first field, and CBOR / MessagePack
+reject the payload at `st.end()` if the actually-emitted field
+count diverges. JSON quietly tolerates the mismatch (it doesn't
+write a length prefix), so test runs that only exercise JSON pass
+even with a buggy count. Every conditional `serialize_field` arm in
+the body must be paired with a matching boolean in the `len`
+tally — and the two must stay in sync forever.
+
+**`CodeMetrics::serialize` had to track the field count across 13
+conditional emit arms** (#257, `1169231`, simplified by `66a0d8c`).
+Per-metric gating made every emitted field in `CodeMetrics`
+conditional on `self.selected: MetricSet`. The hand-rolled
+`Serialize` impl pre-computes the field count and only then calls
+`serializer.serialize_struct("CodeMetrics", field_count)`:
+
+```rust
+let field_count = always_on
+    .iter()
+    .filter(|m| sel.contains(**m))
+    .count()
+    + usize::from(emit_wmc)
+    + usize::from(emit_npm)
+    + usize::from(emit_npa);
+```
+
+The body's 13 `if sel.contains(...) { st.serialize_field(...)? }`
+arms had to match this tally 1:1. The simplify-rust pass
+(`66a0d8c`) collapsed those arms into a local `emit_if!` macro
+(`emit_if!(sel.contains(Metric::X), "name", &self.field);`), which
+made the 1:1 correspondence visually obvious in code review but
+did not change the underlying invariant. The integration-snapshot
+suites (parent repo `tests/snapshots/` and the
+`big-code-analysis-output` submodule) are JSON-based
+`insta::assert_json_snapshot!` and would NOT catch a tally bug;
+only an actual CBOR consumer (e.g. `bca metrics -O cbor` round-
+tripping a non-trivial fixture) does. There is no end-to-end CBOR
+test in the workspace today — flagged for the next round of test
+hardening.
+
+**Lesson:** Hand-rolled `Serialize` impls that emit a conditional
+field set must compute their field count from the *same* predicates
+they use in the body. The two halves cannot drift. If the format
+mix includes CBOR / MessagePack / any length-prefixed binary
+encoding, only those formats catch the bug; never trust a JSON-only
+test pass. A local macro that pairs the predicate with the field
+name in one place is the cheapest defence against future drift —
+the alternative is a comment block warning future authors to keep
+the tally in sync, which everyone ignores.
+
+---
+
+## 29. Compile-test API doc samples by linking against a scratch crate, not `mdbook test`
+
+API documentation written in Markdown (book chapters, README
+recipes, hand-rolled `# Examples` sections) drifts as soon as the
+public API changes. `mdbook test` runs each fenced ```rust block as
+a doctest, but only against the book's *own* `Cargo.toml`
+dependency list — it does not resolve `use crate_under_test::...`
+against the local checkout. That means typos like `LANG::JavaScript`
+vs `LANG::Javascript` (the variant is `Javascript`), wrong argument
+counts after a function-signature change, and silently-renamed
+re-exports all sail through `mdbook build` and `mdbook test` until
+a reader copies the sample, hits `cargo check`, and reports back. A
+scratch crate that depends on the library via `path = "../"` and a
+`cargo check` against its `src/lib.rs` (one module per book page,
+each containing the page's code samples) catches every such typo
+in seconds.
+
+**The "Using as a Library" book chapter caught `LANG::JavaScript`
+(correct: `Javascript`) before publish** (#259, `8ee83ea`). Wave 4
+of the library-DX batch
+added eight new book pages under `library/`, each carrying several
+fenced Rust code samples that drive `get_function_spaces` /
+`analyze` against the current public API. Writing the samples by
+hand against rustdoc surfaced one real typo (`LANG::JavaScript`
+where the actual variant is `Javascript`) and one outdated method
+name. The agent wrote the samples into a scratch crate that
+depended on `big-code-analysis 0.0.25` via `path = "../"`, ran
+`cargo check`, fixed the typo, then copied the verified samples
+back into the book pages. `mdbook test` alone would have shipped
+the typo.
+
+**Lesson:** Treat API doc samples as production code under
+`cargo check`. The cheapest way is a scratch crate (or a `tests/`
+integration file with `#[allow(dead_code)]`) that compiles every
+sample against the local checkout — not `mdbook test`, which lacks
+the crate's full public API in scope. Run this gate before
+committing book chapters and as part of `make pre-commit` when the
+diff touches `big-code-analysis-book/src/`. The cost is one scratch
+file; the avoidance is reader-facing-API typos.
+
+---

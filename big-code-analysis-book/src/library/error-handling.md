@@ -136,7 +136,6 @@ under the library-DX umbrella ([#250]).
 [`metrics_with_options`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.metrics_with_options.html
 [`MetricsOptions`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.MetricsOptions.html
 [`FuncSpace`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.FuncSpace.html
-[`FuncSpace::name`]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.FuncSpace.html#structfield.name
 [`guess_language`]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.guess_language.html
 [Node]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Node.html
 [#250]: https://github.com/dekobon/big-code-analysis/issues/250

@@ -70,238 +70,6 @@ why no value stability is offered until `1.0`. Entries above the
   callers no longer need to fabricate a `&Path` to identify a
   buffer
   ([#254](https://github.com/dekobon/big-code-analysis/issues/254)).
-
-### Changed
-
-- **(library API, breaking)** `LANG::get_tree_sitter_language`
-  returns `Result<tree_sitter::Language, MetricsError>` instead of
-  `tree_sitter::Language` directly. Feature-gated builds need a
-  way to report "this variant's grammar isn't compiled in" and
-  panicking would violate the no-panic rule on disabled-language
-  paths; the new signature surfaces the disabled state as
-  `Err(MetricsError::LanguageDisabled(LANG))`. Callers that
-  previously wrote `.set_language(&LANG::Rust.get_tree_sitter_language())`
-  need to add `.expect("rust feature enabled")` (or propagate the
-  error). This method is part of the value-not-stable surface (see
-  STABILITY.md); the matching `action::<T>` shim was widened from
-  `T::Res` to `Result<T::Res, MetricsError>` for the same reason
-  ([#252](https://github.com/dekobon/big-code-analysis/issues/252)).
-- **(library API)** `src/lib.rs` re-exports are now explicit:
-  every previous `pub use module::*` glob has been replaced with a
-  named `pub use module::{X, Y, Z}` list. Helpers that were only
-  ever called from inside the crate but accidentally became part
-  of the published surface via those globs are now `pub(crate)`.
-  The known curated public types (`analyze`, `Source`,
-  `MetricsOptions`, `MetricsError`, `Metric`, `MetricSet`, `LANG`,
-  `FuncSpace`, `CodeMetrics`, `SpaceKind`, `Node`, `Cursor`,
-  the per-language `<Lang>Code` / `<Lang>Parser` tags, the
-  `metrics` / `output` sub-modules, the `tree_sitter` re-export,
-  and the deprecated path-positional shims) keep their crate-root
-  paths so the CLI, web crate, integration tests, and the book
-  examples continue to compile unchanged. The published API as
-  rendered by `cargo doc` is now noticeably smaller
-  ([#255](https://github.com/dekobon/big-code-analysis/issues/255)).
-- `ParserTrait`, the per-metric compute traits (`Cognitive`,
-  `Cyclomatic`, `Halstead`, `Loc`, `Mi`, `Nom`, `NArgs`, `Exit`,
-  `Abc`, `Npa`, `Npm`, `Tokens`, `Wmc`), and the supporting
-  `Checker` / `Getter` / `Alterator` traits are now
-  `#[doc(hidden)]`. `Parser<T>` and `Filter` are also `#[doc(hidden)]`.
-  The generic `ParserTrait`-bound shims (`metrics`,
-  `metrics_with_options`, `operands_and_operators`, `find`, `count`,
-  `function`, `rm_comments`) keep their signatures (they remain
-  callable from the CLI / web crates) but are likewise
-  `#[doc(hidden)]` so they no longer appear in the curated rustdoc
-  surface. `metrics` and `metrics_with_options` additionally carry
-  `#[deprecated]` in favour of `analyze` (see #253 / #254). The non-generic
-  `analyze` / `metrics_from_tree` / `get_function_spaces*` /
-  `get_ops` entry points are now the documented surface for
-  language-dispatched analysis. `Callback` and `action::<T>`
-  remain documented and unchanged; their fate is tied to the REST
-  API shape and will be re-evaluated separately
-  ([#256](https://github.com/dekobon/big-code-analysis/issues/256)).
-- **(breaking)** Removed `FuncSpace::name_was_lossy`. The new
-  `analyze` entry point makes the top-level name an explicit
-  caller-supplied `Option<String>` (via `Source::name`), so the
-  lossy-conversion workaround disappears. The deprecated path-
-  positional shims (`metrics`, `metrics_with_options`,
-  `get_function_spaces`, `get_function_spaces_with_options`) still
-  derive `FuncSpace::name` from `path` via lossy UTF-8 conversion
-  for backwards compatibility but no longer surface a `name_was_lossy`
-  bit. Downstream consumers that read `name_was_lossy` from
-  serialized output must drop that field; consumers that need a
-  stable identifier should pass `Source::name` directly via the
-  new `analyze` entry point
-  ([#254](https://github.com/dekobon/big-code-analysis/issues/254)).
-- The path-positional entry points (`metrics`, `metrics_with_options`,
-  `get_function_spaces`, `get_function_spaces_with_options`) are
-  now `#[deprecated(since = "0.0.26", …)]` in favour of
-  `analyze(Source, MetricsOptions)`. They remain functional for one
-  minor release. The CLI and web crate still call the deprecated
-  shims internally (they always have a `&Path` in hand); library
-  consumers should migrate to `analyze`
-  ([#254](https://github.com/dekobon/big-code-analysis/issues/254)).
-- **(breaking)** Library entry points now return
-  `Result<FuncSpace, MetricsError>` (and `Result<Ops, MetricsError>` /
-  `Result<Vec<Node>, MetricsError>` for the sibling APIs) instead of
-  `Option<…>`. Affected: `metrics`, `metrics_with_options`,
-  `get_function_spaces`, `get_function_spaces_with_options`,
-  `operands_and_operators`, `get_ops`, and `find`. The new
-  `MetricsError` enum (`#[non_exhaustive]`, implements
-  `std::error::Error` + `Display`) distinguishes empty-input
-  (`EmptyRoot`), disabled-language (`LanguageDisabled(LANG)`),
-  non-UTF-8 paths (`NonUtf8Path`), and strict-mode parse errors
-  (`ParseHasErrors`); only `EmptyRoot` is produced today, the rest
-  are reserved for the matching follow-up issues (#252, #254, and a
-  future strict-parse toggle). The CLI and web crates adapt; the
-  REST `WebMetricsResponse.spaces` schema is intentionally
-  unchanged and keeps `Option<FuncSpace>` (parallels the
-  `AstResponse.root` decision)
-  ([#253](https://github.com/dekobon/big-code-analysis/issues/253)).
-- Bumped `jsonschema` from `0.46.4` to `0.46.5` (patch: percent-
-  encoded characters in `$ref` URI fragments are now decoded when
-  stored as `schema_path`)
-  ([#237](https://github.com/dekobon/big-code-analysis/issues/237)).
-- Bumped seven GitHub Actions to their latest pinned versions:
-  `actions/checkout` v4.3.1 → v6.0.2 (mutation-test.yml),
-  `EmbarkStudios/cargo-deny-action` v2.0.17 → v2.0.18,
-  `taiki-e/install-action` v2.62.x → v2.78.2,
-  `actions/setup-python` v5.6.0 → v6.2.0,
-  `actions/setup-node` v5.0.0 → v6.4.0,
-  `github/codeql-action` v4.35.2 → v4.35.5,
-  `actions/upload-artifact` v4.6.2 → v7.0.1
-  (mutation-test.yml). Also corrected a stale `# v2.62.23`
-  comment in release.yml that sat next to the v2.78.2 SHA
-  ([#238](https://github.com/dekobon/big-code-analysis/issues/238)).
-- **(breaking)** Offender-record output formats (Checkstyle, SARIF,
-  clang/GCC warning lines, MSVC warning lines) moved from `bca metrics
-  --output-format <fmt>` to `bca check --output-format <fmt>` with a
-  new `--output <path>` option. `bca metrics` keeps the per-file
-  serializations (`json` / `yaml` / `toml` / `cbor` / `csv`). Legacy
-  invocations now exit with a migration hint pointing at the new
-  command; the empty-document placeholder behaviour is removed. The
-  CLI version bumps to `0.1.0` and the book chapters for `metrics`,
-  `report`, and `check` are updated to be internally consistent about
-  which command owns which output kind
-  ([#235](https://github.com/dekobon/big-code-analysis/issues/235)).
-- Python `case_clause` bare-`_`-plus-guard classifier is now shared
-  between `Cyclomatic for PythonCode` and `Abc for PythonCode` via
-  a single `python_case_clause_counts` helper in
-  `src/metrics/npa.rs`. No behaviour change; pure code-quality
-  refactor ([#223](https://github.com/dekobon/big-code-analysis/issues/223)).
-- **(breaking)** `Abc::compute` and `Cognitive::compute` now take the
-  source bytes as a third parameter — `fn compute<'a>(node: &Node<'a>,
-  code: &'a [u8], stats: &mut Stats)` — mirroring `Cyclomatic::compute`
-  and `Exit::compute`. Languages whose control-flow constructs surface
-  as untyped `Call` nodes (Elixir most notably) can identify them by
-  inspecting the call target's text. Per-language impls that do not
-  need the bytes discard them with `_`
-  ([#206](https://github.com/dekobon/big-code-analysis/issues/206)).
-- **(breaking)** `Cyclomatic::compute` now takes the source bytes as
-  a third parameter — `fn compute<'a>(node: &Node<'a>, code: &'a [u8],
-  stats: &mut Stats)` — mirroring `Exit::compute`. Languages whose
-  branching constructs surface as untyped `Call` nodes (Elixir most
-  notably) can identify them by inspecting the call target's text.
-  Per-language impls that do not need the bytes discard them with
-  `_`. The Elixir impl now distinguishes `if`/`unless`/`for`/`while`/
-  `with`/`case`/`cond`/`try` Calls: single-branch keyword Calls
-  contribute to both standard and modified CCN, while multi-arm
-  container Calls (`case`/`cond`/`with`/`try`) contribute to modified
-  only — per-arm `stab_clause`s carry standard CCN, mirroring the
-  C-family case/switch treatment
-  ([#179](https://github.com/dekobon/big-code-analysis/issues/179)).
-- Workspace-wide pedantic clippy + `missing_docs` lint posture is now
-  enforced. `[workspace.lints.rust]` adds `missing_docs = "warn"` and
-  `[workspace.lints.clippy]` adds `pedantic = "warn"` with explicit
-  carve-outs (`module_name_repetitions`, `missing_errors_doc`,
-  `too_many_lines`, `similar_names`,
-  `doc_markdown`, `needless_pass_by_value`, `struct_field_names`,
-  `if_not_else`, `unused_self`, `match_wildcard_for_single_variants`,
-  `struct_excessive_bools`, `ref_option`, each justified inline). All
-  three shipping crates inherit via `[lints] workspace = true`.
-  `cargo clippy --workspace --all-targets --all-features -- -D
-  warnings` and the default-features variant both exit clean
-  ([#158](https://github.com/dekobon/big-code-analysis/issues/158)).
-- Downgraded ~254 `#[inline(always)]` attributes to `#[inline]`
-  across language modules, metric modules, and the `enums/`
-  template, removing the `clippy::inline_always` warnings and
-  letting LLVM decide on inlining. Mechanical batch alongside
-  fixes for `clippy::semicolon_if_nothing_returned`,
-  `clippy::redundant_else`, `clippy::redundant_closure`,
-  `clippy::items_after_statements`,
-  `clippy::unnecessary_debug_formatting` (path `{:?}` →
-  `path.display()` in `eprintln!` warning logs),
-  `clippy::unnested_or_patterns`, `clippy::implicit_clone`,
-  `clippy::manual_string_new`, `clippy::needless_raw_string_hashes`,
-  and `clippy::uninlined_format_args`. Public API unchanged
-  ([#158](https://github.com/dekobon/big-code-analysis/issues/158)).
-- Cargo workspace now uses `resolver = "3"` and inherits shared
-  package metadata (`version`, `edition`, `rust-version`, `license`,
-  `authors`) via `[workspace.package]` so the three shipping crates
-  have a single source of truth. Per-crate `repository` URLs are
-  preserved so each crate's crates.io page still links to its own
-  subdirectory ([#150](https://github.com/dekobon/big-code-analysis/issues/150)).
-- MSRV is now declared as `1.94` in `[workspace.package]`
-  ([#150](https://github.com/dekobon/big-code-analysis/issues/150)).
-- `[profile.release]` drops `strip = "debuginfo"` and sets
-  `debug = "line-tables-only"` so release packaging can split
-  symbols into separate `.dbg` artefacts and panic backtraces still
-  carry line numbers. The same change applies to `enums/`'s
-  independent release profile
-  ([#150](https://github.com/dekobon/big-code-analysis/issues/150)).
-- The 5 vendored grammars (`tree-sitter-ccomment`, `tree-sitter-mozcpp`,
-  `tree-sitter-mozjs`, `tree-sitter-preproc`, `tree-sitter-tcl`) and
-  the `enums` codegen helper are now marked `publish = false` and
-  excluded from the workspace member list, leaving exactly three
-  publishable packages (`big-code-analysis`, `big-code-analysis-cli`,
-  `big-code-analysis-web`)
-  ([#150](https://github.com/dekobon/big-code-analysis/issues/150)).
-- The 18 shared `tree-sitter*` version pins (13 external, 5 vendored
-  path-deps) are now consolidated in `[workspace.dependencies]` in the
-  root `Cargo.toml`; the root crate inherits them via
-  `.workspace = true`. `enums/Cargo.toml` is `[workspace].exclude`d and
-  cannot inherit, so it keeps literal pins with a lockstep-update
-  comment in both manifests
-  ([#159](https://github.com/dekobon/big-code-analysis/issues/159)).
-- Promoted the workspace-excluded `enums` crate's CI gate from
-  `cargo check` to `cargo clippy --all-targets --locked -- -D warnings`,
-  fixing three pre-existing `clippy::manual_is_ascii_check` sites in
-  `enums/src/common.rs` (replaced range-based ASCII checks with
-  `c.is_ascii_lowercase()` / `is_ascii_uppercase()` / `is_ascii_digit()`).
-  The gate now enforces the same lint floor as the workspace
-  ([#166](https://github.com/dekobon/big-code-analysis/issues/166)).
-- `kotlin_loc_no_zero_blank` test (`src/metrics/loc.rs`) rewritten to
-  actually exercise its advertised contract: the input now interleaves
-  a blank line between trailing-comment code so the test asserts
-  `blank() == 1.0` rather than `blank() == 0.0`. The original
-  no-blank-input coverage is preserved under
-  `kotlin_loc_blank_zero_sanity`
-  ([#200](https://github.com/dekobon/big-code-analysis/issues/200)).
-- Rewrote `.github/dependabot.yml`: added a `github-actions` ecosystem
-  entry (grouped, weekly, `ci:` commit prefix) so SHA-pinned action
-  bumps auto-update; standardised cargo entries on `deps:` prefix and
-  added `version-update:semver-major` ignore rules so MSRV-bumping
-  deps no longer auto-merge; trimmed `open-pull-requests-limit` from
-  99 to 5 for the five vendored grammar directories and `/enums`
-  (kept 99 for `/`); added a previously-missing cargo entry for
-  `/tree-sitter-tcl`
-  ([#154](https://github.com/dekobon/big-code-analysis/issues/154)).
-- `Node::is_child(id)` avoids the per-call `TreeCursor` heap
-  allocation by walking via `child(0)` + `next_sibling()` instead
-  of `children(&mut self.0.walk())`. Behaviour-preserving; total
-  cost stays O(n). Hot on the JS/TS/TSX/Mozjs template-literal
-  arms in `src/getter.rs`
-  ([#217](https://github.com/dekobon/big-code-analysis/issues/217)).
-- Lesson-9 partial-input tests split into two suites for honesty:
-  16 `*_top_level_space_is_unit_contract` tests pin the public API
-  contract, and `lua_partial_input_yields_synthetic_unit_wrapper`
-  and `cpp_error_root_yields_unit_top_level_space` are the only two
-  that today actually exercise the synthetic-Unit wrapper in
-  `metrics()`. The naming was previously uniform and implied all
-  18 tests exercised the wrapper
-  ([#220](https://github.com/dekobon/big-code-analysis/issues/220)).
-
-### Added
-
 - Parse seam for callers who already drive `tree-sitter`. New
   `Parser::from_tree(tree, code)` accepts a pre-built
   `tree_sitter::Tree` plus the matching source bytes, skipping the
@@ -645,6 +413,235 @@ why no value stability is offered until `1.0`. Entries above the
   (collapse to one runtime arg), lambdas-inside-functions (closures,
   not methods), and the `&` vs `&&` Halstead separation
   ([#170](https://github.com/dekobon/big-code-analysis/issues/170)).
+
+### Changed
+
+- **(library API, breaking)** `LANG::get_tree_sitter_language`
+  returns `Result<tree_sitter::Language, MetricsError>` instead of
+  `tree_sitter::Language` directly. Feature-gated builds need a
+  way to report "this variant's grammar isn't compiled in" and
+  panicking would violate the no-panic rule on disabled-language
+  paths; the new signature surfaces the disabled state as
+  `Err(MetricsError::LanguageDisabled(LANG))`. Callers that
+  previously wrote `.set_language(&LANG::Rust.get_tree_sitter_language())`
+  need to add `.expect("rust feature enabled")` (or propagate the
+  error). This method is part of the value-not-stable surface (see
+  STABILITY.md); the matching `action::<T>` shim was widened from
+  `T::Res` to `Result<T::Res, MetricsError>` for the same reason
+  ([#252](https://github.com/dekobon/big-code-analysis/issues/252)).
+- **(library API)** `src/lib.rs` re-exports are now explicit:
+  every previous `pub use module::*` glob has been replaced with a
+  named `pub use module::{X, Y, Z}` list. Helpers that were only
+  ever called from inside the crate but accidentally became part
+  of the published surface via those globs are now `pub(crate)`.
+  The known curated public types (`analyze`, `Source`,
+  `MetricsOptions`, `MetricsError`, `Metric`, `MetricSet`, `LANG`,
+  `FuncSpace`, `CodeMetrics`, `SpaceKind`, `Node`, `Cursor`,
+  the per-language `<Lang>Code` / `<Lang>Parser` tags, the
+  `metrics` / `output` sub-modules, the `tree_sitter` re-export,
+  and the deprecated path-positional shims) keep their crate-root
+  paths so the CLI, web crate, integration tests, and the book
+  examples continue to compile unchanged. The published API as
+  rendered by `cargo doc` is now noticeably smaller
+  ([#255](https://github.com/dekobon/big-code-analysis/issues/255)).
+- `ParserTrait`, the per-metric compute traits (`Cognitive`,
+  `Cyclomatic`, `Halstead`, `Loc`, `Mi`, `Nom`, `NArgs`, `Exit`,
+  `Abc`, `Npa`, `Npm`, `Tokens`, `Wmc`), and the supporting
+  `Checker` / `Getter` / `Alterator` traits are now
+  `#[doc(hidden)]`. `Parser<T>` and `Filter` are also `#[doc(hidden)]`.
+  The generic `ParserTrait`-bound shims (`metrics`,
+  `metrics_with_options`, `operands_and_operators`, `find`, `count`,
+  `function`, `rm_comments`) keep their signatures (they remain
+  callable from the CLI / web crates) but are likewise
+  `#[doc(hidden)]` so they no longer appear in the curated rustdoc
+  surface. `metrics` and `metrics_with_options` additionally carry
+  `#[deprecated]` in favour of `analyze` (see #253 / #254). The non-generic
+  `analyze` / `metrics_from_tree` / `get_function_spaces*` /
+  `get_ops` entry points are now the documented surface for
+  language-dispatched analysis. `Callback` and `action::<T>`
+  remain documented and unchanged; their fate is tied to the REST
+  API shape and will be re-evaluated separately
+  ([#256](https://github.com/dekobon/big-code-analysis/issues/256)).
+- **(breaking)** Removed `FuncSpace::name_was_lossy`. The new
+  `analyze` entry point makes the top-level name an explicit
+  caller-supplied `Option<String>` (via `Source::name`), so the
+  lossy-conversion workaround disappears. The deprecated path-
+  positional shims (`metrics`, `metrics_with_options`,
+  `get_function_spaces`, `get_function_spaces_with_options`) still
+  derive `FuncSpace::name` from `path` via lossy UTF-8 conversion
+  for backwards compatibility but no longer surface a `name_was_lossy`
+  bit. Downstream consumers that read `name_was_lossy` from
+  serialized output must drop that field; consumers that need a
+  stable identifier should pass `Source::name` directly via the
+  new `analyze` entry point
+  ([#254](https://github.com/dekobon/big-code-analysis/issues/254)).
+- The path-positional entry points (`metrics`, `metrics_with_options`,
+  `get_function_spaces`, `get_function_spaces_with_options`) are
+  now `#[deprecated(since = "0.0.26", …)]` in favour of
+  `analyze(Source, MetricsOptions)`. They remain functional for one
+  minor release. The CLI and web crate still call the deprecated
+  shims internally (they always have a `&Path` in hand); library
+  consumers should migrate to `analyze`
+  ([#254](https://github.com/dekobon/big-code-analysis/issues/254)).
+- **(breaking)** Library entry points now return
+  `Result<FuncSpace, MetricsError>` (and `Result<Ops, MetricsError>` /
+  `Result<Vec<Node>, MetricsError>` for the sibling APIs) instead of
+  `Option<…>`. Affected: `metrics`, `metrics_with_options`,
+  `get_function_spaces`, `get_function_spaces_with_options`,
+  `operands_and_operators`, `get_ops`, and `find`. The new
+  `MetricsError` enum (`#[non_exhaustive]`, implements
+  `std::error::Error` + `Display`) distinguishes empty-input
+  (`EmptyRoot`), disabled-language (`LanguageDisabled(LANG)`),
+  non-UTF-8 paths (`NonUtf8Path`), and strict-mode parse errors
+  (`ParseHasErrors`); only `EmptyRoot` is produced today, the rest
+  are reserved for the matching follow-up issues (#252, #254, and a
+  future strict-parse toggle). The CLI and web crates adapt; the
+  REST `WebMetricsResponse.spaces` schema is intentionally
+  unchanged and keeps `Option<FuncSpace>` (parallels the
+  `AstResponse.root` decision)
+  ([#253](https://github.com/dekobon/big-code-analysis/issues/253)).
+- Bumped `jsonschema` from `0.46.4` to `0.46.5` (patch: percent-
+  encoded characters in `$ref` URI fragments are now decoded when
+  stored as `schema_path`)
+  ([#237](https://github.com/dekobon/big-code-analysis/issues/237)).
+- Bumped seven GitHub Actions to their latest pinned versions:
+  `actions/checkout` v4.3.1 → v6.0.2 (mutation-test.yml),
+  `EmbarkStudios/cargo-deny-action` v2.0.17 → v2.0.18,
+  `taiki-e/install-action` v2.62.x → v2.78.2,
+  `actions/setup-python` v5.6.0 → v6.2.0,
+  `actions/setup-node` v5.0.0 → v6.4.0,
+  `github/codeql-action` v4.35.2 → v4.35.5,
+  `actions/upload-artifact` v4.6.2 → v7.0.1
+  (mutation-test.yml). Also corrected a stale `# v2.62.23`
+  comment in release.yml that sat next to the v2.78.2 SHA
+  ([#238](https://github.com/dekobon/big-code-analysis/issues/238)).
+- **(breaking)** Offender-record output formats (Checkstyle, SARIF,
+  clang/GCC warning lines, MSVC warning lines) moved from `bca metrics
+  --output-format <fmt>` to `bca check --output-format <fmt>` with a
+  new `--output <path>` option. `bca metrics` keeps the per-file
+  serializations (`json` / `yaml` / `toml` / `cbor` / `csv`). Legacy
+  invocations now exit with a migration hint pointing at the new
+  command; the empty-document placeholder behaviour is removed. The
+  CLI version bumps to `0.1.0` and the book chapters for `metrics`,
+  `report`, and `check` are updated to be internally consistent about
+  which command owns which output kind
+  ([#235](https://github.com/dekobon/big-code-analysis/issues/235)).
+- Python `case_clause` bare-`_`-plus-guard classifier is now shared
+  between `Cyclomatic for PythonCode` and `Abc for PythonCode` via
+  a single `python_case_clause_counts` helper in
+  `src/metrics/npa.rs`. No behaviour change; pure code-quality
+  refactor ([#223](https://github.com/dekobon/big-code-analysis/issues/223)).
+- **(breaking)** `Abc::compute` and `Cognitive::compute` now take the
+  source bytes as a third parameter — `fn compute<'a>(node: &Node<'a>,
+  code: &'a [u8], stats: &mut Stats)` — mirroring `Cyclomatic::compute`
+  and `Exit::compute`. Languages whose control-flow constructs surface
+  as untyped `Call` nodes (Elixir most notably) can identify them by
+  inspecting the call target's text. Per-language impls that do not
+  need the bytes discard them with `_`
+  ([#206](https://github.com/dekobon/big-code-analysis/issues/206)).
+- **(breaking)** `Cyclomatic::compute` now takes the source bytes as
+  a third parameter — `fn compute<'a>(node: &Node<'a>, code: &'a [u8],
+  stats: &mut Stats)` — mirroring `Exit::compute`. Languages whose
+  branching constructs surface as untyped `Call` nodes (Elixir most
+  notably) can identify them by inspecting the call target's text.
+  Per-language impls that do not need the bytes discard them with
+  `_`. The Elixir impl now distinguishes `if`/`unless`/`for`/`while`/
+  `with`/`case`/`cond`/`try` Calls: single-branch keyword Calls
+  contribute to both standard and modified CCN, while multi-arm
+  container Calls (`case`/`cond`/`with`/`try`) contribute to modified
+  only — per-arm `stab_clause`s carry standard CCN, mirroring the
+  C-family case/switch treatment
+  ([#179](https://github.com/dekobon/big-code-analysis/issues/179)).
+- Workspace-wide pedantic clippy + `missing_docs` lint posture is now
+  enforced. `[workspace.lints.rust]` adds `missing_docs = "warn"` and
+  `[workspace.lints.clippy]` adds `pedantic = "warn"` with explicit
+  carve-outs (`module_name_repetitions`, `missing_errors_doc`,
+  `too_many_lines`, `similar_names`,
+  `doc_markdown`, `needless_pass_by_value`, `struct_field_names`,
+  `if_not_else`, `unused_self`, `match_wildcard_for_single_variants`,
+  `struct_excessive_bools`, `ref_option`, each justified inline). All
+  three shipping crates inherit via `[lints] workspace = true`.
+  `cargo clippy --workspace --all-targets --all-features -- -D
+  warnings` and the default-features variant both exit clean
+  ([#158](https://github.com/dekobon/big-code-analysis/issues/158)).
+- Downgraded ~254 `#[inline(always)]` attributes to `#[inline]`
+  across language modules, metric modules, and the `enums/`
+  template, removing the `clippy::inline_always` warnings and
+  letting LLVM decide on inlining. Mechanical batch alongside
+  fixes for `clippy::semicolon_if_nothing_returned`,
+  `clippy::redundant_else`, `clippy::redundant_closure`,
+  `clippy::items_after_statements`,
+  `clippy::unnecessary_debug_formatting` (path `{:?}` →
+  `path.display()` in `eprintln!` warning logs),
+  `clippy::unnested_or_patterns`, `clippy::implicit_clone`,
+  `clippy::manual_string_new`, `clippy::needless_raw_string_hashes`,
+  and `clippy::uninlined_format_args`. Public API unchanged
+  ([#158](https://github.com/dekobon/big-code-analysis/issues/158)).
+- Cargo workspace now uses `resolver = "3"` and inherits shared
+  package metadata (`version`, `edition`, `rust-version`, `license`,
+  `authors`) via `[workspace.package]` so the three shipping crates
+  have a single source of truth. Per-crate `repository` URLs are
+  preserved so each crate's crates.io page still links to its own
+  subdirectory ([#150](https://github.com/dekobon/big-code-analysis/issues/150)).
+- MSRV is now declared as `1.94` in `[workspace.package]`
+  ([#150](https://github.com/dekobon/big-code-analysis/issues/150)).
+- `[profile.release]` drops `strip = "debuginfo"` and sets
+  `debug = "line-tables-only"` so release packaging can split
+  symbols into separate `.dbg` artefacts and panic backtraces still
+  carry line numbers. The same change applies to `enums/`'s
+  independent release profile
+  ([#150](https://github.com/dekobon/big-code-analysis/issues/150)).
+- The 5 vendored grammars (`tree-sitter-ccomment`, `tree-sitter-mozcpp`,
+  `tree-sitter-mozjs`, `tree-sitter-preproc`, `tree-sitter-tcl`) and
+  the `enums` codegen helper are now marked `publish = false` and
+  excluded from the workspace member list, leaving exactly three
+  publishable packages (`big-code-analysis`, `big-code-analysis-cli`,
+  `big-code-analysis-web`)
+  ([#150](https://github.com/dekobon/big-code-analysis/issues/150)).
+- The 18 shared `tree-sitter*` version pins (13 external, 5 vendored
+  path-deps) are now consolidated in `[workspace.dependencies]` in the
+  root `Cargo.toml`; the root crate inherits them via
+  `.workspace = true`. `enums/Cargo.toml` is `[workspace].exclude`d and
+  cannot inherit, so it keeps literal pins with a lockstep-update
+  comment in both manifests
+  ([#159](https://github.com/dekobon/big-code-analysis/issues/159)).
+- Promoted the workspace-excluded `enums` crate's CI gate from
+  `cargo check` to `cargo clippy --all-targets --locked -- -D warnings`,
+  fixing three pre-existing `clippy::manual_is_ascii_check` sites in
+  `enums/src/common.rs` (replaced range-based ASCII checks with
+  `c.is_ascii_lowercase()` / `is_ascii_uppercase()` / `is_ascii_digit()`).
+  The gate now enforces the same lint floor as the workspace
+  ([#166](https://github.com/dekobon/big-code-analysis/issues/166)).
+- `kotlin_loc_no_zero_blank` test (`src/metrics/loc.rs`) rewritten to
+  actually exercise its advertised contract: the input now interleaves
+  a blank line between trailing-comment code so the test asserts
+  `blank() == 1.0` rather than `blank() == 0.0`. The original
+  no-blank-input coverage is preserved under
+  `kotlin_loc_blank_zero_sanity`
+  ([#200](https://github.com/dekobon/big-code-analysis/issues/200)).
+- Rewrote `.github/dependabot.yml`: added a `github-actions` ecosystem
+  entry (grouped, weekly, `ci:` commit prefix) so SHA-pinned action
+  bumps auto-update; standardised cargo entries on `deps:` prefix and
+  added `version-update:semver-major` ignore rules so MSRV-bumping
+  deps no longer auto-merge; trimmed `open-pull-requests-limit` from
+  99 to 5 for the five vendored grammar directories and `/enums`
+  (kept 99 for `/`); added a previously-missing cargo entry for
+  `/tree-sitter-tcl`
+  ([#154](https://github.com/dekobon/big-code-analysis/issues/154)).
+- `Node::is_child(id)` avoids the per-call `TreeCursor` heap
+  allocation by walking via `child(0)` + `next_sibling()` instead
+  of `children(&mut self.0.walk())`. Behaviour-preserving; total
+  cost stays O(n). Hot on the JS/TS/TSX/Mozjs template-literal
+  arms in `src/getter.rs`
+  ([#217](https://github.com/dekobon/big-code-analysis/issues/217)).
+- Lesson-9 partial-input tests split into two suites for honesty:
+  16 `*_top_level_space_is_unit_contract` tests pin the public API
+  contract, and `lua_partial_input_yields_synthetic_unit_wrapper`
+  and `cpp_error_root_yields_unit_top_level_space` are the only two
+  that today actually exercise the synthetic-Unit wrapper in
+  `metrics()`. The naming was previously uniform and implied all
+  18 tests exercised the wrapper
+  ([#220](https://github.com/dekobon/big-code-analysis/issues/220)).
 
 ### Fixed
 
