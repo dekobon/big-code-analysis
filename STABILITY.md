@@ -158,6 +158,16 @@ underlying dependency rather than our own SemVer:
   type a consumer ever sees on this seam is `tree_sitter::Tree`
   itself. Both follow the `tree-sitter` pin in the same value-
   not-stable sense as the re-export above.
+- **`Ast`** is the parse-once seam (#264). `Ast::parse` mirrors
+  `analyze`, `Ast::from_tree_sitter` mirrors `metrics_from_tree`,
+  and `Ast::as_tree_sitter` exposes the held `tree_sitter::Tree`
+  — that single method follows the `tree-sitter` pin in the same
+  value-not-stable sense as the `tree_sitter` re-export. The rest
+  of `Ast`'s API surface (`parse`, `from_tree_sitter`, `metrics`,
+  `language`, `source`, `name`) is shape-stable. The
+  language-dispatched `AstInner` enum and the matching
+  `ast_*_dispatch` helpers stay `pub(crate)`; only `Ast` is
+  exposed.
 - **`#[doc(hidden)]` items** are part of the macro / internal
   plumbing surface. They are not covered by any stability promise
   and may be removed or renamed in a patch bump.

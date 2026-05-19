@@ -57,6 +57,10 @@ impl Tree {
     pub(crate) fn get_root(&self) -> Node<'_> {
         Node(self.0.root_node())
     }
+
+    pub(crate) fn as_ts_tree(&self) -> &OtherTree {
+        &self.0
+    }
 }
 
 /// An `AST` node.

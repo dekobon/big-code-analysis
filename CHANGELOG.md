@@ -20,6 +20,19 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Added
 
+- Public `Ast` type for parse-once, compute-many-times analysis. Build
+  one with `Ast::parse(Source)` (re-parses bytes, mirrors `analyze`)
+  or `Ast::from_tree_sitter(lang, tree, code, name)` (adopts a
+  caller-built `tree_sitter::Tree`, the `Source`-flavored counterpart
+  of `metrics_from_tree` with no lossy path-to-name conversion). Then
+  call `Ast::metrics(options)` repeatedly against the same parse —
+  with different `MetricsOptions::with_only` selections, interleaved
+  with a custom tree-sitter walk via `Ast::as_tree_sitter`, or cached
+  across configuration changes in an analysis pipeline. `analyze` and
+  `metrics_from_tree` are now thin wrappers around the same seam, so
+  the per-language dispatch table lives in exactly one place. See
+  [`library/parse-once.md`](big-code-analysis-book/src/library/parse-once.md)
+  ([#264](https://github.com/dekobon/big-code-analysis/issues/264)).
 - `bca check --baseline <path>` and `--write-baseline <path>` flags
   for ratcheting thresholds on an existing codebase without raising
   limits. The baseline is a sorted TOML file keyed on `(path,

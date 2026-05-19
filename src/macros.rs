@@ -350,9 +350,119 @@ macro_rules! mk_action {
             }
         }
 
-        /// Internal language-dispatch shim that backs [`analyze`].
+        /// Language-dispatched bundle of a parsed tree plus its
+        /// source bytes, one variant per Cargo-feature-enabled
+        /// language. The public seam is [`crate::Ast`]; this enum is
+        /// the macro-generated internal carrier it wraps. With every
+        /// per-language feature disabled it becomes an uninhabited
+        /// 0-variant enum and every method below collapses to an
+        /// empty `match self {}`.
+        pub(crate) enum AstInner {
+            $(
+                #[cfg(feature = $feature)]
+                $camel($parser),
+            )*
+        }
+
+        impl AstInner {
+            /// Run the metric walker against the held parse. The
+            /// caller passes `name` and `options` per call so a
+            /// single `AstInner` can be reused with different metric
+            /// subsets.
+            pub(crate) fn run_metrics(
+                &self,
+                name: Option<String>,
+                options: MetricsOptions,
+            ) -> Result<FuncSpace, MetricsError> {
+                match self {
+                    $(
+                        #[cfg(feature = $feature)]
+                        AstInner::$camel(parser) => metrics_inner(parser, name, options),
+                    )*
+                }
+            }
+
+            pub(crate) fn language(&self) -> LANG {
+                match self {
+                    $(
+                        #[cfg(feature = $feature)]
+                        AstInner::$camel(_) => LANG::$camel,
+                    )*
+                }
+            }
+
+            pub(crate) fn code_bytes(&self) -> &[u8] {
+                match self {
+                    $(
+                        #[cfg(feature = $feature)]
+                        AstInner::$camel(parser) => parser.get_code(),
+                    )*
+                }
+            }
+
+            pub(crate) fn ts_tree(&self) -> &::tree_sitter::Tree {
+                match self {
+                    $(
+                        #[cfg(feature = $feature)]
+                        AstInner::$camel(parser) => parser.get_ts_tree(),
+                    )*
+                }
+            }
+        }
+
+        /// Internal parse-dispatch shim that backs [`crate::Ast::parse`].
         /// Lives in the `mk_action!` macro so each new language only
         /// has to declare its parser tag once.
+        pub(crate) fn ast_parse_dispatch(
+            lang: LANG,
+            source: &[u8],
+            preproc_path: Option<&Path>,
+            preproc: Option<Arc<PreprocResults>>,
+        ) -> Result<AstInner, MetricsError> {
+            // `Parser::new` keys the C++ macro-expansion lookup off the
+            // caller-supplied path; for callers analysing in-memory
+            // snippets with no preprocessor path, fall back to an
+            // empty `Path` ("") which the lookup ignores. The empty
+            // path is *not* leaked into `FuncSpace::name` — that
+            // is carried separately on `Ast`.
+            let preproc_path = preproc_path.unwrap_or(Path::new(""));
+            let source = source.to_vec();
+            match lang {
+                $(
+                    #[cfg(feature = $feature)]
+                    LANG::$camel => Ok(AstInner::$camel($parser::new(source, preproc_path, preproc))),
+                    #[cfg(not(feature = $feature))]
+                    LANG::$camel => {
+                        let _ = (source, preproc_path, preproc);
+                        Err(MetricsError::LanguageDisabled(lang))
+                    },
+                )*
+            }
+        }
+
+        /// Internal tree-adoption dispatch that backs
+        /// [`crate::Ast::from_tree_sitter`].
+        pub(crate) fn ast_from_tree_dispatch(
+            lang: LANG,
+            tree: ::tree_sitter::Tree,
+            source: Vec<u8>,
+        ) -> Result<AstInner, MetricsError> {
+            match lang {
+                $(
+                    #[cfg(feature = $feature)]
+                    LANG::$camel => Ok(AstInner::$camel($parser::from_tree(tree, source))),
+                    #[cfg(not(feature = $feature))]
+                    LANG::$camel => {
+                        let _ = (tree, source);
+                        Err(MetricsError::LanguageDisabled(lang))
+                    },
+                )*
+            }
+        }
+
+        /// Internal language-dispatch shim that backs [`analyze`].
+        /// Delegates to [`ast_parse_dispatch`] + [`AstInner::run_metrics`]
+        /// so the per-`LANG` match arm lives in exactly one place.
         #[doc(hidden)]
         pub fn analyze_dispatch(
             lang: LANG,
@@ -362,28 +472,7 @@ macro_rules! mk_action {
             preproc: Option<Arc<PreprocResults>>,
             options: MetricsOptions,
         ) -> Result<FuncSpace, MetricsError> {
-            // `Parser::new` keys the C++ macro-expansion lookup off the
-            // caller-supplied path; for callers analysing in-memory
-            // snippets with no preprocessor path, fall back to an
-            // empty `Path` ("") which the lookup ignores. The empty
-            // path is *not* leaked into `FuncSpace::name` — that
-            // value comes from `name` directly.
-            let preproc_path = preproc_path.unwrap_or(Path::new(""));
-            let source = source.to_vec();
-            match lang {
-                $(
-                    #[cfg(feature = $feature)]
-                    LANG::$camel => {
-                        let parser = $parser::new(source, preproc_path, preproc);
-                        metrics_inner(&parser, name, options)
-                    },
-                    #[cfg(not(feature = $feature))]
-                    LANG::$camel => {
-                        let _ = (source, preproc_path, preproc, name, options);
-                        Err(MetricsError::LanguageDisabled(lang))
-                    },
-                )*
-            }
+            ast_parse_dispatch(lang, source, preproc_path, preproc)?.run_metrics(name, options)
         }
 
         /// Returns all function spaces data of a code, applying the
@@ -533,26 +622,11 @@ macro_rules! mk_action {
             let _ = pr;
             // Same path-name handling as the deprecated entry points
             // so existing callers see no behaviour change. Callers
-            // who want to skip the lossy round-trip should use
-            // `Parser::from_tree` directly and call `metrics_inner`
-            // through a hand-rolled wrapper, or wait for the
-            // post-#254 follow-up that adds a `Source`-flavored
-            // tree-reuse entry point.
+            // who want to drop the lossy round-trip should use
+            // [`crate::Ast::from_tree_sitter`], which carries an
+            // explicit `name: Option<String>` end-to-end.
             let name = Some(path.to_string_lossy().into_owned());
-            match lang {
-                $(
-                    #[cfg(feature = $feature)]
-                    LANG::$camel => {
-                        let parser = $parser::from_tree(tree, source);
-                        metrics_inner(&parser, name, options)
-                    },
-                    #[cfg(not(feature = $feature))]
-                    LANG::$camel => {
-                        let _ = (tree, source, name, options);
-                        Err(MetricsError::LanguageDisabled(*lang))
-                    },
-                )*
-            }
+            ast_from_tree_dispatch(*lang, tree, source)?.run_metrics(name, options)
         }
 
         /// Returns all operators and operands of each space in a code.

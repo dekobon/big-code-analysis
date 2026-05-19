@@ -606,6 +606,190 @@ impl<'a> Source<'a> {
     }
 }
 
+/// Parse-once, compute-many handle.
+///
+/// Owns the parsed [`tree_sitter::Tree`] and the source bytes it was parsed
+/// from, so callers can run [`Ast::metrics`] repeatedly against the same
+/// parse — with different [`MetricsOptions`] subsets, interleaved with
+/// custom `tree_sitter` traversal via [`Ast::as_tree_sitter`], or cached
+/// across configuration changes in an analysis pipeline.
+///
+/// Build one via [`Ast::parse`] (mirrors [`analyze`]) or
+/// [`Ast::from_tree_sitter`] (mirrors [`metrics_from_tree`] but with an
+/// explicit display name instead of a lossy path-to-string conversion).
+///
+/// `Ast` is a snapshot — it does not pick up changes to the source after
+/// construction. Incremental reparse via [`tree_sitter::InputEdit`] is out
+/// of scope for this seam.
+///
+/// # C++ preprocessor
+///
+/// When [`Ast::parse`] is given a [`Source`] carrying preprocessor inputs
+/// and the language is [`LANG::Cpp`], [`Ast::source`] returns the *expanded*
+/// bytes the parser actually saw (the macro pre-pass runs before
+/// `tree-sitter` does). [`Ast::from_tree_sitter`] adopts whatever tree the
+/// caller supplied; whatever expansion they applied before building it is
+/// what [`Ast::source`] reflects.
+///
+/// # Examples
+///
+/// Parse once, run two disjoint metric subsets without re-parsing:
+///
+/// ```
+/// use big_code_analysis::{Ast, LANG, Metric, MetricsOptions, Source};
+///
+/// let ast = Ast::parse(
+///     Source::new(LANG::Rust, b"fn f() { if true { 1 } else { 2 }; }"),
+/// )
+/// .expect("rust feature enabled");
+///
+/// let loc = ast
+///     .metrics(MetricsOptions::default().with_only(&[Metric::Loc]))
+///     .expect("walker succeeds");
+/// let cyc = ast
+///     .metrics(MetricsOptions::default().with_only(&[Metric::Cyclomatic]))
+///     .expect("walker succeeds");
+/// // Each call's `with_only` filters to its requested family — the other
+/// // metric stays at its `Default` (zero) value, confirming options are
+/// // honored per call rather than carried over.
+/// assert!(loc.metrics.loc.ploc() > 0.0);
+/// assert_eq!(loc.metrics.cyclomatic.cyclomatic_sum(), 0.0);
+/// assert!(cyc.metrics.cyclomatic.cyclomatic_sum() > 0.0);
+/// assert_eq!(cyc.metrics.loc.ploc(), 0.0);
+/// ```
+///
+/// Walk the underlying `tree_sitter::Tree` and then run metrics on the
+/// same parse:
+///
+/// ```
+/// use big_code_analysis::{Ast, LANG, MetricsOptions, Source};
+///
+/// let ast = Ast::parse(Source::new(LANG::Rust, b"fn f() {}"))
+///     .expect("rust feature enabled");
+/// let root = ast.as_tree_sitter().root_node();
+/// assert_eq!(root.kind(), "source_file");
+/// let _ = ast.metrics(MetricsOptions::default()).expect("walker succeeds");
+/// ```
+pub struct Ast {
+    inner: crate::langs::AstInner,
+    name: Option<String>,
+}
+
+impl fmt::Debug for Ast {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // The held parser owns a `tree_sitter::Tree` and a `Vec<u8>`;
+        // neither has a meaningful `Debug` projection (one is an opaque
+        // C handle, the other is raw source). Reporting language + name
+        // keeps the public `Ast: Debug` promise without forcing `Debug`
+        // onto every per-language `*Code` tag.
+        f.debug_struct("Ast")
+            .field("language", &self.language())
+            .field("name", &self.name)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Ast {
+    /// Parse `source` into a reusable [`Ast`]. Equivalent to the parse half
+    /// of [`analyze`]: every [`Ast::metrics`] call on the returned handle
+    /// produces the same [`FuncSpace`] as a freshly-issued
+    /// `analyze(source, options)` would.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MetricsError::LanguageDisabled`] when the source language's
+    /// per-language Cargo feature is not enabled in this build.
+    pub fn parse(source: Source<'_>) -> Result<Self, MetricsError> {
+        let Source {
+            lang,
+            code,
+            name,
+            preproc_path,
+            preproc,
+        } = source;
+        let inner = crate::langs::ast_parse_dispatch(lang, code, preproc_path, preproc)?;
+        Ok(Self { inner, name })
+    }
+
+    /// Adopt a caller-built [`tree_sitter::Tree`]. The `Source`-flavored
+    /// counterpart of [`metrics_from_tree`]: same tree-reuse semantics, but
+    /// with `name: Option<String>` carried end-to-end instead of derived
+    /// from a path via lossy UTF-8 conversion.
+    ///
+    /// The supplied `tree` must have been produced from `code` with the
+    /// [`tree_sitter::Language`] returned by
+    /// [`LANG::get_tree_sitter_language`] for `lang`; a mismatch is not
+    /// `unsafe` but yields nonsensical metric values.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MetricsError::LanguageDisabled`] when `lang`'s
+    /// per-language Cargo feature is not enabled in this build.
+    pub fn from_tree_sitter(
+        lang: LANG,
+        tree: tree_sitter::Tree,
+        code: Vec<u8>,
+        name: Option<String>,
+    ) -> Result<Self, MetricsError> {
+        let inner = crate::langs::ast_from_tree_dispatch(lang, tree, code)?;
+        Ok(Self { inner, name })
+    }
+
+    /// Run the metric walker against the held parse. Safe to call
+    /// repeatedly — the tree is reused.
+    ///
+    /// Two `metrics` calls with different [`MetricsOptions::with_only`]
+    /// selections walk the tree twice; the savings versus [`analyze`] come
+    /// from not re-parsing the source.
+    ///
+    /// # Errors
+    ///
+    /// The return type carries [`MetricsError::EmptyRoot`] for forward
+    /// compatibility, but the walker always pushes a synthetic top-level
+    /// [`SpaceKind::Unit`] [`FuncSpace`] before walking, so this method
+    /// does not return `Err` in practice today.
+    pub fn metrics(&self, options: MetricsOptions) -> Result<FuncSpace, MetricsError> {
+        self.inner.run_metrics(self.name.clone(), options)
+    }
+
+    /// Source language of the parsed tree.
+    #[must_use]
+    #[inline]
+    pub fn language(&self) -> LANG {
+        self.inner.language()
+    }
+
+    /// Source bytes the held tree was parsed from. For [`LANG::Cpp`] with
+    /// preprocessor inputs supplied to [`Ast::parse`], these are the
+    /// *expanded* bytes (see the type-level "C++ preprocessor" note).
+    #[must_use]
+    #[inline]
+    pub fn source(&self) -> &[u8] {
+        self.inner.code_bytes()
+    }
+
+    /// Display name carried through to [`FuncSpace::name`] by every
+    /// [`Ast::metrics`] call.
+    #[must_use]
+    #[inline]
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
+
+    /// Borrow the underlying [`tree_sitter::Tree`] for callers that want
+    /// to drive their own traversal alongside the metric walker.
+    ///
+    /// The returned reference is valid only while `self` lives; nodes
+    /// obtained from it must be resolved against [`Ast::source`] (the
+    /// `tree_sitter::Tree` is lazy and lifetime-bound to that byte
+    /// buffer).
+    #[must_use]
+    #[inline]
+    pub fn as_tree_sitter(&self) -> &tree_sitter::Tree {
+        self.inner.ts_tree()
+    }
+}
+
 /// Compute every metric for a [`Source`].
 ///
 /// This is the recommended library entry point. Unlike the
@@ -642,17 +826,7 @@ impl<'a> Source<'a> {
 /// assert_eq!(space.name.as_deref(), Some("snippet.rs"));
 /// ```
 pub fn analyze(source: Source<'_>, options: MetricsOptions) -> Result<FuncSpace, MetricsError> {
-    let Source {
-        lang,
-        code,
-        name,
-        preproc_path,
-        preproc,
-    } = source;
-    // Reuse the language-dispatch shim that lives next to
-    // `get_function_spaces`; it owns the per-`LANG` match arm and
-    // is the single place to keep parser-trait wiring in sync.
-    crate::langs::analyze_dispatch(lang, code, name, preproc_path, preproc, options)
+    Ast::parse(source)?.metrics(options)
 }
 
 /// Returns all function spaces data of a code. This function needs a parser to

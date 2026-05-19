@@ -7,6 +7,17 @@ inside `get_function_spaces`. The parse seam (issue [#251]) lets you
 hand `big-code-analysis` an already-parsed `tree_sitter::Tree` and
 get the same `FuncSpace` back without re-parsing.
 
+> **Prefer `Ast::from_tree_sitter`** if you also want to run the
+> metric walker more than once against the same parse (different
+> [`MetricsOptions::with_only`][with_only] selections, custom
+> tree-sitter walks interleaved with metrics, etc.). See
+> [Parse once, run metrics many times](parse-once.md). The
+> `metrics_from_tree` function shown below is a single-shot
+> equivalent that constructs an `Ast` internally and discards it
+> after one call.
+>
+> [with_only]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.MetricsOptions.html#method.with_only
+
 [tree-sitter]: https://tree-sitter.github.io/tree-sitter/
 [#251]: https://github.com/dekobon/big-code-analysis/issues/251
 

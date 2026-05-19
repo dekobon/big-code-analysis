@@ -38,8 +38,11 @@ the [`bca` CLI](../commands/README.md) is faster to wire up.
   `FuncSpace`, print the cognitive complexity.
 - [Analyzing in-memory source](in-memory.md) — feed source from a
   buffer rather than a file.
-- [Reusing an existing tree-sitter Tree](reuse-tree.md) — *(stub —
-  planned)*.
+- [Reusing an existing tree-sitter Tree](reuse-tree.md) — feed a
+  caller-built `tree_sitter::Tree` into the metric walker.
+- [Parse once, run metrics many times](parse-once.md) — hold a parsed
+  `Ast` and run multiple metric subsets / custom walks against the
+  same tree.
 - [Selecting metrics](selecting-metrics.md) — *(stub — planned)*.
 - [Walking `FuncSpace` results](walking-funcspace.md) — recurse
   into nested function / class / impl spaces.
