@@ -370,6 +370,6 @@ Applies regardless of provider:
   crashed".
 - **Honor in-source suppression markers, audit with
   `--no-suppress`.** The default `bca check` honors
-  [`bca: allow` / `bca: allow-file` markers](../commands/suppression.md);
+  [`bca: suppress` / `bca: suppress-file` markers](../commands/suppression.md);
   passing `--no-suppress` ignores them so auditors see the raw
   offender list.

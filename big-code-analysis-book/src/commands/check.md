@@ -96,8 +96,8 @@ is deterministic across runs over the same tree.
 
 In-source comments can silence threshold violations on individual
 functions or whole files without editing the offending code or
-excluding it from the walk. The native dialect is `bca: allow` /
-`bca: allow-file`; Lizard's `#lizard forgives` is recognized as a
+excluding it from the walk. The native dialect is `bca: suppress` /
+`bca: suppress-file`; Lizard's `#lizard forgives` is recognized as a
 compatibility shim. See [Suppression markers](suppression.md) for
 the full reference and the `--no-suppress` CI-audit flag.
 

@@ -1492,3 +1492,37 @@ diff touches `big-code-analysis-book/src/`. The cost is one scratch
 file; the avoidance is reader-facing-API typos.
 
 ---
+
+## 30. User-facing comment markers should match the codebase's internal vocabulary
+
+In-source suppression markers originally used `bca: allow` /
+`bca: allow-file`, mirroring Rust's `#[allow(clippy::…)]` attribute.
+Hard-renamed to `bca: suppress` / `bca: suppress-file` in #263 before
+the markers shipped widely. The verb `allow` reads correctly inside
+`#[allow]` only because it sits in a closed four-level lint
+vocabulary (`allow`/`warn`/`deny`/`forbid`) inside attribute syntax.
+Stripped of both — dropped into a free-text comment in a codebase
+with no `warn`/`deny`/`forbid` siblings — the verb is a bare English
+imperative that reads as "this code is permitted to be complex"
+rather than "suppress the violation report." The marker also has to
+read well in Python, JavaScript, C++, Java, Kotlin — where the
+ecosystem lint-suppression vocabulary is `disable` (ESLint, pylint,
+shellcheck), `ignore` (mypy, pyright, staticcheck), or `suppress`
+(cppcheck, Java `@SuppressWarnings`, SpotBugs, Detekt). `allow` as
+an embedded-comment verb is essentially unique to Rust attributes.
+
+**Lesson:** When choosing a verb for a user-facing marker that lives
+inside source comments across many languages, pick the verb that
+*the rest of the codebase's own internal vocabulary already uses*
+(here: `src/suppression.rs`, `SuppressionPolicy`,
+`FuncSpace::suppressed`, `--no-suppress` — all "suppress"). That
+alignment eliminates the cognitive bridge between the comment a user
+writes and the module a reviewer reads. Industry precedent comes
+second; internal naming consistency comes first because it's the
+thing future contributors will keep tripping on. Cross-check with at
+least three lint-suppression tools from outside the host language
+(`#noqa`, `eslint-disable`, `@SuppressWarnings`, `cppcheck-suppress`,
+`# type: ignore`) before committing — if your verb is the outlier
+across that set and against your own internal model, redesign.
+
+---

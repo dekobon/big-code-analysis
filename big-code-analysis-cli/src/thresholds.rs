@@ -579,7 +579,7 @@ mod tests {
 
     #[test]
     fn honor_policy_suppresses_matching_function_scope() {
-        // `bca: allow(cyclomatic)` on the function silences a cyclomatic
+        // `bca: suppress(cyclomatic)` on the function silences a cyclomatic
         // violation when the policy honors markers — the headline
         // behaviour the CLI relies on.
         let mut out = Vec::new();

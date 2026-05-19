@@ -17,11 +17,11 @@ fn cli() -> Command {
 }
 
 /// Rust function with cyclomatic complexity > 1 plus an inline
-/// `bca: allow` marker silencing cyclomatic. Used to confirm the
+/// `bca: suppress` marker silencing cyclomatic. Used to confirm the
 /// honor / ignore paths.
 const SUPPRESSED_RUST: &str = r#"
 pub fn classify(n: i32) -> &'static str {
-    // bca: allow(cyclomatic)
+    // bca: suppress(cyclomatic)
     if n < 0 {
         "neg"
     } else if n == 0 {
@@ -49,7 +49,7 @@ pub fn classify(n: i32) -> &'static str {
 
 /// Rust source with a file-level marker covering `cyclomatic`.
 const FILE_SUPPRESSED_RUST: &str = r#"
-// bca: allow-file(cyclomatic)
+// bca: suppress-file(cyclomatic)
 
 pub fn classify(n: i32) -> &'static str {
     if n < 0 {
@@ -69,7 +69,7 @@ fn write_fixture(dir: &TempDir, name: &str, body: &str) -> String {
 #[test]
 fn suppression_marker_silences_violation_by_default() {
     // `classify` would exceed cyclomatic=1 by a wide margin, but the
-    // inline `bca: allow(cyclomatic)` marker should silence the
+    // inline `bca: suppress(cyclomatic)` marker should silence the
     // violation so the run exits 0 with empty stderr.
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "branchy.rs", SUPPRESSED_RUST);
@@ -106,7 +106,7 @@ fn no_suppress_flag_re_enables_violation() {
 #[test]
 fn lizard_compat_marker_silences_violation() {
     // The `#lizard forgives` marker must produce the same exit-code
-    // behaviour as the native `bca: allow` form, so codebases coming
+    // behaviour as the native `bca: suppress` form, so codebases coming
     // from Lizard migrate cleanly without rewriting comments.
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "branchy.rs", LIZARD_RUST);
@@ -133,9 +133,57 @@ fn file_scoped_marker_silences_nested_function_violation() {
         .stderr(predicate::str::is_empty());
 }
 
+/// Regression fixture for #263. The verb `allow` was the old marker
+/// spelling; after the hard rename it is no longer recognized and
+/// must leave the cyclomatic violation visible.
+const LEGACY_ALLOW_RUST: &str = r#"
+pub fn classify(n: i32) -> &'static str {
+    // bca: allow(cyclomatic)
+    if n < 0 {
+        "neg"
+    } else if n == 0 {
+        "zero"
+    } else {
+        "pos"
+    }
+}
+"#;
+
+#[test]
+fn legacy_allow_marker_does_not_suppress() {
+    // Hard-rename regression (#263): a `// bca: allow(...)` comment in
+    // shipped source must NOT silence the violation. The parser
+    // surfaces `allow` / `allow-file` as `UnknownVerb`, which the
+    // walk-time scanner drops with a stderr warning — the threshold
+    // checker then sees no marker and the violation fires normally.
+    //
+    // Three things must all be true; we pin each one independently so
+    // a regression in any single half (e.g., walker silently swallows
+    // the error, or warning text drifts without the violation firing)
+    // surfaces clearly:
+    //   1. exit code 2 — the violation is reported, the marker did not
+    //      suppress it;
+    //   2. stderr names the offender and metric — the violation line
+    //      exists and is intelligible;
+    //   3. stderr names the bad verb — the user gets a diagnostic
+    //      pointing them at the rename, not a silent drop.
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", LEGACY_ALLOW_RUST);
+
+    cli()
+        .args(["--paths", &path, "check", "--threshold", "cyclomatic=1"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("classify"))
+        .stderr(predicate::str::contains("cyclomatic"))
+        .stderr(predicate::str::contains(
+            "unknown bca directive verb 'allow'",
+        ));
+}
+
 #[test]
 fn unsuppressed_metric_still_violates() {
-    // Per-metric scoping: `bca: allow(cyclomatic)` leaves other
+    // Per-metric scoping: `bca: suppress(cyclomatic)` leaves other
     // metrics' violations visible. Threshold on a non-listed metric
     // (cognitive) still fires.
     let dir = TempDir::new().unwrap();

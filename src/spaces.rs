@@ -972,16 +972,16 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
 ///
 /// Scope resolution mirrors the issue's specification:
 ///
-/// - File-scoped markers (`bca: allow-file`, `#lizard forgive global`)
+/// - File-scoped markers (`bca: suppress-file`, `#lizard forgive global`)
 ///   merge into `root.suppressed`. Their position inside or outside
 ///   function bodies is irrelevant — the issue explicitly drops the
 ///   "must be in first N lines" rule.
-/// - Function-scoped markers (`bca: allow`, `#lizard forgives`) attach
+/// - Function-scoped markers (`bca: suppress`, `#lizard forgives`) attach
 ///   to the *innermost* `FuncSpace` whose line range contains the
 ///   comment. A marker that lies outside every function's body has no
 ///   enclosing function and is therefore silently ignored — the issue
 ///   does not call out a behaviour for that case, and treating it as a
-///   file-level marker would conflict with the explicit `allow-file`
+///   file-level marker would conflict with the explicit `suppress-file`
 ///   verb.
 fn attach_suppressions(root: &mut FuncSpace, pending: &[(Suppression, usize)]) {
     for (suppression, line) in pending {
@@ -1003,11 +1003,11 @@ fn attach_suppressions(root: &mut FuncSpace, pending: &[(Suppression, usize)]) {
 /// in this subtree so the caller can short-circuit sibling probes.
 ///
 /// "Function-kind" here means [`SpaceKind::Function`] only; class /
-/// struct / trait spaces are skipped because a `bca: allow` comment
+/// struct / trait spaces are skipped because a `bca: suppress` comment
 /// at class scope but outside any method would otherwise silence
 /// thresholds on the entire class — surprising behaviour that the
 /// issue's `Function` scope semantics don't sanction. Authors who want
-/// class-wide suppression can use `bca: allow-file` or repeat the
+/// class-wide suppression can use `bca: suppress-file` or repeat the
 /// marker on each method.
 fn attach_function_suppression(
     space: &mut FuncSpace,

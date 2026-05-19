@@ -3,17 +3,18 @@
 //! This module implements the comment-based suppression scanner
 //! described in issue #98. Two dialects coexist:
 //!
-//! - **Native markers** use the `bca:` namespace and the `allow` verb,
-//!   mirroring `#[allow(clippy::…)]` in Rust:
-//!   - `bca: allow` — suppress all metrics for the enclosing function.
-//!   - `bca: allow(cyclomatic, cognitive)` — suppress only the listed
+//! - **Native markers** use the `bca:` namespace and the `suppress`
+//!   verb, matching the codebase's internal "suppression" vocabulary
+//!   (`SuppressionPolicy`, `FuncSpace::suppressed`, `--no-suppress`):
+//!   - `bca: suppress` — suppress all metrics for the enclosing function.
+//!   - `bca: suppress(cyclomatic, cognitive)` — suppress only the listed
 //!     metrics for the enclosing function.
-//!   - `bca: allow-file` — suppress all metrics for the entire file.
-//!   - `bca: allow-file(halstead)` — suppress listed metrics file-wide.
+//!   - `bca: suppress-file` — suppress all metrics for the entire file.
+//!   - `bca: suppress-file(halstead)` — suppress listed metrics file-wide.
 //! - **Lizard compatibility markers** are recognized verbatim so
 //!   existing Lizard-instrumented codebases migrate without rewrites:
-//!   - `#lizard forgives` ≡ `bca: allow`.
-//!   - `#lizard forgive global` ≡ `bca: allow-file`.
+//!   - `#lizard forgives` ≡ `bca: suppress`.
+//!   - `#lizard forgive global` ≡ `bca: suppress-file`.
 //!
 //! Markers are extracted from comment nodes during the AST walk in
 //! [`crate::spaces::metrics_with_options`] and attached to the matching
@@ -32,7 +33,7 @@ use serde::Serialize;
 ///
 /// Names match the JSON field names emitted on [`crate::CodeMetrics`]
 /// (and on the per-metric `bca` threshold registry). Unknown
-/// identifiers in a `bca: allow(...)` list produce a hard error so a
+/// identifiers in a `bca: suppress(...)` list produce a hard error so a
 /// typo cannot silently widen suppression scope to other metrics or be
 /// dropped on the floor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
@@ -180,7 +181,7 @@ impl FromStr for MetricKind {
 ///
 /// `All` means the marker omits an explicit metric list and therefore
 /// silences every threshold for the enclosing scope. `Some` carries
-/// the explicit list parsed from `bca: allow(a, b, c)`; an empty set
+/// the explicit list parsed from `bca: suppress(a, b, c)`; an empty set
 /// means the marker effectively suppresses nothing (only possible via
 /// an empty `()` list, which is treated as a no-op rather than an
 /// error).
@@ -277,12 +278,12 @@ pub(crate) struct Suppression {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SuppressionError {
     /// `bca:` directive used an unrecognized verb (anything other than
-    /// `allow` / `allow-file`).
+    /// `suppress` / `suppress-file`).
     UnknownVerb(String),
-    /// `bca: allow(...)` listed an identifier that is not a known
+    /// `bca: suppress(...)` listed an identifier that is not a known
     /// metric name.
     UnknownMetric(String),
-    /// `bca: allow(...)` body could not be tokenized (e.g. unbalanced
+    /// `bca: suppress(...)` body could not be tokenized (e.g. unbalanced
     /// parentheses, stray characters).
     MalformedBody(String),
 }
@@ -295,7 +296,7 @@ impl fmt::Display for SuppressionError {
         match self {
             Self::UnknownVerb(v) => write!(
                 f,
-                "unknown bca directive verb '{v}'; expected `allow` or `allow-file`"
+                "unknown bca directive verb '{v}'; expected `suppress` or `suppress-file`"
             ),
             Self::UnknownMetric(m) => {
                 let known = MetricKind::ALL
@@ -326,7 +327,7 @@ impl std::error::Error for SuppressionError {}
 ///   Lizard-style markers never error.
 ///
 /// The input is the raw comment text **including** the comment-syntax
-/// delimiters (e.g. `// bca: allow`, `# bca: allow`, `/* bca: allow */`).
+/// delimiters (e.g. `// bca: suppress`, `# bca: suppress`, `/* bca: suppress */`).
 /// The following leading delimiter characters are stripped before
 /// matching so per-language wrappers do not have to normalise:
 /// `/`, `*`, `!`, `#`, `;`, `-`, and ASCII whitespace. The `!` entry
@@ -354,8 +355,8 @@ pub(crate) fn parse_marker(comment_text: &str) -> Result<Option<Suppression>, Su
     // text — so the inner body still starts with `#`, which Lizard
     // parsing wants. In both cases the no-`#` trim leaves the
     // `#lizard` token intact.
-    // `!` is included so inner doc comments — `//! bca: allow` and
-    // `/*! bca: allow */` — strip down to the same body as their
+    // `!` is included so inner doc comments — `//! bca: suppress` and
+    // `/*! bca: suppress */` — strip down to the same body as their
     // outer counterparts. Without this, the leading `!` would survive
     // the strip and break the `bca:` prefix match.
     let no_opener = trimmed
@@ -365,7 +366,7 @@ pub(crate) fn parse_marker(comment_text: &str) -> Result<Option<Suppression>, Su
         .trim_end_matches(|c: char| c == '*' || c == '/' || c.is_whitespace())
         .trim();
 
-    // Python-style: tree-sitter delivers `# bca: allow` with the
+    // Python-style: tree-sitter delivers `# bca: suppress` with the
     // leading `#` intact. Lizard expects `#lizard ...` — a literal
     // `#` *followed by* `lizard`, no space. If the first `#` is the
     // language's comment opener, strip exactly one `#` and any
@@ -396,7 +397,7 @@ pub(crate) fn parse_marker(comment_text: &str) -> Result<Option<Suppression>, Su
         return Ok(Some(s));
     }
 
-    // For native parsing, strip the same `#` opener so `# bca: allow`
+    // For native parsing, strip the same `#` opener so `# bca: suppress`
     // matches. The remaining body is then checked for the `bca:`
     // prefix.
     let body = no_opener
@@ -440,8 +441,8 @@ fn parse_lizard(trimmed: &str) -> Option<Suppression> {
 }
 
 fn parse_native(body: &str) -> Result<Option<Suppression>, SuppressionError> {
-    // The native dialect is `bca:` followed by a verb (`allow` or
-    // `allow-file`), optionally followed by `(metric, metric, ...)`.
+    // The native dialect is `bca:` followed by a verb (`suppress` or
+    // `suppress-file`), optionally followed by `(metric, metric, ...)`.
     let Some(rest) = body.strip_prefix("bca:") else {
         return Ok(None);
     };
@@ -467,8 +468,8 @@ fn parse_native(body: &str) -> Result<Option<Suppression>, SuppressionError> {
     }
 
     let kind = match verb {
-        "allow" => SuppressionKind::Function,
-        "allow-file" => SuppressionKind::File,
+        "suppress" => SuppressionKind::Function,
+        "suppress-file" => SuppressionKind::File,
         other => return Err(SuppressionError::UnknownVerb(other.to_owned())),
     };
 
@@ -480,7 +481,7 @@ fn parse_native(body: &str) -> Result<Option<Suppression>, SuppressionError> {
         let (inside, trailing) = rest.split_at(close);
         // After the `)` only whitespace (and `*/` already trimmed by
         // caller) is allowed. Anything else is a malformed marker:
-        // reject so `bca: allow(loc) garbage` doesn't silently succeed.
+        // reject so `bca: suppress(loc) garbage` doesn't silently succeed.
         if !trailing[1..].trim().is_empty() {
             return Err(malformed());
         }
@@ -520,16 +521,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn native_bare_allow_suppresses_all_for_function() {
-        let s = parse_marker("// bca: allow").unwrap().unwrap();
+    fn native_bare_suppress_covers_all_for_function() {
+        let s = parse_marker("// bca: suppress").unwrap().unwrap();
         assert_eq!(s.kind, SuppressionKind::Function);
         assert_eq!(s.source, SuppressionSource::Native);
         assert!(matches!(s.scope, SuppressionScope::All));
     }
 
     #[test]
-    fn native_allow_with_metric_list() {
-        let s = parse_marker("// bca: allow(cyclomatic, cognitive)")
+    fn native_suppress_with_metric_list() {
+        let s = parse_marker("// bca: suppress(cyclomatic, cognitive)")
             .unwrap()
             .unwrap();
         assert_eq!(s.kind, SuppressionKind::Function);
@@ -542,15 +543,15 @@ mod tests {
     }
 
     #[test]
-    fn native_allow_file_bare() {
-        let s = parse_marker("# bca: allow-file").unwrap().unwrap();
+    fn native_suppress_file_bare() {
+        let s = parse_marker("# bca: suppress-file").unwrap().unwrap();
         assert_eq!(s.kind, SuppressionKind::File);
         assert!(matches!(s.scope, SuppressionScope::All));
     }
 
     #[test]
-    fn native_allow_file_with_metric_list() {
-        let s = parse_marker("/* bca: allow-file(halstead, loc) */")
+    fn native_suppress_file_with_metric_list() {
+        let s = parse_marker("/* bca: suppress-file(halstead, loc) */")
             .unwrap()
             .unwrap();
         assert_eq!(s.kind, SuppressionKind::File);
@@ -563,7 +564,7 @@ mod tests {
 
     #[test]
     fn native_unknown_metric_errors() {
-        let err = parse_marker("// bca: allow(no_such_metric)").unwrap_err();
+        let err = parse_marker("// bca: suppress(no_such_metric)").unwrap_err();
         assert!(matches!(err, SuppressionError::UnknownMetric(_)));
         // The error must mention what was unknown so authors can
         // diagnose typos without reading our source.
@@ -578,23 +579,55 @@ mod tests {
     fn native_unknown_verb_errors() {
         let err = parse_marker("// bca: disable").unwrap_err();
         assert!(matches!(err, SuppressionError::UnknownVerb(_)));
+        // The error message must guide the author toward the correct
+        // verbs without making them grep our source. Anchor each verb
+        // with its surrounding backticks so the bare `suppress` check
+        // can't be silently satisfied by the substring inside
+        // `suppress-file` — a future message that drops the bare verb
+        // and keeps only the compound one would otherwise pass this
+        // assertion.
+        let rendered = err.to_string();
+        assert!(
+            rendered.contains("`suppress`"),
+            "expected message to name the bare `suppress` verb; got: {rendered}"
+        );
+        assert!(
+            rendered.contains("`suppress-file`"),
+            "expected message to name the `suppress-file` verb; got: {rendered}"
+        );
+    }
+
+    /// Locks the hard rename in issue #263: the previous spelling
+    /// `// bca: allow` (and `// bca: allow-file`) must no longer be
+    /// recognized. They now fall through to `UnknownVerb`, the same
+    /// path as any other typo. A future revert that re-adds the old
+    /// verb to the match would silently re-enable old-style markers
+    /// in shipped source; this test catches that.
+    #[test]
+    fn legacy_allow_verb_is_unknown() {
+        let err = parse_marker("// bca: allow").unwrap_err();
+        assert!(matches!(err, SuppressionError::UnknownVerb(v) if v == "allow"));
+        let err = parse_marker("// bca: allow-file").unwrap_err();
+        assert!(matches!(err, SuppressionError::UnknownVerb(v) if v == "allow-file"));
+        let err = parse_marker("// bca: allow(cyclomatic)").unwrap_err();
+        assert!(matches!(err, SuppressionError::UnknownVerb(v) if v == "allow"));
     }
 
     #[test]
     fn native_malformed_body_errors() {
         // Unbalanced paren.
         assert!(matches!(
-            parse_marker("// bca: allow(cyclomatic").unwrap_err(),
+            parse_marker("// bca: suppress(cyclomatic").unwrap_err(),
             SuppressionError::MalformedBody(_)
         ));
         // Trailing garbage after the metric list.
         assert!(matches!(
-            parse_marker("// bca: allow(cyclomatic) junk").unwrap_err(),
+            parse_marker("// bca: suppress(cyclomatic) junk").unwrap_err(),
             SuppressionError::MalformedBody(_)
         ));
         // Verb followed by something other than `(...)`.
         assert!(matches!(
-            parse_marker("// bca: allow garbage").unwrap_err(),
+            parse_marker("// bca: suppress garbage").unwrap_err(),
             SuppressionError::MalformedBody(_)
         ));
     }
@@ -608,7 +641,7 @@ mod tests {
 
     #[test]
     fn empty_metric_list_is_noop_not_error() {
-        let s = parse_marker("// bca: allow()").unwrap().unwrap();
+        let s = parse_marker("// bca: suppress()").unwrap().unwrap();
         assert!(s.scope.is_empty());
         assert!(!s.scope.covers(MetricKind::Cyclomatic));
     }
@@ -678,8 +711,8 @@ mod tests {
     #[test]
     fn marker_grammar_is_case_sensitive() {
         // Uppercase B in `Bca:` is not a native marker.
-        assert!(parse_marker("// Bca: allow").unwrap().is_none());
-        assert!(parse_marker("/* BCA: allow */").unwrap().is_none());
+        assert!(parse_marker("// Bca: suppress").unwrap().is_none());
+        assert!(parse_marker("/* BCA: suppress */").unwrap().is_none());
         // Uppercase L in `#Lizard` is not a Lizard marker. The
         // fast-bail rejects it (no lowercase "lizard" substring) and
         // the slow path would also reject it via `strip_prefix("lizard")`.
@@ -763,7 +796,7 @@ mod tests {
     fn for_threshold_name_aliases_nexits_to_exit() {
         // The threshold engine surfaces this metric as `nexits`; the
         // suppression vocabulary uses `exit`. The translation must
-        // happen here so `bca: allow(exit)` silences a `nexits`
+        // happen here so `bca: suppress(exit)` silences a `nexits`
         // threshold violation as authors expect.
         assert_eq!(
             MetricKind::for_threshold_name("nexits"),
@@ -798,11 +831,11 @@ mod tests {
         // Without `!` in the leading-strip set the marker prefix `bca:`
         // would not match. Both line- and block-comment variants must
         // round-trip the same way.
-        let line = parse_marker("//! bca: allow").unwrap().unwrap();
+        let line = parse_marker("//! bca: suppress").unwrap().unwrap();
         assert_eq!(line.kind, SuppressionKind::Function);
         assert!(matches!(line.scope, SuppressionScope::All));
 
-        let block = parse_marker("/*! bca: allow */").unwrap().unwrap();
+        let block = parse_marker("/*! bca: suppress */").unwrap().unwrap();
         assert_eq!(block.kind, SuppressionKind::Function);
         assert!(matches!(block.scope, SuppressionScope::All));
     }
