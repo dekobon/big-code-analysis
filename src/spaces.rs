@@ -952,11 +952,15 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
 
     finalize::<T>(&mut state_stack, usize::MAX, selected);
 
-    // `None` here means the walker never produced a top-level
-    // `FuncSpace` — typically empty input or input whose only content
-    // is comments. Surfaced as `MetricsError::EmptyRoot` rather than a
-    // bare `None` so library callers can tell empty-input apart from
-    // future failure modes (parse-error, disabled-language, …).
+    // Reserved error path: `MetricsError::EmptyRoot` is unreachable
+    // today because the synthetic Unit push above (and every
+    // language's translation_unit / module / source_file being a
+    // `func_space`) keeps the state stack non-empty for every input,
+    // including empty / whitespace-only / comment-only sources. The
+    // `ok_or` is retained so a future walker change that legitimately
+    // drains the stack surfaces a distinct error variant rather than
+    // panicking or returning a bare `None`. See `MetricsError::EmptyRoot`
+    // for the matching variant doc.
     let mut state = state_stack.pop().ok_or(MetricsError::EmptyRoot)?;
     state.space.name = name;
     attach_suppressions(&mut state.space, &pending);

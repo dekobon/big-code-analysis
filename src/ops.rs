@@ -246,8 +246,12 @@ pub fn operands_and_operators<'a, T: ParserTrait>(
 
     finalize::<T>(&mut state_stack, usize::MAX);
 
-    // See `metrics_with_options` for the same rationale: empty AST →
-    // `MetricsError::EmptyRoot` rather than a bare `None`.
+    // Reserved error path: `MetricsError::EmptyRoot` is unreachable
+    // today because every supported language's root node is recognised
+    // as a `func_space` and pushes a state. The `ok_or` is retained so a
+    // future walker change that legitimately drains the stack surfaces
+    // a distinct error variant rather than a bare `None`. See
+    // `MetricsError::EmptyRoot` for the matching variant doc.
     let mut state = state_stack.pop().ok_or(MetricsError::EmptyRoot)?;
     // See `FuncSpace::name` rationale in `spaces.rs`: lossy conversion
     // keeps the top-level `Ops` identifiable for non-UTF-8 paths
