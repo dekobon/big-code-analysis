@@ -67,6 +67,12 @@ obtained from it resolve against `Ast::source` (see the [note on the
 C++ preprocessor](#c-preprocessor) below for what `source` returns
 under macro expansion).
 
+> **For realistic AST work** — counting node kinds, finding constructs
+> by name, detecting parse errors, building a symbol table — see
+> [Walking the AST directly](ast-traversal.md). The example below is a
+> minimal smoke test; the dedicated chapter shows the full pattern
+> (reusable depth-first walker, field-name lookup, error detection).
+
 ```rust,no_run
 use big_code_analysis::{Ast, LANG, MetricsOptions, Source};
 

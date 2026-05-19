@@ -32,6 +32,8 @@ why no value stability is offered until `1.0`. Entries above the
   `metrics_from_tree` are now thin wrappers around the same seam, so
   the per-language dispatch table lives in exactly one place. See
   [`library/parse-once.md`](big-code-analysis-book/src/library/parse-once.md)
+  and [`library/ast-traversal.md`](big-code-analysis-book/src/library/ast-traversal.md)
+  for working with the held `tree_sitter::Tree` directly
   ([#264](https://github.com/dekobon/big-code-analysis/issues/264)).
 - `bca check --baseline <path>` and `--write-baseline <path>` flags
   for ratcheting thresholds on an existing codebase without raising
