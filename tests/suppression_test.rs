@@ -47,7 +47,7 @@ def quiet():
     return 1
 
 def noisy(x):
-    # bca: allow(cyclomatic)
+    # bca: suppress(cyclomatic)
     if x > 0:
         return 1
     return 0
@@ -76,7 +76,7 @@ fn cpp_native_function_scoped_marker_attaches_to_enclosing_function() {
     // the Python case but lives in a `// …` instead of `# …`.
     let src = r#"
 int noisy(int x) {
-    // bca: allow(cognitive, cyclomatic)
+    // bca: suppress(cognitive, cyclomatic)
     if (x > 0) {
         return 1;
     }
@@ -104,12 +104,12 @@ int noisy(int x) {
 
 #[test]
 fn rust_block_comment_marker_attaches() {
-    // Rust block-comment form `/* bca: allow */` exercises a different
+    // Rust block-comment form `/* bca: suppress */` exercises a different
     // comment kind_id than `//` line comments. The marker is inside a
     // function body so it must attach there, not at file scope.
     let src = r#"
 fn noisy(x: i32) -> i32 {
-    /* bca: allow */
+    /* bca: suppress */
     if x > 0 { 1 } else { 0 }
 }
 "#;
@@ -121,7 +121,7 @@ fn noisy(x: i32) -> i32 {
 #[test]
 fn native_file_scoped_marker_lands_on_unit_space() {
     let src = r#"
-# bca: allow-file(loc, halstead)
+# bca: suppress-file(loc, halstead)
 
 def fine():
     return 1
@@ -177,7 +177,7 @@ fn nested_function_marker_lands_on_inner_function() {
     let src = r#"
 fn outer() -> i32 {
     fn inner() -> i32 {
-        // bca: allow(cyclomatic)
+        // bca: suppress(cyclomatic)
         1
     }
     inner()
@@ -228,7 +228,7 @@ fn populated_scope_serializes_with_metrics_list() {
     // (the metric block, present on every space), which would let a
     // missing or malformed `suppressed` field slip through.
     let src = r#"
-# bca: allow-file(loc)
+# bca: suppress-file(loc)
 "#;
     let space = analyze_lang(src, "fixture.py");
     let json = serde_json::to_string(&space).expect("serialize");
@@ -265,7 +265,7 @@ fn unknown_metric_in_marker_has_no_effect() {
     // `src/suppression.rs`.
     let src = r#"
 def fine():
-    # bca: allow(no_such_metric)
+    # bca: suppress(no_such_metric)
     return 1
 "#;
     let space = analyze_lang(src, "fixture.py");
@@ -278,12 +278,37 @@ def fine():
 }
 
 #[test]
+fn unknown_verb_in_marker_has_no_effect() {
+    // Parallel to `unknown_metric_in_marker_has_no_effect`, but
+    // exercises the verb-rejection path that the #263 hard rename
+    // turned into the common case for legacy sources. The library
+    // walker treats `UnknownVerb` exactly like `UnknownMetric`:
+    // logged to stderr, marker dropped, no scope attached. A library
+    // consumer that relies on `analyze()` (not the CLI binary) needs a
+    // regression guard for this path; the unit test
+    // `legacy_allow_verb_is_unknown` only proves `parse_marker`
+    // returns `UnknownVerb`, not that the walker drops it.
+    let src = r#"
+def fine():
+    # bca: allow(cyclomatic)
+    return 1
+"#;
+    let space = analyze_lang(src, "fixture.py");
+    let fine = find_function(&space, "fine").expect("function fine should exist");
+    assert!(
+        fine.suppressed.is_empty(),
+        "legacy `allow` verb should not produce suppressions; got {:?}",
+        fine.suppressed,
+    );
+}
+
+#[test]
 fn marker_outside_any_function_is_silently_ignored() {
     // A function-scoped marker that lies outside every function body
     // has no enclosing function. Treat as a no-op (the issue says
-    // file-scope is the explicit `allow-file` verb).
+    // file-scope is the explicit `suppress-file` verb).
     let src = r#"
-# bca: allow
+# bca: suppress
 
 def fine():
     return 1
@@ -301,8 +326,8 @@ fn multiple_markers_union_on_same_function() {
     // the second overwriting the first.
     let src = r#"
 fn busy() -> i32 {
-    // bca: allow(cyclomatic)
-    // bca: allow(cognitive)
+    // bca: suppress(cyclomatic)
+    // bca: suppress(cognitive)
     if true { 1 } else { 0 }
 }
 "#;

@@ -97,16 +97,17 @@ why no value stability is offered until `1.0`. Entries above the
   under a new "Using as a library" section
   ([#258](https://github.com/dekobon/big-code-analysis/issues/258)).
 - In-source suppression markers for metric threshold checks. Comments
-  matching `bca: allow`, `bca: allow(metric, ...)`, `bca: allow-file`,
-  `bca: allow-file(metric, ...)`, `#lizard forgives`, or
-  `#lizard forgive global` silence offending `bca check` violations
-  without editing source. A new `--no-suppress` flag forces all markers
-  to be ignored for CI auditors. `FuncSpace` gains a
-  `suppressed: SuppressionScope` field (elided from JSON when empty so
-  existing snapshots are unchanged). New public types: `MetricKind`,
-  `SuppressionScope`, and `SuppressionPolicy`. Documented in the new
-  *Suppression markers* book chapter
-  ([#98](https://github.com/dekobon/big-code-analysis/issues/98)).
+  matching `bca: suppress`, `bca: suppress(metric, ...)`,
+  `bca: suppress-file`, `bca: suppress-file(metric, ...)`,
+  `#lizard forgives`, or `#lizard forgive global` silence offending
+  `bca check` violations without editing source. A new `--no-suppress`
+  flag forces all markers to be ignored for CI auditors. `FuncSpace`
+  gains a `suppressed: SuppressionScope` field (elided from JSON when
+  empty so existing snapshots are unchanged). New public types:
+  `MetricKind`, `SuppressionScope`, and `SuppressionPolicy`. Documented
+  in the new *Suppression markers* book chapter
+  ([#98](https://github.com/dekobon/big-code-analysis/issues/98),
+  [#263](https://github.com/dekobon/big-code-analysis/issues/263)).
 - **(breaking)** `AstNode` JSON output now carries a `FieldName`
   key holding the tree-sitter grammar field through which each
   node was reached (`left`, `right`, `name`, `parameters`,

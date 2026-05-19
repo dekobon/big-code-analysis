@@ -299,7 +299,7 @@ struct CheckArgs {
     /// Default: exit 2 when any threshold is exceeded.
     #[clap(long = "no-fail")]
     no_fail: bool,
-    /// Ignore in-source suppression markers (`bca: allow`,
+    /// Ignore in-source suppression markers (`bca: suppress`,
     /// `#lizard forgives`, etc.). Every threshold violation is
     /// reported regardless of comment-based silencers. CI auditors
     /// pass this to see the raw, un-silenced offender list.
