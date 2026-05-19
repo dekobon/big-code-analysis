@@ -164,8 +164,10 @@ fn finalize<T: ParserTrait>(state_stack: &mut Vec<State>, diff_level: usize) {
 ///
 /// # Errors
 ///
-/// Returns [`MetricsError::EmptyRoot`] when the AST walker cannot
-/// produce a top-level [`Ops`] (typically empty input).
+/// The return type carries [`MetricsError::EmptyRoot`] for forward
+/// compatibility, but the walker always produces a top-level [`Ops`]
+/// today (see the variant doc), so this function does not return
+/// `Err` in practice.
 ///
 /// # Examples
 ///
