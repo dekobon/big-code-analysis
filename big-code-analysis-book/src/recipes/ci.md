@@ -16,6 +16,7 @@ runnable example.
 | Goal                                            | Command + flags                                                                                              |
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | Hard gate on threshold regressions              | `bca check --config bca-thresholds.toml`                                                                     |
+| Ratchet thresholds on an existing codebase      | `bca check --config bca-thresholds.toml --baseline .bca-baseline.toml` *(‡)*                                 |
 | Inline PR annotations (GitHub)                  | `bca check … --output-format clang-warning --no-fail` + GCC problem matcher                                  |
 | Code Scanning alerts (GitHub)                   | `bca check … --output-format sarif --no-fail` + `github/codeql-action/upload-sarif`                          |
 | Merge-request widget (GitLab Code Quality)      | `bca check … --output-format checkstyle --no-fail` + Checkstyle-to-Code-Climate-JSON converter *(†)*         |
@@ -27,6 +28,11 @@ runnable example.
 not Checkstyle. `bca check` does not emit Code Climate JSON yet; see
 [GitLab Code Quality widget](#gitlab-code-quality-widget) below for the
 converter recipe and current gap.*
+
+*(‡) Recommended adoption path when introducing thresholds on a
+codebase with existing offenders. See the
+[Baselines recipe](baselines.md) for the bootstrap-refresh-retire
+workflow.*
 
 The full reference for `bca check`'s output formats, exit codes
 (`0` clean, `2` violation, `1` tool error), and threshold config lives
@@ -129,11 +135,53 @@ workflow run page in addition to the PR comment.
 
 ### Baseline / ratchet pattern
 
-`bca check` does not natively diff offender counts between two refs.
-The ratchet pattern below runs `check --output-format checkstyle
---no-fail` on the merge base and on the PR head, counts `<error>`
-elements in each Checkstyle document, and fails only when the count
-grows:
+`bca check --baseline` is the native ratchet: record today's offenders
+in a committed TOML file, fail only on regressions and new offenders,
+and shrink the file over time. Bootstrap once, commit, then point CI
+at it:
+
+```bash
+# Once, on a developer machine. Commit both files.
+bca --paths src/ check \
+    --config bca-thresholds.toml \
+    --write-baseline .bca-baseline.toml
+git add bca-thresholds.toml .bca-baseline.toml
+```
+
+```yaml
+- name: Threshold check with baseline
+  run: |
+    bca --paths src/ check \
+        --config bca-thresholds.toml \
+        --baseline .bca-baseline.toml
+```
+
+A regressed function (`current value > baseline value`) still fails.
+A new offender not in the baseline still fails. An improved function
+passes silently and stays in the baseline until the next
+`--write-baseline` refresh.
+
+Refresh after focused refactors:
+
+```bash
+bca --paths src/ check \
+    --config bca-thresholds.toml \
+    --write-baseline .bca-baseline.toml
+git diff .bca-baseline.toml   # expect a shrinking file
+```
+
+Two `--write-baseline` runs over an unchanged tree produce
+byte-identical output, so spurious diffs only appear when offenders
+actually changed. See the [Baselines recipe](baselines.md) for the
+full adoption flow, PR-review heuristics, and the suppression
+composition rules.
+
+#### Offender-count delta against merge base (stopgap)
+
+For teams who cannot commit a baseline file (e.g. policy reasons), a
+coarser approximation counts `<error>` elements in two Checkstyle
+documents — one on the merge base, one on the PR head — and fails
+when the count grows:
 
 ```yaml
 - name: Compute offender deltas vs. merge base
@@ -142,7 +190,6 @@ grows:
     BASE="$(git merge-base origin/main HEAD)"
     git worktree add /tmp/base "$BASE"
 
-    # Baseline: count offenders on the merge base.
     bca --paths /tmp/base check \
         --config bca-thresholds.toml \
         --output-format checkstyle \
@@ -150,7 +197,6 @@ grows:
         --no-fail
     BASE_COUNT=$(grep -c "<error" /tmp/base.xml || true)
 
-    # Head: count offenders on this PR.
     bca --paths "$PWD" check \
         --config bca-thresholds.toml \
         --output-format checkstyle \
@@ -165,13 +211,10 @@ grows:
     fi
 ```
 
-The ratchet is intentionally coarse: it counts violations, not
-their identity, so renaming an offender does not register as a
-regression. For a per-offender diff, drop both Checkstyle XML files
-into the same artifact and let humans review.
-
-The shape above is the documented path until `bca check` gains a
-native `--baseline` flag (filed as a follow-up).
+This counts violations, not their identity: renaming an offender does
+not register as a regression, and improving one offender while
+regressing another nets to zero. The native baseline flow above is
+strictly more precise and is the recommended approach.
 
 ## GitLab CI
 

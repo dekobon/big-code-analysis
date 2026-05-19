@@ -29,6 +29,7 @@
     // section on the entry point adds noise without adding signal.
     clippy::missing_panics_doc
 )]
+mod baseline;
 mod check_format;
 mod format_util;
 mod formats;
@@ -50,6 +51,7 @@ use std::thread::available_parallelism;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 
+use baseline::Baseline;
 use check_format::{AggregatedFormat, violation_to_offender};
 use formats::{CBOR_STDOUT_ERROR, MetricsDispatch, MetricsFormat, ReportFormat, dump_csv};
 use html_report::generate_html_report;
@@ -316,6 +318,24 @@ struct CheckArgs {
     /// directories are created on demand.
     #[clap(long, short, value_parser)]
     output: Option<PathBuf>,
+    /// Filter known offenders listed in this TOML baseline. A baselined
+    /// function whose metric value has not worsened is suppressed; a
+    /// worsened value (or any new offender) still fails. See the
+    /// "Baselines" recipe in the book for the full adoption flow.
+    #[clap(long = "baseline", value_parser, conflicts_with = "write_baseline")]
+    baseline: Option<PathBuf>,
+    /// Walk the tree and write the current offender set to this path
+    /// instead of failing. The resulting file pins today's metric
+    /// values as the baseline; subsequent `--baseline <path>` runs
+    /// ratchet down from there. Conflicts with `--baseline`,
+    /// `--output-format`, and `--output` — the baseline file is the
+    /// output.
+    #[clap(
+        long = "write-baseline",
+        value_parser,
+        conflicts_with_all = ["baseline", "output_format", "output"],
+    )]
+    write_baseline: Option<PathBuf>,
 }
 
 #[derive(Args, Debug)]
@@ -881,6 +901,43 @@ fn load_threshold_config(path: &Path) -> BTreeMap<String, f64> {
     cfg.thresholds
 }
 
+/// Load a baseline file. Same error contract as `load_threshold_config`:
+/// any I/O, UTF-8, or schema error dies with exit code 1.
+fn load_baseline(path: &Path) -> Baseline {
+    let bytes = read_file(path).unwrap_or_else(|e| die_io("read baseline", path, e));
+    let text = std::str::from_utf8(&bytes)
+        .unwrap_or_else(|e| die_io("decode UTF-8 from baseline", path, e));
+    Baseline::from_str(text).unwrap_or_else(|e| die_io("parse baseline", path, e))
+}
+
+/// Write `bytes` to `path` atomically: create the parent directory if
+/// needed, write to `<path>.bca-tmp`, then rename. Survives a `kill -9`
+/// mid-write — the consumer sees either the previous file or the
+/// fully-written new file, never a half-written one.
+///
+/// The suffix is *appended* to the full path rather than replacing the
+/// extension, so a user-supplied path like `foo.tmp` does not collide
+/// with the temporary file. On rename failure (e.g. cross-filesystem
+/// `EXDEV`, permission denied) the temporary file is removed best-effort
+/// before propagating the original error.
+fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut tmp = path.as_os_str().to_os_string();
+    tmp.push(".bca-tmp");
+    let tmp = PathBuf::from(tmp);
+    std::fs::write(&tmp, bytes)?;
+    std::fs::rename(&tmp, path).inspect_err(|_| {
+        // Cleanup is best-effort; if the rename failed the user already
+        // has an error to report, and a leftover .bca-tmp removal that
+        // fails would only obscure it.
+        let _ = std::fs::remove_file(&tmp);
+    })
+}
+
 /// Drive the `check` subcommand: build the threshold set, walk the
 /// source tree, drain violations, and exit 0 / 2 per the contract.
 fn run_check(globals: GlobalOpts, args: CheckArgs, preproc: Option<Arc<PreprocResults>>) {
@@ -947,6 +1004,35 @@ fn run_check(globals: GlobalOpts, args: CheckArgs, preproc: Option<Arc<PreprocRe
             .then(a.start_line.cmp(&b.start_line))
             .then(a.metric.cmp(b.metric))
     });
+
+    if let Some(path) = args.write_baseline {
+        let file = baseline::from_violations(violations);
+        let entry_count = file.entries.len();
+        let text = baseline::render(&file)
+            .unwrap_or_else(|e| die(format_args!("serialize baseline: {e}")));
+        write_atomic(&path, text.as_bytes()).unwrap_or_else(|e| die_io("write baseline", &path, e));
+        eprintln!(
+            "bca: wrote {entry_count} baseline entries to {}",
+            path.display()
+        );
+        return;
+    }
+
+    let violations: Vec<Violation> = if let Some(path) = args.baseline.as_deref() {
+        let baseline = load_baseline(path);
+        let before = violations.len();
+        let kept: Vec<Violation> = violations
+            .into_iter()
+            .filter(|v| !baseline.covers(v))
+            .collect();
+        let filtered = before - kept.len();
+        if filtered > 0 {
+            eprintln!("bca: filtered {filtered} violations via baseline");
+        }
+        kept
+    } else {
+        violations
+    };
 
     // BrokenPipe on stderr (e.g. when piped to `head`) is the only
     // realistic write failure here; swallow it rather than die so the
