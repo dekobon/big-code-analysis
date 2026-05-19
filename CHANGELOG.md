@@ -20,6 +20,20 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Added
 
+- `bca check --baseline <path>` and `--write-baseline <path>` flags
+  for ratcheting thresholds on an existing codebase without raising
+  limits. The baseline is a sorted TOML file keyed on `(path,
+  function, start_line, metric)` that records today's offender set;
+  a baselined function whose value has not worsened is filtered
+  from threshold checks, but regressions (`current > baseline.value`)
+  and new offenders still fail. Composes with in-source suppression
+  markers — `--write-baseline` excludes already-suppressed functions
+  by default, and `--no-suppress --write-baseline` records every
+  violation for CI-auditor flows. See
+  [`commands/check.md`](big-code-analysis-book/src/commands/check.md)
+  and the [Baselines recipe](big-code-analysis-book/src/recipes/baselines.md)
+  for the full adoption flow
+  ([#99](https://github.com/dekobon/big-code-analysis/issues/99)).
 - Per-language Cargo features (default: `all-languages`) so library
   consumers can compile only the grammars they need. Each supported
   language now has its own feature (`rust`, `typescript`, `python`,
