@@ -620,9 +620,11 @@ impl<'a> Source<'a> {
 ///
 /// # Errors
 ///
-/// Returns [`MetricsError::EmptyRoot`] when the AST walker cannot
-/// produce a top-level [`FuncSpace`] (typically empty input or
-/// input whose only content is comments).
+/// The return type carries [`MetricsError::EmptyRoot`] for forward
+/// compatibility, but the walker always pushes a synthetic top-level
+/// [`SpaceKind::Unit`][crate::SpaceKind] `FuncSpace` before walking,
+/// so this function does not return `Err` in practice today (see
+/// the variant doc).
 ///
 /// # Examples
 ///
@@ -670,9 +672,11 @@ pub fn analyze(source: Source<'_>, options: MetricsOptions) -> Result<FuncSpace,
 ///
 /// # Errors
 ///
-/// Returns [`MetricsError::EmptyRoot`] when the AST walker cannot
-/// produce a top-level [`FuncSpace`] (typically empty input or input
-/// whose only content is comments).
+/// The return type carries [`MetricsError::EmptyRoot`] for forward
+/// compatibility, but the walker always pushes a synthetic top-level
+/// [`SpaceKind::Unit`][crate::SpaceKind] `FuncSpace` before walking,
+/// so this function does not return `Err` in practice today (see
+/// the variant doc).
 ///
 /// # Examples
 ///
@@ -737,8 +741,11 @@ pub fn metrics<'a, T: ParserTrait>(
 ///
 /// # Errors
 ///
-/// Returns [`MetricsError::EmptyRoot`] when the AST walker cannot
-/// produce a top-level [`FuncSpace`] (typically empty input).
+/// The return type carries [`MetricsError::EmptyRoot`] for forward
+/// compatibility, but the walker always pushes a synthetic top-level
+/// [`SpaceKind::Unit`][crate::SpaceKind] `FuncSpace` before walking,
+/// so this function does not return `Err` in practice today (see
+/// the variant doc).
 #[deprecated(
     since = "0.0.26",
     note = "Use `analyze(Source::new(lang, code).with_name(Some(name)), options)` instead — the path-positional shim derives the top-level FuncSpace name via lossy UTF-8 conversion and will be removed in a future release."

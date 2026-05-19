@@ -72,10 +72,15 @@ use crate::LANG;
 pub enum MetricsError {
     /// The walker produced no top-level [`FuncSpace`][crate::FuncSpace].
     ///
-    /// This is the most common failure mode: the source parsed but
-    /// the AST contained no node the per-language [`SpaceKind`][crate::SpaceKind]
-    /// resolver could promote into a [`FuncSpace`]. Empty input and
-    /// inputs whose only content is comments end up here.
+    /// Reserved — not produced today. `metrics_with_options` always
+    /// pushes a synthetic top-level [`SpaceKind::Unit`][crate::SpaceKind]
+    /// `FuncSpace` onto its state stack before walking the AST, so
+    /// every parse — including empty input, whitespace-only input,
+    /// and comment-only input — currently returns
+    /// `Ok(FuncSpace { kind: Unit, .. })`. The variant is kept for a
+    /// future walker change that lets the state stack legitimately
+    /// drain to empty (e.g. an option that suppresses the synthetic
+    /// root for sources with no parseable structure).
     ///
     /// [`FuncSpace`]: crate::FuncSpace
     EmptyRoot,

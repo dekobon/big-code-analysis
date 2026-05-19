@@ -322,9 +322,11 @@ macro_rules! mk_action {
         ///
         /// # Errors
         ///
-        /// Returns [`MetricsError::EmptyRoot`] when the AST walker
-        /// cannot produce a top-level [`FuncSpace`] (typically empty
-        /// input or input whose only content is comments).
+        /// Returns [`MetricsError::LanguageDisabled`] when `lang`'s
+        /// per-language Cargo feature is not enabled in this build.
+        /// The return type also carries [`MetricsError::EmptyRoot`]
+        /// for forward compatibility, but the walker does not produce
+        /// it today — see the variant doc.
         #[deprecated(
             since = "0.0.26",
             note = "Use `analyze(Source::new(lang, &code).with_name(Some(name)), MetricsOptions::default())` instead — the path-positional shim derives the top-level FuncSpace name via lossy UTF-8 conversion."
@@ -416,8 +418,11 @@ macro_rules! mk_action {
         ///
         /// # Errors
         ///
-        /// Returns [`MetricsError::EmptyRoot`] when the AST walker
-        /// cannot produce a top-level [`FuncSpace`].
+        /// Returns [`MetricsError::LanguageDisabled`] when `lang`'s
+        /// per-language Cargo feature is not enabled in this build.
+        /// The return type also carries [`MetricsError::EmptyRoot`]
+        /// for forward compatibility, but the walker does not produce
+        /// it today — see the variant doc.
         #[deprecated(
             since = "0.0.26",
             note = "Use `analyze(Source::new(lang, &code).with_name(Some(name)), options)` instead — the path-positional shim derives the top-level FuncSpace name via lossy UTF-8 conversion."
@@ -504,8 +509,11 @@ macro_rules! mk_action {
         ///
         /// # Errors
         ///
-        /// Returns [`MetricsError::EmptyRoot`] when the AST walker
-        /// cannot produce a top-level [`FuncSpace`].
+        /// Returns [`MetricsError::LanguageDisabled`] when `lang`'s
+        /// per-language Cargo feature is not enabled in this build.
+        /// The return type also carries [`MetricsError::EmptyRoot`]
+        /// for forward compatibility, but the walker does not produce
+        /// it today — see the variant doc.
         #[inline]
         pub fn metrics_from_tree(
             lang: &LANG,
@@ -570,8 +578,11 @@ macro_rules! mk_action {
         ///
         /// # Errors
         ///
-        /// Returns [`MetricsError::EmptyRoot`] when the AST walker
-        /// cannot produce a top-level [`Ops`].
+        /// Returns [`MetricsError::LanguageDisabled`] when `lang`'s
+        /// per-language Cargo feature is not enabled in this build.
+        /// The return type also carries [`MetricsError::EmptyRoot`]
+        /// for forward compatibility, but the walker does not produce
+        /// it today — see the variant doc.
         #[inline]
         pub fn get_ops(lang: &LANG, source: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>) -> Result<Ops, MetricsError> {
             match lang {
