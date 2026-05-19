@@ -154,7 +154,7 @@ pub(crate) use crate::metrics::{
 // --- Core analysis entry points and result types (spaces.rs) ---
 mod spaces;
 pub use crate::spaces::{
-    CodeMetrics, FuncSpace, Metrics, MetricsCfg, MetricsOptions, Source, SpaceKind, analyze,
+    Ast, CodeMetrics, FuncSpace, Metrics, MetricsCfg, MetricsOptions, Source, SpaceKind, analyze,
 };
 // The path-positional `metrics` / `metrics_with_options` shims are
 // `#[deprecated]` at their definition site; re-export them so the
@@ -302,6 +302,8 @@ pub use ::tree_sitter;
 /// appear in typical caller code.
 pub mod prelude {
     pub use crate::{
+        // Parse-once handle
+        Ast,
         // Result types
         CodeMetrics,
         FuncSpace,

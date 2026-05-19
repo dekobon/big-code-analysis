@@ -262,4 +262,15 @@ impl<
             phantom: PhantomData,
         }
     }
+
+    /// Borrow the underlying [`tree_sitter::Tree`] for callers that
+    /// want to drive their own traversal alongside the metric walker.
+    ///
+    /// Doc-hidden because `Parser` itself is hidden from the rendered
+    /// surface; the stable spelling of this accessor is
+    /// [`crate::Ast::as_tree_sitter`].
+    #[must_use]
+    pub fn get_ts_tree(&self) -> &tree_sitter::Tree {
+        self.tree.as_ts_tree()
+    }
 }
