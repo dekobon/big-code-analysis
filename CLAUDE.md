@@ -53,6 +53,7 @@ destroys other agents' in-progress work:
 | `audit-tests` | Finding tests that pass for the wrong reason |
 | `audit-crate` | Read-only crate-level audit that files GitHub issues for findings |
 | `audit-naming` | Read-only crate-level audit of naming quality |
+| `scan-project` | Workspace-wide scan for logic errors, security issues, and metrics calculation bugs (6 parallel agents, 50-question checklist) |
 | `cleanup-crate` | Removing dead code, unused imports, and unreachable paths from one crate |
 | `improve-crate` | Safe code-improvement workflow for one crate (clarity / reuse / efficiency) |
 | `issue-plan` | Reading an issue, building a sequential-thinking plan, rating it, applying `low-priority` |
@@ -60,6 +61,6 @@ destroys other agents' in-progress work:
 | `fix-issue` | End-to-end workflow for fixing a GitHub issue |
 | `lessons-learned` | Drafting entries for `docs/development/lessons_learned.md` |
 
-The `audit-crate`, `audit-naming`, `issue-triage`, and `review` skills
-are read-only and must not modify the working tree; all other skills
-may edit code as part of their workflow.
+The `audit-crate`, `audit-naming`, `scan-project`, `issue-triage`, and
+`review` skills are read-only and must not modify the working tree; all
+other skills may edit code as part of their workflow.
