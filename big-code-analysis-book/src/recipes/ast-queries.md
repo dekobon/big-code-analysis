@@ -3,6 +3,12 @@
 Recipes that work with the parsed syntax tree directly: searching for
 node types, counting them, or dumping the tree.
 
+> **Library-side equivalents.** Every recipe below has an in-process
+> Rust counterpart in
+> [Walking the AST directly](../library/ast-traversal.md) — useful
+> when shelling out per file is too slow or when you want to compose
+> metrics with custom AST analysis in one parse.
+
 ## Detect parse errors before committing
 
 Tree-sitter exposes a synthetic `ERROR` node anywhere it could not

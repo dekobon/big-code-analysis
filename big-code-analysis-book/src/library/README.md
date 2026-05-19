@@ -43,6 +43,9 @@ the [`bca` CLI](../commands/README.md) is faster to wire up.
 - [Parse once, run metrics many times](parse-once.md) — hold a parsed
   `Ast` and run multiple metric subsets / custom walks against the
   same tree.
+- [Walking the AST directly](ast-traversal.md) — count syntactic
+  constructs, find nodes by kind, detect parse errors, or build a
+  symbol table alongside the metrics walk.
 - [Selecting metrics](selecting-metrics.md) — *(stub — planned)*.
 - [Walking `FuncSpace` results](walking-funcspace.md) — recurse
   into nested function / class / impl spaces.
