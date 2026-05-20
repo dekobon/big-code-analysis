@@ -675,6 +675,16 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Fixed
 
+- `bca-web` plain-endpoint tests now exercise the same
+  `application/octet-stream` `guard::Header` that the production
+  `/comment`, `/metrics`, and `/function` routes are installed with
+  in `run()`. The previous tests mounted bare handlers without the
+  guard and sent `text/plain` requests — succeeding on a routing
+  shape that would not exist in deployment. New
+  `*_rejects_text_plain` cases lock in the guard contract by
+  asserting a 404 when the content type does not match. No
+  production routing change; this is a test-fidelity fix
+  ([#294](https://github.com/dekobon/big-code-analysis/issues/294)).
 - `bca-web` now re-checks the orphaned-task cap after acquiring a
   semaphore permit, closing a race where a burst of queued requests
   could all pass the pre-admission check while the orphan counter
