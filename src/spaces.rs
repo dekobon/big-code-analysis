@@ -1015,11 +1015,14 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
     let mut nesting_map = HashMap::<usize, (usize, usize, usize)>::default();
     nesting_map.insert(node.id(), (0, 0, 0));
 
-    // Collected here during the walk and resolved after `finalize` so
-    // we already have the final space tree to attach markers to.
-    // Each entry pairs a parsed suppression with the 1-based source
-    // line the comment started on.
-    let mut pending: Vec<(Suppression, usize)> = Vec::new();
+    // Suppression markers are resolved inline during the walk rather
+    // than queued for a post-finalize pass. When we visit a comment
+    // node, the active `state_stack` already encodes the comment's
+    // syntactic context: the topmost `SpaceKind::Function` entry is
+    // the *innermost enclosing function* by construction, with no
+    // ambiguity when sibling functions share a source line (issue
+    // #289). The root `Unit` state — always at index 0 once the walk
+    // has visited the AST root — owns file-scoped markers.
 
     // Some grammars (e.g. tree-sitter-mozcpp on unparseable input) return a
     // non-Unit root. Wrap with a synthetic Unit space spanning the whole
@@ -1070,29 +1073,30 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
             level
         };
 
-        // Scan comment nodes for suppression markers. We deliberately
-        // do this on the same walk rather than a second pass so we
-        // pay one tree-sitter cursor traversal, not two. Markers are
-        // queued and attached after `finalize` runs — at that point
-        // every `FuncSpace` exists with its final source range and
-        // child relationships, which is what scope resolution needs.
+        // Scan comment nodes for suppression markers and apply them
+        // immediately against `state_stack`. Doing this inline (rather
+        // than queueing for a post-walk pass keyed on line number)
+        // pins each marker to the syntactically nearest enclosing
+        // function space — the only frame on the stack that the
+        // grammar nested the comment inside. Line-only matching was
+        // ambiguous when two sibling functions shared a source line
+        // and the first-by-source-order won regardless of which body
+        // actually contained the comment (issue #289).
         if T::Checker::is_comment(&node)
             && let Some(text) = node.utf8_text(code)
         {
             match parse_suppression_marker(text) {
-                Ok(Some(s)) => {
-                    // Tree-sitter rows are 0-based; the rest of this
-                    // module treats line numbers as 1-based (see
-                    // `FuncSpace::start_line` / `end_line`).
-                    pending.push((s, node.start_row() + 1));
-                }
+                Ok(Some(s)) => apply_suppression(&mut state_stack, &s),
                 Ok(None) => {}
                 Err(e) => {
                     // Logged but non-fatal so a typo in one file
                     // cannot derail a workspace-wide walk. The
                     // malformed marker is dropped (no scope attached),
                     // which is the conservative behaviour: a typo
-                    // should not accidentally silence anything.
+                    // should not accidentally silence anything. The
+                    // `+ 1` converts tree-sitter's 0-based rows to the
+                    // 1-based line numbers `FuncSpace::start_line` and
+                    // the rest of this module report.
                     eprintln!("warning: {}:{}: {e}", diagnostic_path, node.start_row() + 1);
                 }
             }
@@ -1137,89 +1141,35 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
     // for the matching variant doc.
     let mut state = state_stack.pop().ok_or(MetricsError::EmptyRoot)?;
     state.space.name = name;
-    attach_suppressions(&mut state.space, &pending);
     Ok(state.space)
 }
 
-/// Attach parsed [`Suppression`] directives to the matching `FuncSpace`
-/// nodes in `root`.
-///
-/// Scope resolution mirrors the issue's specification:
-///
-/// - File-scoped markers (`bca: suppress-file`, `#lizard forgive global`)
-///   merge into `root.suppressed`. Their position inside or outside
-///   function bodies is irrelevant — the issue explicitly drops the
-///   "must be in first N lines" rule.
-/// - Function-scoped markers (`bca: suppress`, `#lizard forgives`) attach
-///   to the *innermost* `FuncSpace` whose line range contains the
-///   comment. A marker that lies outside every function's body has no
-///   enclosing function and is therefore silently ignored — the issue
-///   does not call out a behaviour for that case, and treating it as a
-///   file-level marker would conflict with the explicit `suppress-file`
-///   verb.
-fn attach_suppressions(root: &mut FuncSpace, pending: &[(Suppression, usize)]) {
-    for (suppression, line) in pending {
-        match suppression.kind {
-            SuppressionKind::File => {
-                root.suppressed.merge(&suppression.scope);
-            }
-            SuppressionKind::Function => {
-                // Return value is the recursion's sibling-short-circuit
-                // signal; the top-level caller has no siblings to probe.
-                let _ = attach_function_suppression(root, *line, &suppression.scope);
-            }
-        }
+fn apply_suppression(state_stack: &mut [State], suppression: &Suppression) {
+    // Both arms ultimately call `merge` on a `FuncSpace::suppressed`;
+    // they differ only in *which* frame on the stack to target.
+    //
+    // - `File`: the root `Unit` space, regardless of comment location.
+    //   The synthetic Unit pushed by `metrics_inner` for non-Unit-root
+    //   grammars and every translation-unit/module/source-file being a
+    //   `func_space` keep `state_stack[0]` populated for every input.
+    // - `Function`: the topmost `SpaceKind::Function` frame — the
+    //   syntactically nearest enclosing function body. Class / struct
+    //   / trait spaces are skipped so a marker at class scope but
+    //   outside any method does not silence thresholds on the entire
+    //   class; authors who want class-wide suppression use `bca:
+    //   suppress-file` or repeat the marker on each method. A marker
+    //   outside every function body finds no `Function` frame and is
+    //   silently dropped — the issue's "no enclosing function" rule.
+    let target = match suppression.kind {
+        SuppressionKind::File => state_stack.first_mut(),
+        SuppressionKind::Function => state_stack
+            .iter_mut()
+            .rev()
+            .find(|s| matches!(s.space.kind, SpaceKind::Function)),
+    };
+    if let Some(state) = target {
+        state.space.suppressed.merge(&suppression.scope);
     }
-}
-
-/// Walk `space` and apply `scope` to the innermost function-kind
-/// subspace that contains `line`. Returns `true` if a match was found
-/// in this subtree so the caller can short-circuit sibling probes.
-///
-/// "Function-kind" here means [`SpaceKind::Function`] only; class /
-/// struct / trait spaces are skipped because a `bca: suppress` comment
-/// at class scope but outside any method would otherwise silence
-/// thresholds on the entire class — surprising behaviour that the
-/// issue's `Function` scope semantics don't sanction. Authors who want
-/// class-wide suppression can use `bca: suppress-file` or repeat the
-/// marker on each method.
-fn attach_function_suppression(
-    space: &mut FuncSpace,
-    line: usize,
-    scope: &SuppressionScope,
-) -> bool {
-    // Top-level Unit spaces aren't function bodies; their range
-    // covers the whole file, so we walk into children unconditionally
-    // rather than returning a self-match.
-    if !matches!(space.kind, SpaceKind::Unit)
-        && !(space.start_line..=space.end_line).contains(&line)
-    {
-        return false;
-    }
-
-    // Try to find a more specific enclosing function in a child.
-    // Borrow-checker workaround: we cannot hold a mutable borrow on
-    // `space` and recurse on the same `space.spaces` in one expression,
-    // so we discover the matching index first, then re-borrow to
-    // attach. The walk is depth-first; siblings disjoint by source
-    // range cannot both match the same `line`, so the first hit wins.
-    let matched_child_idx = space
-        .spaces
-        .iter()
-        .position(|c| (c.start_line..=c.end_line).contains(&line));
-
-    if let Some(idx) = matched_child_idx
-        && attach_function_suppression(&mut space.spaces[idx], line, scope)
-    {
-        return true;
-    }
-
-    if matches!(space.kind, SpaceKind::Function) {
-        space.suppressed.merge(scope);
-        return true;
-    }
-
-    false
 }
 
 /// Per-traversal options for [`metrics_with_options`].
