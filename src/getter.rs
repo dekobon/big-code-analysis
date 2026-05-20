@@ -515,7 +515,10 @@ impl Getter for RustCode {
 impl Getter for CppCode {
     fn get_func_space_name<'a>(node: &Node, code: &'a [u8]) -> Option<&'a str> {
         match node.kind_id().into() {
-            Cpp::FunctionDefinition | Cpp::FunctionDefinition2 | Cpp::FunctionDefinition3 => {
+            Cpp::FunctionDefinition
+            | Cpp::FunctionDefinition2
+            | Cpp::FunctionDefinition3
+            | Cpp::FunctionDefinition4 => {
                 if let Some(op_cast) = node.first_child(|id| Cpp::OperatorCast == id) {
                     let code = &code[op_cast.start_byte()..op_cast.end_byte()];
                     return std::str::from_utf8(code).ok();
@@ -563,7 +566,8 @@ impl Getter for CppCode {
         use Cpp::*;
 
         match node.kind_id().into() {
-            FunctionDefinition | FunctionDefinition2 | FunctionDefinition3 => SpaceKind::Function,
+            FunctionDefinition | FunctionDefinition2 | FunctionDefinition3
+            | FunctionDefinition4 => SpaceKind::Function,
             StructSpecifier => SpaceKind::Struct,
             ClassSpecifier => SpaceKind::Class,
             NamespaceDefinition => SpaceKind::Namespace,

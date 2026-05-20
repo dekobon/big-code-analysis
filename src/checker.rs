@@ -233,6 +233,7 @@ impl Checker for CppCode {
                 | Cpp::FunctionDefinition
                 | Cpp::FunctionDefinition2
                 | Cpp::FunctionDefinition3
+                | Cpp::FunctionDefinition4
                 | Cpp::StructSpecifier
                 | Cpp::ClassSpecifier
                 | Cpp::NamespaceDefinition
