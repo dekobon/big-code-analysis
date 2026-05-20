@@ -2,6 +2,9 @@ use std::collections::HashSet;
 
 use crate::c_langs_macros::is_predefined_macros;
 
+/// C++ caps raw-string d-char-sequence at 16 chars per [lex.string].
+const CPP_RAW_STRING_DELIM_MAX: usize = 16;
+
 #[inline]
 fn is_identifier_part(c: u8) -> bool {
     c.is_ascii_uppercase() || c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_'
@@ -112,10 +115,10 @@ fn enter_raw_string(code: &[u8], i: usize, state: &mut LexState) -> usize {
     let delim_start = i + 1;
     let mut delim_end = delim_start;
     while delim_end < code.len() && code[delim_end] != b'(' {
-        // C++ caps the d-char-sequence at 16 chars. Defensive bail-out:
-        // if we hit EOF or 16-char limit without finding `(`, fall back
-        // to plain-string semantics so we still skip identifiers.
-        if delim_end - delim_start >= 16 {
+        // Defensive bail-out: if we hit EOF or the C++ d-char-sequence
+        // cap without finding `(`, fall back to plain-string semantics
+        // so we still skip identifiers.
+        if delim_end - delim_start >= CPP_RAW_STRING_DELIM_MAX {
             *state = LexState::String;
             return 1;
         }

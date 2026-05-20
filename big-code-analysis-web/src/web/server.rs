@@ -57,7 +57,7 @@ async fn run_parse<T: Send + 'static>(
     f: impl FnOnce() -> T + Send + 'static,
 ) -> Result<T, actix_web::Error> {
     // Reject when the orphaned-task pool has saturated. `Acquire` pairs with
-    // the `Release` `fetch_add` on the timeout path so newly admitted requests
+    // the `AcqRel` RMW ops on the timeout path so newly admitted requests
     // observe orphan counts published by any prior orphaning task.
     let pool_saturated =
         || config.orphaned_tasks.load(Ordering::Acquire) >= config.max_orphaned_tasks;
@@ -101,13 +101,15 @@ async fn run_parse<T: Send + 'static>(
             }
             Err(_) => {
                 let counter = Arc::clone(&config.orphaned_tasks);
-                // `Release` here pairs with the `Acquire` loads in the
-                // admission checks above so that newly admitted requests
-                // observe the incremented orphan count.
-                counter.fetch_add(1, Ordering::Release);
+                // AcqRel: load+publish so admission re-checks observe
+                // the latest count. Pairs with the `Acquire` loads in
+                // the admission checks above.
+                counter.fetch_add(1, Ordering::AcqRel);
                 tokio::spawn(async move {
                     let _ = handle.await;
-                    counter.fetch_sub(1, Ordering::Release);
+                    // AcqRel: load+publish so admission re-checks
+                    // observe the latest count.
+                    counter.fetch_sub(1, Ordering::AcqRel);
                 });
                 Err(actix_web::error::ErrorGatewayTimeout(PARSE_TIMEOUT))
             }
