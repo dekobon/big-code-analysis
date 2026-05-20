@@ -1113,6 +1113,11 @@ impl Checker for PerlCode {
     }
 
     fn is_string(node: &Node) -> bool {
+        // `HeredocBodyStatement` wraps the heredoc body text (and any
+        // `Interpolation` children) that appears as a top-level
+        // statement after the heredoc-introducing `<<TAG`; it is the
+        // visible literal node and is treated as a string here, the
+        // same way Bash's `heredoc_body` is treated as a string.
         matches!(
             node.kind_id().into(),
             Perl::StringSingleQuoted
@@ -1121,6 +1126,7 @@ impl Checker for PerlCode {
                 | Perl::StringQqQuoted
                 | Perl::BacktickQuoted
                 | Perl::CommandQxQuoted
+                | Perl::HeredocBodyStatement
         )
     }
 
