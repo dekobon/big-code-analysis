@@ -466,3 +466,75 @@ fn default_scope_does_not_cover_any_metric() {
         assert!(!s.covers(m), "default scope unexpectedly covers {m}");
     }
 }
+
+#[test]
+#[ignore = "slow (~3 min); run explicitly via `cargo test -- --ignored deeply_nested`"]
+fn deeply_nested_function_suppression_does_not_overflow_stack() {
+    // Regression test for issue #292.
+    //
+    // Before commit 62cfeed (issue #289), `attach_function_suppression`
+    // recursed once per nested `FuncSpace` while searching for the
+    // function body the marker belonged to. A single `bca: suppress`
+    // marker buried under enough nested functions overflowed the
+    // thread stack. The fix replaced the recursive descent with an
+    // iterative scan over the active state stack inside
+    // `metrics_inner`, so attachment is O(stack-depth) on the
+    // iterative work stack rather than on the Rust call stack.
+    //
+    // 1000 nested Python `def`s with the marker on the innermost body
+    // must analyse cleanly. If a future refactor reintroduces a
+    // recursive helper that walks `FuncSpace::spaces`, this test
+    // overflows the default stack and fails loudly.
+    //
+    // Marked `#[ignore]` because parsing 1000-level pyramid indented
+    // Python (~1M whitespace bytes) takes ~3 minutes — too slow for
+    // the default test gate. Run on demand for regression coverage:
+    // `cargo test -p big-code-analysis -- --ignored deeply_nested`.
+    const DEPTH: usize = 1_000;
+
+    let mut src = String::new();
+    for i in 0..DEPTH {
+        // Indent grows by four spaces per level, matching the file
+        // body's existing Python fixtures.
+        for _ in 0..i {
+            src.push_str("    ");
+        }
+        src.push_str("def f");
+        src.push_str(&i.to_string());
+        src.push_str("():\n");
+    }
+    // Innermost body: the suppression marker plus a trivial return so
+    // every function has a valid Python suite.
+    for _ in 0..DEPTH {
+        src.push_str("    ");
+    }
+    src.push_str("# bca: suppress(cyclomatic)\n");
+    for _ in 0..DEPTH {
+        src.push_str("    ");
+    }
+    src.push_str("return 1\n");
+
+    let space = analyze_lang(&src, "deeply_nested.py");
+
+    // Iterative walk so the assertion path itself never recurses; a
+    // recursive search would defeat the point of the test by
+    // overflowing on the same input shape that recursive attachment
+    // overflowed on.
+    let target_name = format!("f{}", DEPTH - 1);
+    let mut innermost: Option<&FuncSpace> = None;
+    let mut stack: Vec<&FuncSpace> = vec![&space];
+    while let Some(node) = stack.pop() {
+        if node.name.as_deref() == Some(&target_name) {
+            innermost = Some(node);
+            break;
+        }
+        stack.extend(&node.spaces);
+    }
+
+    let innermost =
+        innermost.unwrap_or_else(|| panic!("innermost function {target_name} should be present"));
+    assert!(
+        innermost.suppressed.covers(MetricKind::Cyclomatic),
+        "marker on innermost body must attach to innermost function",
+    );
+}
