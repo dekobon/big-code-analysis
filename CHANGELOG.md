@@ -675,6 +675,138 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Fixed
 
+- `Halstead` (C#) keys predefined type keywords (`int`, `string`,
+  `bool`, `object`, …) by source text instead of collapsing every
+  keyword onto a single `n1` slot. The fix flips
+  `CsharpCode::is_primitive` to return true for
+  `Csharp::PredefinedType` so the finalization path stores the node
+  under its lexeme, mirroring how C++ `PrimitiveType` is keyed.
+  `n1`, vocabulary, volume, and downstream MI now reflect the real
+  number of distinct type keywords in C# source
+  ([#286](https://github.com/dekobon/big-code-analysis/issues/286)).
+- `Halstead` (Perl) recognises heredoc literals
+  (`Perl::HeredocBodyStatement`) as both string-filter targets and
+  operand sources. Inert heredocs contribute one operand; heredocs
+  carrying `$var` / `@var` interpolation drop to `Unknown` so the
+  inner substitution attributes exclusively (no double-count)
+  ([#287](https://github.com/dekobon/big-code-analysis/issues/287)).
+- `Halstead` (Tcl) guards `Tcl::QuotedWord` against double-counting
+  embedded `$var` / `[cmd]` substitutions. Inert
+  `"hello world"` strings still count as one operand; strings
+  containing `VariableSubstitution` or `CommandSubstitution`
+  classify as `Unknown` so the inner substitution carries the
+  count. Matches the existing PHP / Bash / C# / Kotlin / Elixir /
+  Ruby / Python interpolation guards
+  ([#277](https://github.com/dekobon/big-code-analysis/issues/277)).
+- PHP string-like node handling is now consistent across the
+  checker, alterator, and Halstead getter. `Php::String2` and
+  `Php::String3` (the anonymous "string" type-keyword alias and
+  the hidden supertype) are recognised by `is_string` and
+  `alterate`, and `ShellCommandExpression` (backtick command
+  literals) now contributes a Halstead operand — gated by
+  `php_string_has_interpolation` so interpolated backticks do not
+  double-count
+  ([#288](https://github.com/dekobon/big-code-analysis/issues/288)).
+- `Abc` (C#) now counts unary and single-token `for`-loop
+  conditions (`for (; ready ;)`, `for (; Ok() ;)`,
+  `for (; true ;)`) via an explicit `ForStatement` arm that mirrors
+  the existing Java logic. Empty conditions still contribute zero;
+  comparison conditions retain their existing operator-arm
+  contribution
+  ([#279](https://github.com/dekobon/big-code-analysis/issues/279)).
+- C++ now classifies `Cpp::FunctionDefinition4` as a function
+  space. `is_func_space`, `get_func_space_name`, and
+  `get_space_kind` all handle the fourth aliased
+  `function_definition` kind identically to the other three, so
+  C++ functions emitted through that alias keep their
+  function-space identity instead of falling through to
+  `SpaceKind::Unknown`
+  ([#285](https://github.com/dekobon/big-code-analysis/issues/285)).
+- Java and Groovy `enum`, `record`, and `@interface` declarations
+  are now recognised as class-like spaces, so `Npa`, `Npm`, and
+  `Wmc` walk their bodies and produce non-zero counts on common
+  declaration forms. Enum / record bodies map to
+  `SpaceKind::Class`; annotation-type bodies map to
+  `SpaceKind::Interface` (annotation elements are abstract methods
+  at the bytecode level)
+  ([#280](https://github.com/dekobon/big-code-analysis/issues/280)).
+- Optional chaining (`?.`) is now normalised across the JS family.
+  TypeScript and TSX Halstead used to count both
+  `OptionalChain` (the wrapping kind) and `QMARKDOT` (the bare
+  token); the wrapper is now dropped so each textual `?.`
+  contributes exactly one operator. JS-family cyclomatic now adds
+  +1 per `?.` short-circuit (`OptionalChain` for JS/MozJS,
+  `QMARKDOT` for TS/TSX) so the construct is treated as a
+  decision point like `&&` / `||` / `??`
+  ([#281](https://github.com/dekobon/big-code-analysis/issues/281)).
+- Cyclomatic no longer over-counts wildcard switch arms in C# or
+  Kotlin. C# `SwitchExpressionArm` with a bare `_` discard pattern
+  (or `var _` declaration pattern) is skipped; guarded discards
+  (`_ when g => …`) still count via the `WhenClause`. Kotlin
+  `WhenEntry` is detected as the `else` arm via the absence of the
+  `condition` field and skipped
+  ([#282](https://github.com/dekobon/big-code-analysis/issues/282)).
+- `Checker::is_string` (JavaScript / MozJS / TypeScript / TSX) now
+  includes the anonymous `String2` (and TSX `String3`) aliases that
+  the generated language enums map to `"string"`. The public
+  `bca find string` / `count string` filters were previously
+  silently dropping string literals on these alias kinds
+  ([#283](https://github.com/dekobon/big-code-analysis/issues/283)).
+- `Checker::is_else_if` (Python) detects `else: if …` chains
+  wrapped in `else_clause`, matching the C++/JS/TS/TSX/Rust
+  pattern. The `elif_clause` shape was already handled
+  structurally by the cognitive metric via
+  `increment_branch_extension`, so the predicate stayed false for
+  that case by design; this is now documented inline. A regression
+  test pins `if / elif / elif / else` cognitive at the documented
+  flat-chain score so future refactors cannot silently re-nest the
+  chain
+  ([#274](https://github.com/dekobon/big-code-analysis/issues/274)).
+- Cyclomatic for C++ `do { … } while (…)` / `for (auto x : …)` and
+  Java/Groovy `do { … } while (…)` / `for (Foo x : …)` is now
+  pinned by regression tests against the C-family keyword-token
+  semantics (`While` / `For` already fire +1 via the trailing or
+  leading keyword inside `DoStatement` / `ForRangeLoop` /
+  `EnhancedForStatement`). The match-arm doc comments now spell
+  out the contract so a future contributor cannot misread the
+  keyword-token approach as a missing statement-node arm and
+  introduce a double-count
+  ([#284](https://github.com/dekobon/big-code-analysis/issues/284)).
+- `rust_attribute_marks_test` now recognises the `test` predicate
+  anywhere inside a `cfg(...)` attribute, not just as the first
+  argument of `cfg(all(...))` / `cfg(any(...))`. Forms like
+  `#[cfg(all(unix, test))]` and `#[cfg(any(feature = "x", test))]`
+  are now elided when `MetricsOptions::exclude_tests()` is set; the
+  walker refuses to descend into `not(...)` so `cfg(not(test))`
+  and `cfg(all(unix, not(test)))` correctly remain production
+  code, and `cfg(feature = "test")` (a feature literally named
+  `"test"`) is not treated as a test predicate
+  ([#278](https://github.com/dekobon/big-code-analysis/issues/278)).
+- The C/C++ macro-masking prepass now tracks lexical context, so
+  identifiers inside string literals (`"DBG"`), char literals
+  (`'D'`), single-line comments (`// DBG`), multi-line comments
+  (`/* DBG */`), and raw string literals (`R"delim(DBG)delim"`)
+  are no longer rewritten. The synthetic parse buffer now matches
+  real preprocessor semantics — macro masking only affects
+  identifier occurrences a real C/C++ preprocessor could expand
+  ([#290](https://github.com/dekobon/big-code-analysis/issues/290)).
+- C/C++ `#include` resolution now preserves caller-relative `..`
+  segments. `guess_file` joins the include path against the
+  including file's parent before lexical normalisation, then
+  matches candidates against the fully resolved relative target
+  before falling back to basename / same-directory / distance
+  heuristics. `#include "../foo.h"` no longer collapses to the
+  basename and can no longer pick a sibling header with the same
+  name in a different directory
+  ([#297](https://github.com/dekobon/big-code-analysis/issues/297)).
+- `bca` per-file output and baseline identity keys preserve
+  non-UTF-8 path components instead of dropping them lossily.
+  Output filenames carry the raw byte sequence as `OsString`, so
+  two distinct non-UTF-8 paths produce two distinct output files.
+  Baseline keys percent-encode non-UTF-8 bytes (Unix) so the
+  TOML-stable key is injective across distinct paths; UTF-8 paths
+  retain the prior byte-identical key
+  ([#295](https://github.com/dekobon/big-code-analysis/issues/295)).
 - `bca-web` plain-endpoint tests now exercise the same
   `application/octet-stream` `guard::Header` that the production
   `/comment`, `/metrics`, and `/function` routes are installed with
