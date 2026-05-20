@@ -61,6 +61,27 @@ Run `bca <COMMAND> --help` for command-specific options.
 
 Global options work both before and after the subcommand.
 
+## Building with a subset of languages
+
+The shipped `bca` binary compiles every supported tree-sitter grammar
+in. The `big-code-analysis-cli` crate pins the library's
+`all-languages` feature set explicitly, so passing
+`--no-default-features` or a custom `--features` list to
+`cargo build -p big-code-analysis-cli` does **not** drop grammars
+from the resulting binary — feature selection on the CLI crate is
+not honoured (see [#252][issue-252] for the rationale: dropping a
+grammar silently from a user-facing binary would surface as
+"language X stopped working" rather than a build error).
+
+Consumers who need a reduced feature set should embed the
+`big-code-analysis` library in their own Rust code and control
+feature selection in their own `Cargo.toml`. See the library's
+[per-language Cargo features][cargo-features] chapter for the full
+list of features and a worked example.
+
+[cargo-features]: https://dekobon.github.io/big-code-analysis/library/cargo-features.html
+[issue-252]: https://github.com/dekobon/big-code-analysis/issues/252
+
 ## Examples
 
 Per-file JSON metrics:
