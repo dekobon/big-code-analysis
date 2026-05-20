@@ -332,15 +332,21 @@ impl Checker for PythonCode {
         node.kind_id() == Python::String || node.kind_id() == Python::ConcatenatedString
     }
 
-    // Python models `elif` as a dedicated `elif_clause` (matched
-    // directly by cognitive/cyclomatic dispatch). `else: if x: ...`
-    // chains also exist — semantically equivalent to `else if` — but
-    // the grammar wraps the inner `if_statement` in a `block` node, so
-    // the shape is `else_clause → block → if_statement` rather than the
-    // direct `else_clause → if_statement` used by C++/JS/TS/TSX/Rust.
-    // Match the chained shape by walking through the `block` and
-    // requiring the inner `if` to be the block's sole named child;
-    // sibling statements would mean a real nested-if, not a chain.
+    // Python models `elif` as a dedicated `elif_clause` node, which is
+    // handled directly by cognitive/cyclomatic dispatch as a branch
+    // extension — `is_else_if` is intentionally never invoked for
+    // `elif_clause` because it is not an `if_statement` and is not in
+    // any of the structural kind sets that `count_specific_ancestors`
+    // walks for nesting (issue #274).
+    //
+    // `else: if x: ...` chains also exist — semantically equivalent to
+    // `else if` — but the grammar wraps the inner `if_statement` in a
+    // `block` node, so the shape is `else_clause → block → if_statement`
+    // rather than the direct `else_clause → if_statement` used by
+    // C++/JS/TS/TSX/Rust. Match the chained shape by walking through
+    // the `block` and requiring the inner `if` to be the block's sole
+    // named child; sibling statements would mean a real nested-if, not
+    // a chain (issue #276).
     //
     // `block` has two aliased kind_ids in tree-sitter-python
     // (`Block` = 135, `Block2` = 160 — both surface as `"block"`); we
