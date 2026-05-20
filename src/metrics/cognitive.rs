@@ -1194,6 +1194,28 @@ pub(crate) fn elixir_is_class_macro(kw: &str) -> bool {
     kw == "defmodule"
 }
 
+// Returns true when `node` is lexically nested inside the `do_block` of a
+// `quote do … end` Call (Elixir's metaprogramming template). A `def` /
+// `defp` / `defmacro` / `defmacrop` inside `quote` does not define a
+// method of any enclosing module — the syntax tree is a code template
+// emitted later, when the surrounding macro is invoked. Treating those
+// quoted Calls as methods inflates `Wmc` and disagrees with `Npm`'s
+// direct-children classification (#310).
+//
+// Walks the parent chain looking for a `quote` Call ancestor. Stops at
+// the first match (true) or at the root (false). O(depth); each step is
+// a single `child_by_field_name("target")` + identifier byte compare.
+pub(crate) fn elixir_is_inside_quote_block(node: &Node<'_>, code: &[u8]) -> bool {
+    let mut current = node.parent();
+    while let Some(n) = current {
+        if elixir_call_keyword(&n, code) == Some("quote") {
+            return true;
+        }
+        current = n.parent();
+    }
+    false
+}
+
 // Iterates the direct-child `Call` nodes inside the `do_block` of an
 // Elixir Call (typically a `defmodule`). Used by `Npm` / `Npa` to scan
 // a module body for method-defining macros / `defstruct` without

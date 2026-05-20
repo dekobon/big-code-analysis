@@ -1495,7 +1495,8 @@ impl Getter for ElixirCode {
     // Function for the method-defining macros.
     fn get_space_kind_with_code(node: &Node, code: &[u8]) -> SpaceKind {
         use crate::metrics::cognitive::{
-            elixir_call_keyword, elixir_is_class_macro, elixir_is_method_macro,
+            elixir_call_keyword, elixir_is_class_macro, elixir_is_inside_quote_block,
+            elixir_is_method_macro,
         };
         let kind = Self::get_space_kind(node);
         if kind != SpaceKind::Unknown {
@@ -1503,7 +1504,11 @@ impl Getter for ElixirCode {
         }
         match elixir_call_keyword(node, code) {
             Some(kw) if elixir_is_class_macro(kw) => SpaceKind::Class,
-            Some(kw) if elixir_is_method_macro(kw) => SpaceKind::Function,
+            // Method-defining macros nested inside a `quote do … end`
+            // template are not real method declarations (#310).
+            Some(kw) if elixir_is_method_macro(kw) && !elixir_is_inside_quote_block(node, code) => {
+                SpaceKind::Function
+            }
             _ => SpaceKind::Unknown,
         }
     }
@@ -1529,11 +1534,16 @@ impl Getter for ElixirCode {
         use Elixir as E;
 
         use crate::metrics::cognitive::{
-            elixir_call_keyword, elixir_is_class_macro, elixir_is_method_macro,
+            elixir_call_keyword, elixir_is_class_macro, elixir_is_inside_quote_block,
+            elixir_is_method_macro,
         };
+        // The Class kind always names its head; for method macros we
+        // additionally require the Call NOT to be inside a `quote`
+        // template, matching the func-space promotion rule (#310).
         if node.kind_id() == E::Call as u16
             && let Some(kw) = elixir_call_keyword(node, code)
-            && (elixir_is_method_macro(kw) || elixir_is_class_macro(kw))
+            && (elixir_is_class_macro(kw)
+                || (elixir_is_method_macro(kw) && !elixir_is_inside_quote_block(node, code)))
         {
             let target_id = node.child_by_field_name("target").map(|t| t.id());
             if let Some(name) = node

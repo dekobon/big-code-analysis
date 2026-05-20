@@ -1058,8 +1058,7 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
 
         let kind = T::Getter::get_space_kind_with_code(&node, code);
 
-        let func_space = T::Checker::is_func_with_code(&node, code)
-            || T::Checker::is_func_space_with_code(&node, code);
+        let func_space = T::Checker::promotes_to_func_space_with_code(&node, code);
         let unit = kind == SpaceKind::Unit;
 
         let new_level = if func_space {
