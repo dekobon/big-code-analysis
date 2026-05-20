@@ -218,11 +218,12 @@ pub(crate) fn render(file: &BaselineFile) -> Result<String, toml::ser::Error> {
 fn normalize_path(p: &Path) -> String {
     match p.to_str() {
         Some(s) => {
-            let bytes: Vec<u8> = s
-                .bytes()
-                .map(|b| if b == b'\\' { b'/' } else { b })
-                .collect();
-            percent_encode_path_bytes(&bytes)
+            let mut out = String::with_capacity(s.len());
+            for b in s.bytes() {
+                let b = if b == b'\\' { b'/' } else { b };
+                push_percent_encoded_byte(&mut out, b);
+            }
+            out
         }
         None => encode_non_utf8_path(p),
     }
