@@ -3400,6 +3400,26 @@ class C {
         );
     }
 
+    #[test]
+    fn elixir_npm_quoted_defs_do_not_inflate_method_count() {
+        // Companion to `wmc::tests::elixir_wmc_quoted_defs_do_not_inflate_method_count`
+        // (#310). The three `def` / `defp` calls inside the `quote do
+        // … end` template do NOT count as methods of `Foo`. NPM has
+        // always behaved this way via its direct-children scan; this
+        // test pins the headline values so a future refactor of NPM
+        // toward "walk all nested Function spaces" cannot silently
+        // re-introduce the WMC/NPM disagreement that #310 fixed.
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  defmacro multi do\n    quote do\n      def a, do: 1\n      def b, do: 2\n      defp c, do: 3\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                // Only `defmacro multi` is a method (and public).
+                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+            },
+        );
+    }
+
     // ----- C++ -----
 
     #[test]

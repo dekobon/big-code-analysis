@@ -3052,18 +3052,42 @@ mod tests {
         // A user-defined `defmacro custom_def`, then invoking
         // `custom_def foo, do: ...` must NOT be classified as a
         // method — the literal-text comparison in
-        // `elixir_call_keyword` only matches the five built-in
-        // declarator macros.
+        // `elixir_call_keyword` only matches the four built-in
+        // method-defining macros. The `def unquote(name)` inside the
+        // `quote do … end` block is also rejected (it is a code
+        // template emitted on macro expansion, not a real definition
+        // of any method of `Foo`); `elixir_is_inside_quote_block`
+        // filters it out, keeping `Wmc` aligned with `Npm` (#310).
         check_metrics::<ElixirParser>(
             "defmodule Foo do\n  defmacro custom_def(name, body) do\n    quote do\n      def unquote(name), do: unquote(body)\n    end\n  end\n  custom_def foo, do: 1\nend\n",
             "foo.ex",
             |metric| {
-                // Only the defmacro counts as a method; `custom_def
-                // foo` does not. Body of defmacro: entry(1) →
-                // wmc = 1. The `def unquote(name)` inside the quote
-                // block IS itself a `def` Call so it counts too —
-                // adding +1 → total = 2.
-                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                // Only the `defmacro custom_def` itself is a method
+                // of `Foo`. Body cyclomatic: entry(1) → wmc = 1.
+                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_wmc_quoted_defs_do_not_inflate_method_count() {
+        // Regression test for #310: previously, every `def` lexically
+        // present in the source was promoted to a Function space and
+        // counted toward `Wmc`, even when nested inside `quote do …
+        // end` (a metaprogramming template that does not declare
+        // methods of the enclosing module). That made `Wmc` disagree
+        // with `Npm`'s direct-children classification.
+        //
+        // Here `Foo` has exactly one real method (the `defmacro
+        // multi`); the three quoted `def`s inside its body are not
+        // methods of `Foo`. `Wmc` should now agree.
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  defmacro multi do\n    quote do\n      def a, do: 1\n      def b, do: 2\n      defp c, do: 3\n    end\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                // Only `defmacro multi` is a method of Foo: entry(1)
+                // → wmc = 1.
+                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
             },
         );
     }

@@ -709,6 +709,21 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Fixed
 
+- Elixir `Wmc` and `Npm` now agree on the methods of a class. A
+  `def` / `defp` / `defmacro` / `defmacrop` nested inside a
+  `quote do … end` template is no longer promoted to a Function
+  space — that syntax tree is a code template emitted on macro
+  expansion, not a real method of any enclosing `defmodule`. Before
+  this fix, `Wmc` walked the entire Function-space subtree under a
+  Class and counted the quoted `def`s, while `Npm` filtered by
+  direct children of the module's `do_block` and excluded them. A
+  new `Checker::promotes_to_func_space_with_code` predicate
+  centralises the func-space decision (default impl forwards to
+  `is_func_with_code || is_func_space_with_code`); Elixir overrides
+  it to consult `elixir_is_inside_quote_block` once per `Call`
+  node, replacing what was previously three independent
+  `elixir_call_keyword` lookups per Call in the walker
+  ([#310](https://github.com/dekobon/big-code-analysis/issues/310)).
 - `bca check --baseline` now produces injective baseline keys for
   Windows non-UTF-8 paths. The Windows branch of `normalize_path`
   previously fell back to `to_string_lossy()`, which substitutes

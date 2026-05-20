@@ -169,6 +169,21 @@ pub trait Checker {
     fn is_func_with_code(node: &Node, _code: &[u8]) -> bool {
         Self::is_func(node)
     }
+
+    /// Combined predicate the walker uses to decide whether to promote
+    /// `node` to a new function-space frame. Default forwards to
+    /// `is_func_with_code || is_func_space_with_code` so existing
+    /// languages need no override — each kept the freedom to expose
+    /// `is_func` and `is_func_space` as disjoint sets (Rust includes
+    /// closures in `is_func_space`, Java keeps lambdas out, …) and
+    /// this method preserves that flexibility while letting Elixir
+    /// halve its per-`Call` source-text lookups: a single
+    /// `elixir_call_keyword` call answers both halves at once
+    /// (#310 follow-on perf).
+    #[inline]
+    fn promotes_to_func_space_with_code(node: &Node, code: &[u8]) -> bool {
+        Self::is_func_with_code(node, code) || Self::is_func_space_with_code(node, code)
+    }
 }
 
 impl Checker for PreprocCode {
@@ -1587,18 +1602,55 @@ impl Checker for ElixirCode {
 
     fn is_func_space_with_code(node: &Node, code: &[u8]) -> bool {
         use crate::metrics::cognitive::{
-            elixir_call_keyword, elixir_is_class_macro, elixir_is_method_macro,
+            elixir_call_keyword, elixir_is_class_macro, elixir_is_inside_quote_block,
+            elixir_is_method_macro,
         };
         if Self::is_func_space(node) {
             return true;
         }
-        elixir_call_keyword(node, code)
-            .is_some_and(|kw| elixir_is_method_macro(kw) || elixir_is_class_macro(kw))
+        let Some(kw) = elixir_call_keyword(node, code) else {
+            return false;
+        };
+        if elixir_is_class_macro(kw) {
+            return true;
+        }
+        // A `def` / `defp` / `defmacro` / `defmacrop` nested inside a
+        // `quote do … end` template does NOT declare a method of any
+        // enclosing module — the syntax tree there is a code template
+        // emitted later, on macro expansion (#310).
+        elixir_is_method_macro(kw) && !elixir_is_inside_quote_block(node, code)
     }
 
     fn is_func_with_code(node: &Node, code: &[u8]) -> bool {
-        use crate::metrics::cognitive::{elixir_call_keyword, elixir_is_method_macro};
-        elixir_call_keyword(node, code).is_some_and(elixir_is_method_macro)
+        use crate::metrics::cognitive::{
+            elixir_call_keyword, elixir_is_inside_quote_block, elixir_is_method_macro,
+        };
+        let Some(kw) = elixir_call_keyword(node, code) else {
+            return false;
+        };
+        elixir_is_method_macro(kw) && !elixir_is_inside_quote_block(node, code)
+    }
+
+    fn promotes_to_func_space_with_code(node: &Node, code: &[u8]) -> bool {
+        use crate::metrics::cognitive::{
+            elixir_call_keyword, elixir_is_class_macro, elixir_is_inside_quote_block,
+            elixir_is_method_macro,
+        };
+        // Cheap path: byte-less `is_func_space` matches `Source` and
+        // `AnonymousFunction` without needing any text inspection.
+        if Self::is_func_space(node) {
+            return true;
+        }
+        // Otherwise one `elixir_call_keyword` lookup answers the
+        // combined question instead of the two the default impl would
+        // have made via `is_func_with_code || is_func_space_with_code`.
+        let Some(kw) = elixir_call_keyword(node, code) else {
+            return false;
+        };
+        if elixir_is_class_macro(kw) {
+            return true;
+        }
+        elixir_is_method_macro(kw) && !elixir_is_inside_quote_block(node, code)
     }
 
     fn is_closure(node: &Node) -> bool {
