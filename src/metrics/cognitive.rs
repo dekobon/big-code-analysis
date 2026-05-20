@@ -1640,6 +1640,43 @@ mod tests {
     }
 
     #[test]
+    fn python_if_elif_elif_else_chain() {
+        // Regression for #274: `if/elif/elif/else` must score as a flat
+        // branch chain (each continuation contributes +1 with no extra
+        // nesting). `ElifClause` is a dedicated node handled directly
+        // by the cognitive dispatch as a branch extension, and the
+        // generic `count_specific_ancestors` nesting walk does not
+        // include `ElifClause` in its kind sets, so no ancestor-side
+        // suppression via `is_else_if` is required.
+        // expected: outer if +1, elif +1, elif +1, else +1 = 4.
+        check_metrics::<PythonParser>(
+            "def f(a, b, c, d):
+                if a:
+                   return 1
+                elif b:
+                   return 2
+                elif c:
+                   return 3
+                else:
+                   return 4",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 4.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 4.0,
+                      "min": 0.0,
+                      "max": 4.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
     fn python_else_if_chain_matches_elif() {
         // Regression for #276: `else: if x:` (no `elif`) is semantically
         // an else-if chain and must score the same as the `elif`
