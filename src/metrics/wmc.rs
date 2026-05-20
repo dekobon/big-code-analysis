@@ -367,7 +367,7 @@ implement_metric_trait!(
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::tools::check_metrics;
+    use crate::tools::{check_func_space, check_metrics};
 
     use super::*;
 
@@ -720,19 +720,34 @@ mod tests {
         );
     }
 
+    // Mirror of `java_annotation_type_opens_interface_space_with_zero_wmc`
+    // — verifies #280 wired `Groovy::AnnotationTypeDeclaration` into
+    // `is_func_space` (the structural check) while keeping
+    // `interface_wmc_sum` at 0 because elements are not method
+    // declarations. The structural assertion is what distinguishes a
+    // working fix from a vacuous one (see the Java sibling for the
+    // rationale).
     #[test]
-    fn groovy_annotation_type_wmc_counts_elements() {
-        check_metrics::<GroovyParser>(
+    fn groovy_annotation_type_opens_interface_space_with_zero_wmc() {
+        check_func_space::<GroovyParser, _>(
             "public @interface Marker {
                 String value() default \"\";
                 int priority() default 0;
             }",
             "foo.groovy",
-            |metric| {
-                // Same as Java: elements are not `MethodDeclaration`
-                // so they do not contribute cyclomatic. The interface
-                // space exists with WMC = 0.
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+            |func_space| {
+                assert_eq!(func_space.metrics.wmc.interface_wmc_sum(), 0.0);
+                let interface = func_space
+                    .spaces
+                    .iter()
+                    .find(|s| s.name.as_deref() == Some("Marker"))
+                    .expect("annotation type Marker must open a FuncSpace");
+                assert_eq!(
+                    interface.kind,
+                    SpaceKind::Interface,
+                    "annotation type must map to SpaceKind::Interface, got {:?}",
+                    interface.kind,
+                );
             },
         );
     }
@@ -1229,26 +1244,41 @@ mod tests {
         );
     }
 
-    // Regression for issue #280: Java `AnnotationTypeDeclaration` maps
-    // to `SpaceKind::Interface`; annotation type elements have no
-    // body (they're abstract) so they each contribute their entry
-    // cyclomatic (1) to `interface_wmc_sum`.
+    // Regression for issue #280: Java `AnnotationTypeDeclaration` must
+    // open a `SpaceKind::Interface` FuncSpace (the `is_func_space`
+    // change) AND must not aggregate WMC because annotation type
+    // elements parse as `AnnotationTypeElementDeclaration`, not
+    // `MethodDeclaration`, so no `Function` space is opened for them
+    // and their entry cyclomatic is not folded into
+    // `interface_wmc_sum`. Asserting only `interface_wmc_sum == 0`
+    // would pass vacuously even if `AnnotationTypeDeclaration` were
+    // dropped from `is_func_space` (the FuncSpace tree would simply
+    // omit the annotation type space, and `0 == 0` would still hold);
+    // the structural check on `space.kind` is what catches that
+    // regression.
     #[test]
-    fn java_annotation_type_wmc_counts_elements() {
-        check_metrics::<JavaParser>(
+    fn java_annotation_type_opens_interface_space_with_zero_wmc() {
+        check_func_space::<JavaParser, _>(
             "@interface Marker {
-                String value() default \"\";    // entry +1
-                int priority() default 0;       // entry +1
+                String value() default \"\";
+                int priority() default 0;
             }",
             "foo.java",
-            |metric| {
-                // tree-sitter-java parses annotation elements as
-                // `AnnotationTypeElementDeclaration`, not
-                // `MethodDeclaration`, so they don't open `Function`
-                // spaces and their cyclomatic is not folded into
-                // `interface_wmc_sum`. The interface space exists
-                // (the metric is enabled) but reports 0.
-                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+            |func_space| {
+                assert_eq!(func_space.metrics.wmc.interface_wmc_sum(), 0.0);
+                // Without `AnnotationTypeDeclaration` in `is_func_space`,
+                // the file-level Unit would have zero child spaces here.
+                let interface = func_space
+                    .spaces
+                    .iter()
+                    .find(|s| s.name.as_deref() == Some("Marker"))
+                    .expect("annotation type Marker must open a FuncSpace");
+                assert_eq!(
+                    interface.kind,
+                    SpaceKind::Interface,
+                    "annotation type must map to SpaceKind::Interface, got {:?}",
+                    interface.kind,
+                );
             },
         );
     }
