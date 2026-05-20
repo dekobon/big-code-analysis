@@ -330,7 +330,15 @@ impl Getter for TypescriptCode {
             | BANGEQ | GTEQ | GT | PLUSEQ | BANG | BANGEQEQ | EQEQEQ | DASHEQ | STAREQ
             | SLASHEQ | PERCENTEQ | STARSTAREQ | GTGTEQ | GTGTGTEQ | LTLTEQ | AMPEQ | CARET
             | CARETEQ | PIPEEQ | Yield | LBRACK | LBRACE | Await | QMARK | QMARKQMARK
-            | QMARKDOT | OptionalChain | EQGT | DOTDOTDOT | New | Let | Var | Const | Function
+            // Optional chaining `?.`: in TS/TSX the grammar exposes both an
+            // `optional_chain` wrapper (over `member_expression`) and a bare
+            // `?.` token (over `call_expression`). The wrapper always
+            // contains the token, so counting both double-counts the
+            // member-expression form. We classify only the token
+            // (`QMARKDOT`) so every textual `?.` contributes exactly once
+            // (issue #281). JS/MozJS grammars expose only `OptionalChain`
+            // (the token itself, not a wrapper) and continue to use that.
+            | QMARKDOT | EQGT | DOTDOTDOT | New | Let | Var | Const | Function
             | FunctionExpression | SEMI | Typeof | Instanceof | Void | PredefinedType => {
                 HalsteadType::Operator
             }
@@ -414,7 +422,11 @@ impl Getter for TsxCode {
             | BANGEQ | GTEQ | GT | PLUSEQ | BANG | BANGEQEQ | EQEQEQ | DASHEQ | STAREQ
             | SLASHEQ | PERCENTEQ | STARSTAREQ | GTGTEQ | GTGTGTEQ | LTLTEQ | AMPEQ | CARET
             | CARETEQ | PIPEEQ | Yield | LBRACK | LBRACE | Await | QMARK | QMARKQMARK
-            | QMARKDOT | OptionalChain | EQGT | DOTDOTDOT | New | Let | Var | Const | Function
+            // Optional chaining `?.`: count the bare token (`QMARKDOT`)
+            // only; the `optional_chain` named wrapper always contains
+            // the token, so counting both double-counts member-expression
+            // forms (issue #281). Mirrors the TypeScript fix above.
+            | QMARKDOT | EQGT | DOTDOTDOT | New | Let | Var | Const | Function
             | FunctionExpression | SEMI | Typeof | Instanceof | Void | PredefinedType => {
                 HalsteadType::Operator
             }

@@ -1155,6 +1155,57 @@ mod tests {
         );
     }
 
+    // Issue #281: optional chaining (`?.`) was double-counted as a
+    // Halstead operator in TypeScript and TSX because the grammar
+    // exposes both an `optional_chain` named wrapper AND a child
+    // `?.` token, and both were classified as `Operator`. The fix
+    // counts only the bare `?.` token (`QMARKDOT`) in TS/TSX so each
+    // textual `?.` contributes exactly once, matching JS / MozJS
+    // (whose grammars expose only `OptionalChain` — the `?.` token
+    // itself).
+    //
+    // The four assertions below all compare against the same totals:
+    // for `function f(a) { return a?.b?.c; }` the operator stream is
+    // `function`, `(`, `{`, `return`, `?.`, `?.`, `;` (7 total, 6
+    // unique — `LPAREN`/`LBRACE` count once, closing tokens are not
+    // in the operator set). Before the fix, TS/TSX reported 9/7
+    // instead of 7/6.
+    #[test]
+    fn javascript_optional_chain_not_double_counted_in_halstead_281() {
+        check_metrics::<JavascriptParser>("function f(a) { return a?.b?.c; }", "foo.js", |m| {
+            assert_eq!(m.halstead.u_operators(), 6.0);
+            assert_eq!(m.halstead.operators(), 7.0);
+        });
+    }
+
+    #[test]
+    fn mozjs_optional_chain_not_double_counted_in_halstead_281() {
+        check_metrics::<MozjsParser>("function f(a) { return a?.b?.c; }", "foo.js", |m| {
+            assert_eq!(m.halstead.u_operators(), 6.0);
+            assert_eq!(m.halstead.operators(), 7.0);
+        });
+    }
+
+    #[test]
+    fn typescript_optional_chain_not_double_counted_in_halstead_281() {
+        // The TS grammar wraps member-expression `?.` in an
+        // `optional_chain` named node containing the bare `?.`
+        // token; classifying both as `Operator` double-counted the
+        // chain. We now count only the bare token, so TS matches JS.
+        check_metrics::<TypescriptParser>("function f(a) { return a?.b?.c; }", "foo.ts", |m| {
+            assert_eq!(m.halstead.u_operators(), 6.0);
+            assert_eq!(m.halstead.operators(), 7.0);
+        });
+    }
+
+    #[test]
+    fn tsx_optional_chain_not_double_counted_in_halstead_281() {
+        check_metrics::<TsxParser>("function f(a) { return a?.b?.c; }", "foo.tsx", |m| {
+            assert_eq!(m.halstead.u_operators(), 6.0);
+            assert_eq!(m.halstead.operators(), 7.0);
+        });
+    }
+
     #[test]
     fn python_wrong_operators() {
         check_metrics::<PythonParser>("()[]{}", "foo.py", |metric| {

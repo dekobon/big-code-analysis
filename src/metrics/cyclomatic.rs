@@ -318,8 +318,16 @@ macro_rules! impl_cyclomatic_c_family {
 // decisions in addition to `&&` and `||` (issues #226, #231, #248).
 // Each `op=` is semantically `x = x op y` — one short-circuit decision
 // edge, same as the bare operator. Cognitive parity comes from #236.
+//
+// Optional chaining `?.` is also short-circuit (it skips the rest of
+// the chain when the LHS is nullish) and adds one decision point per
+// occurrence (issue #281). The token varies across grammars:
+// JS/MozJS expose only `OptionalChain` (which IS the `?.` token in
+// those grammars), while TS/TSX expose both an `optional_chain`
+// wrapper and a child `?.` token (`QMARKDOT`); counting `QMARKDOT`
+// matches every textual `?.` exactly once in TS/TSX.
 macro_rules! impl_cyclomatic_js_family {
-    ($code:ty, $lang:ident) => {
+    ($code:ty, $lang:ident, $opt_chain:ident) => {
         impl_cyclomatic_c_family!(
             $code,
             $lang,
@@ -330,15 +338,16 @@ macro_rules! impl_cyclomatic_js_family {
                 QMARKQMARK,
                 AMPAMPEQ,
                 PIPEPIPEEQ,
-                QMARKQMARKEQ
+                QMARKQMARKEQ,
+                $opt_chain
             ]
         );
     };
 }
-impl_cyclomatic_js_family!(MozjsCode, Mozjs);
-impl_cyclomatic_js_family!(JavascriptCode, Javascript);
-impl_cyclomatic_js_family!(TypescriptCode, Typescript);
-impl_cyclomatic_js_family!(TsxCode, Tsx);
+impl_cyclomatic_js_family!(MozjsCode, Mozjs, OptionalChain);
+impl_cyclomatic_js_family!(JavascriptCode, Javascript, OptionalChain);
+impl_cyclomatic_js_family!(TypescriptCode, Typescript, QMARKDOT);
+impl_cyclomatic_js_family!(TsxCode, Tsx, QMARKDOT);
 
 impl Cyclomatic for RustCode {
     fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
@@ -3697,6 +3706,105 @@ f() {
                       }
                     }"###
                 );
+            },
+        );
+    }
+
+    // Issue #281: optional chaining (`?.`) is short-circuit (it skips
+    // the rest of the chain when the LHS is nullish), so each `?.`
+    // adds one cyclomatic decision point. Before the fix, JS-family
+    // cyclomatic ignored `?.` entirely. The four tests below mirror
+    // the existing `nullish_coalescing_chain_226` pattern but for
+    // `?.`: two `?.` in a chain add +2 on top of the function entry.
+    #[test]
+    fn javascript_optional_chain_counted_in_cyclomatic_281() {
+        check_metrics::<JavascriptParser>(
+            "function pick(a) { // +1 (entry)
+                 return a?.b?.c; // +2 (two `?.`)
+             }",
+            "foo.js",
+            |metric| {
+                // unit(1) + fn(entry 1 + 2*?. = 3) = sum 4, max 3.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_optional_chain_counted_in_cyclomatic_281() {
+        check_metrics::<MozjsParser>(
+            "function pick(a) { // +1 (entry)
+                 return a?.b?.c; // +2 (two `?.`)
+             }",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_optional_chain_counted_in_cyclomatic_281() {
+        // TS exposes `?.` as both an `optional_chain` wrapper (over
+        // member expressions) and a bare token (over call
+        // expressions). We dispatch on `QMARKDOT` so every textual
+        // `?.` adds exactly one decision point regardless of context.
+        check_metrics::<TypescriptParser>(
+            "function pick(a: any) { // +1 (entry)
+                 return a?.b?.c; // +2 (two `?.`)
+             }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_optional_chain_counted_in_cyclomatic_281() {
+        check_metrics::<TsxParser>(
+            "function pick(a: any) { // +1 (entry)
+                 return a?.b?.c; // +2 (two `?.`)
+             }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+            },
+        );
+    }
+
+    // Mix of member-expression `?.` and call-expression `?.()`:
+    // ensures the TS/TSX dispatch on `QMARKDOT` (not the wrapper)
+    // counts both forms exactly once. Both forms emit the bare `?.`
+    // token; the wrapper only appears around member expressions.
+    #[test]
+    fn typescript_optional_chain_call_form_counted_281() {
+        check_metrics::<TypescriptParser>(
+            "function pick(a: any) { // +1 (entry)
+                 return a?.b?.(); // +2 (member `?.` + call `?.`)
+             }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_optional_chain_call_form_counted_281() {
+        check_metrics::<TsxParser>(
+            "function pick(a: any) { // +1 (entry)
+                 return a?.b?.(); // +2 (member `?.` + call `?.`)
+             }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
             },
         );
     }
