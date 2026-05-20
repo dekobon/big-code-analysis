@@ -102,12 +102,12 @@ macro_rules! is_js_func_and_closure_checker {
 // alterator flattens these aliases; the generic `string` filter must
 // agree (issue #283).
 macro_rules! impl_js_family_is_string {
-    ($lang:ident $(, [$($extra:ident),+])?) => {
+    ($lang:ident $(, $extra:ident)* $(,)?) => {
         fn is_string(node: &Node) -> bool {
             matches!(
                 node.kind_id().into(),
                 $lang::String | $lang::String2 | $lang::TemplateString
-                    $($(| $lang::$extra)+)?
+                    $(| $lang::$extra)*
             )
         }
     };
@@ -757,7 +757,7 @@ impl Checker for TsxCode {
         )
     }
 
-    impl_js_family_is_string!(Tsx, [String3]);
+    impl_js_family_is_string!(Tsx, String3);
 
     fn is_else_if(node: &Node) -> bool {
         node.kind_id() == Tsx::IfStatement
@@ -826,13 +826,13 @@ fn cfg_predicate_marks_test(pred: &str) -> bool {
     // (the item is included in production when `foo` holds), but the
     // pre-#278 code treated both identically and the issue spec
     // preserves that behavior.
-    for op in ["all", "any"] {
-        if let Some(rest) = trimmed.strip_prefix(op)
-            && let Some(args) = rest.trim_start().strip_prefix('(')
-            && let Some(args) = args.strip_suffix(')')
-        {
-            return cfg_args_any_marks_test(args);
-        }
+    if let Some(rest) = trimmed
+        .strip_prefix("all")
+        .or_else(|| trimmed.strip_prefix("any"))
+        && let Some(args) = rest.trim_start().strip_prefix('(')
+        && let Some(args) = args.strip_suffix(')')
+    {
+        return cfg_args_any_marks_test(args);
     }
     // Bare comma-separated predicate lists like `cfg(test, foo)`
     // — pre-#278 callers relied on this form being treated as
@@ -893,10 +893,10 @@ fn cfg_arg_marks_test(arg: &str) -> bool {
     }
     // `not(...)` short-circuits: we do not look inside, because
     // `not(test)` excludes the item from test builds.
-    if arg
-        .strip_prefix("not")
-        .map(str::trim_start)
-        .is_some_and(|r| r.starts_with('(') && r.ends_with(')'))
+    if let Some(rest) = arg.strip_prefix("not")
+        && let rest = rest.trim_start()
+        && rest.starts_with('(')
+        && rest.ends_with(')')
     {
         return false;
     }
