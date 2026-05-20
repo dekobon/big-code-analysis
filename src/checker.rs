@@ -788,34 +788,135 @@ impl Checker for TsxCode {
 }
 
 fn rust_attribute_marks_test(body: &str) -> bool {
-    let trimmed = body.trim();
-    let check = |s: &str| {
+    // Path-form `#[test]`, `#[tokio::test]`, `#[ext::module::test(args)]`, etc.
+    // are detected without entering the cfg predicate walker.
+    // `cfg(...)` predicates extract the inner predicate text and walk
+    // the predicate tree so `test` is matched regardless of its
+    // position inside `all(...)` / `any(...)` (#278). Production
+    // builds still see items gated on `not(test)`, so the walker
+    // refuses to descend into a `not(...)` operand.
+    let matches_test = |s: &str| {
         matches!(s, "test" | "rstest" | "wasm_bindgen_test" | "test_case")
-            || s.starts_with("cfg(test)")
-            || s.starts_with("cfg(test,")
-            || s.starts_with("cfg(all(test,")
-            || s.starts_with("cfg(all(test)")
-            || s.starts_with("cfg(any(test,")
-            || s.starts_with("cfg(any(test)")
             || s.ends_with("::test")
             || s.contains("::test(")
+            || cfg_inner(s).is_some_and(cfg_predicate_marks_test)
     };
-    // Fast path: no allocation for the idiomatic forms where the body
-    // has no internal whitespace.
-    if check(trimmed) {
+
+    let trimmed = body.trim();
+    if matches_test(trimmed) {
         return true;
     }
     // Slow path: tolerate unusual spacing like `# [ cfg ( test ) ]`
-    // by collapsing all ASCII whitespace before re-checking.
+    // by collapsing all ASCII whitespace before re-checking. Only
+    // worthwhile if the input actually has spacing inside the body.
     if trimmed.bytes().any(|b| b.is_ascii_whitespace()) {
         let compact: String = trimmed
             .bytes()
             .filter(|b| !b.is_ascii_whitespace())
             .map(char::from)
             .collect();
-        return check(&compact);
+        return matches_test(&compact);
     }
     false
+}
+
+/// Return the inner predicate text of a `cfg(...)` attribute body,
+/// stripping the `cfg(` prefix and matching `)`. Whitespace inside
+/// is tolerated; callers receive a slice with surrounding spacing
+/// preserved so the predicate walker can re-split on commas / parens.
+fn cfg_inner(body: &str) -> Option<&str> {
+    let rest = body.trim_start().strip_prefix("cfg")?.trim_start();
+    let after_open = rest.strip_prefix('(')?;
+    let inner = after_open.strip_suffix(')')?;
+    Some(inner)
+}
+
+fn cfg_predicate_marks_test(pred: &str) -> bool {
+    let trimmed = pred.trim();
+    if trimmed == "test" {
+        return true;
+    }
+    // `all(...)` and `any(...)` use the same "contains a `test`
+    // operand" rule here. Strictly, `any(test, foo)` is over-broad
+    // (the item is included in production when `foo` holds), but the
+    // pre-#278 code treated both identically and the issue spec
+    // preserves that behavior.
+    for op in ["all", "any"] {
+        if let Some(rest) = trimmed.strip_prefix(op)
+            && let Some(args) = rest.trim_start().strip_prefix('(')
+            && let Some(args) = args.strip_suffix(')')
+        {
+            return cfg_args_any_marks_test(args);
+        }
+    }
+    // Bare comma-separated predicate lists like `cfg(test, foo)`
+    // — pre-#278 callers relied on this form being treated as
+    // `cfg(all(test, foo))`. Only walk if a top-level comma exists,
+    // so a single ident does not accidentally fall through.
+    if has_top_level_comma(trimmed) {
+        return cfg_args_any_marks_test(trimmed);
+    }
+    false
+}
+
+/// Returns true if `s` contains a comma outside any parenthesised
+/// subexpression. Used to detect implicit `all(...)`-style predicate
+/// lists in `cfg(a, b)`.
+fn has_top_level_comma(s: &str) -> bool {
+    let mut depth = 0_i32;
+    for b in s.bytes() {
+        match b {
+            b'(' => depth += 1,
+            b')' => depth -= 1,
+            b',' if depth == 0 => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
+/// Walk a comma-separated argument list of a cfg predicate, splitting
+/// at top-level commas only (commas inside nested parens belong to a
+/// child predicate), and return true if any operand marks the item as
+/// test-only. Key=value forms like `feature = "test"` never match.
+fn cfg_args_any_marks_test(args: &str) -> bool {
+    let mut depth = 0_i32;
+    let mut start = 0_usize;
+    for (i, b) in args.bytes().enumerate() {
+        match b {
+            b'(' => depth += 1,
+            b')' => depth -= 1,
+            b',' if depth == 0 => {
+                if cfg_arg_marks_test(&args[start..i]) {
+                    return true;
+                }
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    cfg_arg_marks_test(&args[start..])
+}
+
+/// Classify a single cfg predicate operand. Bare `test` matches;
+/// `not(...)` never matches (its presence flips the gate); `all(...)`
+/// and `any(...)` recurse; everything else (including `feature =
+/// "test"`, plain idents, key=value pairs) does not match.
+fn cfg_arg_marks_test(arg: &str) -> bool {
+    let arg = arg.trim();
+    if arg == "test" {
+        return true;
+    }
+    // `not(...)` short-circuits: we do not look inside, because
+    // `not(test)` excludes the item from test builds.
+    if arg
+        .strip_prefix("not")
+        .map(str::trim_start)
+        .is_some_and(|r| r.starts_with('(') && r.ends_with(')'))
+    {
+        return false;
+    }
+    cfg_predicate_marks_test(arg)
 }
 
 /// Strip the `#` / `#!` marker plus the `[...]` brackets from a
@@ -2138,5 +2239,91 @@ mod tests {
             !PythonCode::is_else_if(&inner),
             "inner if must NOT be recognised as else-if when its block has siblings"
         );
+    }
+
+    // ===== Rust `rust_attribute_marks_test` regression tests (#278) =====
+
+    #[test]
+    fn rust_attr_test_marks_bare_test_attribute() {
+        // Direct attribute names (and aliases) match without ever
+        // entering the cfg predicate walker. Locks in pre-#278
+        // behavior so the rewrite does not regress the common case.
+        assert!(rust_attribute_marks_test("test"));
+        assert!(rust_attribute_marks_test("rstest"));
+        assert!(rust_attribute_marks_test("wasm_bindgen_test"));
+        assert!(rust_attribute_marks_test("test_case"));
+        assert!(rust_attribute_marks_test("tokio::test"));
+        assert!(rust_attribute_marks_test(
+            "tokio::test(flavor = \"current_thread\")"
+        ));
+    }
+
+    #[test]
+    fn rust_attr_test_marks_cfg_test_variants() {
+        // Pre-#278 forms with `test` in the first position must
+        // still match.
+        assert!(rust_attribute_marks_test("cfg(test)"));
+        assert!(rust_attribute_marks_test("cfg(test, foo)"));
+        assert!(rust_attribute_marks_test("cfg(all(test, unix))"));
+        assert!(rust_attribute_marks_test("cfg(any(test, foo))"));
+    }
+
+    #[test]
+    fn rust_attr_test_marks_cfg_with_test_not_first() {
+        // Regression for #278. `test` was previously required to be
+        // the first operand of `all(...)` / `any(...)`. The predicate
+        // walker now matches it anywhere.
+        assert!(
+            rust_attribute_marks_test("cfg(all(unix, test))"),
+            "test as second all() operand must mark test-only"
+        );
+        assert!(
+            rust_attribute_marks_test("cfg(any(feature = \"x\", test))"),
+            "test as second any() operand must mark test-only"
+        );
+        // Nested predicate: `any(test, ...)` inside `all(...)` still
+        // counts as test-only via recursion.
+        assert!(rust_attribute_marks_test(
+            "cfg(all(unix, any(test, feature = \"x\")))"
+        ));
+    }
+
+    #[test]
+    fn rust_attr_test_skips_not_test_and_feature_named_test() {
+        // `cfg(not(test))` is *production-only*; it must not be
+        // treated as test-only or `exclude_tests` would strip
+        // production code.
+        assert!(!rust_attribute_marks_test("cfg(not(test))"));
+        assert!(!rust_attribute_marks_test("cfg(all(unix, not(test)))"));
+        // A feature literally named "test" is a string-valued
+        // key/value pair, not the bare `test` predicate.
+        assert!(!rust_attribute_marks_test("cfg(feature = \"test\")"));
+        assert!(!rust_attribute_marks_test(
+            "cfg(all(unix, feature = \"test\"))"
+        ));
+        // Unrelated predicates remain unmatched.
+        assert!(!rust_attribute_marks_test("cfg(unix)"));
+        assert!(!rust_attribute_marks_test("derive(Debug)"));
+        // `all(...)` / `any(...)` with no `test` operand anywhere must
+        // not match — guards against an over-eager walker that treats
+        // any combinator as test-only regardless of contents.
+        assert!(!rust_attribute_marks_test(
+            "cfg(all(unix, target_os = \"linux\"))"
+        ));
+        assert!(!rust_attribute_marks_test("cfg(any(unix, windows))"));
+        assert!(!rust_attribute_marks_test(
+            "cfg(all(unix, any(feature = \"x\", feature = \"y\")))"
+        ));
+        // Nested `not(test)` inside `any(...)` is still non-matching;
+        // `not(...)` short-circuits at any depth.
+        assert!(!rust_attribute_marks_test("cfg(any(unix, not(test)))"));
+    }
+
+    #[test]
+    fn rust_attr_test_tolerates_internal_whitespace() {
+        // The slow path strips ASCII whitespace before re-running
+        // both checks, so spaced forms still resolve correctly.
+        assert!(rust_attribute_marks_test("cfg( all( unix , test ) )"));
+        assert!(!rust_attribute_marks_test("cfg( not ( test ) )"));
     }
 }
