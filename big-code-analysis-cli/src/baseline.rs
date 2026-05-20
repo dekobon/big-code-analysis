@@ -194,6 +194,13 @@ pub(crate) fn render(file: &BaselineFile) -> Result<String, toml::ser::Error> {
 /// onto the same key — exactly the lossy identity collision we have to
 /// avoid. Instead:
 ///
+/// - The UTF-8 branch maps `\` -> `/` on the byte view and then runs
+///   the same per-byte percent encoder used by the non-UTF-8 branches.
+///   `%` itself is not in the unreserved set, so a UTF-8 path
+///   containing the literal text `%FF` becomes `%25FF` and cannot
+///   collide with a non-UTF-8 path that contains the byte `0xFF` (which
+///   encodes to `%FF`). The cost is `%XX` escapes for any non-ASCII or
+///   reserved byte in the TOML output.
 /// - On Unix we read the raw bytes via `OsStrExt` and percent-encode
 ///   (`%XX`) every byte that is not a printable ASCII path character.
 /// - On Windows we walk the WTF-16 code units via `encode_wide`,
@@ -202,16 +209,21 @@ pub(crate) fn render(file: &BaselineFile) -> Result<String, toml::ser::Error> {
 ///   disjoint from the `%XX` two-hex-digit form, so the encoding is
 ///   unambiguous and injective.
 ///
-/// Both Unix and Windows branches feed bytes through the same per-byte
-/// encoder, so a clean ASCII path produces the same key on either
-/// platform. Exotic targets (wasm, etc.) where neither `OsStrExt` flavour
-/// is available fall back to a `to_string_lossy()` form prefixed with
-/// U+FFFD; that prefix is the marker the `to_str()` branch never emits,
-/// so the fallback can never collide with a clean-UTF-8 key.
+/// All three branches feed bytes through the same per-byte encoder, so
+/// a clean ASCII path produces the same key on either platform. Exotic
+/// targets (wasm, etc.) where neither `OsStrExt` flavour is available
+/// fall back to a `to_string_lossy()` form prefixed with U+FFFD; that
+/// prefix is the marker the `to_str()` branch never emits, so the
+/// fallback can never collide with a clean-UTF-8 key.
 fn normalize_path(p: &Path) -> String {
     match p.to_str() {
-        Some(s) if s.contains('\\') => s.replace('\\', "/"),
-        Some(s) => s.to_string(),
+        Some(s) => {
+            let bytes: Vec<u8> = s
+                .bytes()
+                .map(|b| if b == b'\\' { b'/' } else { b })
+                .collect();
+            percent_encode_path_bytes(&bytes)
+        }
         None => encode_non_utf8_path(p),
     }
 }
@@ -571,16 +583,46 @@ mod tests {
     // -- non-UTF-8 path identity ------------------------------------------
 
     #[test]
-    fn normalize_path_utf8_unchanged() {
-        // Regression guard: the common UTF-8 case must round-trip
-        // untouched. Encoding shenanigans for non-UTF-8 paths must not
-        // leak into ordinary inputs (no percent escapes, no extra
-        // markers, just the path).
+    fn normalize_path_utf8_unchanged_for_unreserved_ascii() {
+        // Regression guard: the common UTF-8 case (all-unreserved-ASCII
+        // path components) must round-trip untouched. Non-UTF-8
+        // encoding shenanigans must not leak into ordinary inputs (no
+        // unexpected percent escapes, no extra markers).
         assert_eq!(normalize_path(Path::new("src/foo.rs")), "src/foo.rs");
         assert_eq!(normalize_path(Path::new("crates/a/b.rs")), "crates/a/b.rs");
         // Backslashes are still normalized to forward slashes for the
         // UTF-8 path so that cross-OS baselines match.
         assert_eq!(normalize_path(Path::new("a\\b\\c.rs")), "a/b/c.rs");
+    }
+
+    #[test]
+    fn normalize_path_utf8_escapes_percent() {
+        // `%` must be escaped in the UTF-8 fast path so it cannot collide
+        // with a non-UTF-8 byte's `%XX` escape. See `normalize_path_utf8_
+        // non_utf8_byte_no_collision` for the actual collision check.
+        assert_eq!(normalize_path(Path::new("foo%FF.rs")), "foo%25FF.rs");
+        assert_eq!(normalize_path(Path::new("a%b%c.rs")), "a%25b%25c.rs");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn normalize_path_utf8_percent_vs_non_utf8_byte_no_collision() {
+        // The bug: a UTF-8 path containing the literal text `%FF` and a
+        // non-UTF-8 path containing the byte `0xFF` at the same position
+        // used to normalize to the same key (both `foo%FF.rs`), so a
+        // baseline written for one silently covered violations from the
+        // other. With `%` percent-encoded on the UTF-8 side, the keys
+        // diverge.
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let utf8 = Path::new("foo%FF.rs");
+        let non_utf8 = PathBuf::from(OsStr::from_bytes(b"foo\xff.rs"));
+        let key_utf8 = normalize_path(utf8);
+        let key_non_utf8 = normalize_path(&non_utf8);
+        assert_eq!(key_utf8, "foo%25FF.rs");
+        assert_eq!(key_non_utf8, "foo%FF.rs");
+        assert_ne!(key_utf8, key_non_utf8);
     }
 
     #[cfg(unix)]
