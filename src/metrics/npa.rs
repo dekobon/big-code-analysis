@@ -246,107 +246,77 @@ where
     fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats);
 }
 
-impl Npa for JavaCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
-        use Java::*;
+// Java and Groovy share their grammar tokens for class/interface
+// bodies, so `Npa::compute` differs only by the language enum.
+// `impl_npa_java_like!` emits the same body against each enum
+// (issue #280).
+//
+// `ClassBody` covers classes and records (records reuse `class_body`
+// for their explicit declaration body). Record components in
+// `formal_parameters` are implicit public final fields, but only
+// explicit body members are counted here for parity with C#'s record
+// handling (lesson 11). `EnumBodyDeclarations` is the optional
+// declarations block inside `EnumBody`, following the enum constants.
+// Annotation type bodies hold `ConstantDeclaration`s with the same
+// implicit `public static final` rule as interfaces
+// (https://docs.oracle.com/javase/specs/jls/se7/html/jls-9.html).
+//
+// Groovy note: `def field` at class scope is parsed as a
+// `FieldDeclaration` with `Def` in the modifiers list (no `Public`),
+// so it's correctly excluded from `class_npa` unless explicitly
+// annotated `public` — consistent with Groovy's access semantics
+// (default class members are package-private under `@CompileStatic`,
+// public otherwise; we conservatively follow Java).
+macro_rules! impl_npa_java_like {
+    ($code:ty, $lang:ident) => {
+        impl Npa for $code {
+            fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+                use $lang::*;
 
-        // Enables the `Npa` metric if computing stats of a class space
-        if Self::is_func_space(node) && stats.is_disabled() {
-            stats.is_class_space = true;
-        }
+                if Self::is_func_space(node) && stats.is_disabled() {
+                    stats.is_class_space = true;
+                }
 
-        match node.kind_id().into() {
-            ClassBody => {
-                stats.class_na += node
-                    .children()
-                    .filter(|node| matches!(node.kind_id().into(), FieldDeclaration))
-                    .map(|declaration| {
-                        let attributes = declaration
+                match node.kind_id().into() {
+                    ClassBody | EnumBodyDeclarations => {
+                        for declaration in node
                             .children()
+                            .filter(|n| matches!(n.kind_id().into(), FieldDeclaration))
+                        {
+                            let attributes = declaration
+                                .children()
+                                .filter(|n| matches!(n.kind_id().into(), VariableDeclarator))
+                                .count();
+                            stats.class_na += attributes;
+                            // The first child node contains the list of
+                            // attribute modifiers. Source:
+                            // https://docs.oracle.com/javase/tutorial/reflect/member/fieldModifiers.html
+                            if declaration.child(0).is_some_and(|modifiers| {
+                                matches!(modifiers.kind_id().into(), Modifiers)
+                                    && modifiers.first_child(|id| id == Public).is_some()
+                            }) {
+                                stats.class_npa += attributes;
+                            }
+                        }
+                    }
+                    InterfaceBody | AnnotationTypeBody => {
+                        stats.interface_na += node
+                            .children()
+                            .filter(|n| matches!(n.kind_id().into(), ConstantDeclaration))
+                            .flat_map(|n| n.children())
                             .filter(|n| matches!(n.kind_id().into(), VariableDeclarator))
                             .count();
-                        // The first child node contains the list of attribute modifiers
-                        // There are several modifiers that may be part of a field declaration
-                        // Source: https://docs.oracle.com/javase/tutorial/reflect/member/fieldModifiers.html
-                        if declaration.child(0).is_some_and(|modifiers| {
-                            // Looks for the `public` keyword in the list of attribute modifiers
-                            matches!(modifiers.kind_id().into(), Modifiers)
-                                && modifiers.first_child(|id| id == Public).is_some()
-                        }) {
-                            stats.class_npa += attributes;
-                        }
-                        attributes
-                    })
-                    .sum::<usize>();
+                        stats.interface_npa = stats.interface_na;
+                    }
+                    _ => {}
+                }
             }
-            // Every field declaration in the body of an interface is implicitly public, static, and final
-            // Source: https://docs.oracle.com/javase/specs/jls/se7/html/jls-9.html
-            InterfaceBody => {
-                // Children nodes are filtered because Java interfaces
-                // can contain constants but also methods and nested types
-                // Source: https://docs.oracle.com/javase/tutorial/java/IandI/createinterface.html
-                stats.interface_na += node
-                    .children()
-                    .filter(|node| matches!(node.kind_id().into(), ConstantDeclaration))
-                    .flat_map(|node| node.children())
-                    .filter(|node| matches!(node.kind_id().into(), VariableDeclarator))
-                    .count();
-                stats.interface_npa = stats.interface_na;
-            }
-            _ => {}
         }
-    }
+    };
 }
 
-// Groovy's class/interface/field machinery is inherited from Java
-// verbatim, so the Npa impl is a direct mirror. `def field` at class
-// scope is parsed as a `FieldDeclaration` with `Def` in the modifiers
-// list (no `Public`), so it's correctly excluded from `class_npa`
-// unless explicitly annotated `public` — consistent with Groovy's
-// access semantics (default class members are package-private under
-// `@CompileStatic`, public otherwise; we conservatively follow Java
-// and count only explicit `public`).
-impl Npa for GroovyCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
-        use Groovy::*;
-
-        if Self::is_func_space(node) && stats.is_disabled() {
-            stats.is_class_space = true;
-        }
-
-        match node.kind_id().into() {
-            ClassBody => {
-                stats.class_na += node
-                    .children()
-                    .filter(|node| matches!(node.kind_id().into(), FieldDeclaration))
-                    .map(|declaration| {
-                        let attributes = declaration
-                            .children()
-                            .filter(|n| matches!(n.kind_id().into(), VariableDeclarator))
-                            .count();
-                        if declaration.child(0).is_some_and(|modifiers| {
-                            matches!(modifiers.kind_id().into(), Modifiers)
-                                && modifiers.first_child(|id| id == Public).is_some()
-                        }) {
-                            stats.class_npa += attributes;
-                        }
-                        attributes
-                    })
-                    .sum::<usize>();
-            }
-            InterfaceBody => {
-                stats.interface_na += node
-                    .children()
-                    .filter(|node| matches!(node.kind_id().into(), ConstantDeclaration))
-                    .flat_map(|node| node.children())
-                    .filter(|node| matches!(node.kind_id().into(), VariableDeclarator))
-                    .count();
-                stats.interface_npa = stats.interface_na;
-            }
-            _ => {}
-        }
-    }
-}
+impl_npa_java_like!(JavaCode, Java);
+impl_npa_java_like!(GroovyCode, Groovy);
 
 // C# uses individual `Modifier` nodes (not wrapped under a single
 // `modifiers` node like Java); detecting `public` requires scanning
@@ -2034,6 +2004,43 @@ mod tests {
         );
     }
 
+    // Regression for issue #280: Groovy mirrors Java's enum / record /
+    // annotation handling. Record support in tree-sitter-groovy lags
+    // behind groovyc, but the grammar exposes `record_declaration` and
+    // the `Npa` body walker treats it identically.
+    #[test]
+    fn groovy_enum_counts_explicit_public_fields() {
+        check_metrics::<GroovyParser>(
+            "enum Status {
+                ACTIVE, INACTIVE;
+                public int code;
+                private int hidden;
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_annotation_type_counts_constants_as_implicit_public() {
+        // tree-sitter-groovy parses `@interface` like Java (modifier
+        // required, statements terminated with `;`).
+        check_metrics::<GroovyParser>(
+            "public @interface Marker {
+                int VERSION = 1;
+                String NAME = \"x\";
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.npa.interface_na_sum(), 2.0);
+                assert_eq!(metric.npa.interface_npa_sum(), 2.0);
+            },
+        );
+    }
+
     #[test]
     fn java_generic_attributes() {
         check_metrics::<JavaParser>(
@@ -2283,6 +2290,69 @@ mod tests {
                       "average": 1.0
                     }"###
                 );
+            },
+        );
+    }
+
+    // Regression for issue #280: Java `EnumDeclaration` must be
+    // classified as a class space so `Npa` walks its body and counts
+    // explicit public fields declared after the enum constants.
+    #[test]
+    fn java_enum_counts_explicit_public_fields() {
+        check_metrics::<JavaParser>(
+            "enum Status {
+                ACTIVE, INACTIVE;
+                public static final int FLAG = 1;   // implicit static final, still public
+                public int code;                    // +1 explicit public
+                private int hidden;                 // not public
+            }",
+            "foo.java",
+            |metric| {
+                // 1 class space (the enum), 3 total fields, 2 explicit public.
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+            },
+        );
+    }
+
+    // Regression for issue #280: Java `RecordDeclaration` reuses
+    // `ClassBody` for its explicit body, so explicit fields declared
+    // inside it count. Record components in the parameter list are
+    // implicit public final fields at the bytecode level but are NOT
+    // counted here, matching the C# precedent (only explicit body
+    // members count).
+    #[test]
+    fn java_record_counts_explicit_body_fields() {
+        check_metrics::<JavaParser>(
+            "record Point(int x, int y) {
+                public static int origin = 0;       // explicit body, public
+                private int cached;                 // explicit body, private
+            }",
+            "foo.java",
+            |metric| {
+                // Only explicit body fields are counted; the `x` / `y`
+                // record components are not.
+                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+            },
+        );
+    }
+
+    // Regression for issue #280: Java `AnnotationTypeDeclaration` maps
+    // to `SpaceKind::Interface`, and its constant declarations are
+    // implicitly `public static final`, so `interface_npa` matches
+    // `interface_na`.
+    #[test]
+    fn java_annotation_type_counts_constants_as_implicit_public() {
+        check_metrics::<JavaParser>(
+            "@interface Marker {
+                int VERSION = 1;        // implicit public static final
+                String NAME = \"x\";    // implicit public static final
+            }",
+            "foo.java",
+            |metric| {
+                assert_eq!(metric.npa.interface_na_sum(), 2.0);
+                assert_eq!(metric.npa.interface_npa_sum(), 2.0);
             },
         );
     }

@@ -256,33 +256,38 @@ impl Npm for JavaCode {
             stats.is_class_space = true;
         }
 
+        // `ClassBody` covers class and record explicit bodies;
+        // `EnumBodyDeclarations` is the optional declarations block
+        // inside `EnumBody` (after the enum constants) and may contain
+        // method declarations. Both share the same Java public-method
+        // detection rule (issue #280).
         match node.kind_id().into() {
-            ClassBody => {
-                stats.class_nm += node
-                    .children()
-                    .filter(|node| Self::is_func(node))
-                    .map(|method| {
-                        // The first child node contains the list of method modifiers
-                        // There are several modifiers that may be part of a method declaration
-                        // Source: https://docs.oracle.com/javase/tutorial/reflect/member/methodModifiers.html
-                        if let Some(modifiers) = method.child(0) {
-                            // Looks for the `public` keyword in the list of method modifiers
-                            if matches!(modifiers.kind_id().into(), Modifiers)
-                                && modifiers.first_child(|id| id == Public).is_some()
-                            {
-                                stats.class_npm += 1;
-                            }
-                        }
-                    })
-                    .count();
+            ClassBody | EnumBodyDeclarations => {
+                for method in node.children().filter(|n| Self::is_func(n)) {
+                    stats.class_nm += 1;
+                    // The first child node contains the list of method modifiers.
+                    // Source: https://docs.oracle.com/javase/tutorial/reflect/member/methodModifiers.html
+                    if let Some(modifiers) = method.child(0)
+                        && matches!(modifiers.kind_id().into(), Modifiers)
+                        && modifiers.first_child(|id| id == Public).is_some()
+                    {
+                        stats.class_npm += 1;
+                    }
+                }
             }
             // All methods in an interface are implicitly public
-            // Source: https://docs.oracle.com/javase/tutorial/java/IandI/interfaceDef.html
+            // (https://docs.oracle.com/javase/tutorial/java/IandI/interfaceDef.html).
+            // Annotation type elements are abstract public methods at
+            // the bytecode level and obey the same rule.
             InterfaceBody => {
-                // Children nodes are filtered because Java interfaces
-                // can contain methods but also constants and nested types
-                // Source: https://docs.oracle.com/javase/tutorial/java/IandI/createinterface.html
-                stats.interface_nm += node.children().filter(|node| Self::is_func(node)).count();
+                stats.interface_nm += node.children().filter(|n| Self::is_func(n)).count();
+                stats.interface_npm = stats.interface_nm;
+            }
+            AnnotationTypeBody => {
+                stats.interface_nm += node
+                    .children()
+                    .filter(|n| matches!(n.kind_id().into(), AnnotationTypeElementDeclaration))
+                    .count();
                 stats.interface_npm = stats.interface_nm;
             }
             _ => {}
@@ -298,23 +303,28 @@ impl Npm for GroovyCode {
             stats.is_class_space = true;
         }
 
+        // Mirrors `Npm for JavaCode` (issue #280).
         match node.kind_id().into() {
-            ClassBody => {
-                stats.class_nm += node
-                    .children()
-                    .filter(|node| Self::is_func(node))
-                    .map(|method| {
-                        if let Some(modifiers) = method.child(0)
-                            && matches!(modifiers.kind_id().into(), Modifiers)
-                            && modifiers.first_child(|id| id == Public).is_some()
-                        {
-                            stats.class_npm += 1;
-                        }
-                    })
-                    .count();
+            ClassBody | EnumBodyDeclarations => {
+                for method in node.children().filter(|n| Self::is_func(n)) {
+                    stats.class_nm += 1;
+                    if let Some(modifiers) = method.child(0)
+                        && matches!(modifiers.kind_id().into(), Modifiers)
+                        && modifiers.first_child(|id| id == Public).is_some()
+                    {
+                        stats.class_npm += 1;
+                    }
+                }
             }
             InterfaceBody => {
-                stats.interface_nm += node.children().filter(|node| Self::is_func(node)).count();
+                stats.interface_nm += node.children().filter(|n| Self::is_func(n)).count();
+                stats.interface_npm = stats.interface_nm;
+            }
+            AnnotationTypeBody => {
+                stats.interface_nm += node
+                    .children()
+                    .filter(|n| matches!(n.kind_id().into(), AnnotationTypeElementDeclaration))
+                    .count();
                 stats.interface_npm = stats.interface_nm;
             }
             _ => {}
@@ -1019,6 +1029,45 @@ mod tests {
         );
     }
 
+    // Regression for issue #280: Groovy mirrors Java's enum / record /
+    // annotation method counting.
+    #[test]
+    fn groovy_enum_counts_methods() {
+        check_metrics::<GroovyParser>(
+            "enum Status {
+                ACTIVE, INACTIVE;
+                public int code() { return 0 }
+                private void reset() {}
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_annotation_type_counts_elements() {
+        // The Groovy tree-sitter grammar parses `@interface` only when
+        // preceded by a modifier and when each element ends in `;` (it
+        // inherits the Java parser's strictness). This source shape
+        // produces a clean `annotation_type_declaration` →
+        // `annotation_type_body` → `annotation_type_element_declaration`
+        // tree.
+        check_metrics::<GroovyParser>(
+            "public @interface Marker {
+                String value() default \"\";
+                int priority() default 0;
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.npm.interface_nm_sum(), 2.0);
+                assert_eq!(metric.npm.interface_npm_sum(), 2.0);
+            },
+        );
+    }
+
     #[test]
     fn groovy_constructors() {
         check_metrics::<GroovyParser>(
@@ -1564,6 +1613,64 @@ mod tests {
                       "average": 1.0
                     }"###
                 );
+            },
+        );
+    }
+
+    // Regression for issue #280: Java enum bodies hold methods after
+    // the constants. The Npm body walker recognises
+    // `EnumBodyDeclarations` and treats it like `ClassBody`.
+    #[test]
+    fn java_enum_counts_methods() {
+        check_metrics::<JavaParser>(
+            "enum Status {
+                ACTIVE, INACTIVE;
+                public int code() { return 0; }     // +1 public
+                private void reset() {}             // not public
+            }",
+            "foo.java",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+            },
+        );
+    }
+
+    // Regression for issue #280: Java records can declare methods in
+    // their explicit body; they share `ClassBody`'s walker.
+    #[test]
+    fn java_record_counts_methods() {
+        check_metrics::<JavaParser>(
+            "record Point(int x, int y) {
+                public int sum() { return x + y; }
+                public Point() { this(0, 0); }
+            }",
+            "foo.java",
+            |metric| {
+                // `JavaCode::is_func` accepts both `MethodDeclaration`
+                // and `ConstructorDeclaration`, so the body contributes
+                // one method (`sum`) plus one explicit constructor
+                // (`Point()`) = 2 total, both annotated `public`.
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+            },
+        );
+    }
+
+    // Regression for issue #280: annotation type elements are
+    // implicitly abstract and public; they obey the same rule as
+    // interface methods.
+    #[test]
+    fn java_annotation_type_counts_elements() {
+        check_metrics::<JavaParser>(
+            "@interface Marker {
+                String value() default \"\";
+                int priority() default 0;
+            }",
+            "foo.java",
+            |metric| {
+                assert_eq!(metric.npm.interface_nm_sum(), 2.0);
+                assert_eq!(metric.npm.interface_npm_sum(), 2.0);
             },
         );
     }

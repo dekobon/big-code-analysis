@@ -610,10 +610,16 @@ impl Getter for JavaCode {
     fn get_space_kind(node: &Node) -> SpaceKind {
         use Java::*;
 
+        // `EnumDeclaration` and `RecordDeclaration` are class-like
+        // (they extend `Object`, hold fields, and can declare methods)
+        // so they share `SpaceKind::Class`. `AnnotationTypeDeclaration`
+        // implicitly extends `java.lang.annotation.Annotation` (an
+        // interface) and its elements are abstract methods at the
+        // bytecode level, so it maps to `SpaceKind::Interface`.
         match node.kind_id().into() {
-            ClassDeclaration => SpaceKind::Class,
+            ClassDeclaration | EnumDeclaration | RecordDeclaration => SpaceKind::Class,
             MethodDeclaration | ConstructorDeclaration | LambdaExpression => SpaceKind::Function,
-            InterfaceDeclaration => SpaceKind::Interface,
+            InterfaceDeclaration | AnnotationTypeDeclaration => SpaceKind::Interface,
             Program => SpaceKind::Unit,
             _ => SpaceKind::Unknown,
         }
@@ -1612,18 +1618,21 @@ impl Getter for RubyCode {
 impl Getter for GroovyCode {
     fn get_space_kind(node: &Node) -> SpaceKind {
         use Groovy::{
-            ClassDeclaration, Closure, ConstructorDeclaration, FunctionDefinition,
-            InterfaceDeclaration, LambdaExpression, MethodDeclaration, Program,
+            AnnotationTypeDeclaration, ClassDeclaration, Closure, ConstructorDeclaration,
+            EnumDeclaration, FunctionDefinition, InterfaceDeclaration, LambdaExpression,
+            MethodDeclaration, Program, RecordDeclaration,
         };
 
         // Mirrors `impl Getter for JavaCode::get_space_kind` exactly to keep
         // cross-language metric parity (lesson 11). Groovy-specific
         // additions over Java are `FunctionDefinition` (top-level `def`)
         // and `Closure` (Groovy block-with-arrow), both tagged as
-        // `Function` like Java's `LambdaExpression`.
+        // `Function` like Java's `LambdaExpression`. `EnumDeclaration`,
+        // `RecordDeclaration`, and `AnnotationTypeDeclaration` mirror
+        // Java's mapping (issue #280).
         match node.kind_id().into() {
-            ClassDeclaration => SpaceKind::Class,
-            InterfaceDeclaration => SpaceKind::Interface,
+            ClassDeclaration | EnumDeclaration | RecordDeclaration => SpaceKind::Class,
+            InterfaceDeclaration | AnnotationTypeDeclaration => SpaceKind::Interface,
             MethodDeclaration
             | ConstructorDeclaration
             | FunctionDefinition
