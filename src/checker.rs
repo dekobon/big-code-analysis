@@ -573,7 +573,14 @@ impl Checker for MozjsCode {
     }
 
     fn is_string(node: &Node) -> bool {
-        node.kind_id() == Mozjs::String || node.kind_id() == Mozjs::TemplateString
+        // `String2` is the anonymous `"string"` keyword alias that the
+        // tree-sitter-javascript grammar exposes alongside the primary
+        // `String` kind. The alterator already flattens it; the generic
+        // `string` filter must agree (issue #283).
+        matches!(
+            node.kind_id().into(),
+            Mozjs::String | Mozjs::String2 | Mozjs::TemplateString
+        )
     }
 
     #[inline]
@@ -630,7 +637,12 @@ impl Checker for JavascriptCode {
     }
 
     fn is_string(node: &Node) -> bool {
-        node.kind_id() == Javascript::String || node.kind_id() == Javascript::TemplateString
+        // See the MozJS `is_string` note: `String2` is the keyword alias
+        // (`"string"`) for the primary `String` kind (issue #283).
+        matches!(
+            node.kind_id().into(),
+            Javascript::String | Javascript::String2 | Javascript::TemplateString
+        )
     }
 
     #[inline]
@@ -686,7 +698,12 @@ impl Checker for TypescriptCode {
     }
 
     fn is_string(node: &Node) -> bool {
-        node.kind_id() == Typescript::String || node.kind_id() == Typescript::TemplateString
+        // See the MozJS `is_string` note: `String2` is the keyword alias
+        // (`"string"`) for the primary `String` kind (issue #283).
+        matches!(
+            node.kind_id().into(),
+            Typescript::String | Typescript::String2 | Typescript::TemplateString
+        )
     }
 
     #[inline]
@@ -746,7 +763,15 @@ impl Checker for TsxCode {
     }
 
     fn is_string(node: &Node) -> bool {
-        node.kind_id() == Tsx::String || node.kind_id() == Tsx::TemplateString
+        // TSX exposes two anonymous aliases for `"string"`: `String2`
+        // and `String3` (one is the type-annotation keyword, the other
+        // the JSX-attribute string production). The alterator already
+        // flattens both; the generic `string` filter must agree
+        // (issue #283).
+        matches!(
+            node.kind_id().into(),
+            Tsx::String | Tsx::String2 | Tsx::String3 | Tsx::TemplateString
+        )
     }
 
     fn is_else_if(node: &Node) -> bool {
@@ -1675,7 +1700,9 @@ impl Checker for GroovyCode {
 mod tests {
     use super::*;
     use crate::count::count;
-    use crate::langs::{BashParser, PhpParser};
+    use crate::langs::{
+        BashParser, JavascriptParser, MozjsParser, PhpParser, TsxParser, TypescriptParser,
+    };
     use std::path::PathBuf;
 
     fn parse(source: &str) -> BashParser {
@@ -1807,6 +1834,148 @@ mod tests {
         // (Php::String2) and the `'x'` literal (Php::String). Pre-fix
         // only the literal matched (count would be 1).
         assert_eq!(count_php_strings(src), 2);
+    }
+
+    // ===== JS-family `is_string` regression tests (issue #283) =====
+
+    // Walk the AST and return true iff any node has `kind_id == target`.
+    // Used to confirm an alias kind actually surfaces in a real parse
+    // before asserting it routes through `is_string`.
+    fn ast_has_kind_id<P: ParserTrait>(parser: &P, target: u16) -> bool {
+        let mut stack = vec![parser.get_root()];
+        while let Some(node) = stack.pop() {
+            if node.kind_id() == target {
+                return true;
+            }
+            for i in (0..node.child_count()).rev() {
+                if let Some(c) = node.child(i) {
+                    stack.push(c);
+                }
+            }
+        }
+        false
+    }
+
+    // For each language, count nodes whose kind_id is exactly `target`
+    // *and* simultaneously match `is_string`. A non-zero result proves
+    // both that the alias appears in the parse and that the checker
+    // accepts it. Pre-fix this would be zero for the alias kinds.
+    fn count_string_matches_for_kind<P: ParserTrait, F: Fn(&Node) -> bool>(
+        parser: &P,
+        target: u16,
+        is_string: F,
+    ) -> usize {
+        let mut stack = vec![parser.get_root()];
+        let mut hits = 0;
+        while let Some(node) = stack.pop() {
+            if node.kind_id() == target && is_string(&node) {
+                hits += 1;
+            }
+            for i in (0..node.child_count()).rev() {
+                if let Some(c) = node.child(i) {
+                    stack.push(c);
+                }
+            }
+        }
+        hits
+    }
+
+    #[test]
+    fn javascript_is_string_matches_string2_alias() {
+        // `Javascript::String2` (kind_id 221) aliases to `"string"`
+        // (see `language_javascript.rs`). The alterator already
+        // flattens it (#119); the generic `string` filter must agree
+        // (#283). Use a source mix that exercises both the primary
+        // `String` and the anonymous `String2` productions.
+        let src = "const a = 'single';\nconst b = \"double\";\nimport \"m\";\n";
+        let parser = JavascriptParser::new(src.as_bytes().to_vec(), &PathBuf::from("t.js"), None);
+        // First confirm String2 actually surfaces in this parse —
+        // otherwise the assertion below would be vacuously true.
+        assert!(
+            ast_has_kind_id(&parser, Javascript::String2 as u16),
+            "expected Javascript::String2 to appear in the parse",
+        );
+        // Then assert every String2 node matches is_string.
+        assert!(
+            count_string_matches_for_kind(
+                &parser,
+                Javascript::String2 as u16,
+                JavascriptCode::is_string,
+            ) > 0,
+            "Javascript::String2 nodes must match is_string",
+        );
+    }
+
+    #[test]
+    fn mozjs_is_string_matches_string2_alias() {
+        // Parallel coverage for the MozJS dialect; same `String2`
+        // alias as upstream JavaScript (kind_id 220 here).
+        let src = "const a = 'single';\nconst b = \"double\";\nimport \"m\";\n";
+        let parser = MozjsParser::new(src.as_bytes().to_vec(), &PathBuf::from("t.js"), None);
+        assert!(
+            ast_has_kind_id(&parser, Mozjs::String2 as u16),
+            "expected Mozjs::String2 to appear in the parse",
+        );
+        assert!(
+            count_string_matches_for_kind(&parser, Mozjs::String2 as u16, MozjsCode::is_string) > 0,
+            "Mozjs::String2 nodes must match is_string",
+        );
+    }
+
+    #[test]
+    fn typescript_is_string_matches_string2_alias() {
+        // TypeScript exposes both the primary `String` literal and
+        // a `String2` alias (kind_id 135). The latter sits among the
+        // type-keyword tokens in the enum, so a `: string` annotation
+        // is a reliable producer.
+        let src = "const a: string = 'x';\nfunction f(): string { return 'y'; }\n";
+        let parser = TypescriptParser::new(src.as_bytes().to_vec(), &PathBuf::from("t.ts"), None);
+        assert!(
+            ast_has_kind_id(&parser, Typescript::String2 as u16),
+            "expected Typescript::String2 to appear in the parse",
+        );
+        assert!(
+            count_string_matches_for_kind(
+                &parser,
+                Typescript::String2 as u16,
+                TypescriptCode::is_string,
+            ) > 0,
+            "Typescript::String2 nodes must match is_string",
+        );
+    }
+
+    #[test]
+    fn tsx_is_string_matches_string2_and_string3_aliases() {
+        // TSX uniquely carries two anonymous `"string"` aliases:
+        // `String3` (kind_id 141, the type-annotation keyword) and
+        // `String2` (kind_id 261). Both must appear in this fixture:
+        // the `: string` annotation produces `String3`, and the
+        // `'x'` / `"y"` / `"m"` / `"c"` literals produce `String2`.
+        // Asserting presence of both *before* checking `is_string`
+        // ensures a future grammar bump that stops emitting either
+        // alias fails loudly here rather than silently dropping
+        // coverage (which would invalidate the regression for #283).
+        let src = "const a: string = 'x';\n\
+                   const b = \"y\";\n\
+                   import \"m\";\n\
+                   const el = <div className=\"c\">{\"t\"}</div>;\n";
+        let parser = TsxParser::new(src.as_bytes().to_vec(), &PathBuf::from("t.tsx"), None);
+        assert!(
+            ast_has_kind_id(&parser, Tsx::String3 as u16),
+            "expected Tsx::String3 (type-keyword `string`) in the parse",
+        );
+        assert!(
+            ast_has_kind_id(&parser, Tsx::String2 as u16),
+            "expected Tsx::String2 (string-literal alias) in the parse",
+        );
+        assert!(
+            count_string_matches_for_kind(&parser, Tsx::String3 as u16, TsxCode::is_string) > 0,
+            "Tsx::String3 nodes must match is_string",
+        );
+        assert!(
+            count_string_matches_for_kind(&parser, Tsx::String2 as u16, TsxCode::is_string) > 0,
+            "Tsx::String2 nodes must match is_string",
+        );
     }
 
     // Walk the AST and return the first node whose `kind_id` equals
