@@ -675,6 +675,40 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Fixed
 
+- `bca-web` now re-checks the orphaned-task cap after acquiring a
+  semaphore permit, closing a race where a burst of queued requests
+  could all pass the pre-admission check while the orphan counter
+  was still low, then drain the semaphore one at a time and each
+  spawn another `spawn_blocking` task — growing the orphan pool
+  past `BCA_MAX_ORPHANED_TASKS` and defeating the configured cap.
+  The fast-path check is retained as a cheap rejection before the
+  semaphore wait, but the post-admission re-check is now the hard
+  gate. Counter updates use `Acquire`/`Release` ordering so admitted
+  requests observe orphan counts published by any prior orphaning
+  task ([#291](https://github.com/dekobon/big-code-analysis/issues/291)).
+- In-source suppression markers (`bca: suppress`, `bca: suppress(metric,
+  ...)`, and the `#lizard forgives` compat form) now attach to the
+  syntactically enclosing function rather than to whichever function's
+  line range covered the comment's source line. The previous resolver
+  matched on `start_line..=end_line` and picked the first hit by source
+  order, which silently attached a marker to the wrong sibling whenever
+  two single-line functions shared a row (e.g.
+  `int a(){...} int b(){/*bca: suppress*/...}` attached to `a`). The
+  walker now applies markers inline against the active state stack at
+  the comment node so the topmost `SpaceKind::Function` frame — the
+  only function the grammar nested the comment inside — wins. A
+  user-visible side effect: a marker on the closing-brace line but
+  *outside* the function body (a sibling of `function_definition`, not
+  a child of it) no longer attaches; previously the line-range match
+  would have caught it
+  ([#289](https://github.com/dekobon/big-code-analysis/issues/289)).
+- Suppression attachment is now O(stack depth) per marker on the
+  iterative walker stack instead of recursing once per nested
+  `FuncSpace` on the Rust call stack. The pre-fix
+  `attach_function_suppression` helper overflowed the default 8 MiB
+  thread stack on inputs with ~1000-deep nested functions; the
+  iterative replacement scales to arbitrary nesting
+  ([#292](https://github.com/dekobon/big-code-analysis/issues/292)).
 - `bca find <NODE>` and `bca count <NODE_TYPE>` now match node kinds
   exactly. Unknown filters that were not a hardcoded keyword
   (`all`/`call`/`comment`/`error`/`string`/`function`) or numeric
