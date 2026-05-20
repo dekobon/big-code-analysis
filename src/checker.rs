@@ -149,6 +149,26 @@ pub trait Checker {
     fn should_skip_subtree(_node: &Node, _code: &[u8]) -> bool {
         false
     }
+
+    /// Source-aware variant of [`is_func_space`]. The default forwards
+    /// to the byte-less predicate so languages whose function-space
+    /// classification is encoded in distinct grammar productions (Java,
+    /// Rust, Python, …) need no override. Languages whose function
+    /// boundaries are macro-shaped — Elixir's `def` / `defp` /
+    /// `defmacro` / `defmacrop` / `defmodule` — override this to
+    /// disambiguate `Call` nodes by their target identifier text
+    /// (#275).
+    #[inline]
+    fn is_func_space_with_code(node: &Node, _code: &[u8]) -> bool {
+        Self::is_func_space(node)
+    }
+
+    /// Source-aware variant of [`is_func`]. Same rationale as
+    /// [`is_func_space_with_code`] (#275).
+    #[inline]
+    fn is_func_with_code(node: &Node, _code: &[u8]) -> bool {
+        Self::is_func(node)
+    }
 }
 
 impl Checker for PreprocCode {
@@ -1542,12 +1562,18 @@ impl Checker for ElixirCode {
         false
     }
 
-    // Elixir has no syntactic function-definition node: `def`/`defp` are
-    // ordinary `Call` nodes with the macro identifier in the `target`
-    // field. Distinguishing them would require source-text inspection at
-    // every `is_func_space` call, which the trait does not support, so
-    // we treat the file root and explicit anonymous functions as the
-    // only function spaces.
+    // Elixir has no syntactic function-definition node: `def`/`defp` /
+    // `defmacro`/`defmacrop` / `defmodule` are ordinary `Call` nodes
+    // with the macro identifier in the `target` field. The byte-less
+    // [`is_func_space`] and [`is_func`] cannot distinguish them from
+    // any other `Call`, so they conservatively return zero (only the
+    // file root and explicit anonymous functions surface as func
+    // spaces). The text-aware [`is_func_space_with_code`] /
+    // [`is_func_with_code`] overrides below promote the macro-shaped
+    // declarations to first-class function / class spaces (#275). The
+    // walker passes the source bytes through, so the metrics
+    // attributed to a `def`'s body now correctly nest under a Function
+    // space and `Wmc` / `Npm` / `Npa` see a `defmodule` Class.
     fn is_func_space(node: &Node) -> bool {
         matches!(
             node.kind_id().into(),
@@ -1557,6 +1583,22 @@ impl Checker for ElixirCode {
 
     fn is_func(_: &Node) -> bool {
         false
+    }
+
+    fn is_func_space_with_code(node: &Node, code: &[u8]) -> bool {
+        use crate::metrics::cognitive::{
+            elixir_call_keyword, elixir_is_class_macro, elixir_is_method_macro,
+        };
+        if Self::is_func_space(node) {
+            return true;
+        }
+        elixir_call_keyword(node, code)
+            .is_some_and(|kw| elixir_is_method_macro(kw) || elixir_is_class_macro(kw))
+    }
+
+    fn is_func_with_code(node: &Node, code: &[u8]) -> bool {
+        use crate::metrics::cognitive::{elixir_call_keyword, elixir_is_method_macro};
+        elixir_call_keyword(node, code).is_some_and(elixir_is_method_macro)
     }
 
     fn is_closure(node: &Node) -> bool {

@@ -1178,6 +1178,36 @@ pub(crate) fn elixir_call_keyword<'a>(node: &'a Node<'a>, code: &'a [u8]) -> Opt
     target.utf8_text(code)
 }
 
+// Method-defining macros (`def`, `defp`, `defmacro`, `defmacrop`). The set
+// is duplicated across checker, getter, and several metric impls
+// because each consults it from a different trait surface; centralising
+// the literal here keeps future additions (e.g. `defguard`) consistent.
+#[inline]
+pub(crate) fn elixir_is_method_macro(kw: &str) -> bool {
+    matches!(kw, "def" | "defp" | "defmacro" | "defmacrop")
+}
+
+// Class-defining macro (`defmodule`). Paired with [`elixir_is_method_macro`]
+// where a caller needs both ("any space-opening declaration").
+#[inline]
+pub(crate) fn elixir_is_class_macro(kw: &str) -> bool {
+    kw == "defmodule"
+}
+
+// Iterates the direct-child `Call` nodes inside the `do_block` of an
+// Elixir Call (typically a `defmodule`). Used by `Npm` / `Npa` to scan
+// a module body for method-defining macros / `defstruct` without
+// descending into nested modules. Yields no items when the Call has
+// no `do_block`.
+pub(crate) fn elixir_do_block_call_children<'a>(
+    node: &'a Node<'a>,
+) -> impl Iterator<Item = Node<'a>> + 'a {
+    node.children()
+        .filter(|child| child.kind_id() == Elixir::DoBlock as u16)
+        .flat_map(|do_block| do_block.children())
+        .filter(|stmt| stmt.kind_id() == Elixir::Call as u16)
+}
+
 impl Cognitive for ElixirCode {
     // Elixir control flow is macro-shaped: `if`, `unless`, `case`,
     // `cond`, `with`, `for`, `while`, and `try` each surface as a
@@ -1233,7 +1263,7 @@ impl Cognitive for ElixirCode {
                 // +nesting via `RescueBlock` / `CatchBlock`). Adding the
                 // `try` itself would double-count, matching Java /
                 // C#'s "try is a wrapper, only catch counts" rule.
-                Some("def" | "defp" | "defmacro" | "defmacrop") => {
+                Some(kw) if elixir_is_method_macro(kw) => {
                     // Method-defining macros reset nesting at the
                     // function boundary, mirroring Bash's
                     // `FunctionDefinition` rule. We deliberately do

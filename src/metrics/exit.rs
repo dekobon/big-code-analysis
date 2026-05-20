@@ -1782,13 +1782,14 @@ end",
                 assert_eq!(metric.nexits.exit_sum(), 3.0);
                 insta::assert_json_snapshot!(
                     metric.nexits,
-                    @r###"
+                    @r#"
                 {
                   "sum": 3.0,
                   "average": null,
-                  "min": 3.0,
+                  "min": 0.0,
                   "max": 3.0
-                }"###
+                }
+                "#
                 );
             },
         );

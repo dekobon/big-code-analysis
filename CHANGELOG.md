@@ -459,6 +459,27 @@ why no value stability is offered until `1.0`. Entries above the
   `space.suppressed.is_empty()` assertion catches a regression
   where a function-scoped marker bubbles up to file scope
   ([#308](https://github.com/dekobon/big-code-analysis/issues/308)).
+- Elixir `Wmc` / `Npm` / `Npa` now classify `def` / `defp` /
+  `defmacro` / `defmacrop` calls inside `defmodule` blocks as
+  methods and `defstruct` argument lists as attribute fields,
+  instead of pinning each metric to zero on ordinary Elixir module
+  code. The trait surface gains source-aware predicates
+  (`Checker::is_func_space_with_code`, `Checker::is_func_with_code`,
+  `Getter::get_space_kind_with_code`) with default-forwarding impls
+  so non-Elixir languages need no override, and the walker threads
+  the source bytes through to let the Elixir `Checker` disambiguate
+  macro-shaped `Call` nodes by their target identifier text. `def`
+  and `defmacro` are public (count in `class_nm_sum`); `defp` and
+  `defmacrop` are private (counted in `class_wmc_sum` but not
+  `class_nm_sum`, matching Java's npm semantics); a user-defined
+  macro called `custom_def` is **not** misclassified as a method
+  because the dispatch matches the literal target lexeme.
+  Snapshot averages / min / max shifted across 16 Elixir snapshot
+  files as the new Function / Class spaces changed the denominator
+  (sums and decision-point counts are unchanged), and 10
+  cyclomatic Elixir tests had their totals bumped by +2 from the
+  `Stats::default()` entry seeds on the new spaces
+  ([#275](https://github.com/dekobon/big-code-analysis/issues/275)).
 - **(library API, breaking)** `LANG::get_tree_sitter_language`
   returns `Result<tree_sitter::Language, MetricsError>` instead of
   `tree_sitter::Language` directly. Feature-gated builds need a

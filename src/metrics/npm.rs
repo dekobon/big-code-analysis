@@ -904,6 +904,50 @@ impl Npm for MozjsCode {
     js_npm_compute!(Mozjs);
 }
 
+// Elixir Npm (#275). The defmodule Call opens a Class space via
+// source-aware Checker dispatch. When we enter that Class space we
+// scan its `do_block` body for direct-child `def`/`defp`/`defmacro`/
+// `defmacrop` Calls and tally them. `def` and `defmacro` are public
+// (Elixir's default — only `defp` / `defmacrop` are private and
+// scoped to the module). This mirrors the Java InterfaceBody /
+// ClassBody pattern but unrolled because Elixir lacks a dedicated
+// "class body" grammar production.
+impl Npm for ElixirCode {
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+        use crate::metrics::cognitive::{elixir_call_keyword, elixir_do_block_call_children};
+
+        if !stats.is_disabled() || !Self::is_func_space_with_code(node, code) {
+            return;
+        }
+        // The space-opening node for a `defmodule` Call is the node
+        // itself, so this triggers exactly once per Class.
+        if !matches!(elixir_call_keyword(node, code), Some("defmodule")) {
+            return;
+        }
+
+        stats.is_class_space = true;
+
+        // Direct-child method Calls of the module's do_block. We do
+        // not descend deeper — methods nested inside another
+        // `defmodule` are attributed to that inner module via its own
+        // pass.
+        for stmt in elixir_do_block_call_children(node) {
+            match elixir_call_keyword(&stmt, code) {
+                Some("def" | "defmacro") => {
+                    stats.class_nm += 1;
+                    stats.class_npm += 1;
+                }
+                // `defp` / `defmacrop` are methods but not public, so
+                // they bump `class_nm` only.
+                Some("defp" | "defmacrop") => {
+                    stats.class_nm += 1;
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
 // Default no-op `Npm` impls. Audited in #188. See the rationale block
 // on `implement_metric_trait!(Npa, …)` in `src/metrics/npa.rs` — Npm
 // classification mirrors Npa one-for-one (same set of "has classes?"
@@ -916,8 +960,7 @@ implement_metric_trait!(
     PerlCode,
     BashCode,
     LuaCode,
-    TclCode,
-    ElixirCode
+    TclCode
 );
 
 #[cfg(test)]
@@ -3284,29 +3327,75 @@ class C {
 
     // ----- Elixir -----
 
+    // Issue #275: Elixir `def` is public, `defp` is private. All
+    // count toward `class_nm`; only the public ones bump `class_npm`.
     #[test]
-    fn elixir_npm_is_zero_documented_limitation() {
-        // Elixir's closest analog to a "class method" is `def` /
-        // `defp` inside a `defmodule`. Both surface as `Call` nodes
-        // with a macro identifier in the `target` field — they are
-        // NOT distinct grammar productions. The `Npm` trait signature
-        // receives no source bytes, so identifying a Call as `def`
-        // / `defp` rather than any other macro is not possible from
-        // the trait's inputs.
-        //
-        // A correct Elixir Npm impl would either need (a) the trait
-        // signature to gain `&[u8]` like `Cognitive` / `Abc` did
-        // here, or (b) a Checker-level helper that pre-tags `def` /
-        // `defp` Calls. Both are cross-cutting changes out of scope
-        // for this fix; the metric stays at zero with a documented
-        // reason. This test pins the documented omission.
+    fn elixir_npm_def_is_public_defp_is_private() {
         check_metrics::<ElixirParser>(
             "defmodule Foo do\n  def pub_one, do: 1\n  defp priv_one, do: 1\n  def pub_two(x), do: x\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.npm.class_nm_sum(), 0.0);
-                assert_eq!(metric.npm.class_npm_sum(), 0.0);
-                insta::assert_json_snapshot!(metric.npm);
+                // 3 methods, 2 public.
+                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_npm_defmacro_counts_as_public() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  defmacro pub_macro(x), do: x\n  defmacrop priv_macro(x), do: x\nend\n",
+            "foo.ex",
+            |metric| {
+                // defmacro = public method, defmacrop = private method.
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_npm_multiple_def_clauses_each_count() {
+        // Pattern-match clauses each form their own method head.
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(0), do: :zero\n  def f(_), do: :other\nend\n",
+            "foo.ex",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_npm_nested_defmodule_each_class() {
+        check_metrics::<ElixirParser>(
+            "defmodule Outer do\n  def o, do: 1\n  defmodule Inner do\n    def i, do: 1\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                // Two classes, one public method each.
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_npm_user_macro_not_classified_as_method() {
+        // User-defined `custom_def` is a defmacro (counts) but its
+        // invocation `custom_def foo, do: ...` must NOT be classified
+        // as a method.
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  defmacro custom_def(name, body) do\n    quote do\n      def unquote(name), do: unquote(body)\n    end\n  end\n  custom_def foo, do: 1\nend\n",
+            "foo.ex",
+            |metric| {
+                // Only `defmacro custom_def` is a method of Foo (the
+                // inner `def unquote(name)` is wrapped in `quote` so
+                // it does not lexically appear as a direct child of
+                // the defmodule do_block).
+                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
             },
         );
     }

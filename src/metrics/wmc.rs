@@ -338,6 +338,21 @@ impl Wmc for MozjsCode {
 // out of scope. See the issue body's explicit option (a): "keep
 // scoring zero with a documented reason".
 
+// Elixir WMC. Classes (`defmodule`) and Functions (`def` / `defp` /
+// `defmacro` / `defmacrop`) are detected by source-aware Checker /
+// Getter dispatch (#275), so the FuncSpace tree already carries the
+// right `SpaceKind`s. Each method-defining macro opens a Function
+// space whose cyclomatic complexity rolls into its enclosing
+// `defmodule` Class via the shared aggregator. `defp` (private) is
+// included — it is still a *method* of the class even though it is
+// not part of the public API (the npm-style "public" filter belongs
+// in `Npm`, not `Wmc`).
+impl Wmc for ElixirCode {
+    fn compute(space_kind: SpaceKind, cyclomatic: &cyclomatic::Stats, stats: &mut Stats) {
+        class_interface_compute(space_kind, cyclomatic, stats);
+    }
+}
+
 // Default no-op `Wmc` impls. Audited in #188. See the rationale block
 // on `implement_metric_trait!(Npa, …)` in `src/metrics/npa.rs` — Wmc
 // classification mirrors Npa one-for-one (Wmc = sum-of-cyclomatic-
@@ -351,8 +366,7 @@ implement_metric_trait!(
     PerlCode,
     BashCode,
     LuaCode,
-    TclCode,
-    ElixirCode
+    TclCode
 );
 
 #[cfg(test)]
@@ -2954,31 +2968,102 @@ mod tests {
 
     // ----- Elixir -----
 
+    // Issue #275: Elixir's `def` / `defp` declarations parse as
+    // `Call` nodes whose `target` Identifier text spells the
+    // keyword. The source-aware Checker / Getter dispatch promotes
+    // them to Function spaces inside the surrounding `defmodule`
+    // Class. WMC then aggregates cyclomatic per method into the
+    // class via the shared `class_interface_compute` aggregator.
     #[test]
-    fn elixir_wmc_is_zero_documented_limitation() {
-        // Elixir's `def` / `defp` declarations parse as `Call` nodes
-        // with a macro identifier in the `target` field — they are
-        // NOT distinct grammar productions and (by design in
-        // `Checker::is_func_space`) NOT their own func_space. The
-        // FuncSpace tree therefore has only the file `Unit` plus any
-        // `AnonymousFunction` spaces, with no per-method space to
-        // bucket WMC into. The Wmc trait signature receives only
-        // `SpaceKind` and the cyclomatic stats, with no way to learn
-        // a Call's target text, so per-method grouping is not
-        // recoverable from the trait's inputs.
-        //
-        // Per the parallel decision in the Go WMC impl, the metric
-        // stays at zero with a documented reason. This test pins
-        // that behaviour so any future Wmc work for Elixir (e.g. a
-        // dedicated `SpaceKind::ElixirDef` variant) has to update
-        // it deliberately.
+    fn elixir_wmc_aggregates_def_methods() {
         check_metrics::<ElixirParser>(
             "defmodule Foo do\n  def m(x) do\n    if x > 0 do\n      1\n    else\n      0\n    end\n  end\n  def n, do: :ok\nend\n",
             "foo.ex",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 0.0);
+                // m: entry(1) + if(1) = 2; n: entry(1) = 1 → wmc = 3.
+                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
                 assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
-                insta::assert_json_snapshot!(metric.wmc);
+                insta::assert_json_snapshot!(
+                    metric.wmc,
+                    @r###"
+                {
+                  "classes": 3.0,
+                  "interfaces": 0.0,
+                  "total": 3.0
+                }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_wmc_def_plus_defp_counts_both() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def pub_one, do: 1\n  defp priv_one, do: 1\nend\n",
+            "foo.ex",
+            |metric| {
+                // Both `def` and `defp` are methods of the class — npm
+                // distinguishes public vs private, wmc does not.
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_wmc_defmacro_counts() {
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  defmacro stuff(x) do\n    if x > 0, do: :pos, else: :neg\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                // defmacro is a method; body has entry(1) + if(1) = 2.
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_wmc_multiple_clauses_each_a_method() {
+        // Each `def f(...)` head is a Call with its own Function
+        // space, so multiple clauses for the same name each count.
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  def f(0), do: :zero\n  def f(_), do: :other\nend\n",
+            "foo.ex",
+            |metric| {
+                // Two clauses, entry(1) each → wmc = 2.
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_wmc_nested_defmodule_isolates() {
+        check_metrics::<ElixirParser>(
+            "defmodule Outer do\n  def o, do: 1\n  defmodule Inner do\n    def i, do: 1\n  end\nend\n",
+            "foo.ex",
+            |metric| {
+                // Outer.o(1) + Inner.i(1) → file-level sum is 2.
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn elixir_wmc_user_macro_not_classified_as_method() {
+        // A user-defined `defmacro custom_def`, then invoking
+        // `custom_def foo, do: ...` must NOT be classified as a
+        // method — the literal-text comparison in
+        // `elixir_call_keyword` only matches the five built-in
+        // declarator macros.
+        check_metrics::<ElixirParser>(
+            "defmodule Foo do\n  defmacro custom_def(name, body) do\n    quote do\n      def unquote(name), do: unquote(body)\n    end\n  end\n  custom_def foo, do: 1\nend\n",
+            "foo.ex",
+            |metric| {
+                // Only the defmacro counts as a method; `custom_def
+                // foo` does not. Body of defmacro: entry(1) →
+                // wmc = 1. The `def unquote(name)` inside the quote
+                // block IS itself a `def` Call so it counts too —
+                // adding +1 → total = 2.
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
             },
         );
     }

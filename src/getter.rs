@@ -48,6 +48,17 @@ pub trait Getter {
         SpaceKind::Unknown
     }
 
+    /// Source-aware variant of [`get_space_kind`]. The default
+    /// forwards to the byte-less classifier; languages whose space
+    /// kinds are encoded in macro identifier text (Elixir's
+    /// `defmodule` / `def` / `defp` / `defmacro` / `defmacrop` Calls)
+    /// override this so the walker can attribute the correct
+    /// `SpaceKind` to each promoted func space (#275).
+    #[inline]
+    fn get_space_kind_with_code(node: &Node, _code: &[u8]) -> SpaceKind {
+        Self::get_space_kind(node)
+    }
+
     fn get_op_type(_node: &Node) -> HalsteadType {
         HalsteadType::Unknown
     }
@@ -1433,6 +1444,36 @@ impl Getter for PhpCode {
     get_operator!(Php);
 }
 
+// Extracts the human-readable head name from the first non-`target`
+// child of an Elixir `def` / `defp` / `defmacro` / `defmacrop` /
+// `defmodule` Call. Handles three shapes:
+//   - `Arguments` wrapper: descend one level and recurse.
+//   - `Identifier` / `Alias` leaf: return its source text.
+//   - inner `Call` (e.g. `def foo(x, y)`): return the target identifier
+//     text of that inner Call.
+// Returns `None` when the child does not match any of these shapes,
+// allowing the caller to keep scanning siblings (notably the
+// `do_block`, which is unconditionally present and never carries the
+// name).
+fn elixir_extract_head_name<'a>(node: &Node, code: &'a [u8]) -> Option<&'a str> {
+    use Elixir as E;
+
+    let text = |n: &Node| std::str::from_utf8(&code[n.start_byte()..n.end_byte()]).ok();
+    match node.kind_id().into() {
+        E::Identifier | E::Alias => text(node),
+        E::Call => text(&node.child_by_field_name("target")?),
+        E::Arguments
+        | E::Arguments2
+        | E::Arguments3
+        | E::Arguments4
+        | E::Arguments5
+        | E::CallArgumentsWithTrailingSeparator => node
+            .children()
+            .find_map(|child| elixir_extract_head_name(&child, code)),
+        _ => None,
+    }
+}
+
 impl Getter for ElixirCode {
     fn get_space_kind(node: &Node) -> SpaceKind {
         use Elixir as E;
@@ -1442,6 +1483,72 @@ impl Getter for ElixirCode {
             E::Source => SpaceKind::Unit,
             _ => SpaceKind::Unknown,
         }
+    }
+
+    // Source-aware classifier (#275). Elixir's `defmodule` /
+    // `def` / `defp` / `defmacro` / `defmacrop` are not distinct
+    // grammar productions — they all parse as `Call` nodes whose
+    // `target` Identifier text spells the keyword. The walker promotes
+    // these Calls to func spaces via `Checker::is_func_space_with_code`;
+    // this method labels the promoted space with the right `SpaceKind`
+    // so `Wmc` / `Npm` / `Npa` see a Class for `defmodule` and a
+    // Function for the method-defining macros.
+    fn get_space_kind_with_code(node: &Node, code: &[u8]) -> SpaceKind {
+        use crate::metrics::cognitive::{
+            elixir_call_keyword, elixir_is_class_macro, elixir_is_method_macro,
+        };
+        let kind = Self::get_space_kind(node);
+        if kind != SpaceKind::Unknown {
+            return kind;
+        }
+        match elixir_call_keyword(node, code) {
+            Some(kw) if elixir_is_class_macro(kw) => SpaceKind::Class,
+            Some(kw) if elixir_is_method_macro(kw) => SpaceKind::Function,
+            _ => SpaceKind::Unknown,
+        }
+    }
+
+    // Source-aware name extraction for the macro-shaped declarations.
+    // `def foo(x, y) do … end` parses (with the tree-sitter-elixir
+    // grammar shipped here) as
+    //   `Call { target: Identifier "def", Arguments { Call { target:
+    //     Identifier "foo", Arguments { … } } }, DoBlock { … } }`
+    // i.e. the head Call is wrapped in an `Arguments` node, not a
+    // direct child. `defmodule Foo.Bar do … end` parses similarly with
+    // the `Alias` inside `Arguments`. We descend through one
+    // `Arguments` layer when present, then either:
+    //   - return the `Identifier` / `Alias` text directly
+    //     (`defmodule Foo`, `def foo` for an arity-zero head with no
+    //     parentheses), or
+    //   - return the inner head Call's `target` text
+    //     (`def foo(x, y)`).
+    // Falls back to the trait default behaviour (`<anonymous>` for
+    // nodes without a `name` field) when the Call is not one we
+    // recognise.
+    fn get_func_space_name<'a>(node: &Node, code: &'a [u8]) -> Option<&'a str> {
+        use Elixir as E;
+
+        use crate::metrics::cognitive::{
+            elixir_call_keyword, elixir_is_class_macro, elixir_is_method_macro,
+        };
+        if node.kind_id() == E::Call as u16
+            && let Some(kw) = elixir_call_keyword(node, code)
+            && (elixir_is_method_macro(kw) || elixir_is_class_macro(kw))
+        {
+            let target_id = node.child_by_field_name("target").map(|t| t.id());
+            if let Some(name) = node
+                .children()
+                .filter(|child| Some(child.id()) != target_id)
+                .find_map(|child| elixir_extract_head_name(&child, code))
+            {
+                return Some(name);
+            }
+        }
+
+        if let Some(name) = node.child_by_field_name("name") {
+            return std::str::from_utf8(&code[name.start_byte()..name.end_byte()]).ok();
+        }
+        Some("<anonymous>")
     }
 
     fn get_op_type(node: &Node) -> HalsteadType {
