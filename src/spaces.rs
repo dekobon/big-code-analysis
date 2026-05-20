@@ -2097,6 +2097,29 @@ fn t() { let _x = 1; }
             assert_eq!(pruned.metrics.nom.functions_sum() as usize, 1);
         }
 
+        // Regression for #278. `test` was previously required to be
+        // the first operand of `all(...)` / `any(...)`; forms like
+        // `cfg(all(unix, test))` and `cfg(any(feature = "x", test))`
+        // were silently kept. Baseline anchored at 3 (prod + two
+        // gated fns) so a grammar regression cannot satisfy the test
+        // without pruning doing real work.
+        #[test]
+        fn cfg_with_test_not_first_is_elided() {
+            let source = "\
+fn prod() -> i32 { 1 }
+
+#[cfg(all(unix, test))]
+fn unix_only_test() { let _x = 1; }
+
+#[cfg(any(feature = \"slow\", test))]
+fn slow_or_test() { let _x = 2; }
+";
+            let baseline = analyse(source, false);
+            let pruned = analyse(source, true);
+            assert_eq!(baseline.metrics.nom.functions_sum() as usize, 3);
+            assert_eq!(pruned.metrics.nom.functions_sum() as usize, 1);
+        }
+
         // Negative coverage: attribute shapes that look like "test"
         // but must NOT trigger pruning. Production code marked with
         // `#[cfg(not(test))]`, a feature flag named "test", or a
@@ -2113,11 +2136,16 @@ fn behind_test_feature() -> i32 { 2 }
 
 #[my_crate::test_helper]
 fn decorated_helper() -> i32 { 3 }
+
+#[cfg(all(unix, not(test)))]
+fn unix_prod_only() -> i32 { 4 }
 ";
             let pruned = analyse(source, true);
-            // None of the three attributes mark test-only code.
-            // All three functions must survive.
-            assert_eq!(pruned.metrics.nom.functions_sum() as usize, 3);
+            // None of the four attributes mark test-only code.
+            // All four functions must survive — particularly the
+            // last one, which combines `not(test)` with another
+            // operand (regression sibling to #278).
+            assert_eq!(pruned.metrics.nom.functions_sum() as usize, 4);
         }
 
         // Inner attribute on a module: `mod tests { #![cfg(test)] ... }`
