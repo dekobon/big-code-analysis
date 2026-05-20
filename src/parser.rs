@@ -202,10 +202,13 @@ impl<
                     if let Ok(n) = f.parse::<u16>() {
                         res.push(Box::new(move |node: &Node| -> bool { node.kind_id() == n }));
                     } else {
+                        // Exact match on `node.kind()` — the CLI documents
+                        // `find <NODE>` / `count <NODE_TYPE>` as searching
+                        // for a specific node type, not a substring (see
+                        // big-code-analysis-book/src/commands/nodes.md and
+                        // issue #293).
                         let f = f.to_owned();
-                        res.push(Box::new(move |node: &Node| -> bool {
-                            node.kind().contains(&f)
-                        }));
+                        res.push(Box::new(move |node: &Node| -> bool { node.kind() == f }));
                     }
                 }
             }
@@ -272,5 +275,62 @@ impl<
     #[must_use]
     pub fn get_ts_tree(&self) -> &tree_sitter::Tree {
         self.tree.as_ts_tree()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::count::count;
+    use crate::langs::PythonParser;
+    use crate::traits::ParserTrait;
+    use std::path::PathBuf;
+
+    fn parse_python(source: &str) -> PythonParser {
+        PythonParser::new(source.as_bytes().to_vec(), &PathBuf::from("t.py"), None)
+    }
+
+    fn count_kind(source: &str, filter: &str) -> usize {
+        count(&parse_python(source), &[filter.to_string()]).0
+    }
+
+    // Regression for #293: a named filter that is not a hardcoded
+    // keyword (`all`/`call`/`comment`/`error`/`string`/`function`) and
+    // not a numeric `kind_id` must match `node.kind()` exactly, not via
+    // substring containment.
+
+    #[test]
+    fn get_filters_exact_match_hits_named_kind() {
+        // Python's `if`/`elif`/`else` clauses each appear as their own
+        // `if_statement` / `elif_clause` / `else_clause` nodes. Filter
+        // `if_statement` should match exactly one node here.
+        let src = "if x:\n    pass\nelif y:\n    pass\nelse:\n    pass\n";
+        assert_eq!(count_kind(src, "if_statement"), 1);
+    }
+
+    #[test]
+    fn get_filters_no_substring_match() {
+        // Filter `expression` must not match `expression_statement`,
+        // `binary_expression`, etc. Under the old substring behaviour
+        // every expression-bearing node would count; under exact-match
+        // there is no node literally named `expression` in this source.
+        let src = "x = 1 + 2\ny = foo(3)\n";
+        assert_eq!(
+            count_kind(src, "expression"),
+            0,
+            "exact match must not collapse all *_expression kinds"
+        );
+        // Sanity: `assignment` is a real node kind in tree-sitter-python
+        // and matches exactly twice (one per statement).
+        assert_eq!(count_kind(src, "assignment"), 2);
+    }
+
+    #[test]
+    fn get_filters_unknown_kind_returns_empty() {
+        // A filter that names no real node kind matches nothing — the
+        // previous substring behaviour would still return 0 here, but
+        // pinning it guards against a future regression that re-enables
+        // fuzzy matching.
+        let src = "x = 1\n";
+        assert_eq!(count_kind(src, "definitely_not_a_python_kind"), 0);
     }
 }

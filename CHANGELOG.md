@@ -675,6 +675,15 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Fixed
 
+- `bca find <NODE>` and `bca count <NODE_TYPE>` now match node kinds
+  exactly. Unknown filters that were not a hardcoded keyword
+  (`all`/`call`/`comment`/`error`/`string`/`function`) or numeric
+  `kind_id` previously fell through to `node.kind().contains(&f)`,
+  so a filter like `expression` collapsed `binary_expression`,
+  `parenthesized_expression`, `expression_statement`, etc. into one
+  bucket — contradicting the CLI documentation, which describes both
+  verbs as searching for *a specific node type*
+  ([#293](https://github.com/dekobon/big-code-analysis/issues/293)).
 - `Cyclomatic` now counts the compound short-circuit assignment
   operators `&&=` and `||=` in JavaScript / TypeScript / TSX /
   Mozjs, matching the existing `??=` handling and the cognitive
