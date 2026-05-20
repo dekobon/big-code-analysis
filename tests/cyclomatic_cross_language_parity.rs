@@ -715,3 +715,188 @@ function f($x) {
     let offsets = BTreeMap::from([("java", JAVA_CLASS_OFFSET), ("csharp", JAVA_CLASS_OFFSET)]);
     assert_parity("two_arm_switch_with_wildcard", &sums, &offsets);
 }
+
+// --- Family 6: do-while loop ---------------------------------------------
+//
+// A single `do { … } while (cond)` loop must contribute exactly one
+// decision point in every language that exposes the construct. In the
+// C-family cyclomatic impls this fires via the inner `while` keyword
+// token (`Cpp::While`, `Java::While`, `Groovy::While`), which is the
+// same token used for a standalone `while` loop — listing the
+// `DoStatement` node itself would double-count (regression for issue
+// #284's incorrect fix proposal).
+//
+// Per-language post-offset expectation: unit(1) + fn(1) + do(1) = 3.
+
+#[test]
+fn do_while_loop_parity() {
+    let mut sums = BTreeMap::new();
+    sums.insert(
+        "c",
+        ccn_sum(
+            LANG::Cpp,
+            r"void f() {
+    int i = 0;
+    do {
+        ++i;
+    } while (i < 10);
+}
+",
+            "c",
+        ),
+    );
+    sums.insert(
+        "java",
+        ccn_sum(
+            LANG::Java,
+            r"class Parity {
+    static void f() {
+        int i = 0;
+        do {
+            ++i;
+        } while (i < 10);
+    }
+}
+",
+            "java",
+        ),
+    );
+    sums.insert(
+        "groovy",
+        ccn_sum(
+            LANG::Groovy,
+            r"def f() {
+    int i = 0
+    do {
+        ++i
+    } while (i < 10)
+}
+",
+            "groovy",
+        ),
+    );
+    sums.insert(
+        "javascript",
+        ccn_sum(
+            LANG::Javascript,
+            r"function f() {
+    let i = 0;
+    do {
+        ++i;
+    } while (i < 10);
+}
+",
+            "js",
+        ),
+    );
+    sums.insert(
+        "csharp",
+        ccn_sum(
+            LANG::Csharp,
+            r"class Parity {
+    static void f() {
+        int i = 0;
+        do {
+            ++i;
+        } while (i < 10);
+    }
+}
+",
+            "cs",
+        ),
+    );
+    let offsets = BTreeMap::from([("java", JAVA_CLASS_OFFSET), ("csharp", JAVA_CLASS_OFFSET)]);
+    assert_parity("do_while_loop", &sums, &offsets);
+}
+
+// --- Family 7: range / enhanced for loop ---------------------------------
+//
+// Iterator-style loops — C++ `for (auto x : xs)` (`ForRangeLoop`),
+// Java enhanced-for `for (T x : xs)` (`EnhancedForStatement`), Groovy
+// enhanced-for `for (T x : xs)` (`EnhancedForStatement`), C#
+// `foreach (var x in xs)` (`ForeachStatement`), Kotlin `for (x in xs)`
+// — each must contribute exactly one decision point.
+//
+// In C++/Java/Groovy the `for` keyword token fires inside the
+// grammar-specific loop node, so the existing keyword-token arm
+// catches them; listing the statement node would double-count
+// (regression for issue #284's incorrect fix proposal). C# has a
+// dedicated `ForeachStatement` arm; Kotlin counts via `ForStatement`.
+//
+// Per-language post-offset expectation: unit(1) + fn(1) + for(1) = 3.
+
+#[test]
+fn range_for_loop_parity() {
+    let mut sums = BTreeMap::new();
+    sums.insert(
+        "c",
+        ccn_sum(
+            LANG::Cpp,
+            r"void f(std::vector<int> xs) {
+    for (auto x : xs) {
+        g(x);
+    }
+}
+",
+            "cpp",
+        ),
+    );
+    sums.insert(
+        "java",
+        ccn_sum(
+            LANG::Java,
+            r"class Parity {
+    static void f(int[] xs) {
+        for (int x : xs) {
+            g(x);
+        }
+    }
+}
+",
+            "java",
+        ),
+    );
+    sums.insert(
+        "groovy",
+        ccn_sum(
+            LANG::Groovy,
+            r"def f(int[] xs) {
+    for (int x : xs) {
+        println x
+    }
+}
+",
+            "groovy",
+        ),
+    );
+    sums.insert(
+        "csharp",
+        ccn_sum(
+            LANG::Csharp,
+            r"class Parity {
+    static void f(int[] xs) {
+        foreach (var x in xs) {
+            g(x);
+        }
+    }
+}
+",
+            "cs",
+        ),
+    );
+    sums.insert(
+        "kotlin",
+        ccn_sum(
+            LANG::Kotlin,
+            r"fun f(xs: IntArray) {
+    for (x in xs) {
+        g(x)
+    }
+}
+",
+            "kt",
+        ),
+    );
+    let offsets = BTreeMap::from([("java", JAVA_CLASS_OFFSET), ("csharp", JAVA_CLASS_OFFSET)]);
+    assert_parity("range_for_loop", &sums, &offsets);
+}
