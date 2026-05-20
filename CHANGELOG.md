@@ -688,6 +688,20 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Fixed
 
+- `bca check --baseline` now produces injective baseline keys for
+  Windows non-UTF-8 paths. The Windows branch of `normalize_path`
+  previously fell back to `to_string_lossy()`, which substitutes
+  U+FFFD for invalid UTF-16 surrogates and could collide two
+  distinct paths onto one baseline entry. The fix walks the WTF-16
+  sequence with `OsStrExt::encode_wide`, decodes valid scalar
+  values as UTF-8 (sharing the per-byte percent-encoder with the
+  Unix branch), and emits `%uHHHH` (a marker disjoint from `%XX`)
+  for unpaired surrogates so distinct invalid-surrogate inputs map
+  to distinct keys. A `cfg(not(any(unix, windows)))` fallback
+  preserves the U+FFFD prefix anti-collision marker for wasm-like
+  targets, and the encoder is covered by always-on unit tests
+  plus a `#[cfg(windows)]` integration test
+  ([#305](https://github.com/dekobon/big-code-analysis/issues/305)).
 - `Halstead` (C#) keys predefined type keywords (`int`, `string`,
   `bool`, `object`, …) by source text instead of collapsing every
   keyword onto a single `n1` slot. The fix flips
