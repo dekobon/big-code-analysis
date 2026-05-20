@@ -701,6 +701,42 @@ mod tests {
         );
     }
 
+    // Regression for issue #280: Groovy enum bodies fold method-level
+    // cyclomatic into `class_wmc_sum` just like Java.
+    #[test]
+    fn groovy_enum_wmc_aggregates_method_complexity() {
+        check_metrics::<GroovyParser>(
+            "enum Status {
+                ACTIVE, INACTIVE;
+                public int code(int n) {
+                    if (n > 0) { return n }
+                    return 0
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_annotation_type_wmc_counts_elements() {
+        check_metrics::<GroovyParser>(
+            "public @interface Marker {
+                String value() default \"\";
+                int priority() default 0;
+            }",
+            "foo.groovy",
+            |metric| {
+                // Same as Java: elements are not `MethodDeclaration`
+                // so they do not contribute cyclomatic. The interface
+                // space exists with WMC = 0.
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+            },
+        );
+    }
+
     // Constructors are considered as methods
     // Reference: https://pdepend.org/documentation/software-metrics/weighted-method-count.html
     #[test]
@@ -1148,6 +1184,71 @@ mod tests {
                       "total": 4.0
                     }"###
                 );
+            },
+        );
+    }
+
+    // Regression for issue #280: Java `EnumDeclaration` opens a class
+    // space, so method-level cyclomatic complexity inside the enum
+    // body folds into `class_wmc_sum`.
+    #[test]
+    fn java_enum_wmc_aggregates_method_complexity() {
+        check_metrics::<JavaParser>(
+            "enum Status {
+                ACTIVE, INACTIVE;
+                public int code(int n) {        // entry +1
+                    if (n > 0) {                // if +1
+                        return n;
+                    }
+                    return 0;
+                }
+            }",
+            "foo.java",
+            |metric| {
+                // 1 enum (class), 1 method with cyclomatic = 2.
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+            },
+        );
+    }
+
+    // Regression for issue #280: Java `RecordDeclaration` is treated as
+    // a class space; methods inside its explicit body contribute to
+    // WMC.
+    #[test]
+    fn java_record_wmc_aggregates_method_complexity() {
+        check_metrics::<JavaParser>(
+            "record Point(int x, int y) {
+                public int describe() {         // entry +1
+                    return (x == 0) ? 0 : 1;    // ternary +1
+                }
+            }",
+            "foo.java",
+            |metric| {
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+            },
+        );
+    }
+
+    // Regression for issue #280: Java `AnnotationTypeDeclaration` maps
+    // to `SpaceKind::Interface`; annotation type elements have no
+    // body (they're abstract) so they each contribute their entry
+    // cyclomatic (1) to `interface_wmc_sum`.
+    #[test]
+    fn java_annotation_type_wmc_counts_elements() {
+        check_metrics::<JavaParser>(
+            "@interface Marker {
+                String value() default \"\";    // entry +1
+                int priority() default 0;       // entry +1
+            }",
+            "foo.java",
+            |metric| {
+                // tree-sitter-java parses annotation elements as
+                // `AnnotationTypeElementDeclaration`, not
+                // `MethodDeclaration`, so they don't open `Function`
+                // spaces and their cyclomatic is not folded into
+                // `interface_wmc_sum`. The interface space exists
+                // (the metric is enabled) but reports 0.
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
             },
         );
     }

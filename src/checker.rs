@@ -377,10 +377,23 @@ impl Checker for JavaCode {
         false
     }
 
+    // `EnumDeclaration`, `RecordDeclaration`, and `AnnotationTypeDeclaration`
+    // are class-like declarations that can contain fields and methods,
+    // so they open a class space alongside `ClassDeclaration` /
+    // `InterfaceDeclaration` (issue #280). Without them, `Npa`/`Npm`/`Wmc`
+    // never see their bodies as class scopes and silently produce zero
+    // counts. Annotation types map to `Interface` in `get_space_kind`
+    // (their elements are abstract methods at the bytecode level);
+    // enums and records map to `Class`.
     fn is_func_space(node: &Node) -> bool {
         matches!(
             node.kind_id().into(),
-            Java::Program | Java::ClassDeclaration | Java::InterfaceDeclaration
+            Java::Program
+                | Java::ClassDeclaration
+                | Java::InterfaceDeclaration
+                | Java::EnumDeclaration
+                | Java::RecordDeclaration
+                | Java::AnnotationTypeDeclaration
         )
     }
 
@@ -1576,15 +1589,20 @@ impl Checker for GroovyCode {
         false
     }
 
+    // Mirrors `impl Checker for JavaCode` exactly: `EnumDeclaration`,
+    // `RecordDeclaration`, and `AnnotationTypeDeclaration` open class
+    // spaces so `Npa`/`Npm`/`Wmc` walk their bodies. Cross-language parity
+    // with Java is the point — identical-shape sources must agree on
+    // class-shaped metrics (issue #280).
     fn is_func_space(node: &Node) -> bool {
-        // Mirrors `impl Checker for JavaCode` exactly. `EnumDeclaration`,
-        // `AnnotationTypeDeclaration`, and `RecordDeclaration` are
-        // intentionally excluded for parity with Java's classification —
-        // counting them as class-shaped spaces would make identical-shape
-        // sources disagree on Npa/Npm/Wmc between languages.
         matches!(
             node.kind_id().into(),
-            Groovy::Program | Groovy::ClassDeclaration | Groovy::InterfaceDeclaration
+            Groovy::Program
+                | Groovy::ClassDeclaration
+                | Groovy::InterfaceDeclaration
+                | Groovy::EnumDeclaration
+                | Groovy::RecordDeclaration
+                | Groovy::AnnotationTypeDeclaration
         )
     }
 
