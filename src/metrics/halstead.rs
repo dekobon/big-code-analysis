@@ -1685,6 +1685,64 @@ mod tests {
     }
 
     #[test]
+    fn perl_plain_heredoc_counts_as_one_operand() {
+        // Regression: issue #287. A plain (non-interpolating) Perl
+        // heredoc body used to be classified `HalsteadType::Unknown`,
+        // so its visible `HeredocBodyStatement` node contributed
+        // nothing to N2 even though it is a string literal. The fix
+        // adds `HeredocBodyStatement` to the interpolation-aware
+        // operand arm, so an inert heredoc counts as one operand.
+        //
+        // Source (heredoc body lives at the source_file level, not
+        // inside any sub):
+        //   my $msg = <<END;
+        //   hello world
+        //   END
+        //
+        // Operands traversed:
+        //   * `$msg` (`scalar_variable`)                    × 1
+        //   * heredoc body (`heredoc_body_statement`)       × 1
+        // expected: u_operands = 2, N2 = 2.
+        check_metrics::<PerlParser>("my $msg = <<END;\nhello world\nEND\n", "foo.pl", |metric| {
+            assert_eq!(metric.halstead.u_operands(), 2.0);
+            assert_eq!(metric.halstead.operands(), 2.0);
+        });
+    }
+
+    #[test]
+    fn perl_interpolated_heredoc_no_double_count() {
+        // Regression: issue #287. An interpolating Perl heredoc
+        // (`<<"TAG"` or bare `<<TAG`) carries an `Interpolation` child
+        // when its body contains a `$var`. The wrapper must drop to
+        // `Unknown` so the inner scalar variable carries the operand
+        // count — same dispatch as the existing double-quoted /
+        // backtick / qx wrappers (issue #199) and the PHP heredoc fix
+        // (issue #184).
+        //
+        // Source:
+        //   my $name = "x";
+        //   my $msg = <<"END";
+        //   hi $name
+        //   END
+        //
+        // Operands by text key:
+        //   * `$name` × 2 (my-binding + interpolation inside heredoc)
+        //   * `"x"`  × 1 (inert double-quoted string)
+        //   * `$msg` × 1
+        // expected: u_operands = 3, N2 = 4. Without the
+        // interpolation-aware drop the wrapping heredoc body would
+        // also count, lifting u_operands to 4 and N2 to 5.
+        check_metrics::<PerlParser>(
+            "my $name = \"x\";\nmy $msg = <<\"END\";\nhi $name\nEND\n",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.halstead.u_operands(), 3.0);
+                assert_eq!(metric.halstead.operands(), 4.0);
+            },
+        );
+    }
+
+    #[test]
     fn lua_operators_and_operands() {
         check_metrics::<LuaParser>(
             "local function add(a, b)

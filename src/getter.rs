@@ -927,8 +927,13 @@ impl Getter for PerlCode {
             // wrapping literal too would double-count the inner
             // variables' contribution to `N2` (issue #199, same
             // pattern as #180 for Elixir/Bash, #183 for C#, #184 for
-            // PHP, #191 for Kotlin).
-            P::StringDoubleQuoted | P::StringQqQuoted | P::BacktickQuoted | P::CommandQxQuoted => {
+            // PHP, #191 for Kotlin). `HeredocBodyStatement` is the
+            // visible body of `<<TAG ... TAG` heredocs (issue #287);
+            // it is interpolation-capable, so it joins the same
+            // dispatch — inert heredocs are one operand, interpolating
+            // heredocs let the inner variables carry the count.
+            P::StringDoubleQuoted | P::StringQqQuoted | P::BacktickQuoted
+            | P::CommandQxQuoted | P::HeredocBodyStatement => {
                 if node.is_child(P::Interpolation as u16) {
                     HalsteadType::Unknown
                 } else {
