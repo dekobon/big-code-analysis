@@ -338,6 +338,124 @@ fn busy() -> i32 {
 }
 
 #[test]
+fn suppression_attaches_to_correct_sibling_on_same_line() {
+    // Regression for issue #289. Two single-line C functions share
+    // line 1; the marker lives inside `b`. Pre-fix, suppression
+    // resolution matched the comment's line number against each
+    // sibling's `start_line..=end_line` range and picked the first
+    // hit by source order — which is always `a` when siblings share
+    // a line. The walk-order fix attaches the marker to whichever
+    // function body the grammar actually nested the comment inside.
+    let src = "int a() { return 1; } int b() { \
+        /* bca: suppress(cyclomatic) */ \
+        return 2; }\n";
+    let space = analyze_lang(src, "fixture.cpp");
+    let a = find_function(&space, "a").expect("function a should be present");
+    let b = find_function(&space, "b").expect("function b should be present");
+    assert!(
+        b.suppressed.covers(MetricKind::Cyclomatic),
+        "marker did not attach to b (b.suppressed = {:?})",
+        b.suppressed,
+    );
+    // Belt-and-braces: explicit non-cover assertion. `is_empty()`
+    // alone would still pass if a future refactor made `is_empty`
+    // return true for a scope that covers Cyclomatic.
+    assert!(
+        !a.suppressed.covers(MetricKind::Cyclomatic),
+        "marker leaked to sibling a (a.suppressed = {:?})",
+        a.suppressed,
+    );
+    assert!(
+        a.suppressed.is_empty(),
+        "sibling a should carry no suppressions (a.suppressed = {:?})",
+        a.suppressed,
+    );
+}
+
+#[test]
+fn suppression_after_function_open_brace_attaches_to_function() {
+    // The marker sits on the same line as the opening brace but
+    // syntactically inside the function body. Confirms walk-order
+    // resolution does not regress the common case where authors place
+    // the marker immediately after the brace on the same line.
+    let src = "int noisy(int x) { /* bca: suppress(cognitive) */\n\
+        if (x > 0) { return 1; }\n\
+        return 0;\n\
+        }\n";
+    let space = analyze_lang(src, "fixture.cpp");
+    let noisy = find_function(&space, "noisy").expect("noisy should be present");
+    assert!(
+        noisy.suppressed.covers(MetricKind::Cognitive),
+        "marker on opening-brace line failed to attach (suppressed = {:?})",
+        noisy.suppressed,
+    );
+    assert!(
+        space.suppressed.is_empty(),
+        "function-scoped marker should not bubble to file scope",
+    );
+}
+
+#[test]
+fn suppression_at_start_of_function_body() {
+    // A marker as the first statement of the body — distinct from the
+    // open-brace-same-line case because tree-sitter parses it as the
+    // first child of the body block, not a trailing comment on the
+    // signature line. The attach behaviour should be identical.
+    let src = "int noisy(int x) {\n\
+        // bca: suppress(cyclomatic)\n\
+        if (x > 0) { return 1; }\n\
+        return 0;\n\
+        }\n";
+    let space = analyze_lang(src, "fixture.cpp");
+    let noisy = find_function(&space, "noisy").expect("noisy should be present");
+    assert!(
+        noisy.suppressed.covers(MetricKind::Cyclomatic),
+        "marker at start of body failed to attach (suppressed = {:?})",
+        noisy.suppressed,
+    );
+}
+
+#[test]
+fn function_marker_at_class_scope_is_silently_dropped() {
+    // A function-scoped `bca: suppress` marker sitting at class scope
+    // but outside any method body must NOT silence thresholds on the
+    // whole class. `apply_suppression` only matches `SpaceKind::Function`
+    // frames on the state stack — class / struct / trait spaces are
+    // skipped so a marker that fails to land inside a method body is
+    // dropped, not promoted to the class. Authors who want class-wide
+    // suppression must use `bca: suppress-file` or repeat the marker on
+    // each method. Without this test a refactor that promoted Class /
+    // Struct / Trait frames as fallback targets would silently broaden
+    // suppression scope for users.
+    let src = r#"
+class Holder:
+    # bca: suppress(cyclomatic)
+
+    def method(self, x):
+        if x > 0:
+            return 1
+        return 0
+"#;
+    let space = analyze_lang(src, "fixture.py");
+    let holder = find_function(&space, "Holder").expect("class Holder should be present");
+    assert!(
+        holder.suppressed.is_empty(),
+        "class-scope marker leaked onto class FuncSpace (suppressed = {:?})",
+        holder.suppressed,
+    );
+    let method = find_function(&space, "method").expect("method should be present");
+    assert!(
+        method.suppressed.is_empty(),
+        "class-scope marker leaked onto sibling method (suppressed = {:?})",
+        method.suppressed,
+    );
+    assert!(
+        space.suppressed.is_empty(),
+        "class-scope function-marker should not bubble to file scope",
+    );
+}
+
+#[test]
 fn default_scope_does_not_cover_any_metric() {
     // Sanity check on the default `FuncSpace::suppressed` value: every
     // metric must report as not-covered when no markers fire, so the
