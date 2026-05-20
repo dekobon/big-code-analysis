@@ -294,6 +294,21 @@ impl Cyclomatic for PythonCode {
 /// circuit assignment forms `&&=` (`AMPAMPEQ`), `||=` (`PIPEPIPEEQ`),
 /// `??=` (`QMARKQMARKEQ`) on top of `&&` and `||`, while C++ has only
 /// `&&` and `||` (issues #226, #231, #248).
+///
+/// **`If` / `For` / `While` are keyword tokens in the per-language
+/// enums (e.g. `Cpp::While == "while"`), not statement nodes.** The
+/// `while` token therefore fires once inside both `WhileStatement` AND
+/// `DoStatement` (the `while` keyword of `do { … } while (…)`), and
+/// the `for` token fires once inside `ForStatement`, C++
+/// `ForRangeLoop`, Java `EnhancedForStatement`, and any other
+/// grammar-specific loop form that spells the keyword `for`. So
+/// adding the statement nodes themselves would double-count those
+/// loops — see issue #284 for the false-positive analysis. The
+/// regression tests `cpp_do_statement_counts_in_cyclomatic`,
+/// `cpp_for_range_loop_counts_in_cyclomatic`,
+/// `java_do_statement_counts_in_cyclomatic`, and
+/// `java_enhanced_for_statement_counts_in_cyclomatic` pin the
+/// correct keyword-driven counts.
 macro_rules! impl_cyclomatic_c_family {
     ($code:ty, $lang:ident, $ternary:ident, [$($short_circuit:ident),+ $(,)?]) => {
         impl Cyclomatic for $code {
@@ -390,6 +405,10 @@ impl Cyclomatic for RustCode {
 }
 
 // C++ has only `&&` and `||` short-circuit operators.
+// Grammar-specific loop kinds (`DoStatement`, `ForRangeLoop`) are NOT
+// listed here because the `While` / `For` keyword-token arms above
+// already fire inside them; adding the statement nodes would
+// double-count (issue #284).
 impl_cyclomatic_c_family!(CppCode, Cpp, ConditionalExpression, [AMPAMP, PIPEPIPE]);
 
 impl Cyclomatic for JavaCode {
@@ -406,6 +425,13 @@ impl Cyclomatic for JavaCode {
             Switch => {
                 stats.cyclomatic_modified += 1.;
             }
+            // `If` / `For` / `While` are keyword tokens (e.g.
+            // `Java::While == "while"`), not statement nodes — so the
+            // `while` token fires inside `DoStatement` and the `for`
+            // token fires inside `EnhancedForStatement`. The
+            // grammar-specific loop forms are therefore already
+            // counted; listing them here would double-count (issue
+            // #284).
             If | For | While | Catch | TernaryExpression | AMPAMP | PIPEPIPE => {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
@@ -432,6 +458,12 @@ impl Cyclomatic for GroovyCode {
             // do NOT contribute branches here because amaanq's grammar
             // emits ERROR nodes for them; tracked as follow-up issues.
             // The standard short-circuits and `Assert` still count.
+            //
+            // `If` / `For` / `While` are keyword tokens, not statement
+            // nodes (same as Java), so `DoStatement` and
+            // `EnhancedForStatement` are already counted via the inner
+            // `while` / `for` keyword tokens; listing them here would
+            // double-count (issue #284).
             If | For | While | Catch | TernaryExpression | AMPAMP | PIPEPIPE | Assert => {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
@@ -2490,6 +2522,93 @@ mod tests {
         );
     }
 
+    /// Java `do { … } while (…)` contributes exactly +1 to both
+    /// standard and modified CCN. The +1 comes from the `while`
+    /// keyword token (`Java::While`) inside the do-statement, which
+    /// the dedicated `JavaCode` impl already counts. Adding
+    /// `Java::DoStatement` would double-count — see issue #284. This
+    /// test pins the correct keyword-driven count.
+    #[test]
+    fn java_do_statement_counts_in_cyclomatic() {
+        check_metrics::<JavaParser>(
+            "class Parity {
+                 static void f() {
+                     int i = 0;
+                     do {           // +1 (via inner `while` keyword)
+                         ++i;
+                     } while (i < 10);
+                 }
+             }",
+            "foo.java",
+            |metric| {
+                // standard: unit(1) + class(1) + method(1) + do(1) = 4
+                let s = &metric.cyclomatic;
+                assert_eq!(s.cyclomatic_sum(), 4.0);
+                assert_eq!(s.cyclomatic_max(), 2.0);
+                assert_eq!(s.cyclomatic_modified_sum(), 4.0);
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 1.3333333333333333,
+                      "min": 1.0,
+                      "max": 2.0,
+                      "modified": {
+                        "sum": 4.0,
+                        "average": 1.3333333333333333,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// Java enhanced-for `for (T x : xs)` contributes exactly +1 to
+    /// both standard and modified CCN — the `for` keyword token
+    /// (`Java::For`) fires inside the `EnhancedForStatement` node
+    /// just like inside a classic `ForStatement`. Pinning this
+    /// prevents reintroducing the double-count from issue #284's
+    /// incorrect fix proposal.
+    #[test]
+    fn java_enhanced_for_statement_counts_in_cyclomatic() {
+        check_metrics::<JavaParser>(
+            "class Parity {
+                 static void f(int[] xs) {
+                     for (int x : xs) {  // +1 (via `for` keyword)
+                         g(x);
+                     }
+                 }
+             }",
+            "foo.java",
+            |metric| {
+                // standard: unit(1) + class(1) + method(1) + enhanced-for(1) = 4
+                let s = &metric.cyclomatic;
+                assert_eq!(s.cyclomatic_sum(), 4.0);
+                assert_eq!(s.cyclomatic_max(), 2.0);
+                assert_eq!(s.cyclomatic_modified_sum(), 4.0);
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 1.3333333333333333,
+                      "min": 1.0,
+                      "max": 2.0,
+                      "modified": {
+                        "sum": 4.0,
+                        "average": 1.3333333333333333,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
     #[test]
     fn groovy_simple_class() {
         check_metrics::<GroovyParser>(
@@ -2610,6 +2729,57 @@ mod tests {
             |metric| {
                 // unit(1) + fn(1) + assert(1) = 3
                 assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
+            },
+        );
+    }
+
+    /// Groovy `do { … } while (…)` contributes exactly +1 to both
+    /// standard and modified CCN — the `while` keyword token
+    /// (`Groovy::While`) inside the do-statement is already counted
+    /// by the dedicated `GroovyCode` impl. Adding `Groovy::DoStatement`
+    /// would double-count (issue #284). This test pins the correct
+    /// keyword-driven count.
+    #[test]
+    fn groovy_do_statement_counts_in_cyclomatic() {
+        check_metrics::<GroovyParser>(
+            "def f() {
+                 int i = 0
+                 do {           // +1 (via inner `while` keyword)
+                     ++i
+                 } while (i < 10)
+             }",
+            "foo.groovy",
+            |metric| {
+                // standard: unit(1) + fn(1) + do(1) = 3
+                let s = &metric.cyclomatic;
+                assert_eq!(s.cyclomatic_sum(), 3.0);
+                assert_eq!(s.cyclomatic_max(), 2.0);
+                assert_eq!(s.cyclomatic_modified_sum(), 3.0);
+            },
+        );
+    }
+
+    /// Groovy enhanced-for `for (T x : xs)` contributes exactly +1 to
+    /// both standard and modified CCN — the `for` keyword token
+    /// (`Groovy::For`) fires inside `EnhancedForStatement` just like
+    /// inside a classic `ForStatement`. Pinning this prevents
+    /// reintroducing the double-count from issue #284's incorrect fix
+    /// proposal.
+    #[test]
+    fn groovy_enhanced_for_statement_counts_in_cyclomatic() {
+        check_metrics::<GroovyParser>(
+            "def f(int[] xs) {
+                 for (int x : xs) {  // +1 (via `for` keyword)
+                     println x
+                 }
+             }",
+            "foo.groovy",
+            |metric| {
+                // standard: unit(1) + fn(1) + enhanced-for(1) = 3
+                let s = &metric.cyclomatic;
+                assert_eq!(s.cyclomatic_sum(), 3.0);
+                assert_eq!(s.cyclomatic_max(), 2.0);
+                assert_eq!(s.cyclomatic_modified_sum(), 3.0);
             },
         );
     }
@@ -4982,6 +5152,91 @@ f() {
                         "average": 2.0,
                         "min": 1.0,
                         "max": 3.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// C++ `do { … } while (…)` contributes exactly +1 to both
+    /// standard and modified CCN. The +1 comes from the `while`
+    /// keyword token inside the do-statement (`Cpp::While`), which the
+    /// C-family macro already counts. Adding the `DoStatement`
+    /// statement node would double-count — see the macro doc comment
+    /// and issue #284. This test pins the correct keyword-driven
+    /// count.
+    #[test]
+    fn cpp_do_statement_counts_in_cyclomatic() {
+        check_metrics::<CppParser>(
+            "void f() {
+                 int i = 0;
+                 do {           // +1 (via inner `while` keyword)
+                     ++i;
+                 } while (i < 10);
+             }",
+            "foo.cpp",
+            |metric| {
+                // standard: unit(1) + fn(1) + do(1) = 3
+                // modified: identical (no switch, no extra arms)
+                let s = &metric.cyclomatic;
+                assert_eq!(s.cyclomatic_sum(), 3.0);
+                assert_eq!(s.cyclomatic_max(), 2.0);
+                assert_eq!(s.cyclomatic_modified_sum(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 1.5,
+                      "min": 1.0,
+                      "max": 2.0,
+                      "modified": {
+                        "sum": 3.0,
+                        "average": 1.5,
+                        "min": 1.0,
+                        "max": 2.0
+                      }
+                    }"###
+                );
+            },
+        );
+    }
+
+    /// C++ range-based `for (auto x : xs)` contributes exactly +1 to
+    /// both standard and modified CCN — the `for` keyword token
+    /// (`Cpp::For`) fires inside the `ForRangeLoop` node just like
+    /// inside a classic `ForStatement`. Pinning this prevents
+    /// reintroducing the double-count from issue #284's incorrect fix
+    /// proposal.
+    #[test]
+    fn cpp_for_range_loop_counts_in_cyclomatic() {
+        check_metrics::<CppParser>(
+            "void f(std::vector<int> xs) {
+                 for (auto x : xs) {   // +1 (via `for` keyword)
+                     g(x);
+                 }
+             }",
+            "foo.cpp",
+            |metric| {
+                // standard: unit(1) + fn(1) + for-range(1) = 3
+                let s = &metric.cyclomatic;
+                assert_eq!(s.cyclomatic_sum(), 3.0);
+                assert_eq!(s.cyclomatic_max(), 2.0);
+                assert_eq!(s.cyclomatic_modified_sum(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.cyclomatic,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 1.5,
+                      "min": 1.0,
+                      "max": 2.0,
+                      "modified": {
+                        "sum": 3.0,
+                        "average": 1.5,
+                        "min": 1.0,
+                        "max": 2.0
                       }
                     }"###
                 );
