@@ -8396,18 +8396,18 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
                 assert_eq!(metric.loc.blank(), 2.0);
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
+                    @r#"
                 {
                   "sloc": 6.0,
                   "ploc": 4.0,
                   "lloc": 3.0,
                   "cloc": 0.0,
                   "blank": 2.0,
-                  "sloc_average": 6.0,
-                  "ploc_average": 4.0,
-                  "lloc_average": 3.0,
+                  "sloc_average": 1.5,
+                  "ploc_average": 1.0,
+                  "lloc_average": 0.75,
                   "cloc_average": 0.0,
-                  "blank_average": 2.0,
+                  "blank_average": 0.5,
                   "sloc_min": 6.0,
                   "sloc_max": 6.0,
                   "cloc_min": 0.0,
@@ -8418,7 +8418,8 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
                   "lloc_max": 3.0,
                   "blank_min": 2.0,
                   "blank_max": 2.0
-                }"###
+                }
+                "#
                 );
             },
         );

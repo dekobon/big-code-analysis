@@ -1028,7 +1028,7 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
     // non-Unit root. Wrap with a synthetic Unit space spanning the whole
     // file so the top-level FuncSpace upholds the LOC invariant
     // `blank = sloc - ploc - only_comment_lines >= 0`.
-    if T::Getter::get_space_kind(&node) != SpaceKind::Unit {
+    if T::Getter::get_space_kind_with_code(&node, code) != SpaceKind::Unit {
         let mut synthetic = FuncSpace::new::<T::Getter>(&node, code, SpaceKind::Unit, selected);
         synthetic
             .metrics
@@ -1056,9 +1056,10 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
             last_level = level;
         }
 
-        let kind = T::Getter::get_space_kind(&node);
+        let kind = T::Getter::get_space_kind_with_code(&node, code);
 
-        let func_space = T::Checker::is_func(&node) || T::Checker::is_func_space(&node);
+        let func_space = T::Checker::is_func_with_code(&node, code)
+            || T::Checker::is_func_space_with_code(&node, code);
         let unit = kind == SpaceKind::Unit;
 
         let new_level = if func_space {
@@ -1748,6 +1749,50 @@ mod tests {
             "defmodule Foo do\n  def bar(x) do\n    x +\n",
             "partial.ex",
         );
+    }
+
+    // Regression for #275: the source-aware Getter must extract the
+    // human-readable head name from each macro-shaped declaration.
+    // The wave 2 implementation initially looked for an `Identifier` /
+    // `Alias` / `Call` as a *direct* child of the outer Call, but the
+    // tree-sitter-elixir grammar wraps the head in an `Arguments`
+    // node, so every promoted Class / Function space was labelled
+    // `<anonymous>` despite the source carrying a name.
+    #[test]
+    fn elixir_func_space_names_resolve_through_arguments_wrapper() {
+        let src = "defmodule Foo.Bar do\n  def hello(x), do: x\n  defp helper, do: :ok\n  defmodule Inner do\n    def i, do: 1\n  end\nend\n";
+        let path = std::path::PathBuf::from("foo.ex");
+        let parser = crate::ElixirParser::new(src.as_bytes().to_vec(), &path, None);
+        let space = metrics(&parser, &path).expect("metrics must yield a top-level space");
+
+        // Top-level Unit -> file name.
+        assert_eq!(space.name.as_deref(), Some("foo.ex"));
+
+        // Outer defmodule Class is named `Foo.Bar`.
+        let outer = space.spaces.first().expect("outer class space");
+        assert_eq!(outer.kind, SpaceKind::Class);
+        assert_eq!(outer.name.as_deref(), Some("Foo.Bar"));
+
+        // Direct child names: `hello`, `helper`, `Inner`.
+        let names: Vec<&str> = outer
+            .spaces
+            .iter()
+            .map(|s| s.name.as_deref().unwrap_or("?"))
+            .collect();
+        assert_eq!(names, vec!["hello", "helper", "Inner"]);
+
+        // Nested defmodule's child def resolves too.
+        let inner = outer
+            .spaces
+            .iter()
+            .find(|s| s.kind == SpaceKind::Class)
+            .expect("nested class");
+        let inner_names: Vec<&str> = inner
+            .spaces
+            .iter()
+            .map(|s| s.name.as_deref().unwrap_or("?"))
+            .collect();
+        assert_eq!(inner_names, vec!["i"]);
     }
 
     /// `Preproc` and `Ccomment` are auxiliary grammars (preprocessor
