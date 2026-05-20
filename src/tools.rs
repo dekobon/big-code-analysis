@@ -510,11 +510,21 @@ pub(crate) fn guess_file<S: ::std::hash::BuildHasher>(
     include_path: &str,
     all_files: &HashMap<String, Vec<PathBuf>, S>,
 ) -> Vec<PathBuf> {
-    let include_path = if let Some(end) = include_path.strip_prefix("mozilla/") {
-        end
-    } else {
-        include_path
-    };
+    let include_path = include_path
+        .strip_prefix("mozilla/")
+        .unwrap_or(include_path);
+
+    // Resolve the include relative to the including file's parent
+    // before normalizing. This preserves leading `..` traversal so
+    // `#include "../foo.h"` from `src/lib/file.c` targets
+    // `src/foo.h`, not the lexically-popped `foo.h` (issue #297).
+    // Lexical-only normalization is required because `current_path`
+    // and the entries in `all_files` are typically not canonicalized
+    // and the included header need not exist on disk yet.
+    let resolved_path = current_path
+        .parent()
+        .map(|parent| normalize_path(parent.join(include_path)));
+
     let include_path = normalize_path(include_path);
     let Some(file_name) = include_path.file_name() else {
         return vec![];
@@ -526,6 +536,27 @@ pub(crate) fn guess_file<S: ::std::hash::BuildHasher>(
         if possibilities.len() == 1 {
             // Only one file with this name
             return possibilities.clone();
+        }
+
+        // Strongest signal: a candidate matches the fully resolved
+        // relative target. Prefer exact equality, then suffix match
+        // (so absolute `all_files` entries still match a relative
+        // resolved target like `src/foo.h`).
+        if let Some(resolved) = resolved_path.as_ref() {
+            let unique_match = |pred: &dyn Fn(&PathBuf) -> bool| -> Option<Vec<PathBuf>> {
+                let matched: Vec<PathBuf> = possibilities
+                    .iter()
+                    .filter(|p| current_path != p.as_path() && pred(p))
+                    .cloned()
+                    .collect();
+                (matched.len() == 1).then_some(matched)
+            };
+            if let Some(hit) = unique_match(&|p| p == resolved) {
+                return hit;
+            }
+            if let Some(hit) = unique_match(&|p| p.ends_with(resolved)) {
+                return hit;
+            }
         }
 
         let mut new_possibilities = Vec::new();
@@ -689,6 +720,135 @@ mod tests {
         let current = Path::new("/some/file.c");
         let result = guess_file(current, "..", &all_files);
         assert!(result.is_empty());
+    }
+
+    /// Regression for issue #297: `#include "../foo.h"` from
+    /// `src/lib/file.c` must resolve to `src/foo.h`, not the
+    /// same-directory `src/lib/foo.h` that the prior lexical
+    /// `normalize_path` collapse left as the closest match.
+    #[test]
+    fn guess_file_parent_dir_include_resolves_to_sibling() {
+        let mut all_files: HashMap<String, Vec<PathBuf>> = HashMap::new();
+        all_files.insert(
+            "foo.h".to_string(),
+            vec![
+                PathBuf::from("/proj/src/foo.h"),
+                PathBuf::from("/proj/src/lib/foo.h"),
+            ],
+        );
+        let current = Path::new("/proj/src/lib/file.c");
+        let result = guess_file(current, "../foo.h", &all_files);
+        assert_eq!(result, vec![PathBuf::from("/proj/src/foo.h")]);
+    }
+
+    /// `../inc/foo.h` from `src/lib/file.c` must resolve to
+    /// `src/inc/foo.h`, not some other `inc/foo.h` deeper in the
+    /// tree.
+    #[test]
+    fn guess_file_parent_subdir_include_resolves_to_correct_inc() {
+        let mut all_files: HashMap<String, Vec<PathBuf>> = HashMap::new();
+        all_files.insert(
+            "foo.h".to_string(),
+            vec![
+                PathBuf::from("/proj/src/inc/foo.h"),
+                PathBuf::from("/proj/src/lib/inc/foo.h"),
+                PathBuf::from("/proj/other/inc/foo.h"),
+            ],
+        );
+        let current = Path::new("/proj/src/lib/file.c");
+        let result = guess_file(current, "../inc/foo.h", &all_files);
+        assert_eq!(result, vec![PathBuf::from("/proj/src/inc/foo.h")]);
+    }
+
+    /// A plain `foo.h` include from `src/lib/file.c` must keep the
+    /// existing same-directory preference and resolve to
+    /// `src/lib/foo.h`.
+    #[test]
+    fn guess_file_plain_include_keeps_same_directory_preference() {
+        let mut all_files: HashMap<String, Vec<PathBuf>> = HashMap::new();
+        all_files.insert(
+            "foo.h".to_string(),
+            vec![
+                PathBuf::from("/proj/src/foo.h"),
+                PathBuf::from("/proj/src/lib/foo.h"),
+            ],
+        );
+        let current = Path::new("/proj/src/lib/file.c");
+        let result = guess_file(current, "foo.h", &all_files);
+        assert_eq!(result, vec![PathBuf::from("/proj/src/lib/foo.h")]);
+    }
+
+    /// A `./foo.h` include from `src/lib/file.c` must still resolve
+    /// to the same-directory `src/lib/foo.h` (CurDir segments are
+    /// collapsed before joining).
+    #[test]
+    fn guess_file_curdir_include_resolves_to_same_directory() {
+        let mut all_files: HashMap<String, Vec<PathBuf>> = HashMap::new();
+        all_files.insert(
+            "foo.h".to_string(),
+            vec![
+                PathBuf::from("/proj/src/foo.h"),
+                PathBuf::from("/proj/src/lib/foo.h"),
+            ],
+        );
+        let current = Path::new("/proj/src/lib/file.c");
+        let result = guess_file(current, "./foo.h", &all_files);
+        assert_eq!(result, vec![PathBuf::from("/proj/src/lib/foo.h")]);
+    }
+
+    /// `../../foo.h` from `src/a/b/file.c` must resolve up two
+    /// levels to `src/foo.h`, not be lexically collapsed.
+    #[test]
+    fn guess_file_double_parent_include_resolves_two_levels_up() {
+        let mut all_files: HashMap<String, Vec<PathBuf>> = HashMap::new();
+        all_files.insert(
+            "foo.h".to_string(),
+            vec![
+                PathBuf::from("/proj/src/foo.h"),
+                PathBuf::from("/proj/src/a/foo.h"),
+                PathBuf::from("/proj/src/a/b/foo.h"),
+            ],
+        );
+        let current = Path::new("/proj/src/a/b/file.c");
+        let result = guess_file(current, "../../foo.h", &all_files);
+        assert_eq!(result, vec![PathBuf::from("/proj/src/foo.h")]);
+    }
+
+    /// When the relative target does not match any candidate
+    /// exactly, the existing basename / same-directory / distance
+    /// fallback chain still applies. With a single candidate, that
+    /// candidate is returned even if its path differs from the
+    /// resolved target.
+    #[test]
+    fn guess_file_unique_basename_returns_only_candidate() {
+        let mut all_files: HashMap<String, Vec<PathBuf>> = HashMap::new();
+        all_files.insert(
+            "foo.h".to_string(),
+            vec![PathBuf::from("/proj/src/lib/foo.h")],
+        );
+        let current = Path::new("/proj/src/lib/file.c");
+        // Resolved target would be `/proj/foo.h`, which does not
+        // exist; the unique-basename short-circuit still wins.
+        let result = guess_file(current, "../../foo.h", &all_files);
+        assert_eq!(result, vec![PathBuf::from("/proj/src/lib/foo.h")]);
+    }
+
+    /// The `mozilla/` prefix strip must still apply, so
+    /// `#include "mozilla/foo.h"` from `src/lib/file.c` resolves
+    /// the same way a bare `foo.h` would.
+    #[test]
+    fn guess_file_mozilla_prefix_is_stripped_before_resolution() {
+        let mut all_files: HashMap<String, Vec<PathBuf>> = HashMap::new();
+        all_files.insert(
+            "foo.h".to_string(),
+            vec![
+                PathBuf::from("/proj/src/foo.h"),
+                PathBuf::from("/proj/src/lib/foo.h"),
+            ],
+        );
+        let current = Path::new("/proj/src/lib/file.c");
+        let result = guess_file(current, "mozilla/foo.h", &all_files);
+        assert_eq!(result, vec![PathBuf::from("/proj/src/lib/foo.h")]);
     }
 
     #[test]
