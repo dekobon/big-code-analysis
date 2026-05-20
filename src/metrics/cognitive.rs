@@ -356,11 +356,14 @@ impl Cognitive for PythonCode {
         let (mut nesting, mut depth, mut lambda) = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
-            IfStatement
-            | ForStatement
-            | WhileStatement
-            | ConditionalExpression
-            | MatchStatement => {
+            // `else: if x:` chains surface as an `if_statement` wrapped
+            // in an `else_clause`; `Self::is_else_if` flags that shape
+            // so the nesting increment lands only on the outer chain
+            // (matching the `elif_clause` accounting one arm below).
+            IfStatement if !Self::is_else_if(node) => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
+            }
+            ForStatement | WhileStatement | ConditionalExpression | MatchStatement => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
             ElifClause => {
@@ -1630,6 +1633,40 @@ mod tests {
                       "average": 6.0,
                       "min": 0.0,
                       "max": 6.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn python_else_if_chain_matches_elif() {
+        // Regression for #276: `else: if x:` (no `elif`) is semantically
+        // an else-if chain and must score the same as the `elif`
+        // equivalent. Before the fix, the inner `if_statement` was
+        // double-counted (nesting +2 instead of +1), inflating the
+        // cognitive score linearly with chain length.
+        // expected: outer if +1, boolean `and` +1, else_clause +1,
+        //   inner if suppressed by is_else_if, inner boolean `and` +1
+        //   = 4 — matching the `elif` form above (python_elif_function).
+        check_metrics::<PythonParser>(
+            "def f(a, b, c, d):
+                if a and b:
+                   return 1
+                else:
+                   if c and d:
+                      return 1",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 4.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 4.0,
+                      "average": 4.0,
+                      "min": 0.0,
+                      "max": 4.0
                     }"###
                 );
             },

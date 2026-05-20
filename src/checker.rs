@@ -332,8 +332,28 @@ impl Checker for PythonCode {
         node.kind_id() == Python::String || node.kind_id() == Python::ConcatenatedString
     }
 
-    fn is_else_if(_: &Node) -> bool {
-        false
+    // Python models `elif` as a dedicated `elif_clause` (matched
+    // directly by cognitive/cyclomatic dispatch). `else: if x: ...`
+    // chains also exist — semantically equivalent to `else if` — but
+    // the grammar wraps the inner `if_statement` in a `block` node, so
+    // the shape is `else_clause → block → if_statement` rather than the
+    // direct `else_clause → if_statement` used by C++/JS/TS/TSX/Rust.
+    // Match the chained shape by walking through the `block` and
+    // requiring the inner `if` to be the block's sole named child;
+    // sibling statements would mean a real nested-if, not a chain.
+    //
+    // `block` has two aliased kind_ids in tree-sitter-python
+    // (`Block` = 135, `Block2` = 160 — both surface as `"block"`); we
+    // accept either per lesson 2 in `docs/development/lessons_learned.md`.
+    fn is_else_if(node: &Node) -> bool {
+        node.kind_id() == Python::IfStatement
+            && node.parent().is_some_and(|parent| {
+                matches!(parent.kind_id().into(), Python::Block | Python::Block2)
+                    && parent.children().filter(Node::is_named).count() == 1
+                    && parent
+                        .parent()
+                        .is_some_and(|gp| gp.kind_id() == Python::ElseClause)
+            })
     }
 
     fn is_primitive(_id: u16) -> bool {
@@ -1743,5 +1763,104 @@ mod tests {
             GroovyParser::new(src.as_bytes().to_vec(), &PathBuf::from("test.groovy"), None);
         let node = find_first_kind(&parser, Groovy::IfStatement as u16).expect("if_statement");
         assert!(!GroovyCode::is_else_if(&node));
+    }
+
+    fn parse_python(src: &str) -> PythonParser {
+        PythonParser::new(src.as_bytes().to_vec(), &PathBuf::from("test.py"), None)
+    }
+
+    // Walk the AST and return every node whose `kind_id` equals `target`,
+    // in DFS pre-order. Used by the Python `is_else_if` tests below to
+    // distinguish the outer if from the inner one in an `else: if` chain.
+    fn find_all_kinds<P: ParserTrait>(parser: &P, target: u16) -> Vec<Node<'_>> {
+        let mut out = Vec::new();
+        let mut stack = vec![parser.get_root()];
+        while let Some(node) = stack.pop() {
+            if node.kind_id() == target {
+                out.push(node);
+            }
+            for i in (0..node.child_count()).rev() {
+                if let Some(c) = node.child(i) {
+                    stack.push(c);
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn python_is_else_if_recognises_if_inside_else_clause() {
+        // `else: if b:` chains parse as `else_clause → block → if_statement`
+        // (the `block` wrapper is Python-specific). `is_else_if` must
+        // walk through that wrapper. Regression for #276 (the stub
+        // returned `false` unconditionally).
+        let src = "if a:\n    pass\nelse:\n    if b:\n        pass\n";
+        let parser = parse_python(src);
+        let outer =
+            find_first_kind(&parser, Python::IfStatement as u16).expect("outer if_statement");
+        let inner =
+            find_python_if_inside_else_block(&parser).expect("inner if_statement under else");
+        assert!(
+            PythonCode::is_else_if(&inner),
+            "if_statement inside else_clause's block must be recognised as else-if"
+        );
+        assert!(
+            !PythonCode::is_else_if(&outer),
+            "outer if_statement must not be recognised as else-if"
+        );
+    }
+
+    #[test]
+    fn python_is_else_if_false_for_standalone_if() {
+        // A bare `if` whose parent is the module / function body must
+        // NOT register as an else-if.
+        let src = "if a:\n    pass\n";
+        let parser = parse_python(src);
+        let node = find_first_kind(&parser, Python::IfStatement as u16).expect("if_statement");
+        assert!(!PythonCode::is_else_if(&node));
+    }
+
+    #[test]
+    fn python_is_else_if_false_for_outer_if_with_elif_alternative() {
+        // `elif` parses as an `ElifClause`, not an `IfStatement`, so the
+        // only `IfStatement` in `if … elif …` is the outer one. Its
+        // parent is the module / function body, not an `else_clause`.
+        // Pins that the presence of `elif` in the AST does not trip
+        // `is_else_if` for the outer `if`.
+        let src = "if a:\n    pass\nelif b:\n    pass\n";
+        let parser = parse_python(src);
+        let outer = find_first_kind(&parser, Python::IfStatement as u16).expect("if_statement");
+        assert!(!PythonCode::is_else_if(&outer));
+    }
+
+    // Return the inner `if_statement` that sits directly inside an
+    // `else_clause`'s `block` wrapper, or `None` if no such node exists.
+    // Used by tests below instead of relying on `find_all_kinds`'s DFS
+    // pre-order to land at `ifs[1]`.
+    fn find_python_if_inside_else_block(parser: &PythonParser) -> Option<Node<'_>> {
+        find_all_kinds(parser, Python::IfStatement as u16)
+            .into_iter()
+            .find(|n| {
+                n.parent().is_some_and(|p| {
+                    matches!(p.kind_id().into(), Python::Block | Python::Block2)
+                        && p.parent()
+                            .is_some_and(|gp| gp.kind_id() == Python::ElseClause)
+                })
+            })
+    }
+
+    #[test]
+    fn python_is_else_if_false_when_else_body_has_siblings() {
+        // `else: if b:` followed by another statement at the same indent
+        // is a real nested-if, not a chain. The block has 2 named
+        // children, so `is_else_if` must return false.
+        let src = "if a:\n    pass\nelse:\n    if b:\n        pass\n    pass\n";
+        let parser = parse_python(src);
+        let inner =
+            find_python_if_inside_else_block(&parser).expect("inner if_statement under else");
+        assert!(
+            !PythonCode::is_else_if(&inner),
+            "inner if must NOT be recognised as else-if when its block has siblings"
+        );
     }
 }
