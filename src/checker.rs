@@ -511,8 +511,14 @@ impl Checker for CsharpCode {
                 .is_some_and(|prev| prev.kind_id() == Csharp::Else)
     }
 
-    fn is_primitive(_id: u16) -> bool {
-        false
+    #[inline]
+    fn is_primitive(id: u16) -> bool {
+        // Without this, every `PredefinedType` keyword (`int`, `string`,
+        // `bool`, `object`, …) collapses into a single Halstead operator
+        // because they share one `kind_id`. Returning `true` here routes
+        // them through the lexeme-keyed `primitive_operators` map so
+        // distinct keywords count as distinct operators (issue #286).
+        id == Csharp::PredefinedType as u16
     }
 }
 

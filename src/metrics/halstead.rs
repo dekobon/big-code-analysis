@@ -1401,6 +1401,11 @@ mod tests {
 
     #[test]
     fn csharp_operators_and_operands() {
+        // After issue #286, `void`, `string`, and `int` count as three
+        // distinct Halstead operators rather than collapsing into one
+        // `PredefinedType` kind_id entry, lifting u_operators from 13
+        // to 15. Total operators (N1) is unchanged because the same
+        // nodes are still counted, just keyed by lexeme.
         check_metrics::<CsharpParser>(
             "public class Main {
                 public static void Run(string[] args) {
@@ -1412,7 +1417,7 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.halstead.u_operators(), 13.0);
+                assert_eq!(metric.halstead.u_operators(), 15.0);
                 assert_eq!(metric.halstead.operators(), 32.0);
                 assert_eq!(metric.halstead.u_operands(), 13.0);
                 assert_eq!(metric.halstead.operands(), 23.0);
@@ -1425,6 +1430,13 @@ mod tests {
 
     #[test]
     fn csharp_primitive_types_and_booleans() {
+        // After issue #286: each of `byte`, `short`, `int`, `long`,
+        // `char`, `float`, `double`, `bool`, `object` is now a distinct
+        // Halstead operator (9 primitives) rather than collapsing into
+        // one `PredefinedType` kind_id entry. u_operators rises from 6
+        // to 14 (5 non-primitive operators + 9 distinct primitives);
+        // total operators (N1) is unchanged because the same nodes are
+        // still counted, just keyed by lexeme.
         check_metrics::<CsharpParser>(
             "public class Prims {
                 byte a = 1;
@@ -1440,11 +1452,37 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                assert_eq!(metric.halstead.u_operators(), 6.0);
+                assert_eq!(metric.halstead.u_operators(), 14.0);
                 assert_eq!(metric.halstead.operators(), 33.0);
                 assert_eq!(metric.halstead.u_operands(), 21.0);
                 assert_eq!(metric.halstead.operands(), 23.0);
                 insta::assert_json_snapshot!(metric.halstead);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_predefined_types_keyed_by_lexeme() {
+        // Regression: issue #286. The C# grammar emits one `PredefinedType`
+        // kind_id for every keyword type (`int`, `string`, `bool`, …).
+        // Without keying by source text the entire family collapses into
+        // a single Halstead operator (n1 += 1) instead of one per distinct
+        // keyword. This test pins the post-fix behaviour using four
+        // distinct primitives — `int`, `string`, `bool`, `object` —
+        // appearing as parameter types so no other operators interact
+        // with the count.
+        //
+        // expected: operators are `class`, `void`, `M`, `{}`, `()`, `,`
+        // (×3 between 4 params), plus the four distinct predefined types
+        // → u_operators = 5 + 4 = 9. Without the fix the four primitives
+        // collapse to one entry, giving u_operators = 6.
+        check_metrics::<CsharpParser>(
+            "class C { void M(int a, string b, bool c, object d) {} }",
+            "foo.cs",
+            |metric| {
+                // The headline assertion: four distinct primitive
+                // keywords contribute four distinct operators, not one.
+                assert_eq!(metric.halstead.u_operators(), 9.0);
             },
         );
     }
