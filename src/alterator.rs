@@ -347,7 +347,14 @@ impl Alterator for PhpCode {
         children: Vec<AstNode>,
     ) -> AstNode {
         match Php::from(node.kind_id()) {
+            // `String`/`String2`/`String3` are all aliased kind_ids
+            // that the enum maps to `"string"`; flatten every alias to
+            // preserve source text and keep the alterator aligned with
+            // `Checker::is_string` and `Getter::get_op_type` (#288,
+            // same pattern as #119 for JS/TS).
             Php::String
+            | Php::String2
+            | Php::String3
             | Php::EncapsedString
             | Php::Heredoc
             | Php::Nowdoc
@@ -562,6 +569,56 @@ mod tests {
         "#;
         let root = build_ast::<crate::TsxParser>(code, "test.tsx");
         assert_strings_flattened(&root);
+    }
+
+    #[test]
+    fn php_string_like_nodes_all_flattened() {
+        // Regression: issue #288. PHP `string`, `encapsed_string`,
+        // `heredoc`, `nowdoc`, and `shell_command_expression` (backtick
+        // form) must all flatten through the same `Alterator` arm.
+        // The wave-1 fix also added `String2`/`String3` enum aliases
+        // to the arm for defensive parity with `Checker::is_string`;
+        // the current `tree-sitter-php` grammar emits `String2` only
+        // as the `string` type keyword (a terminal) and never emits
+        // `String3` (a hidden supertype) as a concrete node, so the
+        // arm change is a no-op vs `get_default` for those aliases —
+        // but locking the structural contract here keeps the three
+        // sites aligned if future grammar revisions surface either id
+        // as an interior node.
+        let code = br#"<?php
+            $single = 'single';
+            $double = "double";
+            $cmd = `ls`;
+            $here = <<<EOT
+                some text
+                EOT;
+            $now = <<<'EOT'
+                literal
+                EOT;
+        "#;
+        let root = build_ast::<crate::PhpParser>(code, "test.php");
+        assert_strings_flattened(&root);
+        // ShellCommandExpression flattens with the same shape as
+        // EncapsedString — confirm it preserves source text and has
+        // no children.
+        let mut shells = Vec::new();
+        collect_nodes_by_kind(&root, "shell_command_expression", &mut shells);
+        assert!(
+            !shells.is_empty(),
+            "expected at least one shell_command_expression node"
+        );
+        for node in &shells {
+            assert!(
+                node.children.is_empty(),
+                "shell_command_expression should be flattened; got {} children",
+                node.children.len()
+            );
+            assert!(
+                node.value.contains("ls"),
+                "flattened backtick literal should preserve text; got {:?}",
+                node.value
+            );
+        }
     }
 
     #[test]

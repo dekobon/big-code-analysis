@@ -2366,6 +2366,58 @@ f() {
     }
 
     #[test]
+    fn php_shell_command_expression_inert_is_operand() {
+        // Regression: issue #288. Backtick command literals (PHP's
+        // `shell_command_expression`) were filtered as strings by
+        // `Checker::is_string` and `Alterator::alterate`, but never
+        // classified as Halstead operands — so they contributed
+        // nothing to N2 / eta2. An inert backtick literal must now
+        // count as exactly one operand, matching `EncapsedString`
+        // and `Heredoc`.
+        //
+        // Source: `<?php $out = ` + backtick `ls` + backtick + `;`
+        // Operands tallied by `get_id`:
+        //   `$out` × 1, `out` × 1 (inner `name`), backtick literal × 1.
+        // ⇒ u_operands = 3, N2 = 3.
+        // Before the fix the backtick literal vanished from the count
+        // ⇒ u_operands = 2, N2 = 2.
+        check_metrics::<PhpParser>("<?php $out = `ls`;", "foo.php", |metric| {
+            assert_eq!(metric.halstead.u_operands(), 3.0);
+            assert_eq!(metric.halstead.operands(), 3.0);
+        });
+    }
+
+    #[test]
+    fn php_shell_command_expression_interpolation_no_double_count() {
+        // Regression: issue #288. PHP backtick literals DO support
+        // `$var` interpolation (see tree-sitter-php node-types.json:
+        // `shell_command_expression` children include `variable_name`,
+        // `dynamic_variable_name`, `member_access_expression`,
+        // `subscript_expression`). With the fix the wrapper drops to
+        // `Unknown` when it carries any interpolation child, exactly
+        // as `EncapsedString` does.
+        //
+        // Source: `<?php $dir = "/tmp"; $out = ` + backtick `ls $dir` +
+        //   backtick + `;`
+        //
+        // Operands tallied by `get_id`:
+        //   `$dir` × 2 (assignment LHS, inside backticks),
+        //   `dir`  × 2 (inner `name`),
+        //   `$out` × 1, `out` × 1, `"/tmp"` × 1.
+        // ⇒ u_operands = 5, N2 = 7.
+        // Without the interpolation guard the wrapping backtick literal
+        // would also count ⇒ u_operands = 6, N2 = 8.
+        check_metrics::<PhpParser>(
+            "<?php $dir = \"/tmp\"; $out = `ls $dir`;",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.halstead.u_operands(), 5.0);
+                assert_eq!(metric.halstead.operands(), 7.0);
+            },
+        );
+    }
+
+    #[test]
     fn elixir_operators_and_operands() {
         // Exercises every Halstead family classified in Elixir's
         // `get_op_type`: control-flow keywords (`do`, `end`, `fn`),
