@@ -47,36 +47,44 @@ struct ParseConfig {
 }
 
 const PARSE_TIMEOUT: &str = "Parse timed out";
+const PARSE_POOL_SATURATED: &str = "parse pool saturated";
 
 /// Default parse timeout used by [`run`].
 pub const DEFAULT_PARSE_TIMEOUT_SECS: u64 = 30;
 
-/// Offloads a CPU-bound parse to the blocking thread pool, bounded by a
-/// semaphore and wrapped in a deadline.
-///
-/// The permit is held for the lifetime of this future (until the task
-/// completes or the deadline fires), then released. A timed-out blocking task
-/// continues running on the thread pool but no longer holds a permit; its
-/// existence is tracked via `config.orphaned_tasks`. When that counter reaches
-/// `config.max_orphaned_tasks`, new requests are rejected with 503 rather than
-/// spawning another thread that would never be reclaimed in time.
 async fn run_parse<T: Send + 'static>(
     config: &web::Data<ParseConfig>,
     f: impl FnOnce() -> T + Send + 'static,
 ) -> Result<T, actix_web::Error> {
-    // Soft limit: Relaxed ordering means concurrent requests may briefly exceed
-    // this threshold before the counter stabilises, but that is acceptable —
-    // the check is a heuristic admission gate, not a hard guarantee.
-    if config.orphaned_tasks.load(Ordering::Relaxed) >= config.max_orphaned_tasks {
-        return Err(actix_web::error::ErrorServiceUnavailable(
-            "parse pool saturated",
-        ));
+    // Reject when the orphaned-task pool has saturated. `Acquire` pairs with
+    // the `Release` `fetch_add` on the timeout path so newly admitted requests
+    // observe orphan counts published by any prior orphaning task.
+    let pool_saturated =
+        || config.orphaned_tasks.load(Ordering::Acquire) >= config.max_orphaned_tasks;
+    let saturated_err = || actix_web::error::ErrorServiceUnavailable(PARSE_POOL_SATURATED);
+
+    // Fast-path admission check: cheap rejection before acquiring a semaphore
+    // permit. A burst of concurrent requests may still pass this check while
+    // the counter is briefly low, so the post-admission re-check below is the
+    // hard gate.
+    if pool_saturated() {
+        return Err(saturated_err());
     }
 
     let permit = Arc::clone(&config.semaphore)
         .acquire_owned()
         .await
         .map_err(|_| actix_web::error::ErrorServiceUnavailable("parse pool shut down"))?;
+
+    // Re-check after semaphore admission. A queued burst can all pass the
+    // pre-admission check while the orphan count is still low, then drain the
+    // semaphore one at a time. Without this second check each admitted request
+    // would spawn another blocking task and grow the orphan pool past the cap.
+    // `permit` is dropped by RAII on early return, returning its slot to the
+    // semaphore.
+    if pool_saturated() {
+        return Err(saturated_err());
+    }
 
     let mut handle = tokio::task::spawn_blocking(f);
 
@@ -93,10 +101,13 @@ async fn run_parse<T: Send + 'static>(
             }
             Err(_) => {
                 let counter = Arc::clone(&config.orphaned_tasks);
-                counter.fetch_add(1, Ordering::Relaxed);
+                // `Release` here pairs with the `Acquire` loads in the
+                // admission checks above so that newly admitted requests
+                // observe the incremented orphan count.
+                counter.fetch_add(1, Ordering::Release);
                 tokio::spawn(async move {
                     let _ = handle.await;
-                    counter.fetch_sub(1, Ordering::Relaxed);
+                    counter.fetch_sub(1, Ordering::Release);
                 });
                 Err(actix_web::error::ErrorGatewayTimeout(PARSE_TIMEOUT))
             }
@@ -1231,7 +1242,7 @@ mod tests {
         assert_eq!(err.error_response().status(), StatusCode::GATEWAY_TIMEOUT);
 
         // Counter must be 1 immediately after timeout.
-        assert_eq!(orphaned.load(Ordering::Relaxed), 1);
+        assert_eq!(orphaned.load(Ordering::Acquire), 1);
 
         // Unblock the orphaned task so it can finish.
         let _ = tx.send(());
@@ -1239,11 +1250,11 @@ mod tests {
         // Poll until the cleanup task has decremented the counter.
         for _ in 0..200 {
             tokio::time::sleep(Duration::from_millis(10)).await;
-            if orphaned.load(Ordering::Relaxed) == 0 {
+            if orphaned.load(Ordering::Acquire) == 0 {
                 break;
             }
         }
-        assert_eq!(orphaned.load(Ordering::Relaxed), 0);
+        assert_eq!(orphaned.load(Ordering::Acquire), 0);
     }
 
     #[actix_rt::test]
@@ -1264,5 +1275,77 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
         let body = actix_web::body::to_bytes(resp.into_body()).await.unwrap();
         assert_eq!(String::from_utf8_lossy(&body), "parse pool saturated");
+    }
+
+    #[actix_rt::test]
+    async fn test_run_parse_rechecks_orphan_cap_after_semaphore_admission() {
+        use std::sync::atomic::AtomicBool;
+
+        // Regression test for #291: a burst that passes the pre-admission
+        // check while the orphan counter is still low must be rejected by
+        // the post-admission re-check rather than spawning additional
+        // blocking work.
+        //
+        // The semaphore has a single permit so admissions are serialised.
+        // The counter is initialised one below the cap, so the
+        // pre-admission check passes; the test holds the permit, bumps the
+        // counter past the cap while the queued request waits, then
+        // releases the permit and expects rejection without the closure
+        // running.
+        let orphaned = Arc::new(AtomicUsize::new(9));
+        let config = web::Data::new(ParseConfig {
+            timeout: None,
+            semaphore: Arc::new(Semaphore::new(1)),
+            orphaned_tasks: Arc::clone(&orphaned),
+            max_orphaned_tasks: 10,
+        });
+
+        // Hold the single semaphore permit so the second request must queue.
+        let held_permit = Arc::clone(&config.semaphore).acquire_owned().await.unwrap();
+
+        // Drive the would-be request from a LocalSet because actix_web::Error
+        // is `!Send`, so it cannot cross a `tokio::spawn` boundary. The
+        // LocalSet's `spawn_local` keeps the future on the current thread.
+        let local = tokio::task::LocalSet::new();
+        let closure_ran = Arc::new(AtomicBool::new(false));
+        let closure_ran_for_task = Arc::clone(&closure_ran);
+
+        let outcome = local
+            .run_until(async {
+                let config_for_task = config.clone();
+                let queued = tokio::task::spawn_local(async move {
+                    run_parse(&config_for_task, move || {
+                        closure_ran_for_task.store(true, Ordering::Release);
+                        "should not run"
+                    })
+                    .await
+                });
+
+                // Give the queued task a chance to reach the semaphore wait.
+                tokio::time::sleep(Duration::from_millis(50)).await;
+
+                // Simulate another request orphaning a blocking task in
+                // the meantime, pushing the counter up to the cap.
+                orphaned.fetch_add(1, Ordering::Release);
+
+                // Release the permit so the queued request is admitted.
+                drop(held_permit);
+
+                queued.await.unwrap()
+            })
+            .await;
+
+        let err = outcome.unwrap_err();
+        let resp = err.error_response();
+        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body = actix_web::body::to_bytes(resp.into_body()).await.unwrap();
+        assert_eq!(String::from_utf8_lossy(&body), "parse pool saturated");
+        assert!(
+            !closure_ran.load(Ordering::Acquire),
+            "closure must not run when orphan cap is exceeded post-admission",
+        );
+
+        // The dropped permit must be returned to the pool for subsequent requests.
+        assert_eq!(config.semaphore.available_permits(), 1);
     }
 }
