@@ -1049,6 +1049,26 @@ fn bash_string_has_expansion(node: &Node) -> bool {
     })
 }
 
+/// Returns whether a Tcl `quoted_word` node (`"..."`) carries any
+/// interpolation child that would itself be classified as an operand
+/// (or contribute operand children) by [`TclCode::get_op_type`].
+///
+/// In Tcl, `"..."` exposes `$var` as `variable_substitution` and
+/// `[cmd]` as `command_substitution`. Both substitutions either are
+/// operands themselves or wrap inner identifiers/literals that are.
+/// When such children are present, classifying the wrapping
+/// `QuotedWord` as an operand too would double-count `N2` (issue
+/// #277, same pattern as #180/#183/#184 for Bash/C#/PHP).
+#[inline]
+fn tcl_quoted_word_has_interpolation(node: &Node) -> bool {
+    node.children().any(|c| {
+        matches!(
+            c.kind_id().into(),
+            Tcl::VariableSubstitution | Tcl::CommandSubstitution
+        )
+    })
+}
+
 impl Getter for BashCode {
     fn get_space_kind(node: &Node) -> SpaceKind {
         match node.kind_id().into() {
@@ -1208,10 +1228,24 @@ impl Getter for TclCode {
             Tcl::Id
             | Tcl::SimpleWord
             | Tcl::Number
-            | Tcl::QuotedWord
             | Tcl::BracedWord
             | Tcl::BracedWordSimple
             | Tcl::VariableSubstitution => HalsteadType::Operand,
+
+            // Double-quoted strings count as a single operand when inert
+            // (`"hello world"`). When they carry a `$var` or `[cmd]`
+            // interpolation child, the inner `variable_substitution` /
+            // `command_substitution` nodes are walked separately and
+            // contribute their own operands; counting the wrapping
+            // `QuotedWord` too would double-count `N2` (issue #277, same
+            // pattern as #180/#183/#184 for Bash/C#/PHP).
+            Tcl::QuotedWord => {
+                if tcl_quoted_word_has_interpolation(node) {
+                    HalsteadType::Unknown
+                } else {
+                    HalsteadType::Operand
+                }
+            }
 
             _ => HalsteadType::Unknown,
         }
