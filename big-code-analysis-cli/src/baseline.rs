@@ -186,15 +186,73 @@ pub(crate) fn render(file: &BaselineFile) -> Result<String, toml::ser::Error> {
 
 /// Normalize a path for use as a baseline identity key. Backslashes are
 /// rewritten to forward slashes so a baseline committed on one OS
-/// matches the same tree analyzed on another. Non-UTF-8 paths fall
-/// back to `Path::display()` (lossy U+FFFD substitution), matching the
-/// existing Violation Display behavior.
+/// matches the same tree analyzed on another.
+///
+/// Non-UTF-8 paths cannot be represented verbatim in a TOML string
+/// (TOML mandates UTF-8). Falling back to `Path::display()` would
+/// replace every invalid byte with U+FFFD and collapse distinct paths
+/// onto the same key — exactly the lossy identity collision we have to
+/// avoid. Instead, on Unix we read the raw bytes via `OsStrExt` and
+/// percent-encode (`%XX`) every byte that is not a printable ASCII
+/// path character, so two distinct byte sequences always produce two
+/// distinct keys. On Windows, `OsStr` already prevents arbitrary byte
+/// sequences from reaching this function as `to_str() == None`; the
+/// last-resort branch returns `to_string_lossy()` qualified with a
+/// `%FFFD` marker, which is at minimum deterministic for that
+/// platform.
 fn normalize_path(p: &Path) -> String {
     match p.to_str() {
         Some(s) if s.contains('\\') => s.replace('\\', "/"),
         Some(s) => s.to_string(),
-        None => p.display().to_string(),
+        None => encode_non_utf8_path(p),
     }
+}
+
+#[cfg(unix)]
+fn encode_non_utf8_path(p: &Path) -> String {
+    use std::os::unix::ffi::OsStrExt;
+    percent_encode_path_bytes(p.as_os_str().as_bytes())
+}
+
+#[cfg(not(unix))]
+fn encode_non_utf8_path(p: &Path) -> String {
+    // Windows OsStr is WTF-8 (well-formed UTF-8 plus lone surrogates
+    // encoded as 3-byte sequences). `to_string_lossy()` only
+    // substitutes for those surrogates, which are rare in practice;
+    // prefix the result so it can never collide with a value that
+    // arrives clean through the `to_str()` branch above.
+    format!("\u{FFFD}{}", p.to_string_lossy())
+}
+
+/// Percent-encode the raw bytes of a non-UTF-8 path so the result is
+/// (1) valid UTF-8 (required by TOML), (2) injective for distinct byte
+/// sequences (required to keep baseline identities from collapsing),
+/// and (3) human-recognizable for the common case where most bytes are
+/// printable ASCII path characters. The unreserved set mirrors the
+/// "safe for use in a filename" subset of RFC 3986 unreserved with
+/// `/` added (path separator) and `%` excluded (escape introducer).
+#[cfg(unix)]
+fn percent_encode_path_bytes(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+
+    let mut out = String::with_capacity(bytes.len());
+    for &b in bytes {
+        let is_unreserved = b.is_ascii_alphanumeric()
+            || matches!(
+                b,
+                b'-' | b'_' | b'.' | b'~' | b'/' | b':' | b'+' | b',' | b' '
+            );
+        if is_unreserved {
+            out.push(b as char);
+        } else {
+            // Hex-encode every non-unreserved byte (including `%` and
+            // backslash) so the encoding is unambiguous. Writing to a
+            // String can only fail on allocation failure, which is
+            // already a panic in the standard library.
+            let _ = write!(out, "%{b:02X}");
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -444,5 +502,83 @@ mod tests {
         // path with backslashes. They should match after normalization.
         let b = baseline_with(vec![entry("src/a.rs", "f", 1, "cyclomatic", 5.0)]);
         assert!(b.covers(&v("src\\a.rs", "f", 1, "cyclomatic", 5.0)));
+    }
+
+    // -- non-UTF-8 path identity ------------------------------------------
+
+    #[test]
+    fn normalize_path_utf8_unchanged() {
+        // Regression guard: the common UTF-8 case must round-trip
+        // untouched. Encoding shenanigans for non-UTF-8 paths must not
+        // leak into ordinary inputs (no percent escapes, no extra
+        // markers, just the path).
+        assert_eq!(normalize_path(Path::new("src/foo.rs")), "src/foo.rs");
+        assert_eq!(normalize_path(Path::new("crates/a/b.rs")), "crates/a/b.rs");
+        // Backslashes are still normalized to forward slashes for the
+        // UTF-8 path so that cross-OS baselines match.
+        assert_eq!(normalize_path(Path::new("a\\b\\c.rs")), "a/b/c.rs");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn baseline_key_preserves_non_utf8_identity() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        // Two distinct non-UTF-8 paths must produce two distinct
+        // baseline keys. The previous `display().to_string()` fallback
+        // collapsed both onto a sequence of U+FFFD replacement chars,
+        // so a baseline written from path A would silently cover
+        // violations from path B.
+        let a = PathBuf::from("src").join(OsStr::from_bytes(b"bad-\xff\xfe.rs"));
+        let b = PathBuf::from("src").join(OsStr::from_bytes(b"bad-\xfe\xff.rs"));
+        let key_a = normalize_path(&a);
+        let key_b = normalize_path(&b);
+        assert_ne!(key_a, key_b);
+        // The encoded keys are valid UTF-8 (required by TOML) and
+        // contain only ASCII bytes after percent-encoding.
+        assert!(key_a.is_ascii());
+        assert!(key_b.is_ascii());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn baseline_covers_distinguishes_non_utf8_paths() {
+        // End-to-end: a baseline written for path A must not cover a
+        // violation reported against path B when the only difference
+        // is the invalid byte sequence in the filename.
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let path_a = PathBuf::from("src").join(OsStr::from_bytes(b"\xff\xfe.rs"));
+        let path_b = PathBuf::from("src").join(OsStr::from_bytes(b"\xfe\xff.rs"));
+
+        let violation_a = Violation {
+            path: path_a.clone(),
+            start_line: 1,
+            end_line: 2,
+            function: "f".to_string(),
+            metric: "cyclomatic",
+            value: 5.0,
+            limit: 1.0,
+        };
+        let violation_b = Violation {
+            path: path_b,
+            start_line: 1,
+            end_line: 2,
+            function: "f".to_string(),
+            metric: "cyclomatic",
+            value: 5.0,
+            limit: 1.0,
+        };
+
+        // Baseline contains only `path_a`. `covers(violation_b)` would
+        // wrongly return true if both non-UTF-8 paths normalized to
+        // the same lossy key.
+        let file = from_violations(vec![violation_a.clone()]);
+        let rendered = render(&file).expect("render");
+        let b = Baseline::from_str(&rendered).expect("parse");
+        assert!(b.covers(&violation_a));
+        assert!(!b.covers(&violation_b));
     }
 }

@@ -182,22 +182,19 @@ fn handle_path(path: &Path, output_path: &Path, extension: &str) -> PathBuf {
     // strips Windows path prefixes (`C:`, `\\?\…`) and root separators
     // alongside Unix `/` and `./`, so `output_path.join(filename)` does
     // not get overridden by an absolute input filename.
+    //
+    // Components are pushed as `OsStr` (not `&str`), so non-UTF-8 byte
+    // sequences are preserved end-to-end and two distinct input paths
+    // never collapse onto the same output filename. The filesystem
+    // accepts the raw bytes on Unix; on Windows, `OsString` carries the
+    // WTF-8 representation that `File::create` resolves natively.
     let mut cleaned = PathBuf::new();
     for component in path.components() {
         match component {
             Component::Prefix(_) | Component::RootDir | Component::CurDir => {}
             // Keep files inside the output folder.
             Component::ParentDir => cleaned.push("."),
-            Component::Normal(s) => {
-                let Some(s) = s.to_str() else {
-                    eprintln!(
-                        "Warning: non-UTF-8 path component dropped from output path: {}",
-                        path.display()
-                    );
-                    continue;
-                };
-                cleaned.push(s);
-            }
+            Component::Normal(s) => cleaned.push(s),
         }
     }
 
@@ -390,15 +387,37 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn handle_path_skips_non_utf8_components() {
+    fn handle_path_preserves_non_utf8_components() {
         use std::ffi::OsStr;
         use std::os::unix::ffi::OsStrExt;
 
         let bad_component = OsStr::from_bytes(b"\xff\xfe");
         let path = PathBuf::from("src").join(bad_component).join("bar.rs");
         let result = handle_path(&path, Path::new("out"), ".json");
-        // The non-UTF-8 component is dropped and a warning is emitted to stderr;
-        // only the valid components (src, bar.rs) appear in the output path.
-        assert_eq!(result, PathBuf::from("out/src/bar.rs.json"));
+        // The non-UTF-8 component is preserved verbatim — distinct
+        // input paths must produce distinct output filenames.
+        let expected = PathBuf::from("out/src")
+            .join(bad_component)
+            .join("bar.rs.json");
+        assert_eq!(result, expected);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn output_filename_preserves_non_utf8_identity() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        // Two distinct non-UTF-8 byte sequences must produce two
+        // distinct output paths — collapsing them onto the same name
+        // (as the previous lossy implementation did by dropping the
+        // component entirely) would clobber one file with the other.
+        let a = OsStr::from_bytes(b"\xff\xfe");
+        let b = OsStr::from_bytes(b"\xfe\xff");
+        let path_a = PathBuf::from("src").join(a).join("x.rs");
+        let path_b = PathBuf::from("src").join(b).join("x.rs");
+        let out_a = handle_path(&path_a, Path::new("out"), ".json");
+        let out_b = handle_path(&path_b, Path::new("out"), ".json");
+        assert_ne!(out_a, out_b);
     }
 }
