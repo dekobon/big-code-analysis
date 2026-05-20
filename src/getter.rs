@@ -1355,15 +1355,18 @@ impl Getter for PhpCode {
             | Int | Bool | Array | Object
                 => HalsteadType::Operand,
 
-            // `EncapsedString` (double-quoted) and `Heredoc` count as
-            // one operand when inert. When they carry a `$var`,
+            // `EncapsedString` (double-quoted), `Heredoc`, and
+            // `ShellCommandExpression` (backticks) count as one
+            // operand when inert. When they carry a `$var`,
             // `${name}`, or `{$expr}` interpolation child, those
             // inner expressions are already walked and classified as
             // operands in their own right; counting the wrapping
             // literal too would double-count their contribution to
             // `N2` (issue #184, same pattern as #180 for Elixir/Bash
-            // and #183 for C#).
-            EncapsedString | Heredoc => {
+            // and #183 for C#). `ShellCommandExpression` was previously
+            // omitted entirely (issue #288), so backtick literals
+            // contributed no Halstead operand at all even when inert.
+            EncapsedString | Heredoc | ShellCommandExpression => {
                 if php_string_has_interpolation(node) {
                     HalsteadType::Unknown
                 } else {

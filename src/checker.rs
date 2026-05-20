@@ -1378,9 +1378,18 @@ impl Checker for PhpCode {
     }
 
     fn is_string(node: &Node) -> bool {
+        // `String` is the named single-quoted literal; `String2` and
+        // `String3` are aliased kind_ids that the language enum also
+        // maps to `"string"` (`String2` is the `string` type keyword
+        // and `String3` is the hidden `_string` supertype that covers
+        // any string literal). Include all three so generic
+        // string-filtering stays consistent with `get_op_type` and the
+        // `Alterator` text-preservation arm (issue #288).
         matches!(
             node.kind_id().into(),
             Php::String
+                | Php::String2
+                | Php::String3
                 | Php::EncapsedString
                 | Php::Heredoc
                 | Php::Nowdoc
@@ -1648,7 +1657,7 @@ impl Checker for GroovyCode {
 mod tests {
     use super::*;
     use crate::count::count;
-    use crate::langs::BashParser;
+    use crate::langs::{BashParser, PhpParser};
     use std::path::PathBuf;
 
     fn parse(source: &str) -> BashParser {
@@ -1719,6 +1728,67 @@ mod tests {
         // Heredoc with an embedded expansion still yields exactly one
         // body node (parallel to a JS template string with `${x}`).
         assert_eq!(count_strings("cat <<EOF\nhi $name\nEOF\n"), 1);
+    }
+
+    // ===== PHP `is_string` regression tests (issue #288) =====
+
+    fn parse_php(source: &str) -> PhpParser {
+        PhpParser::new(source.as_bytes().to_vec(), &PathBuf::from("test.php"), None)
+    }
+
+    fn count_php_strings(source: &str) -> usize {
+        count(&parse_php(source), &["string".to_string()]).0
+    }
+
+    #[test]
+    fn php_is_string_matches_single_quoted_literal() {
+        // `Php::String` is the named single-quoted literal. Inert
+        // single-quoted strings have always been matched; this anchors
+        // the baseline before exercising the alias kinds.
+        assert_eq!(count_php_strings("<?php $x = 'single';"), 1);
+    }
+
+    #[test]
+    fn php_is_string_matches_encapsed_heredoc_nowdoc_shell() {
+        // `EncapsedString` (double-quoted), `Heredoc`, `Nowdoc`, and
+        // `ShellCommandExpression` (backticks) must all match
+        // `is_string`. Pre-#288 the alterator/checker arms were almost
+        // aligned for these named literals — this test locks in the
+        // shape.
+        assert_eq!(count_php_strings("<?php $x = \"double\";"), 1);
+        assert_eq!(
+            count_php_strings("<?php $x = <<<EOT\nbody\nEOT;\n"),
+            1,
+            "heredoc should match is_string"
+        );
+        assert_eq!(
+            count_php_strings("<?php $x = <<<'EOT'\nbody\nEOT;\n"),
+            1,
+            "nowdoc should match is_string"
+        );
+        assert_eq!(
+            count_php_strings("<?php $x = `ls`;"),
+            1,
+            "shell command (backtick) should match is_string"
+        );
+    }
+
+    #[test]
+    fn php_is_string_matches_string_alias_kinds() {
+        // Regression for #288. Before the fix, only `Php::String`
+        // (kind_id 368, the named single-quoted literal) matched
+        // `is_string`. The `Php::String2` (anonymous `string` type
+        // keyword, kind_id 25) and `Php::String3` (the hidden `_string`
+        // supertype, kind_id 378) alias kinds — both of which the
+        // language enum maps to `"string"` — were missed. A function
+        // with a `: string` return type produces a `Php::String2`
+        // anonymous-keyword node, so we exercise it here. The named
+        // `Php::String` literal in the body matches too.
+        let src = "<?php function f(): string { return 'x'; }";
+        // Two string-matching nodes: the `string` return-type keyword
+        // (Php::String2) and the `'x'` literal (Php::String). Pre-fix
+        // only the literal matched (count would be 1).
+        assert_eq!(count_php_strings(src), 2);
     }
 
     // Walk the AST and return the first node whose `kind_id` equals
