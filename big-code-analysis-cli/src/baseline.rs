@@ -192,14 +192,22 @@ pub(crate) fn render(file: &BaselineFile) -> Result<String, toml::ser::Error> {
 /// (TOML mandates UTF-8). Falling back to `Path::display()` would
 /// replace every invalid byte with U+FFFD and collapse distinct paths
 /// onto the same key — exactly the lossy identity collision we have to
-/// avoid. Instead, on Unix we read the raw bytes via `OsStrExt` and
-/// percent-encode (`%XX`) every byte that is not a printable ASCII
-/// path character, so two distinct byte sequences always produce two
-/// distinct keys. On Windows, `OsStr` already prevents arbitrary byte
-/// sequences from reaching this function as `to_str() == None`; the
-/// last-resort branch returns `to_string_lossy()` qualified with a
-/// `%FFFD` marker, which is at minimum deterministic for that
-/// platform.
+/// avoid. Instead:
+///
+/// - On Unix we read the raw bytes via `OsStrExt` and percent-encode
+///   (`%XX`) every byte that is not a printable ASCII path character.
+/// - On Windows we walk the WTF-16 code units via `encode_wide`,
+///   decode valid scalar values to UTF-8 (then per-byte encode), and
+///   emit `%uHHHH` for unpaired surrogates. The `%u` marker is
+///   disjoint from the `%XX` two-hex-digit form, so the encoding is
+///   unambiguous and injective.
+///
+/// Both Unix and Windows branches feed bytes through the same per-byte
+/// encoder, so a clean ASCII path produces the same key on either
+/// platform. Exotic targets (wasm, etc.) where neither `OsStrExt` flavour
+/// is available fall back to a `to_string_lossy()` form prefixed with
+/// U+FFFD; that prefix is the marker the `to_str()` branch never emits,
+/// so the fallback can never collide with a clean-UTF-8 key.
 fn normalize_path(p: &Path) -> String {
     match p.to_str() {
         Some(s) if s.contains('\\') => s.replace('\\', "/"),
@@ -214,14 +222,25 @@ fn encode_non_utf8_path(p: &Path) -> String {
     percent_encode_path_bytes(p.as_os_str().as_bytes())
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
 fn encode_non_utf8_path(p: &Path) -> String {
-    // Windows OsStr is WTF-8 (well-formed UTF-8 plus lone surrogates
-    // encoded as 3-byte sequences). `to_string_lossy()` only
-    // substitutes for those surrogates, which are rare in practice;
-    // prefix the result so it can never collide with a value that
-    // arrives clean through the `to_str()` branch above.
-    format!("\u{FFFD}{}", p.to_string_lossy())
+    use std::os::windows::ffi::OsStrExt;
+    percent_encode_wtf16(p.as_os_str().encode_wide())
+}
+
+#[cfg(not(any(unix, windows)))]
+fn encode_non_utf8_path(p: &Path) -> String {
+    // Exotic targets (wasm, etc.) where neither `OsStrExt` is available.
+    // Reuse the per-byte encoder on the lossy UTF-8 form so output is
+    // still TOML-safe; injectivity is best-effort here because the
+    // platform itself has already destroyed the original bytes via
+    // `to_string_lossy`. Prefix with U+FFFD so the key can never collide
+    // with one produced through the `to_str()` branch above.
+    let mut out = String::from("\u{FFFD}");
+    for &b in p.to_string_lossy().as_bytes() {
+        push_percent_encoded_byte(&mut out, b);
+    }
+    out
 }
 
 /// Percent-encode the raw bytes of a non-UTF-8 path so the result is
@@ -231,25 +250,70 @@ fn encode_non_utf8_path(p: &Path) -> String {
 /// printable ASCII path characters. The unreserved set mirrors the
 /// "safe for use in a filename" subset of RFC 3986 unreserved with
 /// `/` added (path separator) and `%` excluded (escape introducer).
-#[cfg(unix)]
 fn percent_encode_path_bytes(bytes: &[u8]) -> String {
-    use std::fmt::Write;
-
     let mut out = String::with_capacity(bytes.len());
     for &b in bytes {
-        let is_unreserved = b.is_ascii_alphanumeric()
-            || matches!(
-                b,
-                b'-' | b'_' | b'.' | b'~' | b'/' | b':' | b'+' | b',' | b' '
-            );
-        if is_unreserved {
-            out.push(b as char);
-        } else {
-            // Hex-encode every non-unreserved byte (including `%` and
-            // backslash) so the encoding is unambiguous. Writing to a
-            // String can only fail on allocation failure, which is
-            // already a panic in the standard library.
-            let _ = write!(out, "%{b:02X}");
+        push_percent_encoded_byte(&mut out, b);
+    }
+    out
+}
+
+/// Append a single byte to `out`, either verbatim (if it falls in the
+/// unreserved path set) or as `%XX` (uppercase hex). The `%` byte
+/// itself is not unreserved, so the output is unambiguous: every `%`
+/// in the result was emitted by this function and is followed by
+/// either two hex digits (from this function) or `u` followed by four
+/// hex digits (from [`percent_encode_wtf16`]).
+fn push_percent_encoded_byte(out: &mut String, b: u8) {
+    use std::fmt::Write;
+    let is_unreserved = b.is_ascii_alphanumeric()
+        || matches!(
+            b,
+            b'-' | b'_' | b'.' | b'~' | b'/' | b':' | b'+' | b',' | b' '
+        );
+    if is_unreserved {
+        out.push(b as char);
+    } else {
+        // Writing to a String can only fail on allocation failure, which
+        // already panics in the standard library.
+        let _ = write!(out, "%{b:02X}");
+    }
+}
+
+/// Percent-encode a WTF-16 code-unit sequence into a TOML-safe UTF-8
+/// string. Valid scalar values are encoded as their UTF-8 bytes through
+/// [`push_percent_encoded_byte`]; unpaired surrogates are emitted as
+/// `%uHHHH` (uppercase 4-digit hex), a form the byte encoder never
+/// produces. The result is:
+///
+/// 1. **Injective**: every code unit maps to a distinct token (either
+///    a sequence of `%XX` byte escapes / unreserved bytes for a paired
+///    scalar, or one `%uHHHH` for an unpaired surrogate). Two distinct
+///    WTF-16 sequences therefore always produce distinct strings.
+/// 2. **Stable**: deterministic; no allocation order or hashing
+///    influences output.
+/// 3. **Human-debuggable enough**: ASCII path components survive
+///    unchanged.
+///
+/// Exposed at `pub(crate)` purely so the unit tests can drive it with
+/// synthetic input on any platform (the production caller is
+/// `#[cfg(windows)]` only).
+#[cfg(any(windows, test))]
+pub(crate) fn percent_encode_wtf16(units: impl IntoIterator<Item = u16>) -> String {
+    use std::fmt::Write;
+
+    let mut out = String::new();
+    let mut buf = [0u8; 4];
+    for r in char::decode_utf16(units) {
+        match r {
+            Ok(c) => {
+                for &b in c.encode_utf8(&mut buf).as_bytes() {
+                    push_percent_encoded_byte(&mut out, b);
+                }
+            }
+            Err(e) => {
+                let _ = write!(out, "%u{:04X}", e.unpaired_surrogate());
+            }
         }
     }
     out
@@ -537,6 +601,136 @@ mod tests {
         assert_ne!(key_a, key_b);
         // The encoded keys are valid UTF-8 (required by TOML) and
         // contain only ASCII bytes after percent-encoding.
+        assert!(key_a.is_ascii());
+        assert!(key_b.is_ascii());
+    }
+
+    // -- WTF-16 percent-encoding (always-on, synthetic input) ------------
+
+    #[test]
+    fn wtf16_encode_pure_ascii() {
+        // ASCII path bytes are unreserved, so they survive unchanged.
+        let out = percent_encode_wtf16("src/foo.rs".encode_utf16());
+        assert_eq!(out, "src/foo.rs");
+    }
+
+    #[test]
+    fn wtf16_encode_empty() {
+        assert_eq!(percent_encode_wtf16(std::iter::empty::<u16>()), "");
+    }
+
+    #[test]
+    fn wtf16_encode_bmp_non_ascii() {
+        // U+00E9 (é) is BMP; UTF-8 = 0xC3 0xA9; both bytes are
+        // non-unreserved and percent-encode to %C3%A9.
+        let out = percent_encode_wtf16("é".encode_utf16());
+        assert_eq!(out, "%C3%A9");
+    }
+
+    #[test]
+    fn wtf16_encode_supplementary_plane() {
+        // U+1F600 (😀) requires a surrogate pair in WTF-16
+        // (0xD83D, 0xDE00) and UTF-8-encodes as 0xF0 0x9F 0x98 0x80.
+        // `char::decode_utf16` pairs the surrogates back to the scalar,
+        // so the encoder must emit the UTF-8 byte form.
+        let units = [0xD83D_u16, 0xDE00_u16];
+        let out = percent_encode_wtf16(units);
+        assert_eq!(out, "%F0%9F%98%80");
+        // Sanity: the same character entered as a string round-trips
+        // identically through `encode_utf16`.
+        assert_eq!(out, percent_encode_wtf16("😀".encode_utf16()));
+    }
+
+    #[test]
+    fn wtf16_encode_unpaired_high_surrogate() {
+        let out = percent_encode_wtf16([0xD83D_u16]);
+        assert_eq!(out, "%uD83D");
+    }
+
+    #[test]
+    fn wtf16_encode_unpaired_low_surrogate() {
+        // A lone low surrogate (no preceding high) is unpaired.
+        let out = percent_encode_wtf16([0xDE00_u16]);
+        assert_eq!(out, "%uDE00");
+    }
+
+    #[test]
+    fn wtf16_encode_high_followed_by_non_low_is_unpaired() {
+        // High surrogate followed by ASCII: the high is unpaired and
+        // the ASCII byte is encoded normally afterwards.
+        let units = [0xD83D_u16, u16::from(b'x')];
+        let out = percent_encode_wtf16(units);
+        assert_eq!(out, "%uD83Dx");
+    }
+
+    #[test]
+    fn wtf16_encode_leading_low_then_pair() {
+        // A lone low surrogate followed by a real pair: the leading low
+        // must not consume the next code unit (the high of the pair).
+        let units = [0xDC00_u16, 0xD83D_u16, 0xDE00_u16];
+        let out = percent_encode_wtf16(units);
+        assert_eq!(out, "%uDC00%F0%9F%98%80");
+    }
+
+    #[test]
+    fn wtf16_encode_distinct_unpaired_surrogates_do_not_collide() {
+        // The whole point of the fix: two distinct invalid WTF-16
+        // sequences that `to_string_lossy()` would have collapsed onto
+        // a single U+FFFD must produce two distinct encoded keys.
+        let a = percent_encode_wtf16([0xD83D_u16]);
+        let b = percent_encode_wtf16([0xDE00_u16]);
+        assert_ne!(a, b);
+        // And two different lone high surrogates also separate cleanly.
+        let c = percent_encode_wtf16([0xD800_u16]);
+        let d = percent_encode_wtf16([0xDBFF_u16]);
+        assert_ne!(c, d);
+    }
+
+    #[test]
+    fn wtf16_encode_marker_never_emitted_by_scalar_bytes() {
+        // Regression guard: the byte encoder only emits `%` followed by
+        // exactly two uppercase hex digits, never `%u`. Scalars cannot
+        // produce a string that begins with `%u` from their UTF-8 bytes
+        // — `u` is unreserved, so it stays as `u`, but the preceding
+        // `%` only appears when a non-unreserved byte is escaped (and
+        // is then immediately followed by two hex digits, not `u`).
+        // Therefore parsing `%u…` is unambiguous.
+        for codepoint in ['u', '%', '!', '\u{00E9}', '\u{1F600}'] {
+            let s = codepoint.to_string();
+            let out = percent_encode_wtf16(s.encode_utf16());
+            assert!(!out.contains("%u"), "scalar {codepoint:?} produced {out:?}");
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn baseline_key_preserves_non_utf16_identity_on_windows() {
+        use std::ffi::OsString;
+        use std::os::windows::ffi::OsStringExt;
+
+        // Two distinct paths that differ only by an unpaired surrogate
+        // value would collapse to the same `to_string_lossy()` key
+        // (both surrogates become U+FFFD). With the WTF-16 encoder they
+        // stay distinct.
+        let a_units: [u16; 5] = [
+            u16::from(b'a'),
+            u16::from(b'/'),
+            0xD83D,
+            u16::from(b'.'),
+            u16::from(b's'),
+        ];
+        let b_units: [u16; 5] = [
+            u16::from(b'a'),
+            u16::from(b'/'),
+            0xDE00,
+            u16::from(b'.'),
+            u16::from(b's'),
+        ];
+        let path_a = PathBuf::from(OsString::from_wide(&a_units));
+        let path_b = PathBuf::from(OsString::from_wide(&b_units));
+        let key_a = normalize_path(&path_a);
+        let key_b = normalize_path(&path_b);
+        assert_ne!(key_a, key_b);
         assert!(key_a.is_ascii());
         assert!(key_b.is_ascii());
     }
