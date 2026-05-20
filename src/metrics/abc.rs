@@ -27,7 +27,8 @@ use std::fmt;
 
 use crate::checker::Checker;
 use crate::macros::{
-    csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds, implement_metric_trait,
+    csharp_invocation_expr_kinds, csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds,
+    implement_metric_trait,
 };
 use crate::node::Node;
 use crate::*;
@@ -1735,14 +1736,30 @@ impl Abc for CsharpCode {
                 inspect_csharp_child(node, 2, &mut stats.conditions);
                 inspect_csharp_child(node, 4, &mut stats.conditions);
             }
-            // NOTE: Java's Abc impl has an explicit `ForStatement` arm to
-            // count single-token (Identifier / InvocationExpression / True
-            // / False) for-loop conditions. The C# grammar wraps for-loop
-            // conditions in `_for_statement_conditions` rather than at
-            // direct child positions, so a port of that arm requires
-            // grammar inspection. Conditions using comparison operators
-            // (`<`, `==`, etc.) are still counted by the standard
-            // `GT | LT | ...` arms. See issue tracker for the gap.
+            // Counts unary / single-token conditions inside `for`
+            // statements. The C# grammar exposes the loop condition via
+            // the named `condition` field on `for_statement`, so we look
+            // it up by name rather than positional index (Java's arm
+            // relies on positional indices because its grammar does not
+            // name the field). Comparison-operator conditions like
+            // `i < n` are still counted by the standard `GT | LT | ...`
+            // arms — this arm only fires when the condition is a bare
+            // identifier, invocation, boolean literal, parenthesised
+            // expression, or `!`-prefixed unary expression.
+            ForStatement => {
+                if let Some(condition) = node.child_by_field_name("condition") {
+                    let kind = condition.kind_id().into();
+                    if matches!(kind, csharp_invocation_expr_kinds!())
+                        || matches!(kind, Identifier | BooleanLiteral)
+                    {
+                        stats.conditions += 1.;
+                    } else if matches!(kind, csharp_paren_expr_kinds!())
+                        || matches!(kind, csharp_prefix_unary_expr_kinds!())
+                    {
+                        csharp_inspect_container(&condition, &mut stats.conditions);
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -3436,6 +3453,147 @@ mod tests {
             }",
             "foo.cs",
             |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
+
+    #[test]
+    fn csharp_for_identifier_condition() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                void M(bool ready) {
+                    for (; ready ;) { }
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                // expected: assignments=0 (no `=` / `++` / `--`),
+                // branches=0 (no invocation / object creation),
+                // conditions=1 (bare-identifier for-loop condition).
+                // Averages divide by 3 spaces (top-level + class + method).
+                insta::assert_json_snapshot!(
+                    metric.abc,
+                    @r###"
+                {
+                  "assignments": 0.0,
+                  "branches": 0.0,
+                  "conditions": 1.0,
+                  "magnitude": 1.0,
+                  "assignments_average": 0.0,
+                  "branches_average": 0.0,
+                  "conditions_average": 0.3333333333333333,
+                  "assignments_min": 0.0,
+                  "assignments_max": 0.0,
+                  "branches_min": 0.0,
+                  "branches_max": 0.0,
+                  "conditions_min": 0.0,
+                  "conditions_max": 1.0
+                }
+                "###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_for_invocation_condition() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                bool Ok() { return true; }
+                void M() {
+                    for (; Ok() ;) { }
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                // expected: assignments=0, branches=1 (the `Ok()` call),
+                // conditions=1 (invocation as for-loop condition).
+                // Averages divide by 4 spaces (top-level + class + two
+                // methods).
+                insta::assert_json_snapshot!(
+                    metric.abc,
+                    @r###"
+                {
+                  "assignments": 0.0,
+                  "branches": 1.0,
+                  "conditions": 1.0,
+                  "magnitude": 1.4142135623730951,
+                  "assignments_average": 0.0,
+                  "branches_average": 0.25,
+                  "conditions_average": 0.25,
+                  "assignments_min": 0.0,
+                  "assignments_max": 0.0,
+                  "branches_min": 0.0,
+                  "branches_max": 1.0,
+                  "conditions_min": 0.0,
+                  "conditions_max": 1.0
+                }
+                "###
+                );
+            },
+        );
+    }
+
+    // Regression coverage for #279: the C# grammar wraps a literal
+    // `true` / `false` for-loop condition in a `boolean_literal` node.
+    // The `BooleanLiteral` arm in the `ForStatement` dispatch must
+    // attribute one condition; without it, `for (; true ;)` would
+    // contribute 0 (the bug fixed by this commit also affected this
+    // shape).
+    #[test]
+    fn csharp_for_boolean_literal_condition() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                void M() {
+                    for (; true ;) { }
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                // expected: assignments=0, branches=0,
+                // conditions=1 (the `true` literal as condition).
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+            },
+        );
+    }
+
+    // Regression coverage for #279: an empty for-loop condition such as
+    // `for (; ;) {}` must contribute 0 to conditions — there is no
+    // condition node to count.
+    #[test]
+    fn csharp_for_empty_condition() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                void M() {
+                    for (; ;) { }
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                // expected: assignments=0, branches=0, conditions=0
+                // (no condition expression in `for (; ;)`).
+                insta::assert_json_snapshot!(
+                    metric.abc,
+                    @r###"
+                {
+                  "assignments": 0.0,
+                  "branches": 0.0,
+                  "conditions": 0.0,
+                  "magnitude": 0.0,
+                  "assignments_average": 0.0,
+                  "branches_average": 0.0,
+                  "conditions_average": 0.0,
+                  "assignments_min": 0.0,
+                  "assignments_max": 0.0,
+                  "branches_min": 0.0,
+                  "branches_max": 0.0,
+                  "conditions_min": 0.0,
+                  "conditions_max": 0.0
+                }
+                "###
+                );
+            },
         );
     }
 
