@@ -1746,7 +1746,8 @@ mod tests {
 
     #[test]
     fn kotlin_single_class() {
-        // wmc = 1 (method base) + 1 (if) + 2 (when-entries 0/else) = 4
+        // wmc = 1 (method base) + 1 (if) + 1 (explicit when arm; `else`
+        // skipped per #282) = 3
         check_metrics::<KotlinParser>(
             "class C {
                 fun m(x: Int): Int {       // +1
@@ -1755,13 +1756,13 @@ mod tests {
                     }
                     return when (x) {
                         0 -> 0             // +1 (WhenEntry)
-                        else -> -x         // +1 (WhenEntry)
+                        else -> -x         // skipped (else is default)
                     }
                 }
             }",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 4.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
                 assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.wmc);
             },
