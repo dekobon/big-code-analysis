@@ -2176,6 +2176,81 @@ f() {
     }
 
     #[test]
+    fn tcl_inert_quoted_word_counts_as_operand() {
+        // Regression for #277. A `"..."` literal with no `$var` / `[cmd]`
+        // interpolation must contribute exactly one operand (the wrapping
+        // `QuotedWord`). The string content `hello world` is exposed as a
+        // single `_quoted_word_content` token (not itself classified by
+        // `get_op_type`), so the only operands here are `f`, `s`, and the
+        // quoted string. `set` is the anonymous `Set2` keyword and is
+        // classified as an operator, not an operand.
+        check_metrics::<TclParser>(
+            "proc f {} {
+    set s \"hello world\"
+}",
+            "foo.tcl",
+            |metric| {
+                // Operands: `f`, `s`, `"hello world"` — 3 unique, 3 total.
+                // The wrapping `QuotedWord` must still contribute exactly
+                // one operand when it carries no interpolation children;
+                // dropping to 2 would mean the inert case was over-guarded.
+                assert_eq!(metric.halstead.u_operands(), 3.0);
+                assert_eq!(metric.halstead.operands(), 3.0);
+                insta::assert_json_snapshot!(metric.halstead);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_interpolated_quoted_word_no_double_count() {
+        // Regression for #277. Before the fix, `"$x is $y"` produced an
+        // extra operand for the wrapping `QuotedWord` on top of the two
+        // inner `VariableSubstitution` operands (`$x`, `$y`), giving 7.
+        // After the fix, the wrapper is `HalsteadType::Unknown` whenever
+        // it carries an interpolation child, so operand attribution
+        // belongs solely to the inner substitutions.
+        check_metrics::<TclParser>(
+            "proc f {x y} {
+    set s \"$x is $y\"
+}",
+            "foo.tcl",
+            |metric| {
+                // Operands: `f`, `x`, `y` (proc args), `s`, `$x`, `$y` — 6
+                // unique, 6 total. The wrapping `QuotedWord` contributes
+                // nothing. Pre-fix this read 7/7 (double-counted wrapper).
+                assert_eq!(metric.halstead.u_operands(), 6.0);
+                assert_eq!(metric.halstead.operands(), 6.0);
+                insta::assert_json_snapshot!(metric.halstead);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_command_substitution_quoted_word_no_double_count() {
+        // Regression for #277. A `"...[cmd]..."` literal exposes the
+        // bracketed command as a `command_substitution` child whose inner
+        // identifiers/literals contribute their own operands. The wrapping
+        // `QuotedWord` must not also be classified as an operand, or the
+        // command's identifier would be counted alongside a phantom
+        // wrapper operand.
+        check_metrics::<TclParser>(
+            "proc f {} {
+    set s \"result: [foo]\"
+}",
+            "foo.tcl",
+            |metric| {
+                // Operands: `f`, `s`, `foo` — 3 unique, 3 total. The
+                // wrapping `QuotedWord` and the inert text `result: ` do
+                // not contribute extra operands. Pre-fix this read 4/4
+                // (double-counted wrapper).
+                assert_eq!(metric.halstead.u_operands(), 3.0);
+                assert_eq!(metric.halstead.operands(), 3.0);
+                insta::assert_json_snapshot!(metric.halstead);
+            },
+        );
+    }
+
+    #[test]
     fn php_operators_and_operands() {
         check_metrics::<PhpParser>(
             "<?php
