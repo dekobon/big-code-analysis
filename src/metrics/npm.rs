@@ -247,90 +247,66 @@ where
     fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats);
 }
 
-impl Npm for JavaCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
-        use Java::*;
+// Java and Groovy share their grammar tokens for class / interface
+// bodies, so `Npm::compute` differs only by the language enum.
+// `impl_npm_java_like!` emits the same body against each enum
+// (mirrors `impl_npa_java_like!` in `npa.rs`; issue #280).
+//
+// `ClassBody` covers class and record explicit bodies;
+// `EnumBodyDeclarations` is the optional declarations block inside
+// `EnumBody` (after the enum constants) and may contain method
+// declarations. Both share the same Java public-method detection rule.
+//
+// `InterfaceBody`: all methods in an interface are implicitly public
+// (https://docs.oracle.com/javase/tutorial/java/IandI/interfaceDef.html).
+// `AnnotationTypeBody`: annotation type elements are abstract public
+// methods at the bytecode level and obey the same rule.
+macro_rules! impl_npm_java_like {
+    ($code:ty, $lang:ident) => {
+        impl Npm for $code {
+            fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+                use $lang::*;
 
-        // Enables the `Npm` metric if computing stats of a class space
-        if Self::is_func_space(node) && stats.is_disabled() {
-            stats.is_class_space = true;
-        }
+                if Self::is_func_space(node) && stats.is_disabled() {
+                    stats.is_class_space = true;
+                }
 
-        // `ClassBody` covers class and record explicit bodies;
-        // `EnumBodyDeclarations` is the optional declarations block
-        // inside `EnumBody` (after the enum constants) and may contain
-        // method declarations. Both share the same Java public-method
-        // detection rule (issue #280).
-        match node.kind_id().into() {
-            ClassBody | EnumBodyDeclarations => {
-                for method in node.children().filter(|n| Self::is_func(n)) {
-                    stats.class_nm += 1;
-                    // The first child node contains the list of method modifiers.
-                    // Source: https://docs.oracle.com/javase/tutorial/reflect/member/methodModifiers.html
-                    if let Some(modifiers) = method.child(0)
-                        && matches!(modifiers.kind_id().into(), Modifiers)
-                        && modifiers.first_child(|id| id == Public).is_some()
-                    {
-                        stats.class_npm += 1;
+                match node.kind_id().into() {
+                    ClassBody | EnumBodyDeclarations => {
+                        for method in node.children().filter(|n| Self::is_func(n)) {
+                            stats.class_nm += 1;
+                            // The first child node contains the list of method modifiers.
+                            // Source: https://docs.oracle.com/javase/tutorial/reflect/member/methodModifiers.html
+                            if let Some(modifiers) = method.child(0)
+                                && matches!(modifiers.kind_id().into(), Modifiers)
+                                && modifiers.first_child(|id| id == Public).is_some()
+                            {
+                                stats.class_npm += 1;
+                            }
+                        }
                     }
+                    InterfaceBody => {
+                        stats.interface_nm += node.children().filter(|n| Self::is_func(n)).count();
+                        stats.interface_npm = stats.interface_nm;
+                    }
+                    AnnotationTypeBody => {
+                        stats.interface_nm += node
+                            .children()
+                            .filter(|n| {
+                                matches!(n.kind_id().into(), AnnotationTypeElementDeclaration)
+                            })
+                            .count();
+                        stats.interface_npm = stats.interface_nm;
+                    }
+                    _ => {}
                 }
             }
-            // All methods in an interface are implicitly public
-            // (https://docs.oracle.com/javase/tutorial/java/IandI/interfaceDef.html).
-            // Annotation type elements are abstract public methods at
-            // the bytecode level and obey the same rule.
-            InterfaceBody => {
-                stats.interface_nm += node.children().filter(|n| Self::is_func(n)).count();
-                stats.interface_npm = stats.interface_nm;
-            }
-            AnnotationTypeBody => {
-                stats.interface_nm += node
-                    .children()
-                    .filter(|n| matches!(n.kind_id().into(), AnnotationTypeElementDeclaration))
-                    .count();
-                stats.interface_npm = stats.interface_nm;
-            }
-            _ => {}
         }
-    }
+    };
 }
 
-impl Npm for GroovyCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
-        use Groovy::*;
-
-        if Self::is_func_space(node) && stats.is_disabled() {
-            stats.is_class_space = true;
-        }
-
-        // Mirrors `Npm for JavaCode` (issue #280).
-        match node.kind_id().into() {
-            ClassBody | EnumBodyDeclarations => {
-                for method in node.children().filter(|n| Self::is_func(n)) {
-                    stats.class_nm += 1;
-                    if let Some(modifiers) = method.child(0)
-                        && matches!(modifiers.kind_id().into(), Modifiers)
-                        && modifiers.first_child(|id| id == Public).is_some()
-                    {
-                        stats.class_npm += 1;
-                    }
-                }
-            }
-            InterfaceBody => {
-                stats.interface_nm += node.children().filter(|n| Self::is_func(n)).count();
-                stats.interface_npm = stats.interface_nm;
-            }
-            AnnotationTypeBody => {
-                stats.interface_nm += node
-                    .children()
-                    .filter(|n| matches!(n.kind_id().into(), AnnotationTypeElementDeclaration))
-                    .count();
-                stats.interface_npm = stats.interface_nm;
-            }
-            _ => {}
-        }
-    }
-}
+impl_npm_java_like!(JavaCode, Java);
+impl_npm_java_like!(GroovyCode, Groovy);
 
 // Count direct method-like declarations and property / indexer
 // accessors (each get/set/init is a method per C# IL semantics).

@@ -95,6 +95,24 @@ macro_rules! is_js_func_and_closure_checker {
     };
 }
 
+// Generate an `is_string` impl for a JS-family `Checker` block. The
+// MozJS / JavaScript / TypeScript grammars expose `String2` as the
+// anonymous `"string"` keyword alias for `String`; TSX additionally
+// exposes `String3` (the JSX-attribute string production). The
+// alterator flattens these aliases; the generic `string` filter must
+// agree (issue #283).
+macro_rules! impl_js_family_is_string {
+    ($lang:ident $(, [$($extra:ident),+])?) => {
+        fn is_string(node: &Node) -> bool {
+            matches!(
+                node.kind_id().into(),
+                $lang::String | $lang::String2 | $lang::TemplateString
+                    $($(| $lang::$extra)+)?
+            )
+        }
+    };
+}
+
 #[inline]
 fn get_aho_corasick_match(code: &[u8]) -> bool {
     AHO_CORASICK
@@ -572,16 +590,7 @@ impl Checker for MozjsCode {
         )
     }
 
-    fn is_string(node: &Node) -> bool {
-        // `String2` is the anonymous `"string"` keyword alias that the
-        // tree-sitter-javascript grammar exposes alongside the primary
-        // `String` kind. The alterator already flattens it; the generic
-        // `string` filter must agree (issue #283).
-        matches!(
-            node.kind_id().into(),
-            Mozjs::String | Mozjs::String2 | Mozjs::TemplateString
-        )
-    }
+    impl_js_family_is_string!(Mozjs);
 
     #[inline]
     fn is_else_if(node: &Node) -> bool {
@@ -636,14 +645,7 @@ impl Checker for JavascriptCode {
         )
     }
 
-    fn is_string(node: &Node) -> bool {
-        // See the MozJS `is_string` note: `String2` is the keyword alias
-        // (`"string"`) for the primary `String` kind (issue #283).
-        matches!(
-            node.kind_id().into(),
-            Javascript::String | Javascript::String2 | Javascript::TemplateString
-        )
-    }
+    impl_js_family_is_string!(Javascript);
 
     #[inline]
     fn is_else_if(node: &Node) -> bool {
@@ -697,14 +699,7 @@ impl Checker for TypescriptCode {
         )
     }
 
-    fn is_string(node: &Node) -> bool {
-        // See the MozJS `is_string` note: `String2` is the keyword alias
-        // (`"string"`) for the primary `String` kind (issue #283).
-        matches!(
-            node.kind_id().into(),
-            Typescript::String | Typescript::String2 | Typescript::TemplateString
-        )
-    }
+    impl_js_family_is_string!(Typescript);
 
     #[inline]
     fn is_else_if(node: &Node) -> bool {
@@ -762,17 +757,7 @@ impl Checker for TsxCode {
         )
     }
 
-    fn is_string(node: &Node) -> bool {
-        // TSX exposes two anonymous aliases for `"string"`: `String2`
-        // and `String3` (one is the type-annotation keyword, the other
-        // the JSX-attribute string production). The alterator already
-        // flattens both; the generic `string` filter must agree
-        // (issue #283).
-        matches!(
-            node.kind_id().into(),
-            Tsx::String | Tsx::String2 | Tsx::String3 | Tsx::TemplateString
-        )
-    }
+    impl_js_family_is_string!(Tsx, [String3]);
 
     fn is_else_if(node: &Node) -> bool {
         node.kind_id() == Tsx::IfStatement
@@ -851,51 +836,50 @@ fn cfg_predicate_marks_test(pred: &str) -> bool {
     }
     // Bare comma-separated predicate lists like `cfg(test, foo)`
     // — pre-#278 callers relied on this form being treated as
-    // `cfg(all(test, foo))`. Only walk if a top-level comma exists,
-    // so a single ident does not accidentally fall through.
-    if has_top_level_comma(trimmed) {
+    // `cfg(all(test, foo))`. Skip if no top-level comma exists, so a
+    // single ident does not accidentally fall through.
+    if cfg_split_top_level_args(trimmed).nth(1).is_some() {
         return cfg_args_any_marks_test(trimmed);
     }
     false
 }
 
-/// Returns true if `s` contains a comma outside any parenthesised
-/// subexpression. Used to detect implicit `all(...)`-style predicate
-/// lists in `cfg(a, b)`.
-fn has_top_level_comma(s: &str) -> bool {
-    let mut depth = 0_i32;
-    for b in s.bytes() {
-        match b {
-            b'(' => depth += 1,
-            b')' => depth -= 1,
-            b',' if depth == 0 => return true,
-            _ => {}
-        }
-    }
-    false
-}
-
-/// Walk a comma-separated argument list of a cfg predicate, splitting
-/// at top-level commas only (commas inside nested parens belong to a
-/// child predicate), and return true if any operand marks the item as
-/// test-only. Key=value forms like `feature = "test"` never match.
-fn cfg_args_any_marks_test(args: &str) -> bool {
+/// Iterator over the comma-separated arguments of a cfg predicate
+/// body, splitting at top-level commas only (commas inside nested
+/// parens belong to a child predicate). Single-pass byte scan.
+fn cfg_split_top_level_args(args: &str) -> impl Iterator<Item = &str> {
     let mut depth = 0_i32;
     let mut start = 0_usize;
-    for (i, b) in args.bytes().enumerate() {
-        match b {
-            b'(' => depth += 1,
-            b')' => depth -= 1,
-            b',' if depth == 0 => {
-                if cfg_arg_marks_test(&args[start..i]) {
-                    return true;
-                }
-                start = i + 1;
-            }
-            _ => {}
+    let mut done = false;
+    let bytes = args.as_bytes();
+    std::iter::from_fn(move || {
+        if done {
+            return None;
         }
-    }
-    cfg_arg_marks_test(&args[start..])
+        let mut i = start;
+        while i < bytes.len() {
+            match bytes[i] {
+                b'(' => depth += 1,
+                b')' => depth -= 1,
+                b',' if depth == 0 => {
+                    let slice = &args[start..i];
+                    start = i + 1;
+                    return Some(slice);
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+        done = true;
+        Some(&args[start..])
+    })
+}
+
+/// Walk a comma-separated argument list of a cfg predicate and return
+/// true if any operand marks the item as test-only. Key=value forms
+/// like `feature = "test"` never match.
+fn cfg_args_any_marks_test(args: &str) -> bool {
+    cfg_split_top_level_args(args).any(cfg_arg_marks_test)
 }
 
 /// Classify a single cfg predicate operand. Bare `test` matches;

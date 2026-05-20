@@ -543,18 +543,23 @@ pub(crate) fn guess_file<S: ::std::hash::BuildHasher>(
         // (so absolute `all_files` entries still match a relative
         // resolved target like `src/foo.h`).
         if let Some(resolved) = resolved_path.as_ref() {
-            let unique_match = |pred: &dyn Fn(&PathBuf) -> bool| -> Option<Vec<PathBuf>> {
+            fn unique_match<F: Fn(&PathBuf) -> bool>(
+                possibilities: &[PathBuf],
+                current_path: &Path,
+                pred: F,
+            ) -> Option<Vec<PathBuf>> {
                 let matched: Vec<PathBuf> = possibilities
                     .iter()
                     .filter(|p| current_path != p.as_path() && pred(p))
                     .cloned()
                     .collect();
                 (matched.len() == 1).then_some(matched)
-            };
-            if let Some(hit) = unique_match(&|p| p == resolved) {
+            }
+            if let Some(hit) = unique_match(possibilities, current_path, |p| p == resolved) {
                 return hit;
             }
-            if let Some(hit) = unique_match(&|p| p.ends_with(resolved)) {
+            if let Some(hit) = unique_match(possibilities, current_path, |p| p.ends_with(resolved))
+            {
                 return hit;
             }
         }
