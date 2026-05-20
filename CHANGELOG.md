@@ -446,6 +446,19 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Changed
 
+- `tests/suppression_test.rs::deeply_nested_function_suppression_does_not_overflow_stack`
+  rewritten in JavaScript (100 nested `function f<i>() { … }`)
+  and unignored. The previous fixture used a 1000-level Python `def`
+  pyramid whose ~1M whitespace bytes of indent took ~229 s to parse
+  under tree-sitter-python's effectively O(N²) layout cost, so the
+  test was marked `#[ignore]` and never ran on the default gate —
+  meaning the iterative-suppression regression guard added by #292
+  was effectively unprotected. The JavaScript fixture parses in
+  ~0.8 s while preserving the deeply-nested integration path
+  (parse → walk → suppression attachment), and an added
+  `space.suppressed.is_empty()` assertion catches a regression
+  where a function-scoped marker bubbles up to file scope
+  ([#308](https://github.com/dekobon/big-code-analysis/issues/308)).
 - **(library API, breaking)** `LANG::get_tree_sitter_language`
   returns `Result<tree_sitter::Language, MetricsError>` instead of
   `tree_sitter::Language` directly. Feature-gated builds need a

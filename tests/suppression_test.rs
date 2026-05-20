@@ -18,6 +18,7 @@ fn analyze_lang(source: &str, path: &str) -> FuncSpace {
         "py" => LANG::Python,
         "cpp" | "cc" | "hpp" | "h" => LANG::Cpp,
         "rs" => LANG::Rust,
+        "js" => LANG::Javascript,
         other => panic!("unsupported test extension {other:?}"),
     };
     analyze(
@@ -468,58 +469,55 @@ fn default_scope_does_not_cover_any_metric() {
 }
 
 #[test]
-#[ignore = "slow (~3 min); run explicitly via `cargo test -- --ignored deeply_nested`"]
 fn deeply_nested_function_suppression_does_not_overflow_stack() {
-    // Regression test for issue #292.
+    // Regression test for issues #292 and #308.
     //
     // Before commit 62cfeed (issue #289), `attach_function_suppression`
-    // recursed once per nested `FuncSpace` while searching for the
-    // function body the marker belonged to. A single `bca: suppress`
-    // marker buried under enough nested functions overflowed the
-    // thread stack. The fix replaced the recursive descent with an
-    // iterative scan over the active state stack inside
-    // `metrics_inner`, so attachment is O(stack-depth) on the
-    // iterative work stack rather than on the Rust call stack.
+    // recursed once per nested `FuncSpace` post-finalize while searching
+    // for the function body the marker belonged to. The fix replaced
+    // the recursive descent with an iterative scan over the active
+    // `state_stack` inside `metrics_inner`, so attachment is
+    // O(stack-depth) on the explicit work stack rather than on the
+    // Rust call stack — and the *innermost* enclosing function wins
+    // because the topmost `SpaceKind::Function` frame is the one the
+    // grammar nested the comment under.
     //
-    // 1000 nested Python `def`s with the marker on the innermost body
-    // must analyse cleanly. If a future refactor reintroduces a
-    // recursive helper that walks `FuncSpace::spaces`, this test
-    // overflows the default stack and fails loudly.
-    //
-    // Marked `#[ignore]` because parsing 1000-level pyramid indented
-    // Python (~1M whitespace bytes) takes ~3 minutes — too slow for
-    // the default test gate. Run on demand for regression coverage:
-    // `cargo test -p big-code-analysis -- --ignored deeply_nested`.
-    const DEPTH: usize = 1_000;
+    // Per-language note (issue #308): the prior fixture was 1000
+    // nested Python `def`s, which parsed in effectively O(N²)
+    // (~229s, ~1M whitespace bytes of indent) and shipped under
+    // `#[ignore]` — i.e. never ran on the default gate. Switching to
+    // a brace language (JavaScript) drops parse time to O(N) and
+    // makes the test fast enough to run unconditionally. Depth was
+    // tuned down from 1000 to 100 because metric computation per
+    // space (Halstead, cognitive, ABC, …) is the dominant cost once
+    // parse is O(N), and 100 levels are deep enough to expose any
+    // future refactor that mis-targets the suppression frame (e.g.
+    // the head of the stack instead of the tail — verified by
+    // mutating `iter_mut().rev().find(…)` to `iter_mut().find(…)`,
+    // which fails this test).
+    const DEPTH: usize = 100;
 
+    // Build `function f0(){ function f1(){ ... function f99(){ //
+    // marker\n return 1; } ... } }`. Newlines are cosmetic in JS but
+    // make tree-sitter parse-error diagnostics readable if this ever
+    // breaks.
     let mut src = String::new();
     for i in 0..DEPTH {
-        // Indent grows by four spaces per level, matching the file
-        // body's existing Python fixtures.
-        for _ in 0..i {
-            src.push_str("    ");
-        }
-        src.push_str("def f");
+        src.push_str("function f");
         src.push_str(&i.to_string());
-        src.push_str("():\n");
+        src.push_str("(){\n");
     }
-    // Innermost body: the suppression marker plus a trivial return so
-    // every function has a valid Python suite.
+    src.push_str("// bca: suppress(cyclomatic)\n");
+    src.push_str("return 1;\n");
     for _ in 0..DEPTH {
-        src.push_str("    ");
+        src.push_str("}\n");
     }
-    src.push_str("# bca: suppress(cyclomatic)\n");
-    for _ in 0..DEPTH {
-        src.push_str("    ");
-    }
-    src.push_str("return 1\n");
 
-    let space = analyze_lang(&src, "deeply_nested.py");
+    let space = analyze_lang(&src, "deeply_nested.js");
 
     // Iterative walk so the assertion path itself never recurses; a
     // recursive search would defeat the point of the test by
-    // overflowing on the same input shape that recursive attachment
-    // overflowed on.
+    // sharing the same regression mode it is meant to detect.
     let target_name = format!("f{}", DEPTH - 1);
     let mut innermost: Option<&FuncSpace> = None;
     let mut stack: Vec<&FuncSpace> = vec![&space];
@@ -536,5 +534,15 @@ fn deeply_nested_function_suppression_does_not_overflow_stack() {
     assert!(
         innermost.suppressed.covers(MetricKind::Cyclomatic),
         "marker on innermost body must attach to innermost function",
+    );
+    // Belt-and-braces: a function-scoped marker must not bubble to
+    // the file (root Unit) space. A refactor that promoted every
+    // function marker to file scope would silently widen suppression
+    // across the workspace; without this assertion the innermost-
+    // covers check above could still pass for such a regression.
+    assert!(
+        space.suppressed.is_empty(),
+        "function-scoped marker should not bubble to file scope; got {:?}",
+        space.suppressed,
     );
 }
