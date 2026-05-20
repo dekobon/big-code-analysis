@@ -767,14 +767,16 @@ mod tests {
     #[actix_rt::test]
     async fn test_web_comment_plain() {
         let app = test::init_service(
-            App::new()
-                .app_data(test_config())
-                .service(web::resource("/comment").route(web::post().to(comment_removal_plain))),
+            App::new().app_data(test_config()).service(
+                web::resource("/comment")
+                    .guard(guard::Header("content-type", "application/octet-stream"))
+                    .route(web::post().to(comment_removal_plain)),
+            ),
         )
         .await;
         let req = test::TestRequest::post()
             .uri("/comment?file_name=foo.c")
-            .insert_header(ContentType::plaintext())
+            .insert_header(ContentType::octet_stream())
             .set_payload("int x = 1; // hello")
             .to_request();
 
@@ -790,14 +792,16 @@ mod tests {
     #[actix_rt::test]
     async fn test_web_comment_plain_invalid() {
         let app = test::init_service(
-            App::new()
-                .app_data(test_config())
-                .service(web::resource("/comment").route(web::post().to(comment_removal_plain))),
+            App::new().app_data(test_config()).service(
+                web::resource("/comment")
+                    .guard(guard::Header("content-type", "application/octet-stream"))
+                    .route(web::post().to(comment_removal_plain)),
+            ),
         )
         .await;
         let req = test::TestRequest::post()
             .uri("/comment?file_name=foo.unexisting_extension")
-            .insert_header(ContentType::plaintext())
+            .insert_header(ContentType::octet_stream())
             .set_payload("int x = 1; // hello")
             .to_request();
 
@@ -813,14 +817,16 @@ mod tests {
     #[actix_rt::test]
     async fn test_web_comment_plain_no_comment() {
         let app = test::init_service(
-            App::new()
-                .app_data(test_config())
-                .service(web::resource("/comment").route(web::post().to(comment_removal_plain))),
+            App::new().app_data(test_config()).service(
+                web::resource("/comment")
+                    .guard(guard::Header("content-type", "application/octet-stream"))
+                    .route(web::post().to(comment_removal_plain)),
+            ),
         )
         .await;
         let req = test::TestRequest::post()
             .uri("/comment?file_name=foo.c")
-            .insert_header(ContentType::plaintext())
+            .insert_header(ContentType::octet_stream())
             .set_payload("int x = 1;")
             .to_request();
 
@@ -843,14 +849,16 @@ mod tests {
         let output_vec = [b"s: ", bad_bytes].concat();
 
         let app = test::init_service(
-            App::new()
-                .app_data(test_config())
-                .service(web::resource("/comment").route(web::post().to(comment_removal_plain))),
+            App::new().app_data(test_config()).service(
+                web::resource("/comment")
+                    .guard(guard::Header("content-type", "application/octet-stream"))
+                    .route(web::post().to(comment_removal_plain)),
+            ),
         )
         .await;
         let req = test::TestRequest::post()
             .uri("/comment?file_name=foo.java")
-            .insert_header(ContentType::plaintext())
+            .insert_header(ContentType::octet_stream())
             .set_payload(input_vec)
             .to_request();
 
@@ -865,14 +873,16 @@ mod tests {
     #[actix_rt::test]
     async fn test_web_comment_plain_cpp() {
         let app = test::init_service(
-            App::new()
-                .app_data(test_config())
-                .service(web::resource("/comment").route(web::post().to(comment_removal_plain))),
+            App::new().app_data(test_config()).service(
+                web::resource("/comment")
+                    .guard(guard::Header("content-type", "application/octet-stream"))
+                    .route(web::post().to(comment_removal_plain)),
+            ),
         )
         .await;
         let req = test::TestRequest::post()
             .uri("/comment?file_name=foo.cpp")
-            .insert_header(ContentType::plaintext())
+            .insert_header(ContentType::octet_stream())
             .set_payload("int x = 1; // hello")
             .to_request();
 
@@ -883,6 +893,30 @@ mod tests {
         let expected = Bytes::from_static(b"int x = 1; ");
 
         assert_eq!(res, expected);
+    }
+
+    /// Guard-rejection regression: the production `/comment` plain route
+    /// requires `application/octet-stream`. A `text/plain` request must not
+    /// hit `comment_removal_plain`; it should fall through to the default
+    /// 404 because no service matches. See issue #294.
+    #[actix_rt::test]
+    async fn test_web_comment_plain_rejects_text_plain() {
+        let app = test::init_service(
+            App::new().app_data(test_config()).service(
+                web::resource("/comment")
+                    .guard(guard::Header("content-type", "application/octet-stream"))
+                    .route(web::post().to(comment_removal_plain)),
+            ),
+        )
+        .await;
+        let req = test::TestRequest::post()
+            .uri("/comment?file_name=foo.c")
+            .insert_header(ContentType::plaintext())
+            .set_payload("int x = 1; // hello")
+            .to_request();
+
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 
     #[actix_rt::test]
@@ -1033,14 +1067,16 @@ mod tests {
     #[actix_rt::test]
     async fn test_web_metrics_plain() {
         let app = test::init_service(
-            App::new()
-                .app_data(test_config())
-                .service(web::resource("/metrics").route(web::post().to(metrics_plain))),
+            App::new().app_data(test_config()).service(
+                web::resource("/metrics")
+                    .guard(guard::Header("content-type", "application/octet-stream"))
+                    .route(web::post().to(metrics_plain)),
+            ),
         )
         .await;
         let req = test::TestRequest::post()
             .uri("/metrics?file_name=test.py")
-            .insert_header(ContentType::plaintext())
+            .insert_header(ContentType::octet_stream())
             .set_payload("def foo():\n    pass\n")
             .to_request();
 
@@ -1113,6 +1149,30 @@ mod tests {
         assert_eq!(res, expected);
     }
 
+    /// Guard-rejection regression: the production `/metrics` plain route
+    /// requires `application/octet-stream`. A `text/plain` request must
+    /// fall through to 404 instead of being routed to `metrics_plain`.
+    /// See issue #294.
+    #[actix_rt::test]
+    async fn test_web_metrics_plain_rejects_text_plain() {
+        let app = test::init_service(
+            App::new().app_data(test_config()).service(
+                web::resource("/metrics")
+                    .guard(guard::Header("content-type", "application/octet-stream"))
+                    .route(web::post().to(metrics_plain)),
+            ),
+        )
+        .await;
+        let req = test::TestRequest::post()
+            .uri("/metrics?file_name=test.py")
+            .insert_header(ContentType::plaintext())
+            .set_payload("def foo():\n    pass\n")
+            .to_request();
+
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
     #[actix_rt::test]
     async fn test_web_function_json() {
         let app = test::init_service(
@@ -1155,14 +1215,16 @@ mod tests {
     #[actix_rt::test]
     async fn test_web_function_plain() {
         let app = test::init_service(
-            App::new()
-                .app_data(test_config())
-                .service(web::resource("/function").route(web::post().to(function_plain))),
+            App::new().app_data(test_config()).service(
+                web::resource("/function")
+                    .guard(guard::Header("content-type", "application/octet-stream"))
+                    .route(web::post().to(function_plain)),
+            ),
         )
         .await;
         let req = test::TestRequest::post()
             .uri("/function?file_name=test.py")
-            .insert_header(ContentType::plaintext())
+            .insert_header(ContentType::octet_stream())
             .set_payload("def foo():\n    pass\n\ndef bar():\n    pass")
             .to_request();
 
@@ -1186,6 +1248,30 @@ mod tests {
         });
 
         assert_eq!(res, expected);
+    }
+
+    /// Guard-rejection regression: the production `/function` plain route
+    /// requires `application/octet-stream`. A `text/plain` request must
+    /// fall through to 404 instead of being routed to `function_plain`.
+    /// See issue #294.
+    #[actix_rt::test]
+    async fn test_web_function_plain_rejects_text_plain() {
+        let app = test::init_service(
+            App::new().app_data(test_config()).service(
+                web::resource("/function")
+                    .guard(guard::Header("content-type", "application/octet-stream"))
+                    .route(web::post().to(function_plain)),
+            ),
+        )
+        .await;
+        let req = test::TestRequest::post()
+            .uri("/function?file_name=test.py")
+            .insert_header(ContentType::plaintext())
+            .set_payload("def foo():\n    pass\n\ndef bar():\n    pass")
+            .to_request();
+
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 
     #[actix_rt::test]
