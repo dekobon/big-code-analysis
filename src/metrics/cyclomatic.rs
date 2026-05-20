@@ -446,9 +446,19 @@ impl Cyclomatic for CsharpCode {
         use Csharp::*;
 
         match node.kind_id().into() {
-            // Standard-only: individual switch statement arms and switch
-            // expression arms.
-            Case | SwitchExpressionArm => {
+            // Standard-only: individual switch statement arms. The `case`
+            // keyword token is what is matched here; `default:` uses a
+            // distinct `Default` token and is correctly excluded.
+            Case => {
+                stats.cyclomatic += 1.;
+            }
+            // Standard-only: switch expression arms, except the bare
+            // discard arm `_ =>` (and `var _ =>`), which is C#'s analogue
+            // of `default:` and must NOT contribute to standard CCN
+            // (issue #282 / lesson 11). A guarded discard
+            // (`_ when g => …`) still counts because the guard introduces
+            // a non-trivial decision, mirroring Rust's `_ if g` rule.
+            SwitchExpressionArm if !csharp_switch_expression_arm_is_bare_discard(node) => {
                 stats.cyclomatic += 1.;
             }
             // Modified-only: the switch statement and switch expression
@@ -547,8 +557,13 @@ impl Cyclomatic for KotlinCode {
         use Kotlin::*;
 
         match node.kind_id().into() {
-            // Standard-only: individual when entries (arms).
-            WhenEntry => {
+            // Standard-only: individual when entries (arms), except the
+            // `else -> …` arm which is Kotlin's analogue of `default:`
+            // and must NOT contribute to standard CCN (issue #282 /
+            // lesson 11). tree-sitter-kotlin-ng attaches a `condition`
+            // field to every case-style entry; the else arm has no
+            // `condition` field.
+            WhenEntry if !kotlin_when_entry_is_else(node) => {
                 stats.cyclomatic += 1.;
             }
             // Modified-only: the when expression container.
@@ -730,6 +745,73 @@ impl Cyclomatic for ElixirCode {
             _ => {}
         }
     }
+}
+
+/// Detects C# `switch_expression_arm`s whose pattern is a bare discard
+/// (`_` or `var _`) and which carry no `when` guard — the analogue of
+/// the C-family `default:` arm. Such arms must NOT contribute to
+/// standard CCN, mirroring Rust's `_ =>` and Java/C#'s `default:`
+/// treatment (lesson 11 / parity family 5). A guarded discard
+/// (`_ when g => …`) still counts because the guard introduces a
+/// non-trivial decision, matching Rust's `_ if g` rule.
+fn csharp_switch_expression_arm_is_bare_discard(node: &Node) -> bool {
+    use Csharp::*;
+    let mut pattern_is_discard = false;
+    let mut saw_pattern = false;
+    for child in node.children() {
+        if !child.is_named() {
+            continue;
+        }
+        match child.kind_id().into() {
+            // `pattern` is a supertype: tree-sitter flattens it to the
+            // concrete subtype in the parse tree.
+            Discard if !saw_pattern => {
+                saw_pattern = true;
+                pattern_is_discard = true;
+            }
+            // `var _` parses as a `declaration_pattern` with children
+            // `implicit_type` (`var`) and `discard` (`_`) rather than
+            // as a `var_pattern` — tree-sitter-c-sharp treats `var` as
+            // an implicit type designator. A `declaration_pattern`
+            // whose only named children are `implicit_type` and
+            // `discard` is therefore semantically the bare discard.
+            // A non-implicit type (`int _`) is NOT excluded — the
+            // type test is still a non-trivial decision.
+            DeclarationPattern if !saw_pattern => {
+                saw_pattern = true;
+                let mut saw_discard = false;
+                let mut saw_implicit_type = false;
+                let mut saw_other_named = false;
+                for sub in child.children() {
+                    if !sub.is_named() {
+                        continue;
+                    }
+                    match sub.kind_id().into() {
+                        Discard => saw_discard = true,
+                        ImplicitType => saw_implicit_type = true,
+                        _ => saw_other_named = true,
+                    }
+                }
+                pattern_is_discard = saw_discard && saw_implicit_type && !saw_other_named;
+            }
+            WhenClause => return false,
+            _ if !saw_pattern => {
+                // First named child wasn't a discard pattern — done.
+                return false;
+            }
+            _ => {}
+        }
+    }
+    pattern_is_discard
+}
+
+/// Detects Kotlin `when_entry` nodes that are `else -> …` arms — the
+/// analogue of the C-family `default:` arm. tree-sitter-kotlin-ng
+/// attaches a `condition` field to every case-style entry; the `else`
+/// arm has no `condition` field (only an anonymous `else` keyword
+/// child). Such arms must NOT contribute to standard CCN.
+fn kotlin_when_entry_is_else(node: &Node) -> bool {
+    node.child_by_field_name("condition").is_none()
 }
 
 /// Detects Bash `*)` catch-all arms inside `case … esac`. Returns
@@ -1706,8 +1788,8 @@ mod tests {
     #[test]
     fn csharp_switch_expression_arms() {
         // Each non-default arm of a switch_expression contributes +1.
-        // The discard arm `_ =>` is currently counted by SwitchExpressionArm
-        // (the grammar does not separate discard arms into a distinct kind).
+        // The discard arm `_ =>` is excluded (issue #282), mirroring
+        // Rust's `_ =>` and Java/C#'s `default:` treatment.
         check_metrics::<CsharpParser>(
             "public class A {
                 public string Name(int n) =>
@@ -1720,14 +1802,20 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
+                // expected: unit(1) + class(1) + fn(base 1 + 3 explicit arms;
+                //           `_ =>` skipped) = sum 6, max 4. modified =
+                //           unit(1) + class(1) + fn(base 1 + switch expr 1) = 4.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 6.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r###"
                     {
-                      "sum": 7.0,
-                      "average": 2.3333333333333335,
+                      "sum": 6.0,
+                      "average": 2.0,
                       "min": 1.0,
-                      "max": 5.0,
+                      "max": 4.0,
                       "modified": {
                         "sum": 4.0,
                         "average": 1.3333333333333333,
@@ -1736,6 +1824,77 @@ mod tests {
                       }
                     }"###
                 );
+            },
+        );
+    }
+
+    /// Regression #282: the bare discard arm `_ =>` in a C# switch
+    /// expression must NOT contribute to standard CCN, mirroring the
+    /// C-family `default:` rule.
+    #[test]
+    fn csharp_switch_expression_discard_arm_not_counted() {
+        check_metrics::<CsharpParser>(
+            "public class A {
+                public string Name(int n) =>
+                    n switch {
+                        1 => \"one\",
+                        _ => \"other\"
+                    };
+            }",
+            "foo.cs",
+            |metric| {
+                // expected: unit(1) + class(1) + fn(base 1 + 1 explicit;
+                //           `_ =>` skipped) = 4, max 2.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
+            },
+        );
+    }
+
+    /// Regression #282: `var _` is also a discard pattern and must be
+    /// excluded from standard CCN.
+    #[test]
+    fn csharp_switch_expression_var_underscore_not_counted() {
+        check_metrics::<CsharpParser>(
+            "public class A {
+                public string Name(int n) =>
+                    n switch {
+                        1 => \"one\",
+                        var _ => \"other\"
+                    };
+            }",
+            "foo.cs",
+            |metric| {
+                // expected: unit(1) + class(1) + fn(base 1 + 1 explicit;
+                //           `var _ =>` skipped) = 4, max 2.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
+            },
+        );
+    }
+
+    /// Regression #282: a guarded discard arm `_ when g => …` is NOT a
+    /// bare wildcard — the `when` guard adds a non-trivial decision —
+    /// so the arm still contributes one standard decision, mirroring
+    /// Rust's `_ if g` rule.
+    #[test]
+    fn csharp_switch_expression_guarded_discard_still_counts() {
+        check_metrics::<CsharpParser>(
+            "public class A {
+                public string Name(int n) =>
+                    n switch {
+                        1 => \"one\",
+                        _ when n > 10 => \"big\",
+                        _ => \"other\"
+                    };
+            }",
+            "foo.cs",
+            |metric| {
+                // expected: unit(1) + class(1) + fn(base 1 + 1 explicit +
+                //           1 guarded discard; bare `_ =>` skipped) = 5,
+                //           max 3.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
             },
         );
     }
@@ -2911,9 +3070,9 @@ mod tests {
                         }
                     }
                     when (y) {
-                        1 -> println(\"one\")   // +1 (WhenEntry)
-                        2 -> println(\"two\")   // +1
-                        else -> println(\"?\") // +1
+                        1 -> println(\"one\")  // +1 (WhenEntry)
+                        2 -> println(\"two\")  // +1
+                        else -> println(\"?\") // skipped (else is default)
                     }
                     val ok = x > 0 && y > 0  // +1
                     try {
@@ -2926,14 +3085,19 @@ mod tests {
             }",
             "foo.kt",
             |metric| {
+                // expected: unit(1) + class(1) + fn(base 1 + if 1 + for 1 +
+                //           2 explicit when arms; else skipped + && 1 +
+                //           catch 1) = sum 9, max 7.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 9.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 7.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r###"
                     {
-                      "sum": 10.0,
-                      "average": 3.3333333333333335,
+                      "sum": 9.0,
+                      "average": 3.0,
                       "min": 1.0,
-                      "max": 8.0,
+                      "max": 7.0,
                       "modified": {
                         "sum": 8.0,
                         "average": 2.6666666666666665,
@@ -2961,16 +3125,19 @@ mod tests {
              }",
             "foo.kt",
             |metric| {
-                // standard: unit(1) + fn(1) + 4 WhenEntry = 6
+                // standard: unit(1) + fn(base 1 + 3 explicit when arms;
+                //           else skipped per #282) = 5
                 // modified: unit(1) + fn(1) + WhenExpression(1) = 3
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4.0);
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r###"
                     {
-                      "sum": 6.0,
-                      "average": 3.0,
+                      "sum": 5.0,
+                      "average": 2.5,
                       "min": 1.0,
-                      "max": 5.0,
+                      "max": 4.0,
                       "modified": {
                         "sum": 3.0,
                         "average": 1.5,
@@ -2979,6 +3146,53 @@ mod tests {
                       }
                     }"###
                 );
+            },
+        );
+    }
+
+    /// Regression #282: the `else -> …` arm in a Kotlin `when`
+    /// expression must NOT contribute to standard CCN, mirroring the
+    /// C-family `default:` rule.
+    #[test]
+    fn kotlin_when_else_arm_not_counted() {
+        check_metrics::<KotlinParser>(
+            "fun describe(x: Int): String {
+                 return when (x) {
+                     1 -> \"one\"
+                     else -> \"other\"
+                 }
+             }",
+            "foo.kt",
+            |metric| {
+                // expected: unit(1) + fn(base 1 + 1 explicit; else skipped) = 3, max 2.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
+            },
+        );
+    }
+
+    /// Cross-check #282: every case-style arm in a Kotlin `when`
+    /// contributes one standard decision; only the `else ->` arm is
+    /// skipped. Pairs with `kotlin_when_else_arm_not_counted` (which
+    /// pins the single-explicit case) to confirm the count scales
+    /// linearly with explicit arms and is not accidentally hard-coded
+    /// to one.
+    #[test]
+    fn kotlin_when_multiple_explicit_arms_each_count() {
+        check_metrics::<KotlinParser>(
+            "fun describe(x: Int): String {
+                 return when (x) {
+                     1 -> \"one\"
+                     2 -> \"two\"
+                     3 -> \"three\"
+                     else -> \"other\"
+                 }
+             }",
+            "foo.kt",
+            |metric| {
+                // expected: unit(1) + fn(base 1 + 3 explicit; else skipped) = 5, max 4.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4.0);
             },
         );
     }

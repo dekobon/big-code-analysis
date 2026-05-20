@@ -146,7 +146,44 @@ fn switch_with_default_parity() {
             "java",
         ),
     );
-    let offsets = BTreeMap::from([("java", JAVA_CLASS_OFFSET)]);
+    // C# switch-expression with discard arm `_ =>` (issue #282).
+    sums.insert(
+        "csharp",
+        ccn_sum(
+            LANG::Csharp,
+            r#"class Parity {
+    static string f(int x) => x switch {
+        1 => "one",
+        2 => "two",
+        3 => "three",
+        _ => "other"
+    };
+}
+"#,
+            "cs",
+        ),
+    );
+    // Kotlin `when` with `else ->` arm (issue #282).
+    sums.insert(
+        "kotlin",
+        ccn_sum(
+            LANG::Kotlin,
+            r#"fun f(x: Int): String = when (x) {
+    1 -> "one"
+    2 -> "two"
+    3 -> "three"
+    else -> "other"
+}
+"#,
+            "kt",
+        ),
+    );
+    let offsets = BTreeMap::from([
+        ("java", JAVA_CLASS_OFFSET),
+        // C# requires every function to live inside a class, same as
+        // Java — this is a language-mandated structural difference.
+        ("csharp", JAVA_CLASS_OFFSET),
+    ]);
     assert_parity("switch_with_default", &sums, &offsets);
 }
 
@@ -232,7 +269,43 @@ f() {
             "sh",
         ),
     );
-    let offsets = BTreeMap::from([("java", JAVA_CLASS_OFFSET)]);
+    // C# switch *statement* (not expression — switch expressions require
+    // exhaustiveness so cannot express "no default"). Issue #282.
+    sums.insert(
+        "csharp",
+        ccn_sum(
+            LANG::Csharp,
+            r"class Parity {
+    static void f(int x) {
+        switch (x) {
+            case 1: break;
+            case 2: break;
+            case 3: break;
+        }
+    }
+}
+",
+            "cs",
+        ),
+    );
+    // Kotlin `when` used as a statement does not require an `else` arm
+    // (only `when` as an expression with sealed types does). Issue #282.
+    sums.insert(
+        "kotlin",
+        ccn_sum(
+            LANG::Kotlin,
+            r"fun f(x: Int) {
+    when (x) {
+        1 -> { }
+        2 -> { }
+        3 -> { }
+    }
+}
+",
+            "kt",
+        ),
+    );
+    let offsets = BTreeMap::from([("java", JAVA_CLASS_OFFSET), ("csharp", JAVA_CLASS_OFFSET)]);
     assert_parity("switch_without_default", &sums, &offsets);
 }
 
@@ -611,6 +684,34 @@ function f($x) {
             "sh",
         ),
     );
-    let offsets = BTreeMap::from([("java", JAVA_CLASS_OFFSET)]);
+    // C# switch-expression with discard arm (issue #282).
+    sums.insert(
+        "csharp",
+        ccn_sum(
+            LANG::Csharp,
+            r#"class Parity {
+    static string f(int x) => x switch {
+        1 => "one",
+        _ => "other"
+    };
+}
+"#,
+            "cs",
+        ),
+    );
+    // Kotlin `when` with `else ->` arm (issue #282).
+    sums.insert(
+        "kotlin",
+        ccn_sum(
+            LANG::Kotlin,
+            r#"fun f(x: Int): String = when (x) {
+    1 -> "one"
+    else -> "other"
+}
+"#,
+            "kt",
+        ),
+    );
+    let offsets = BTreeMap::from([("java", JAVA_CLASS_OFFSET), ("csharp", JAVA_CLASS_OFFSET)]);
     assert_parity("two_arm_switch_with_wildcard", &sums, &offsets);
 }
