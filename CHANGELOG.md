@@ -799,6 +799,22 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Fixed
 
+- TypeScript and TSX Halstead now classify the `string` type-keyword
+  alias as an operand, matching `Checker::is_string`. The tree-sitter
+  TS / TSX grammars expose the `string` keyword used in type
+  annotations (`: string`) as an anonymous alias of `String` —
+  `Typescript::String2` (kind_id 135) in TS and `Tsx::String3`
+  (kind_id 141) in TSX. `Checker::is_string` matched both (#283),
+  but `Getter::get_op_type` for `TypescriptCode` and `TsxCode`
+  dropped them to `Unknown`, so every `: string` annotation was
+  silently undercounted by one Halstead operand. `String2` is now
+  in `operand_extras` for TypeScript and `String3` is now in
+  `operand_extras` for TSX, restoring per-language parity with the
+  JS / MozJS / TSX (for `String2`) classifications and closing the
+  Checker/Getter agreement gap. Cross-language regression covered
+  by `ts_family_string2_string3_type_keyword_parity_313` in
+  `src/metrics/halstead.rs`
+  ([#313](https://github.com/dekobon/big-code-analysis/issues/313)).
 - The Rust `cfg(...)` slow-path whitespace collapser in
   `cfg_predicate::attribute_marks_test` now decodes UTF-8 correctly.
   The previous implementation rebuilt the compact string with
