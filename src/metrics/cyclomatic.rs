@@ -411,67 +411,67 @@ impl Cyclomatic for RustCode {
 // double-count (issue #284).
 impl_cyclomatic_c_family!(CppCode, Cpp, ConditionalExpression, [AMPAMP, PIPEPIPE]);
 
-impl Cyclomatic for JavaCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
-        use Java::*;
+// Java and Groovy share the same decision-kind set for cyclomatic
+// complexity; Groovy adds `Assert` as an extra branch (its `assert`
+// keyword is a runtime check that branches on its condition,
+// matching Sonar's standard-CCN treatment). `impl_cyclomatic_java_like!`
+// emits the same match body against each enum, with an
+// `[$($extra:ident),*]` list for any language-specific decision kinds
+// (issue #300; mirrors `impl_npm_java_like!` / `impl_npa_java_like!`).
+//
+// Why a dedicated macro instead of reusing `impl_cyclomatic_c_family!`:
+// the C-family macro uses `SwitchStatement` (the wrapping node) as the
+// modified-CCN container marker, whereas Java/Groovy use the `Switch`
+// keyword token — which fires exactly once per switch (both classic
+// switch statements and Java 14+ switch expressions). Counting the
+// keyword keeps the modified-CCN tally aligned with the standard-CCN
+// `Case` arms.
+//
+// Keyword-vs-statement (issue #284): `If` / `For` / `While` here are
+// the *keyword* tokens (`Java::While == "while"`, etc.), not the
+// statement nodes. The `while` keyword therefore fires inside both
+// `WhileStatement` and `DoStatement`, and the `for` keyword fires
+// inside both `ForStatement` and `EnhancedForStatement`. The
+// grammar-specific loop forms are already counted via their inner
+// keyword tokens; listing the statement nodes here would
+// double-count. The regression tests
+// `java_do_statement_counts_in_cyclomatic`,
+// `java_enhanced_for_statement_counts_in_cyclomatic`,
+// `groovy_do_statement_counts_in_cyclomatic`, and
+// `groovy_enhanced_for_statement_counts_in_cyclomatic` pin the
+// correct keyword-driven counts.
+//
+// Groovy note: Elvis `?:` and Groovy 3 identity / safe-navigation
+// operators do NOT contribute branches here because amaanq's grammar
+// emits ERROR nodes for them; tracked as follow-up issues. The
+// standard short-circuits and `Assert` still count.
+macro_rules! impl_cyclomatic_java_like {
+    ($code:ty, $lang:ident, [$($extra:ident),* $(,)?]) => {
+        impl Cyclomatic for $code {
+            fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+                use $lang::*;
 
-        match node.kind_id().into() {
-            Case => {
-                stats.cyclomatic += 1.;
+                match node.kind_id().into() {
+                    Case => {
+                        stats.cyclomatic += 1.;
+                    }
+                    Switch => {
+                        stats.cyclomatic_modified += 1.;
+                    }
+                    If | For | While | Catch | TernaryExpression | AMPAMP | PIPEPIPE
+                    $(| $extra)* => {
+                        stats.cyclomatic += 1.;
+                        stats.cyclomatic_modified += 1.;
+                    }
+                    _ => {}
+                }
             }
-            // The `switch` keyword token appears exactly once per switch
-            // construct (both classic switch statements and Java 14+ switch
-            // expressions), so it serves as the container marker.
-            Switch => {
-                stats.cyclomatic_modified += 1.;
-            }
-            // `If` / `For` / `While` are keyword tokens (e.g.
-            // `Java::While == "while"`), not statement nodes — so the
-            // `while` token fires inside `DoStatement` and the `for`
-            // token fires inside `EnhancedForStatement`. The
-            // grammar-specific loop forms are therefore already
-            // counted; listing them here would double-count (issue
-            // #284).
-            If | For | While | Catch | TernaryExpression | AMPAMP | PIPEPIPE => {
-                stats.cyclomatic += 1.;
-                stats.cyclomatic_modified += 1.;
-            }
-            _ => {}
         }
-    }
+    };
 }
 
-impl Cyclomatic for GroovyCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
-        use Groovy::*;
-
-        match node.kind_id().into() {
-            Case => {
-                stats.cyclomatic += 1.;
-            }
-            // `Switch` keyword token marks the construct (classic and Java
-            // 14+ switch expressions). Same role as in Java.
-            Switch => {
-                stats.cyclomatic_modified += 1.;
-            }
-            // Elvis `?:` and Groovy 3 identity / safe-navigation operators
-            // do NOT contribute branches here because amaanq's grammar
-            // emits ERROR nodes for them; tracked as follow-up issues.
-            // The standard short-circuits and `Assert` still count.
-            //
-            // `If` / `For` / `While` are keyword tokens, not statement
-            // nodes (same as Java), so `DoStatement` and
-            // `EnhancedForStatement` are already counted via the inner
-            // `while` / `for` keyword tokens; listing them here would
-            // double-count (issue #284).
-            If | For | While | Catch | TernaryExpression | AMPAMP | PIPEPIPE | Assert => {
-                stats.cyclomatic += 1.;
-                stats.cyclomatic_modified += 1.;
-            }
-            _ => {}
-        }
-    }
-}
+impl_cyclomatic_java_like!(JavaCode, Java, []);
+impl_cyclomatic_java_like!(GroovyCode, Groovy, [Assert]);
 
 impl Cyclomatic for CsharpCode {
     fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
@@ -5842,6 +5842,70 @@ f() {
                 assert_eq!(m.cyclomatic.cyclomatic_max(), 3.0, "java");
             },
         );
+    }
+
+    /// Parity gate for the `impl_cyclomatic_java_like!` macro (#300):
+    /// every decision kind shared by Java and Groovy must produce the
+    /// same per-function cyclomatic score for a common decision-rich
+    /// method body. Dropping a kind from the macro body (e.g.,
+    /// removing `For` or `TernaryExpression`) would fail BOTH language
+    /// assertions; dropping a kind from only one invocation would fail
+    /// only that language's assertion.
+    ///
+    /// The body intentionally exercises every shared kind:
+    /// `If`, `For`, `While`, `Catch`, `TernaryExpression`, `AMPAMP`,
+    /// `PIPEPIPE`, plus a `switch` with two `Case` arms (one is the
+    /// default and contributes nothing under standard CCN). Expected
+    /// per-function: 1 (base) + if + for + while + catch + ternary +
+    /// && + || + 2 cases = 10.
+    #[test]
+    fn cyclomatic_java_groovy_parity_300() {
+        const JAVA_SRC: &str = "class C {\n\
+            int decide(int x, int y, int[] xs) {\n\
+                int r = 0;\n\
+                if (x > 0 && y > 0) r = 1;\n\
+                for (int i = 0; i < 3; i++) r++;\n\
+                while (x > 0) { x--; r++; }\n\
+                try { r += xs[0]; } catch (Exception e) { r = -1; }\n\
+                r = (x > 0 || y < 0) ? r : -r;\n\
+                switch (x) { case 1: r++; break; case 2: r--; break; default: break; }\n\
+                return r;\n\
+            }\n\
+        }\n";
+        const GROOVY_SRC: &str = "class C {\n\
+            int decide(int x, int y, int[] xs) {\n\
+                int r = 0\n\
+                if (x > 0 && y > 0) r = 1\n\
+                for (int i = 0; i < 3; i++) r++\n\
+                while (x > 0) { x--; r++ }\n\
+                try { r += xs[0] } catch (Exception e) { r = -1 }\n\
+                r = (x > 0 || y < 0) ? r : -r\n\
+                switch (x) { case 1: r++; break; case 2: r--; break; default: break }\n\
+                return r\n\
+            }\n\
+        }\n";
+        check_metrics::<JavaParser>(JAVA_SRC, "Foo.java", |m| {
+            assert_eq!(m.cyclomatic.cyclomatic_max(), 10.0, "java parity");
+        });
+        check_metrics::<GroovyParser>(GROOVY_SRC, "foo.groovy", |m| {
+            assert_eq!(m.cyclomatic.cyclomatic_max(), 10.0, "groovy parity");
+        });
+    }
+
+    /// Groovy-only delta in `impl_cyclomatic_java_like!`: the `Assert`
+    /// extra-kind invocation must keep Groovy's `assert` branching at
+    /// +1 while Java does not count anything for an identical-looking
+    /// construct (Java has no `assert`-as-branch token; its `assert`
+    /// statement is grammar-distinct and not in this macro's arm).
+    /// Dropping `[Assert]` from the Groovy invocation would fail this
+    /// test.
+    #[test]
+    fn cyclomatic_groovy_assert_arm_300() {
+        check_metrics::<GroovyParser>("void check(int x) { assert x > 0 }", "foo.groovy", |m| {
+            // unit(1) + fn(1) + assert(1) = 3
+            assert_eq!(m.cyclomatic.cyclomatic_sum(), 3.0, "groovy assert sum");
+            assert_eq!(m.cyclomatic.cyclomatic_max(), 2.0, "groovy assert max");
+        });
     }
 
     #[test]
