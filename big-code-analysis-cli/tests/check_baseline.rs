@@ -306,7 +306,7 @@ pub fn classify(n: i32) -> &'static str {
         .stderr(predicate::str::contains("wrote 0 baseline entries"));
 
     let content = fs::read_to_string(&baseline).unwrap();
-    assert!(content.contains("version = 1"));
+    assert!(content.contains("version = 2"));
     assert!(!content.contains("[[entry]]"));
 }
 
@@ -556,7 +556,7 @@ fn stale_baseline_entries_do_not_cover_unrelated_violations() {
     let baseline = dir.path().join("baseline.toml");
     fs::write(
         &baseline,
-        "version = 1\n[[entry]]\npath = \"nonexistent.rs\"\nfunction = \"ghost\"\nstart_line = 1\nmetric = \"cyclomatic\"\nvalue = 100.0\n",
+        "version = 2\n[[entry]]\npath = \"nonexistent.rs\"\nfunction = \"ghost\"\nstart_line = 1\nmetric = \"cyclomatic\"\nvalue = 100.0\n",
     )
     .unwrap();
 
@@ -773,6 +773,6 @@ fn clean_tree_write_baseline_produces_empty_versioned_file() {
         .stderr(predicate::str::contains("wrote 0 baseline entries"));
 
     let content = fs::read_to_string(&baseline).unwrap();
-    assert!(content.contains("version = 1"));
+    assert!(content.contains("version = 2"));
     assert!(!content.contains("[[entry]]"));
 }
