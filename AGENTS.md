@@ -250,7 +250,16 @@ External grammar crates are version-pinned (`=0.23.x`, etc.) in the root
   gh issue create --title "Title" --label "bug" --body-file /tmp/issue-body.md
   ```
 
-- Do not push or open PRs without explicit user instruction.
+- Do not push (`git push`, `git push --force`) or open pull
+  requests (`gh pr create`) without explicit user instruction.
+  This rule covers **publishing code** only — it does **not**
+  extend to issue tracker activity. Updating, commenting on,
+  labelling, creating, and closing issues (`gh issue comment`,
+  `gh issue close`, `gh issue edit`, `gh issue create`,
+  `gh issue reopen`) are part of the normal fix-issue workflow
+  and require no separate authorization beyond the user's
+  initial request to work on the issue. Treat the issue tracker
+  as a working surface, not a publish gate.
 - Only close an issue when ALL items are resolved.
 - When updating issues, update BOTH the body AND add a comment.
 
