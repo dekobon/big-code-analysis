@@ -765,6 +765,18 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Fixed
 
+- The Rust `cfg(...)` slow-path whitespace collapser in
+  `cfg_predicate::attribute_marks_test` now decodes UTF-8 correctly.
+  The previous implementation rebuilt the compact string with
+  `bytes().filter(...).map(char::from).collect()`, treating each
+  byte as a Latin-1 codepoint and mangling any multi-byte UTF-8
+  sequence (e.g. `é` / `0xC3 0xA9` became `Ã©`). The fix iterates
+  over `chars()` so multi-byte sequences survive intact. Latent
+  today — `matches_test` only recognises ASCII identifiers, so no
+  current cfg rule could observe the mangling — but the pattern was
+  wrong by construction and would have surprised any future rule
+  that keyed off a non-ASCII identifier
+  ([#312](https://github.com/dekobon/big-code-analysis/issues/312)).
 - Elixir `Wmc` and `Npm` now agree on the methods of a class. A
   `def` / `defp` / `defmacro` / `defmacrop` nested inside a
   `quote do … end` template is no longer promoted to a Function
