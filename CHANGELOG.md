@@ -446,6 +446,35 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Changed
 
+- Consolidate the four JS-family `Getter::get_op_type` impls
+  (JavaScript, MozJS, TypeScript, TSX) behind a single
+  `impl_js_family_get_op_type!` macro that takes per-language operator
+  and operand `extras` lists. Mirrors the existing
+  `impl_cyclomatic_js_family!` / `impl_js_family_is_string!` patterns.
+  Pure refactor: Halstead operator/operand classification is
+  byte-identical. Adds a four-way parity regression test for
+  optional-chain member access ([#299](https://github.com/dekobon/big-code-analysis/issues/299)).
+- Consolidate `impl Cyclomatic for JavaCode` and `impl Cyclomatic for
+  GroovyCode` behind a new `impl_cyclomatic_java_like!` macro that
+  takes a list of extra decision kinds (`[]` for Java, `[Assert]` for
+  Groovy). Mirrors the existing `impl_npm_java_like!` /
+  `impl_npa_java_like!` patterns. Adds a Java/Groovy parity regression
+  test plus a Groovy-only `Assert`-arm assertion, both with
+  `cyclomatic_max` and `cyclomatic_modified_max` coverage so
+  one-counter regressions can't slip past
+  ([#300](https://github.com/dekobon/big-code-analysis/issues/300)).
+- Introduce `impl_simple_is_string!($lang, $variants...)` and apply it
+  to 17 single-or-flat-variant `Checker::is_string` impls (Preproc,
+  Ccomment, Cpp, Python, Java, Csharp, Rust, Go, Kotlin, Perl, Lua,
+  Bash, Tcl, Php, Elixir, Ruby, Groovy). The JS family keeps its
+  dedicated `impl_js_family_is_string!` because of its
+  `String + String2 + TemplateString + per-variant String3` shape.
+  Adds per-variant positive coverage for every consolidated language
+  plus negative coverage for all 17, with drift-marker assertions
+  pinning the hidden grammar supertypes (`Java::MultilineStringLiteral`,
+  `Groovy::StringLiteral2`, `Php::String3`) so a future grammar
+  revision that promotes them surfaces in CI
+  ([#301](https://github.com/dekobon/big-code-analysis/issues/301)).
 - `tests/suppression_test.rs::deeply_nested_function_suppression_does_not_overflow_stack`
   rewritten in JavaScript (100 nested `function f<i>() { … }`)
   and unignored. The previous fixture used a 1000-level Python `def`
