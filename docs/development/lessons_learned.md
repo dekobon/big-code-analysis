@@ -1655,15 +1655,14 @@ lesson is the *delta-slot* granularity — a macro's parameter list
 is itself a partition the test must cover slot-by-slot.
 
 **JS-family `get_op_type` parity test only revert-proved the
-operator token** (#299, 45d907f, 06f6a68). The
-`js_family_get_op_type_parity_optional_chain_member_299` test
-asserted four-way parity (`u_operators`, `operators`, `u_operands`,
-`operands`) for `function f(a){return a?.b?.c;}`. The original
-commit's comment claimed "dropping a common variant from any one
-language's macro invocation must fail this test." An `audit-tests`
-pass perturbed every slot and found this true only for the
-operator-token slot (`OptionalChain` in JS/MozJS, `QMARKDOT` in
-TS/TSX). Dropping any entry from the per-language `operand_extras`
+operator token** (#299, 45d907f, 06f6a68). 45d907f introduced
+`js_family_get_op_type_parity_optional_chain_member_299` asserting
+four-way parity (`u_operators`, `operators`, `u_operands`,
+`operands`) for `function f(a){return a?.b?.c;}`. Its comment
+claimed "dropping a common variant from any one language's macro
+invocation must fail this test." A follow-up `audit-tests` pass
+perturbed every slot and found this true only for the operator-
+token slot (`OptionalChain` in JS/MozJS, `QMARKDOT` in TS/TSX). Dropping any entry from the per-language `operand_extras`
 lists (`Identifier2`, `String2`, `NestedIdentifier`,
 `MemberExpression4`, or TS's `PredefinedType`) left the test
 silently passing — the `a?.b?.c` fixture never produced those

@@ -453,7 +453,12 @@ why no value stability is offered until `1.0`. Entries above the
   `impl_cyclomatic_js_family!` / `impl_js_family_is_string!` patterns.
   Pure refactor: Halstead operator/operand classification is
   byte-identical. Adds a four-way parity regression test for
-  optional-chain member access ([#299](https://github.com/dekobon/big-code-analysis/issues/299)).
+  optional-chain member access. Reviewer cross-walk of the
+  consolidated table surfaced a pre-existing TypeScript
+  `Checker::is_string` / `Getter::get_op_type` disagreement on
+  `String2` (the `string` type-keyword alias), tracked under
+  [#313](https://github.com/dekobon/big-code-analysis/issues/313)
+  for follow-up ([#299](https://github.com/dekobon/big-code-analysis/issues/299)).
 - Consolidate `impl Cyclomatic for JavaCode` and `impl Cyclomatic for
   GroovyCode` behind a new `impl_cyclomatic_java_like!` macro that
   takes a list of extra decision kinds (`[]` for Java, `[Assert]` for
