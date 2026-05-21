@@ -1636,3 +1636,173 @@ codebase (the #285 FD4 regression) was identified as vacuous and
 removed within months of merging.
 
 ---
+
+## 33. Test-via-revert proves coverage one slot at a time
+
+When a refactor consolidates N near-identical sites behind a macro
+or shared helper that takes per-site *delta slots* (operator/operand
+extras, per-language variant lists, decision-kind extras), a single
+test-via-revert proof — "I dropped one thing from one site and the
+test failed" — protects only that one thing at that one site. The
+remaining N×slots arguments are still ungated. The test-via-revert
+discipline must be applied to *each* slot type and, for multi-slot
+sites, to *each* slot's distinct contents. Otherwise the test reads
+as a four-way parity guard but is actually a one-way regression
+guard for a single operator token. Related to lesson #23
+(compensation constants blinding a parity test) and lesson #31
+(per-metric coverage decomposition); the distinct property of this
+lesson is the *delta-slot* granularity — a macro's parameter list
+is itself a partition the test must cover slot-by-slot.
+
+**JS-family `get_op_type` parity test only revert-proved the
+operator token** (#299, 45d907f, 06f6a68). The
+`js_family_get_op_type_parity_optional_chain_member_299` test
+asserted four-way parity (`u_operators`, `operators`, `u_operands`,
+`operands`) for `function f(a){return a?.b?.c;}`. The original
+commit's comment claimed "dropping a common variant from any one
+language's macro invocation must fail this test." An `audit-tests`
+pass perturbed every slot and found this true only for the
+operator-token slot (`OptionalChain` in JS/MozJS, `QMARKDOT` in
+TS/TSX). Dropping any entry from the per-language `operand_extras`
+lists (`Identifier2`, `String2`, `NestedIdentifier`,
+`MemberExpression4`, or TS's `PredefinedType`) left the test
+silently passing — the `a?.b?.c` fixture never produced those
+node kinds. 06f6a68 rewrote the comment to scope the claim
+honestly; one of the operand-extras gaps it could have caught —
+TS classifying `String2` differently in `Checker::is_string`
+versus `Getter::get_op_type` — was independently surfaced during
+the same review and filed as #313.
+
+**`impl_simple_is_string!` positive test only revert-proved one
+variant per language** (#301, 7192d56, 5829560). The initial
+`simple_is_string_macro_recognises_each_language` test exercised
+one canonical string literal per consolidated language. Test-via-
+revert with `Rust::StringLiteral` proved the macro arm was
+reached, but Csharp (4 variants), Php (7), Ruby (11), Perl (7),
+Bash (5), Groovy (3) were each defended by a single literal —
+dropping `Csharp::VerbatimStringLiteral`, `Ruby::Subshell`,
+`Php::Heredoc`, or `Cpp::ConcatenatedString` from any macro
+invocation left the test passing. 5829560 hardened the test
+to one assertion per variant per language (via the
+`assert_variant_is_string` helper with `stringify!`-derived
+labels); the resulting failure messages name both language and
+variant on drift. The reusable pattern is in
+`src/checker.rs`'s test module.
+
+**Lesson:** When proving a parity or coverage test catches drift,
+the test-via-revert discipline must visit every *delta slot* the
+refactor introduced, not just one. For macros with bracketed
+extras lists (`op_extras: [...]`, `operand_extras: [...]`,
+`[$($variant),+]`), each list is its own slot and each list's
+contents must be revert-proved. For multi-variant languages
+inside a single macro invocation, each variant is its own slot.
+A useful remediation pattern: route assertions through a helper
+that takes the language path and variant name as strings (via
+`stringify!`) so a failed assertion identifies *which* of the
+N×slots arguments is broken — and so future grammar/refactor
+work that adds a slot fails loudly if the helper is not extended
+to cover it.
+
+---
+
+## 34. Tree-sitter hidden-rule variants exist in the enum but never surface
+
+Tree-sitter language grammars expose every node-kind name through
+the generated enum (`Java::*`, `Groovy::*`, `Php::*`, etc.), but
+rule names beginning with an underscore (`_string_literal`,
+`_multiline_string_literal`, `_string`) are *hidden* — the parser
+flattens them away in real ASTs and never emits a node carrying
+that kind_id. A defensive arm in `is_string` / `get_op_type` / etc.
+listing a hidden-rule variant is dead code today and a
+correctness promise *if* a future grammar revision ever promotes
+the rule to a concrete node. Without an "asserted-absent"
+drift-marker test pinning the hidden status, that promotion goes
+undetected: the parser starts emitting the variant, the predicate
+either silently misses it (if the arm was forgotten) or silently
+catches it (if listed defensively) — either way, the codebase
+loses visibility into what changed.
+
+**Java/Groovy/Php `is_string` consolidation made the heuristic
+explicit** (#301, 7192d56, 5829560). Per-variant positive coverage for the
+new `impl_simple_is_string!` macro required exercising every
+variant in every invocation. Three variants would not appear in
+any constructible source: `Java::MultilineStringLiteral` (Java
+text blocks parse as regular `StringLiteral`),
+`Groovy::StringLiteral2` (Groovy triple-quoted strings parse as
+regular `StringLiteral`), and `Php::String3` (the `_string` hidden
+supertype never surfaces). The `kind_for_id` mapping confirmed
+the heuristic: each maps to a name beginning with `_`. The
+remediation pattern was a paired assertion: the macro arm stays
+(future-proof against grammar promotion) and a sibling test
+asserts `!ast_has_kind_id(&parser, Lang::HiddenVariant as u16)`
+with a message naming both the variant and the hidden-rule it
+maps to, so a future parser that starts emitting the variant
+trips the assertion-absent loudly and the maintainer is forced
+to replace it with a positive assertion.
+
+**Lesson:** Before listing a "looks like an alias" variant in a
+classification predicate, check the grammar's `kind_for_id`
+mapping for that variant (or grep `src/languages/language_<lang>.rs`
+for the `Lang::Variant => "name"` arm). If the name starts with
+`_`, the rule is hidden: the variant exists in the enum but does
+not appear in real ASTs. Either omit the defensive arm (and rely
+on the underlying concrete variant), or — preferred — keep the
+arm *and* add a drift-marker assertion (`!ast_has_kind_id`) with a
+message that explains the hidden status and demands replacement
+on drift. Hidden-rule variants without a drift-marker test are
+invisible promises: they pretend to be coverage but protect
+nothing observable today.
+
+---
+
+## 35. Two predicates classifying the same node must agree, or Halstead drifts silently
+
+For every supported language, `Checker::is_string`,
+`Getter::get_op_type`, `Checker::is_call`, `Checker::is_func_space`,
+and the per-metric body walkers all classify the same AST nodes
+through parallel `matches!()` predicates. When two predicates that
+should agree on a node's classification disagree, the metric
+output silently drifts: `find string` / `count string` reports a
+node that Halstead classifies as `Unknown`, or vice versa. The
+disagreement is invisible from either predicate read in isolation
+— it surfaces only by walking the cross-product of (node kind, set
+of predicates that classify it). Refactoring one predicate
+without parity-walking the others ships the drift. Related to
+lesson #2 (tree-sitter aliases must be matched on every variant
+of *one* predicate) and lesson #19 (missing arms in a dispatch
+table score valid constructs as zero); the distinct property of
+this lesson is *cross-predicate parity* — both predicates may be
+internally consistent and still disagree on the same node.
+
+**TypeScript `String2` agrees with `is_string`, disagrees with
+`get_op_type`** (#313, surfaced during #299 review). The
+`impl_js_family_is_string!(Typescript)` macro matches `String`,
+`String2`, and `TemplateString`, so a `String2` node — the `string`
+type-keyword alias — is counted by `find string` and contributes
+to Halstead string-operand totals via `is_string`. But the TS
+`impl_js_family_get_op_type!` invocation's `operand_extras` list
+omits `String2`, so the same node is classified as `HalsteadType::
+Unknown` by the Halstead walker and does not contribute to
+`operator/operand` totals at all. JS, MozJS, and TSX all include
+`String2` in `operand_extras`; only TS does not. The drift
+predates #299 — the four pre-refactor impls had the same
+asymmetry — but the macro consolidation made the parity table
+legible enough for a reviewer walking each invocation to spot it.
+
+**Lesson:** When refactoring or extending a per-language
+classification predicate, walk the *other* predicates that
+classify the same nodes for parity. The minimum cross-walk is:
+`Checker::is_string` ↔ `Getter::get_op_type` operand classification
+of string-bearing kinds; `Checker::is_call` ↔ `Getter::get_op_type`
+operator classification of call kinds; `is_func_space` ↔ each
+metric's body-walker (already covered by lesson #31 for the
+structural-arm half). The reusable diagnostic test is a parsed
+fixture asserting *both* predicates agree: parse a source that
+contains the node in question, locate every occurrence by kind_id,
+and assert each predicate returns the expected verdict for each
+occurrence. Disagreement that ships becomes a Halstead drift bug
+that takes a cross-file review to spot — far cheaper to catch at
+predicate-edit time with a parity walk than at user-report time
+from a metric mismatch.
+
+---
