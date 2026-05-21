@@ -45,10 +45,20 @@ macro_rules! get_operator {
 // `$operand_extras` per language:
 //   * JavaScript / MozJS: `Identifier2`, `String2` — anonymous keyword
 //     aliases the JS grammar exposes for `Identifier` and `String`.
-//   * TypeScript: `NestedIdentifier`, `MemberExpression4` — TS-only
-//     productions (`Identifier2` / `String2` aliases don't exist).
-//   * TSX: union of the above (`Identifier2`, `String2`,
-//     `NestedIdentifier`, `MemberExpression4`).
+//   * TypeScript: `String2`, `NestedIdentifier`, `MemberExpression4`.
+//     `String2` is the TS-only anonymous `"string"` alias the grammar
+//     emits for the `string` type-annotation keyword (kind_id 135, in
+//     the type-keyword range alongside `Boolean` / `Symbol`); it must
+//     be in `operand_extras` to agree with `Checker::is_string` which
+//     also matches it (issue #313, parallel to #283).
+//     `NestedIdentifier` and `MemberExpression4` are other TS-only
+//     productions.
+//   * TSX: union of the above plus `String3`. TSX uniquely exposes
+//     *two* anonymous `"string"` aliases: `String2` (kind_id 261, the
+//     string-literal alias) and `String3` (kind_id 141, the
+//     type-annotation keyword — the role TS's `String2` plays).
+//     `Checker::is_string` matches both, so both must be operands
+//     (#313).
 //
 // The `TemplateString` interpolation guard is shared verbatim (issue
 // #192): a bare `` `...` `` mirrors a `"..."` operand, but an
@@ -344,10 +354,16 @@ impl Getter for TypescriptCode {
         }
     }
 
+    // TS exposes `String2` as the anonymous `"string"` alias for the
+    // type-annotation keyword (kind_id 135, in the type-keyword block
+    // of the enum). `Checker::is_string` already matches it (#283);
+    // including it here closes the Checker/Getter agreement gap
+    // (#313). `NestedIdentifier` and `MemberExpression4` are TS-only
+    // member-expression productions.
     impl_js_family_get_op_type!(
         Typescript,
         op_extras: [QMARKDOT, PredefinedType],
-        operand_extras: [NestedIdentifier, MemberExpression4],
+        operand_extras: [String2, NestedIdentifier, MemberExpression4],
     );
 
     get_operator!(Typescript);
@@ -399,10 +415,16 @@ impl Getter for TsxCode {
         }
     }
 
+    // TSX exposes two anonymous `"string"` aliases: `String2` (the
+    // string-literal alias, kind_id 261) and `String3` (the
+    // type-annotation keyword, kind_id 141 — the role TS's `String2`
+    // plays). `Checker::is_string` matches both (#283); including
+    // `String3` here closes the audit gap surfaced by #313 (the same
+    // class of inconsistency that #313 fixed for TS::String2).
     impl_js_family_get_op_type!(
         Tsx,
         op_extras: [QMARKDOT, PredefinedType],
-        operand_extras: [Identifier2, String2, NestedIdentifier, MemberExpression4],
+        operand_extras: [Identifier2, String2, String3, NestedIdentifier, MemberExpression4],
     );
 
     get_operator!(Tsx);
