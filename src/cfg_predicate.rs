@@ -12,22 +12,6 @@
 //! entry point is [`attribute_marks_test`]; everything else is module-
 //! private.
 
-/// Return `true` if the Rust attribute body marks the annotated item
-/// as test-only.
-///
-/// Recognised forms:
-///
-/// - Bare test-attribute aliases: `test`, `rstest`, `wasm_bindgen_test`,
-///   `test_case`.
-/// - Path-form test attributes: `tokio::test`, `ext::module::test(args)`,
-///   etc. — detected without entering the predicate walker.
-/// - `cfg(...)` predicates where `test` appears as an operand of `all`,
-///   `any`, or a bare comma list, at any depth. A `not(test)` operand
-///   short-circuits — the item is included in production builds, so it
-///   is not test-only (regression test for #278).
-///
-/// The slow path collapses ASCII whitespace and retries, tolerating
-/// unusual spacing like `# [ cfg ( test ) ]`.
 pub(crate) fn attribute_marks_test(body: &str) -> bool {
     let matches_test = |s: &str| {
         matches!(s, "test" | "rstest" | "wasm_bindgen_test" | "test_case")
@@ -43,14 +27,13 @@ pub(crate) fn attribute_marks_test(body: &str) -> bool {
     // Slow path is only worth running when the input actually has
     // interior whitespace; the common cases hit the fast path above.
     if trimmed.bytes().any(|b| b.is_ascii_whitespace()) {
-        let compact: String = trimmed
-            .bytes()
-            .filter(|b| !b.is_ascii_whitespace())
-            .map(char::from)
-            .collect();
-        return matches_test(&compact);
+        return matches_test(&strip_whitespace(trimmed));
     }
     false
+}
+
+fn strip_whitespace(s: &str) -> String {
+    s.chars().filter(|c| !c.is_whitespace()).collect()
 }
 
 /// Return the inner predicate text of a `cfg(...)` attribute body,
@@ -234,5 +217,23 @@ mod tests {
         // both checks, so spaced forms still resolve correctly.
         assert!(attribute_marks_test("cfg( all( unix , test ) )"));
         assert!(!attribute_marks_test("cfg( not ( test ) )"));
+    }
+
+    #[test]
+    fn strip_whitespace_preserves_non_ascii_utf8() {
+        // Regression test for #312. The slow path previously rebuilt
+        // the compact string with `bytes().map(char::from).collect()`,
+        // which interprets each byte as a Latin-1 codepoint and
+        // mangles any multi-byte UTF-8 sequence. `é` (`0xC3 0xA9`)
+        // would emerge as the two-char string `Ã©`. Iterating over
+        // `chars()` decodes UTF-8 correctly.
+        assert_eq!(strip_whitespace("é test"), "étest");
+        assert_eq!(strip_whitespace("crate ::ñ::test"), "crate::ñ::test");
+        assert_eq!(strip_whitespace("  日本語  test"), "日本語test");
+        // ASCII-only inputs round-trip identically to the old code.
+        assert_eq!(
+            strip_whitespace("cfg( all( unix , test ) )"),
+            "cfg(all(unix,test))"
+        );
     }
 }
