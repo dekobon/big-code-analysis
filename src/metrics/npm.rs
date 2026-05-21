@@ -1034,16 +1034,24 @@ mod tests {
 
     #[test]
     fn groovy_interface_methods_implicitly_public() {
-        check_metrics::<GroovyParser>(
+        // Asserting only the body-walker `interface_*_sum` totals
+        // would pass vacuously if `InterfaceDeclaration` were dropped
+        // from `GroovyCode::is_func_space`. The structural
+        // `assert_child_space_kind` call catches that revert by
+        // requiring the interface to actually open an `Interface`
+        // FuncSpace.
+        check_func_space::<GroovyParser, _>(
             "interface I {
                 void a()
                 int b()
             }",
             "foo.groovy",
-            |metric| {
+            |func_space| {
+                let metric = &func_space.metrics;
                 // Interface methods are implicitly public.
                 assert_eq!(metric.npm.interface_nm_sum(), 2.0);
                 assert_eq!(metric.npm.interface_npm_sum(), 2.0);
+                assert_child_space_kind(&func_space, "I", SpaceKind::Interface);
             },
         );
     }
@@ -1243,8 +1251,10 @@ mod tests {
     fn groovy_interfaces_and_class() {
         // Mixed interfaces + class. Interface methods are
         // implicitly public; class methods need explicit `public`.
-        // Mirrors `java_interfaces_and_class`.
-        check_metrics::<GroovyParser>(
+        // Mirrors `java_interfaces_and_class`. Structural
+        // `assert_child_space_kind` guards against an
+        // `InterfaceDeclaration` revert (see #311).
+        check_func_space::<GroovyParser, _>(
             "interface X {
                 void a()
             }
@@ -1260,7 +1270,8 @@ mod tests {
                 void e() {}
             }",
             "foo.groovy",
-            |metric| {
+            |func_space| {
+                let metric = &func_space.metrics;
                 // Interfaces: 3 total methods (a, b, c), all 3 public.
                 assert_eq!(metric.npm.interface_nm_sum(), 3.0);
                 assert_eq!(metric.npm.interface_npm_sum(), 3.0);
@@ -1268,6 +1279,9 @@ mod tests {
                 // package-private).
                 assert_eq!(metric.npm.class_nm_sum(), 5.0);
                 assert_eq!(metric.npm.class_npm_sum(), 3.0);
+                assert_child_space_kind(&func_space, "X", SpaceKind::Interface);
+                assert_child_space_kind(&func_space, "Y", SpaceKind::Interface);
+                assert_child_space_kind(&func_space, "Z", SpaceKind::Class);
             },
         );
     }
@@ -2213,24 +2227,26 @@ mod tests {
 
     #[test]
     fn kotlin_interface_methods() {
-        check_metrics::<KotlinParser>(
+        check_func_space::<KotlinParser, _>(
             "interface I {
                 fun work(): Int
                 fun describe(): String
             }",
             "foo.kt",
-            |metric| {
+            |func_space| {
+                let metric = &func_space.metrics;
                 assert_eq!(metric.npm.interface_npm_sum(), 2.0);
                 assert_eq!(metric.npm.interface_nm_sum(), 2.0);
                 assert_eq!(metric.npm.class_nm_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.npm);
+                assert_child_space_kind(&func_space, "I", SpaceKind::Interface);
             },
         );
     }
 
     #[test]
     fn kotlin_interface_with_default_method() {
-        check_metrics::<KotlinParser>(
+        check_func_space::<KotlinParser, _>(
             "interface I {
                 fun abs(n: Int): Int {
                     return if (n < 0) -n else n
@@ -2238,10 +2254,12 @@ mod tests {
                 fun pure(): Int
             }",
             "foo.kt",
-            |metric| {
+            |func_space| {
+                let metric = &func_space.metrics;
                 assert_eq!(metric.npm.interface_npm_sum(), 2.0);
                 assert_eq!(metric.npm.interface_nm_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.npm);
+                assert_child_space_kind(&func_space, "I", SpaceKind::Interface);
             },
         );
     }
@@ -2343,8 +2361,10 @@ class C {
     #[test]
     fn kotlin_class_in_interface() {
         // Interface with nested class — methods count to the right
-        // bucket.
-        check_metrics::<KotlinParser>(
+        // bucket. Structural `assert_child_space_kind` guards both
+        // the outer interface and the nested class against
+        // `is_func_space` reverts (see #311).
+        check_func_space::<KotlinParser, _>(
             "interface Outer {
                 fun work(): Int
                 class Helper {
@@ -2352,17 +2372,29 @@ class C {
                 }
             }",
             "foo.kt",
-            |metric| {
+            |func_space| {
+                let metric = &func_space.metrics;
                 assert_eq!(metric.npm.interface_npm_sum(), 1.0);
                 assert_eq!(metric.npm.class_npm_sum(), 1.0);
                 insta::assert_json_snapshot!(metric.npm);
+                assert_child_space_kind(&func_space, "Outer", SpaceKind::Interface);
+                let outer = func_space
+                    .spaces
+                    .iter()
+                    .find(|s| s.name.as_deref() == Some("Outer"))
+                    .expect("Outer FuncSpace");
+                assert_child_space_kind(outer, "Helper", SpaceKind::Class);
             },
         );
     }
 
     #[test]
     fn kotlin_interface_in_class() {
-        check_metrics::<KotlinParser>(
+        // Class with nested interface — methods count to the right
+        // bucket. Structural `assert_child_space_kind` guards both
+        // the outer class and the nested interface against
+        // `is_func_space` reverts (see #311).
+        check_func_space::<KotlinParser, _>(
             "class Outer {
                 fun work() {}
                 interface Sub {
@@ -2370,10 +2402,18 @@ class C {
                 }
             }",
             "foo.kt",
-            |metric| {
+            |func_space| {
+                let metric = &func_space.metrics;
                 assert_eq!(metric.npm.class_npm_sum(), 1.0);
                 assert_eq!(metric.npm.interface_npm_sum(), 1.0);
                 insta::assert_json_snapshot!(metric.npm);
+                assert_child_space_kind(&func_space, "Outer", SpaceKind::Class);
+                let outer = func_space
+                    .spaces
+                    .iter()
+                    .find(|s| s.name.as_deref() == Some("Outer"))
+                    .expect("Outer FuncSpace");
+                assert_child_space_kind(outer, "Sub", SpaceKind::Interface);
             },
         );
     }
@@ -2574,18 +2614,20 @@ class C {
     #[test]
     fn typescript_interface_methods() {
         // Interface method signatures are implicitly public.
-        check_metrics::<TypescriptParser>(
+        check_func_space::<TypescriptParser, _>(
             "interface I {
                 a(): void;
                 b(x: number): number;
                 c: string;
             }",
             "foo.ts",
-            |metric| {
+            |func_space| {
+                let metric = &func_space.metrics;
                 assert_eq!(metric.npm.interface_npm_sum(), 2.0);
                 assert_eq!(metric.npm.interface_nm_sum(), 2.0);
                 assert_eq!(metric.npm.class_nm_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.npm);
+                assert_child_space_kind(&func_space, "I", SpaceKind::Interface);
             },
         );
     }
@@ -2609,17 +2651,21 @@ class C {
 
     #[test]
     fn typescript_multiple_classes_and_interface() {
-        check_metrics::<TypescriptParser>(
+        check_func_space::<TypescriptParser, _>(
             "class A { m(): void {} }
              class B { private h(): void {} }
              interface I { p(): number; }",
             "foo.ts",
-            |metric| {
+            |func_space| {
+                let metric = &func_space.metrics;
                 assert_eq!(metric.npm.class_npm_sum(), 1.0);
                 assert_eq!(metric.npm.class_nm_sum(), 2.0);
                 assert_eq!(metric.npm.interface_npm_sum(), 1.0);
                 assert_eq!(metric.npm.interface_nm_sum(), 1.0);
                 insta::assert_json_snapshot!(metric.npm);
+                assert_child_space_kind(&func_space, "A", SpaceKind::Class);
+                assert_child_space_kind(&func_space, "B", SpaceKind::Class);
+                assert_child_space_kind(&func_space, "I", SpaceKind::Interface);
             },
         );
     }
@@ -2770,16 +2816,18 @@ class C {
 
     #[test]
     fn tsx_interface_methods() {
-        check_metrics::<TsxParser>(
+        check_func_space::<TsxParser, _>(
             "interface I {
                 a(): void;
                 b(): number;
             }",
             "foo.tsx",
-            |metric| {
+            |func_space| {
+                let metric = &func_space.metrics;
                 assert_eq!(metric.npm.interface_npm_sum(), 2.0);
                 assert_eq!(metric.npm.interface_nm_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.npm);
+                assert_child_space_kind(&func_space, "I", SpaceKind::Interface);
             },
         );
     }
@@ -2799,17 +2847,21 @@ class C {
 
     #[test]
     fn tsx_multiple_classes_and_interface() {
-        check_metrics::<TsxParser>(
+        check_func_space::<TsxParser, _>(
             "class A { m(): void {} }
              class B { private h(): void {} }
              interface I { p(): number; }",
             "foo.tsx",
-            |metric| {
+            |func_space| {
+                let metric = &func_space.metrics;
                 assert_eq!(metric.npm.class_npm_sum(), 1.0);
                 assert_eq!(metric.npm.class_nm_sum(), 2.0);
                 assert_eq!(metric.npm.interface_npm_sum(), 1.0);
                 assert_eq!(metric.npm.interface_nm_sum(), 1.0);
                 insta::assert_json_snapshot!(metric.npm);
+                assert_child_space_kind(&func_space, "A", SpaceKind::Class);
+                assert_child_space_kind(&func_space, "B", SpaceKind::Class);
+                assert_child_space_kind(&func_space, "I", SpaceKind::Interface);
             },
         );
     }
@@ -3171,18 +3223,22 @@ class C {
         // `fn draw(&self);` (signature only) + `fn area(&self) -> f64
         // { 0.0 }` (default body) → both are interface methods.
         // Trait methods are always public. → interface_nm=2,
-        // interface_npm=2.
-        check_metrics::<RustParser>(
+        // interface_npm=2. Structural `assert_child_space_kind`
+        // pins the trait FuncSpace against an `is_func_space`
+        // revert (see #311).
+        check_func_space::<RustParser, _>(
             "trait Drawable {\n\
              \x20   fn draw(&self);\n\
              \x20   fn area(&self) -> f64 { 0.0 }\n\
              }\n",
             "foo.rs",
-            |metric| {
+            |func_space| {
+                let metric = &func_space.metrics;
                 assert_eq!(metric.npm.interface_nm_sum(), 2.0);
                 assert_eq!(metric.npm.interface_npm_sum(), 2.0);
                 assert_eq!(metric.npm.class_nm_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.npm);
+                assert_child_space_kind(&func_space, "Drawable", SpaceKind::Trait);
             },
         );
     }
@@ -3220,18 +3276,22 @@ class C {
         // `impl Drawable for Foo` is also an `impl_item` — its methods
         // count toward class_nm of the impl. Trait impls and inherent
         // impls are not distinguished at the AST level (both parse as
-        // `impl_item`).
-        check_metrics::<RustParser>(
+        // `impl_item`). Structural `assert_child_space_kind` pins the
+        // trait FuncSpace against an `is_func_space` revert
+        // (see #311).
+        check_func_space::<RustParser, _>(
             "struct Foo;\n\
              trait Drawable { fn draw(&self); }\n\
              impl Drawable for Foo { fn draw(&self) {} }\n",
             "foo.rs",
-            |metric| {
+            |func_space| {
+                let metric = &func_space.metrics;
                 // Trait body: 1 signature method → interface_nm = 1.
                 // Impl body: 1 fn `draw` → class_nm = 1.
                 assert_eq!(metric.npm.interface_nm_sum(), 1.0);
                 assert_eq!(metric.npm.class_nm_sum(), 1.0);
                 insta::assert_json_snapshot!(metric.npm);
+                assert_child_space_kind(&func_space, "Drawable", SpaceKind::Trait);
             },
         );
     }
@@ -3307,6 +3367,15 @@ class C {
         // method signatures → interface_nm = 2, interface_npm = 2
         // (interface members are always visible to implementers,
         // matching Java's interface rule).
+        //
+        // Unlike Java / Kotlin / TS, Go interfaces do *not* open a
+        // FuncSpace (`GoCode::is_func_space` only matches
+        // `SourceFile` and the function kinds), so there is no
+        // `SpaceKind::Interface` child to assert against here — the
+        // body walker counts methods directly from the `interface_type`
+        // AST node. The failure mode #311 guards against (a vacuous
+        // pass when `InterfaceDeclaration` is dropped from
+        // `is_func_space`) therefore does not apply to Go.
         check_metrics::<GoParser>(
             "package main\ntype RC interface { Read() error; Close() error }\n",
             "foo.go",

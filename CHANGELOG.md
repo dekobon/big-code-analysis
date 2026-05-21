@@ -521,6 +521,21 @@ why no value stability is offered until `1.0`. Entries above the
   blocks across `npm.rs` / `npa.rs` / `wmc.rs` into a single
   `tools::assert_child_space_kind(...)` test helper
   ([#307](https://github.com/dekobon/big-code-analysis/issues/307)).
+- Tightened the `Npm` and `Npa` plain interface / class / trait
+  tests with the same `check_func_space` + `assert_child_space_kind`
+  pattern from #307. Each non-zero `interface_*_sum` assertion in
+  `src/metrics/npa.rs` and `src/metrics/npm.rs` is now paired with
+  a structural check that the corresponding declaration opens a
+  `SpaceKind::Interface` (or `Class` / `Trait` for sibling spaces),
+  so dropping `InterfaceDeclaration` / `TraitDeclaration` from a
+  language's `is_func_space` no longer leaves the body-walker totals
+  passing vacuously against the file-level Unit space. The Go test
+  retains its pre-existing `check_metrics` form because
+  `GoCode::is_func_space` does not promote `interface_type` to a
+  FuncSpace at all — its `interface_*_sum` totals come from
+  AST-level body walking, not the FuncSpace tree, and so are
+  outside the failure mode this issue guards against
+  ([#311](https://github.com/dekobon/big-code-analysis/issues/311)).
 - **(library API, breaking)** `LANG::get_tree_sitter_language`
   returns `Result<tree_sitter::Language, MetricsError>` instead of
   `tree_sitter::Language` directly. Feature-gated builds need a

@@ -1926,16 +1926,21 @@ mod tests {
 
     #[test]
     fn groovy_interface_attributes() {
-        check_metrics::<GroovyParser>(
+        // Structural `assert_child_space_kind` guards against an
+        // `InterfaceDeclaration` revert in `GroovyCode::is_func_space`
+        // — see #311.
+        check_func_space::<GroovyParser, _>(
             "interface I {
                 public static final int A = 1
                 public static final int B = 2
             }",
             "foo.groovy",
-            |metric| {
+            |func_space| {
+                let metric = &func_space.metrics;
                 // Interface fields are implicitly public+static+final.
                 assert_eq!(metric.npa.interface_na_sum(), 2.0);
                 assert_eq!(metric.npa.interface_npa_sum(), 2.0);
+                assert_child_space_kind(&func_space, "I", SpaceKind::Interface);
             },
         );
     }
@@ -2694,16 +2699,21 @@ mod tests {
     #[test]
     fn csharp_interface() {
         // EC14 — interface members default to public; all fields count.
-        check_metrics::<CsharpParser>(
+        // Structural `assert_child_space_kind` guards against an
+        // `InterfaceDeclaration` revert in `CsharpCode::is_func_space`
+        // — see #311.
+        check_func_space::<CsharpParser, _>(
             "interface I {
                 static int A = 1;
                 static string B = \"hello\";
             }",
             "foo.cs",
-            |metric| {
+            |func_space| {
+                let metric = &func_space.metrics;
                 assert_eq!(metric.npa.class_na_sum(), 0.0);
                 assert_eq!(metric.npa.interface_na_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.npa);
+                assert_child_space_kind(&func_space, "I", SpaceKind::Interface);
             },
         );
     }
@@ -3053,18 +3063,23 @@ mod tests {
     #[test]
     fn kotlin_interface_attributes() {
         // Interface members are implicitly public; all properties count
-        // toward `interface_npa` and `interface_na`.
-        check_metrics::<KotlinParser>(
+        // toward `interface_npa` and `interface_na`. Structural
+        // `assert_child_space_kind` guards against an
+        // `InterfaceDeclaration` revert in `KotlinCode::is_func_space`
+        // — see #311.
+        check_func_space::<KotlinParser, _>(
             "interface I {
                 val a: Int
                 val b: String
             }",
             "foo.kt",
-            |metric| {
+            |func_space| {
+                let metric = &func_space.metrics;
                 assert_eq!(metric.npa.interface_npa_sum(), 2.0);
                 assert_eq!(metric.npa.interface_na_sum(), 2.0);
                 assert_eq!(metric.npa.class_na_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.npa);
+                assert_child_space_kind(&func_space, "I", SpaceKind::Interface);
             },
         );
     }
@@ -3320,18 +3335,23 @@ mod tests {
     fn typescript_interface_property_signatures() {
         // Interface property signatures count as implicitly-public
         // attributes; method signatures are not attributes.
-        check_metrics::<TypescriptParser>(
+        // Structural `assert_child_space_kind` guards against an
+        // `InterfaceDeclaration` revert in
+        // `TypescriptCode::is_func_space` — see #311.
+        check_func_space::<TypescriptParser, _>(
             "interface I {
                 a: number;
                 b: string;
                 m(): void;
             }",
             "foo.ts",
-            |metric| {
+            |func_space| {
+                let metric = &func_space.metrics;
                 assert_eq!(metric.npa.interface_npa_sum(), 2.0);
                 assert_eq!(metric.npa.interface_na_sum(), 2.0);
                 assert_eq!(metric.npa.class_na_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.npa);
+                assert_child_space_kind(&func_space, "I", SpaceKind::Interface);
             },
         );
     }
@@ -3375,12 +3395,13 @@ mod tests {
 
     #[test]
     fn typescript_multiple_classes_and_interface() {
-        check_metrics::<TypescriptParser>(
+        check_func_space::<TypescriptParser, _>(
             "class A { x: number = 0; }
              class B { private y: number = 0; }
              interface I { z: number; }",
             "foo.ts",
-            |metric| {
+            |func_space| {
+                let metric = &func_space.metrics;
                 // A: 1 npa / 1 na (public). B: 0 npa / 1 na (private).
                 // I: 1 interface_npa / 1 interface_na.
                 assert_eq!(metric.npa.class_npa_sum(), 1.0);
@@ -3388,6 +3409,9 @@ mod tests {
                 assert_eq!(metric.npa.interface_npa_sum(), 1.0);
                 assert_eq!(metric.npa.interface_na_sum(), 1.0);
                 insta::assert_json_snapshot!(metric.npa);
+                assert_child_space_kind(&func_space, "A", SpaceKind::Class);
+                assert_child_space_kind(&func_space, "B", SpaceKind::Class);
+                assert_child_space_kind(&func_space, "I", SpaceKind::Interface);
             },
         );
     }
@@ -3497,17 +3521,19 @@ mod tests {
 
     #[test]
     fn tsx_interface_property_signatures() {
-        check_metrics::<TsxParser>(
+        check_func_space::<TsxParser, _>(
             "interface I {
                 a: number;
                 b: string;
                 m(): void;
             }",
             "foo.tsx",
-            |metric| {
+            |func_space| {
+                let metric = &func_space.metrics;
                 assert_eq!(metric.npa.interface_npa_sum(), 2.0);
                 assert_eq!(metric.npa.interface_na_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.npa);
+                assert_child_space_kind(&func_space, "I", SpaceKind::Interface);
             },
         );
     }
@@ -3588,17 +3614,21 @@ mod tests {
 
     #[test]
     fn tsx_multiple_classes_and_interface() {
-        check_metrics::<TsxParser>(
+        check_func_space::<TsxParser, _>(
             "class A { x: number = 0; }
              class B { private y: number = 0; }
              interface I { z: number; }",
             "foo.tsx",
-            |metric| {
+            |func_space| {
+                let metric = &func_space.metrics;
                 assert_eq!(metric.npa.class_npa_sum(), 1.0);
                 assert_eq!(metric.npa.class_na_sum(), 2.0);
                 assert_eq!(metric.npa.interface_npa_sum(), 1.0);
                 assert_eq!(metric.npa.interface_na_sum(), 1.0);
                 insta::assert_json_snapshot!(metric.npa);
+                assert_child_space_kind(&func_space, "A", SpaceKind::Class);
+                assert_child_space_kind(&func_space, "B", SpaceKind::Class);
+                assert_child_space_kind(&func_space, "I", SpaceKind::Interface);
             },
         );
     }
@@ -4068,15 +4098,19 @@ mod tests {
     #[test]
     fn rust_trait_consts_and_associated_types_are_attributes() {
         // `const DEFAULT_COLOR` + `type Item` → 2 interface attributes,
-        // both public by trait convention.
-        check_metrics::<RustParser>(
+        // both public by trait convention. Structural
+        // `assert_child_space_kind` pins the trait FuncSpace against
+        // an `is_func_space` revert (see #311).
+        check_func_space::<RustParser, _>(
             "trait Drawable { const DEFAULT_COLOR: u32; type Item; }",
             "foo.rs",
-            |metric| {
+            |func_space| {
+                let metric = &func_space.metrics;
                 assert_eq!(metric.npa.interface_na_sum(), 2.0);
                 assert_eq!(metric.npa.interface_npa_sum(), 2.0);
                 assert_eq!(metric.npa.class_na_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.npa);
+                assert_child_space_kind(&func_space, "Drawable", SpaceKind::Trait);
             },
         );
     }
