@@ -1206,25 +1206,26 @@ mod tests {
         });
     }
 
-    // Issue #299: parity guard for the JS-family `get_op_type` macro.
-    // All four languages share the same operator/operand classification
-    // for a member-access optional-chain expression, so dropping a
-    // common variant from any one language's macro invocation must
-    // fail this test. Expected totals for
+    // Issue #299: parity guard for the JS-family `get_op_type` macro
+    // on the optional-chain operator token (#281's prior regression
+    // surface). All four languages must classify the bare `?.` token
+    // identically — `OptionalChain` in JS/MozJS, `QMARKDOT` in
+    // TS/TSX — and emit the same totals for
     // `function f(a) { return a?.b?.c; }`:
     //
     // * Operators: `function`, `(`, `{`, `return`, `?.`, `?.`, `;`
-    //   (7 total, 6 unique — `?.` is `OptionalChain` in JS/MozJS and
-    //   `QMARKDOT` in TS/TSX, but classified identically by the
-    //   shared macro).
+    //   (7 total, 6 unique).
     // * Operands: `f`, `a`, `a`, `b`, `c`, plus the two wrapping
     //   member expressions (`a?.b`, `a?.b?.c`) classified as
     //   `MemberExpression*` (7 total, 6 unique).
     //
-    // Verified by reverting the macro `op_extras` / `operand_extras`
-    // list per language: each one drops the asserted counts and
-    // trips the test (e.g., dropping `OptionalChain` from JS drops
-    // its u_operators from 6 to 5).
+    // Verified by test-via-revert: dropping `OptionalChain` from
+    // JS/MozJS, or `QMARKDOT` from TS/TSX, trips the test
+    // (u_operators 6→5). This input does NOT exercise every operand
+    // alias in the per-language `operand_extras` (`Identifier2`,
+    // `String2`, `NestedIdentifier`, `MemberExpression4`) or the TS
+    // `PredefinedType` operator; drift in those is out of scope for
+    // this regression guard and would need a separate fixture.
     #[test]
     fn js_family_get_op_type_parity_optional_chain_member_299() {
         // Non-capturing closure (coerced to the `fn` pointer that
