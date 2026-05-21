@@ -975,7 +975,7 @@ implement_metric_trait!(
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::tools::check_metrics;
+    use crate::tools::{assert_child_space_kind, check_func_space, check_metrics};
 
     use super::*;
 
@@ -1073,16 +1073,21 @@ mod tests {
         // inherits the Java parser's strictness). This source shape
         // produces a clean `annotation_type_declaration` →
         // `annotation_type_body` → `annotation_type_element_declaration`
-        // tree.
-        check_metrics::<GroovyParser>(
+        // tree. Mirror of `java_annotation_type_counts_elements` — the
+        // body-walker count is identical whether or not Groovy's
+        // `AnnotationTypeDeclaration` is wired into `is_func_space`,
+        // so the structural `check_func_space` assertion is what
+        // catches a revert.
+        check_func_space::<GroovyParser, _>(
             "public @interface Marker {
                 String value() default \"\";
                 int priority() default 0;
             }",
             "foo.groovy",
-            |metric| {
-                assert_eq!(metric.npm.interface_nm_sum(), 2.0);
-                assert_eq!(metric.npm.interface_npm_sum(), 2.0);
+            |func_space| {
+                assert_eq!(func_space.metrics.npm.interface_nm_sum(), 2.0);
+                assert_eq!(func_space.metrics.npm.interface_npm_sum(), 2.0);
+                assert_child_space_kind(&func_space, "Marker", SpaceKind::Interface);
             },
         );
     }
@@ -1676,20 +1681,27 @@ mod tests {
         );
     }
 
-    // Regression for issue #280: annotation type elements are
-    // implicitly abstract and public; they obey the same rule as
-    // interface methods.
     #[test]
     fn java_annotation_type_counts_elements() {
-        check_metrics::<JavaParser>(
+        // Asserting only the body-walker counts (`interface_nm_sum`,
+        // `interface_npm_sum`) would pass vacuously if
+        // `AnnotationTypeDeclaration` were dropped from
+        // `JavaCode::is_func_space`: with no `SpaceKind::Interface`
+        // opened, the file-level Unit would still report 2.0 for both
+        // sums (the body walker counts `AnnotationTypeElementDeclaration`
+        // regardless of the surrounding space). The `check_func_space`
+        // assertion catches that revert by requiring the annotation
+        // type to actually open an `Interface` FuncSpace.
+        check_func_space::<JavaParser, _>(
             "@interface Marker {
                 String value() default \"\";
                 int priority() default 0;
             }",
             "foo.java",
-            |metric| {
-                assert_eq!(metric.npm.interface_nm_sum(), 2.0);
-                assert_eq!(metric.npm.interface_npm_sum(), 2.0);
+            |func_space| {
+                assert_eq!(func_space.metrics.npm.interface_nm_sum(), 2.0);
+                assert_eq!(func_space.metrics.npm.interface_npm_sum(), 2.0);
+                assert_child_space_kind(&func_space, "Marker", SpaceKind::Interface);
             },
         );
     }

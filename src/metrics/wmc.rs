@@ -381,7 +381,7 @@ implement_metric_trait!(
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::tools::{check_func_space, check_metrics};
+    use crate::tools::{assert_child_space_kind, check_func_space, check_metrics};
 
     use super::*;
 
@@ -751,17 +751,7 @@ mod tests {
             "foo.groovy",
             |func_space| {
                 assert_eq!(func_space.metrics.wmc.interface_wmc_sum(), 0.0);
-                let interface = func_space
-                    .spaces
-                    .iter()
-                    .find(|s| s.name.as_deref() == Some("Marker"))
-                    .expect("annotation type Marker must open a FuncSpace");
-                assert_eq!(
-                    interface.kind,
-                    SpaceKind::Interface,
-                    "annotation type must map to SpaceKind::Interface, got {:?}",
-                    interface.kind,
-                );
+                assert_child_space_kind(&func_space, "Marker", SpaceKind::Interface);
             },
         );
     }
@@ -1282,17 +1272,7 @@ mod tests {
                 assert_eq!(func_space.metrics.wmc.interface_wmc_sum(), 0.0);
                 // Without `AnnotationTypeDeclaration` in `is_func_space`,
                 // the file-level Unit would have zero child spaces here.
-                let interface = func_space
-                    .spaces
-                    .iter()
-                    .find(|s| s.name.as_deref() == Some("Marker"))
-                    .expect("annotation type Marker must open a FuncSpace");
-                assert_eq!(
-                    interface.kind,
-                    SpaceKind::Interface,
-                    "annotation type must map to SpaceKind::Interface, got {:?}",
-                    interface.kind,
-                );
+                assert_child_space_kind(&func_space, "Marker", SpaceKind::Interface);
             },
         );
     }

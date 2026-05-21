@@ -654,6 +654,31 @@ pub(crate) fn check_metrics<T: crate::ParserTrait>(
     check_func_space::<T, _>(source, filename, |func_space| check(func_space.metrics));
 }
 
+/// Asserts that `func_space` has a direct child space named `name` and that
+/// its `kind` matches `expected`.
+///
+/// Used by annotation-type / class / interface tests that need to verify
+/// the structural FuncSpace tree (not just metric values), since vacuous
+/// metric assertions can pass even when `is_func_space` has been reverted
+/// for the node kind under test.
+#[cfg(test)]
+pub(crate) fn assert_child_space_kind(
+    func_space: &crate::FuncSpace,
+    name: &str,
+    expected: crate::SpaceKind,
+) {
+    let child = func_space
+        .spaces
+        .iter()
+        .find(|s| s.name.as_deref() == Some(name))
+        .unwrap_or_else(|| panic!("expected a child FuncSpace named {name:?}"));
+    assert_eq!(
+        child.kind, expected,
+        "child FuncSpace {name:?} kind: got {:?}, expected {:?}",
+        child.kind, expected,
+    );
+}
+
 #[cfg(test)]
 #[allow(
     clippy::float_cmp,
