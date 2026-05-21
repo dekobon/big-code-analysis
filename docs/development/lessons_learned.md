@@ -1526,3 +1526,113 @@ least three lint-suppression tools from outside the host language
 across that set and against your own internal model, redesign.
 
 ---
+
+## 31. Shared structural fixes need a structural assertion in every per-metric test
+
+When one fix changes both a shared classification predicate (e.g.,
+`is_func_space` recognising a new node kind) *and* the body-walker
+counts each metric derives from it, the per-metric tests must each
+guard *both* halves of the change. A body-walker assertion alone is
+not enough: counts can fire from a fallback scope (a synthetic Unit
+wrapper, a `SpaceKind::Class` default, a zero) and pass vacuously
+even after the structural arm is reverted. Three sibling per-metric
+tests can each look complete while collectively guarding nothing
+about the shared structural change. Related to lessons #7 (test
+infrastructure rigor) and #23 (compensation constants that blind a
+test to its own purpose); this lesson addresses the distinct
+*coverage decomposition* problem that arises when one structural
+fix is spread across several per-metric tests.
+
+**Java/Groovy annotation-type recognition** (#280, #307, ba2a8e3,
+d637a98). The #280 fix wired `AnnotationTypeDeclaration` into
+`JavaCode::is_func_space` and `GroovyCode::is_func_space` so `Npa`,
+`Npm`, and `Wmc` would walk annotation-type bodies and produce
+non-zero counts. Three per-metric regression tests were added —
+one each for Npa, Npm, Wmc. An `audit-tests` pass later revealed
+only the Wmc test caught a revert of the `is_func_space` arm: it
+asserted `interface_wmc_sum() == 0`, vacuously true when no
+Interface FuncSpace opens. Npa and Npm both passed even with
+`AnnotationTypeDeclaration` removed, because their counts (`2.0`)
+came from the file-level Unit scope. ba2a8e3 tightened Wmc first;
+\#307 (d637a98) then tightened both Npm and Npa with
+`check_func_space` assertions that the annotation type opens a
+`SpaceKind::Interface` FuncSpace named `Marker`, and factored the
+six structural assertion sites across the three metrics into a
+shared `tools::assert_child_space_kind` helper.
+
+**Plain `interface I {...}` declarations share the bug** (#311).
+The same pattern exists for ordinary Java/Groovy interface
+declarations: tests in `npm.rs` and `npa.rs` assert non-zero
+`interface_*_sum` without a structural check, so a revert of the
+`InterfaceDeclaration` arm in `is_func_space` would also pass them
+vacuously. Filed as #311 after the wave-2 audit on the #307 fix.
+
+**Lesson:** When a single fix has both a structural arm (a predicate
+or dispatch table that opens a FuncSpace) and per-metric body-walker
+arms (the metric counts inside it), every per-metric test must
+assert *both* halves: the structural side (FuncSpace opens with the
+expected `SpaceKind` and name) and the body-walker side (the metric
+sum matches the expected value). Use `check_func_space` (or the
+`tools::assert_child_space_kind` helper) at the top of each test;
+follow with the existing `check_metrics` value assertion. Coverage
+that *looks* complete because three metrics each have a regression
+test can in reality be split — three vacuous tests guard nothing
+about the structural change.
+
+---
+
+## 32. Source-grep regression tests are theater
+
+A test that reads its own source files via `include_str!` or
+`fs::read_to_string` and string-matches their contents to assert a
+"structural contract" provides no real protection. The grep is
+brittle to cosmetic edits (comment wording, rustfmt reflow, `impl`
+header rename) and easily satisfied vacuously by adding the
+identifier in an unrelated comment. If the contract is "predicate X
+explicitly names variant Y," the production `matches!()` pattern
+already *is* the contract — the grep test asserts the same thing the
+reader can see, just less reliably. Related to lesson #2
+(tree-sitter aliases must be matched on every variant — the
+contract this anti-pattern most often tries to protect) and lesson
+\#6 (snapshot tests pin behaviour, not correctness — both are
+"test asserts the wrong thing" failure modes); the distinct
+property of source-grep is that the *test mechanism itself* is
+indirect, not the value it captures.
+
+**`FunctionDefinition4` source-grep test** (#285, #302, fe5bf6a).
+The original #285 fix wired
+`Cpp::FunctionDefinition4` into four predicates
+(`is_func_space`, `is_func`, `get_func_space_name`,
+`get_space_kind`). Because the pinned tree-sitter-mozcpp does not
+emit the FD4 kind_id on any input the author could construct, a
+parse-and-assert regression test was impossible. The fix added a
+test that read `src/checker.rs` and `src/getter.rs` from disk and
+counted `FunctionDefinition4` occurrences inside each `impl` block.
+That test passed code review and shipped, but #302's investigation
+showed it was both fragile (a rustfmt pass that joined two `impl`
+lines would break the block-extraction helper) and vacuous
+(adding `// FunctionDefinition4` to one impl block would satisfy
+the count without wiring the variant). The remediation deleted
+the test entirely and added contract comments at the four
+production sites citing #285 and listing the sister sites; the
+`matches!()` patterns themselves are the structural protection.
+
+**Lesson:** If your test reaches for `include_str!`,
+`fs::read_to_string`, or any string-matching against the codebase's
+own source, the test is almost certainly broken or about to be.
+Three viable alternatives in priority order: (a) construct an input
+the grammar can actually parse and assert the parse-tree consequence
+(the gold standard — write the regression at the AST level the
+production code reads); (b) if that's impossible because the kind_id
+is grammar-unreachable, document the contract as a comment at every
+production call site and rely on code review of the `matches!()`
+pattern; (c) if neither works because the contract is large or
+cross-file, design a compile-time check (exhaustive `match` over the
+enum, a `const`-evaluated assertion, a `pub(crate) fn` whose call
+sites are themselves the contract). Source-grep — the anti-pattern
+this lesson is against — adds the visual appearance of protection
+while providing none; the only such test ever written in this
+codebase (the #285 FD4 regression) was identified as vacuous and
+removed within months of merging.
+
+---
