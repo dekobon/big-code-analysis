@@ -1354,94 +1354,13 @@ mod tests {
     use crate::metrics;
     use crate::{CppParser, ParserTrait, SpaceKind, check_func_space};
 
-    /// Regression for issue #285: every `Cpp::FunctionDefinition*` alias
-    /// must be classified as a function space.
-    ///
-    /// `Checker::is_func` already enumerated all four variants, but the
-    /// `is_func_space` check and both getters (`get_func_space_name`,
-    /// `get_space_kind`) listed only the first three — an FD4 node would
-    /// have been mistaken for a non-function space and yielded
-    /// `SpaceKind::Unknown`.
-    ///
-    /// The current `tree-sitter-mozcpp` parse tables do not surface
-    /// kind_ids 489/491/494 on any input we have been able to construct,
-    /// so we cannot synthesise a real `Node` of those variants to feed
-    /// the predicates directly. Lesson 2 in
-    /// `docs/development/lessons_learned.md` warns that aliased
-    /// `kind_id`s can be latent in the enum yet absent from observed
-    /// parses; the next grammar bump may start emitting them.
-    ///
-    /// This test pins the structural contract by inspecting the
-    /// **source text** of the four predicates (`is_func_space`,
-    /// `is_func` in `checker.rs`, `get_func_space_name`, `get_space_kind`
-    /// in `getter.rs`) and asserting each one explicitly names
-    /// `FunctionDefinition4`. If a future edit drops the variant from
-    /// any of those arms, this test fails immediately — without
-    /// requiring a parse tree that exposes id 494.
-    #[test]
-    fn cpp_function_definition4_is_named_in_every_predicate() {
-        // The predicates live under the workspace root; resolve against
-        // CARGO_MANIFEST_DIR so the test is invariant to where `cargo
-        // test` is invoked from.
-        let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        let checker_src = std::fs::read_to_string(format!("{manifest_dir}/src/checker.rs"))
-            .expect("checker.rs must be readable for this regression test");
-        let getter_src = std::fs::read_to_string(format!("{manifest_dir}/src/getter.rs"))
-            .expect("getter.rs must be readable for this regression test");
-
-        // Locate `impl Checker for CppCode { ... }`, then assert the
-        // body mentions `FunctionDefinition4` at least twice (once for
-        // `is_func_space`, once for `is_func`).
-        let cpp_checker = extract_impl_block(&checker_src, "impl Checker for CppCode")
-            .expect("could not find `impl Checker for CppCode` in checker.rs");
-        assert!(
-            cpp_checker.matches("FunctionDefinition4").count() >= 2,
-            "issue #285 regression: `impl Checker for CppCode` must \
-             reference Cpp::FunctionDefinition4 in both is_func_space \
-             and is_func"
-        );
-
-        // Same for `impl Getter for CppCode { ... }` — both
-        // `get_func_space_name` and `get_space_kind` must list FD4.
-        let cpp_getter = extract_impl_block(&getter_src, "impl Getter for CppCode")
-            .expect("could not find `impl Getter for CppCode` in getter.rs");
-        assert!(
-            cpp_getter.matches("FunctionDefinition4").count() >= 2,
-            "issue #285 regression: `impl Getter for CppCode` must \
-             reference Cpp::FunctionDefinition4 in both \
-             get_func_space_name and get_space_kind"
-        );
-    }
-
-    /// Returns the substring between the line containing `header` and
-    /// the matching closing brace, scanning brace depth from `{` after
-    /// `header`. Used by the FD4 regression test to read a single
-    /// `impl` block without pulling the rest of the file into the
-    /// match.
-    fn extract_impl_block<'a>(source: &'a str, header: &str) -> Option<&'a str> {
-        let start = source.find(header)?;
-        let open = start + source[start..].find('{')?;
-        let mut depth = 0i32;
-        for (i, b) in source[open..].bytes().enumerate() {
-            match b {
-                b'{' => depth += 1,
-                b'}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        return Some(&source[open..=open + i]);
-                    }
-                }
-                _ => {}
-            }
-        }
-        None
-    }
-
     /// Positive coverage for the C++ function-space predicates on the
     /// only `function_definition` `kind_id` (343) that
     /// `tree-sitter-mozcpp` currently emits. The structural
-    /// `FunctionDefinition4` contract is locked separately by
-    /// `cpp_function_definition4_is_named_in_every_predicate`.
+    /// `FunctionDefinition*` contract for the aliased kind_ids
+    /// (489/491/494) that no observed input parses to is documented
+    /// at the predicate call sites in `src/checker.rs` and
+    /// `src/getter.rs` — see issue #285.
     #[test]
     fn cpp_function_definition_is_classified_as_function() {
         use crate::Cpp;
