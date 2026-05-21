@@ -738,6 +738,19 @@ why no value stability is offered until `1.0`. Entries above the
   targets, and the encoder is covered by always-on unit tests
   plus a `#[cfg(windows)]` integration test
   ([#305](https://github.com/dekobon/big-code-analysis/issues/305)).
+- `bca check --baseline` no longer collides a UTF-8 path containing
+  the literal text `%FF` with a non-UTF-8 path containing the byte
+  `0xFF`. The UTF-8 fast path in `normalize_path` previously emitted
+  `%` verbatim while the non-UTF-8 branch percent-encoded it,
+  producing the same key (`foo%FF.rs`) for both inputs. The encoder
+  is now total: every byte that is not in the unreserved set —
+  including `%` — is escaped, so the UTF-8 input becomes `foo%25FF.rs`
+  and remains disjoint from the non-UTF-8 key. **(breaking)** The
+  baseline schema is bumped to `version = 2`; v1 baselines containing
+  non-ASCII or `%`-bearing paths must be regenerated with
+  `bca check --write-baseline` (the version mismatch surfaces the
+  existing "regenerate" hint instead of silently failing to match)
+  ([#298](https://github.com/dekobon/big-code-analysis/issues/298)).
 - `Halstead` (C#) keys predefined type keywords (`int`, `string`,
   `bool`, `object`, …) by source text instead of collapsing every
   keyword onto a single `n1` slot. The fix flips

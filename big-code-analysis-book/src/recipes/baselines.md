@@ -101,7 +101,7 @@ appear when actual offenders changed.
 
 ### 6. Retire the baseline
 
-When `.bca-baseline.toml` contains only `version = 1` and no entries,
+When `.bca-baseline.toml` contains only `version = 2` and no entries,
 drop the `--baseline` flag from CI and delete the file. The thresholds
 now stand on their own.
 
