@@ -99,6 +99,7 @@
 // Internal-only modules. Nothing is re-exported from these.
 mod c_langs_macros;
 mod c_macro;
+mod cfg_predicate;
 mod checker;
 mod getter;
 mod languages;
