@@ -2164,10 +2164,10 @@ mod tests {
     // Regression for #301: every language consolidated under
     // `impl_simple_is_string!` must still recognise its canonical
     // string literal via the `"string"` filter (which routes through
-    // `Checker::is_string`). Each row exercises one consolidated
-    // language; a future macro invocation that drops a variant
-    // (e.g. forgetting `Cpp::ConcatenatedString` after a grammar bump)
-    // would zero out the corresponding count.
+    // `Checker::is_string`). The positive test now drills down to
+    // every individual variant of every multi-variant language so a
+    // future macro invocation that drops a variant (e.g. forgetting
+    // `Cpp::ConcatenatedString` after a grammar bump) fails loudly.
     //
     // JS-family languages (Mozjs/Javascript/Typescript/Tsx) keep
     // their dedicated `impl_js_family_is_string!` macro and have
@@ -2175,6 +2175,28 @@ mod tests {
     // not duplicated here.
     fn count_with_parser<P: ParserTrait>(parser: &P) -> usize {
         count(parser, &["string".to_string()]).0
+    }
+
+    // Assert that `target` kind_id appears in the parse and every
+    // such node matches `is_string`. The two-step check makes test
+    // failures unambiguous: a presence failure means the fixture no
+    // longer produces the variant (likely grammar drift); a match
+    // failure means a macro invocation dropped the variant.
+    fn assert_variant_is_string<P: ParserTrait, F: Fn(&Node) -> bool>(
+        parser: &P,
+        target: u16,
+        is_string: F,
+        lang: &str,
+        variant: &str,
+    ) {
+        assert!(
+            ast_has_kind_id(parser, target),
+            "{lang}::{variant} (kind_id {target}) did not appear in the parse — fixture broken",
+        );
+        assert!(
+            count_string_matches_for_kind(parser, target, is_string) > 0,
+            "{lang}::{variant} must route through is_string",
+        );
     }
 
     #[test]
@@ -2187,101 +2209,593 @@ mod tests {
 
         let path = PathBuf::from("test");
 
-        // Preproc: `#include "foo.h"` is the canonical site where the
-        // grammar emits a `string_literal` node.
-        let src = b"#include \"foo.h\"\n".to_vec();
+        // ---- Preproc (2 variants): StringLiteral, RawStringLiteral ----
+        let src = b"#include \"foo.h\"\nR\"(raw)\"\n".to_vec();
         let parser = PreprocParser::new(src, &path, None);
-        assert!(count_with_parser(&parser) >= 1, "Preproc");
+        assert_variant_is_string(
+            &parser,
+            Preproc::StringLiteral as u16,
+            PreprocCode::is_string,
+            "Preproc",
+            "StringLiteral",
+        );
+        assert_variant_is_string(
+            &parser,
+            Preproc::RawStringLiteral as u16,
+            PreprocCode::is_string,
+            "Preproc",
+            "RawStringLiteral",
+        );
 
-        // Ccomment: the parser only emits Comment / StringLiteral /
-        // RawStringLiteral; feed it a token that lexes as a string.
-        let src = b"\"hello\"".to_vec();
+        // ---- Ccomment (2 variants): StringLiteral, RawStringLiteral ----
+        // The Ccomment grammar is a stub that only emits Comment /
+        // StringLiteral / RawStringLiteral; feed it both forms.
+        let src = b"\"hello\"\nR\"(raw)\"\n".to_vec();
         let parser = CcommentParser::new(src, &path, None);
-        assert!(count_with_parser(&parser) >= 1, "Ccomment");
+        assert_variant_is_string(
+            &parser,
+            Ccomment::StringLiteral as u16,
+            CcommentCode::is_string,
+            "Ccomment",
+            "StringLiteral",
+        );
+        assert_variant_is_string(
+            &parser,
+            Ccomment::RawStringLiteral as u16,
+            CcommentCode::is_string,
+            "Ccomment",
+            "RawStringLiteral",
+        );
 
-        let src = b"const char* s = \"hi\";\n".to_vec();
+        // ---- Cpp (3 variants): StringLiteral, ConcatenatedString, RawStringLiteral ----
+        // C++ string concatenation (`"a" "b"`) produces a
+        // `concatenated_string` node wrapping the literals.
+        let src =
+            b"const char* a = \"hi\";\nconst char* b = \"a\" \"b\";\nconst char* c = R\"(raw)\";\n"
+                .to_vec();
         let parser = CppParser::new(src, &path, None);
-        assert!(count_with_parser(&parser) >= 1, "Cpp");
+        assert_variant_is_string(
+            &parser,
+            Cpp::StringLiteral as u16,
+            CppCode::is_string,
+            "Cpp",
+            "StringLiteral",
+        );
+        assert_variant_is_string(
+            &parser,
+            Cpp::ConcatenatedString as u16,
+            CppCode::is_string,
+            "Cpp",
+            "ConcatenatedString",
+        );
+        assert_variant_is_string(
+            &parser,
+            Cpp::RawStringLiteral as u16,
+            CppCode::is_string,
+            "Cpp",
+            "RawStringLiteral",
+        );
 
-        let src = b"s = \"hi\"\n".to_vec();
+        // ---- Python (2 variants): String, ConcatenatedString ----
+        // Python concatenates adjacent string literals into a
+        // `concatenated_string` node.
+        let src = b"a = \"hi\"\nb = \"a\" \"b\"\n".to_vec();
         let parser = PythonParser::new(src, &path, None);
-        assert!(count_with_parser(&parser) >= 1, "Python");
+        assert_variant_is_string(
+            &parser,
+            Python::String as u16,
+            PythonCode::is_string,
+            "Python",
+            "String",
+        );
+        assert_variant_is_string(
+            &parser,
+            Python::ConcatenatedString as u16,
+            PythonCode::is_string,
+            "Python",
+            "ConcatenatedString",
+        );
 
-        let src = b"class C { String s = \"hi\"; }\n".to_vec();
+        // ---- Java (2 variants): StringLiteral, MultilineStringLiteral ----
+        // `Java::MultilineStringLiteral` maps to `_multiline_string_literal`
+        // (leading-underscore hidden supertype) and does NOT surface as a
+        // concrete kind_id in observed parses. Triple-quoted text blocks
+        // instead produce regular `StringLiteral` nodes. The variant is
+        // intentionally listed in the macro so a future grammar revision
+        // that promotes it can't bypass `is_string`; presence is asserted
+        // below to flag drift.
+        let src = b"class C { String a = \"hi\"; String b = \"\"\"\nmulti\n\"\"\"; }\n".to_vec();
         let parser = JavaParser::new(src, &path, None);
-        assert!(count_with_parser(&parser) >= 1, "Java");
+        assert_variant_is_string(
+            &parser,
+            Java::StringLiteral as u16,
+            JavaCode::is_string,
+            "Java",
+            "StringLiteral",
+        );
+        assert!(
+            !ast_has_kind_id(&parser, Java::MultilineStringLiteral as u16),
+            "Java::MultilineStringLiteral is documented as the hidden _multiline_string_literal supertype; if it now appears in parses, replace this with a positive variant assertion",
+        );
 
-        let src = b"class C { string s = \"hi\"; }\n".to_vec();
+        // ---- Csharp (4 variants): StringLiteral, VerbatimStringLiteral,
+        // RawStringLiteral, InterpolatedStringExpression ----
+        // Verbatim: `@"..."`; raw: triple-double-quote; interpolated: `$"..."`.
+        let src = b"class C { string a = \"hi\"; string b = @\"verb\"; string c = \"\"\"raw\"\"\"; string d = $\"int{1}\"; }\n".to_vec();
         let parser = CsharpParser::new(src, &path, None);
-        assert!(count_with_parser(&parser) >= 1, "Csharp");
+        assert_variant_is_string(
+            &parser,
+            Csharp::StringLiteral as u16,
+            CsharpCode::is_string,
+            "Csharp",
+            "StringLiteral",
+        );
+        assert_variant_is_string(
+            &parser,
+            Csharp::VerbatimStringLiteral as u16,
+            CsharpCode::is_string,
+            "Csharp",
+            "VerbatimStringLiteral",
+        );
+        assert_variant_is_string(
+            &parser,
+            Csharp::RawStringLiteral as u16,
+            CsharpCode::is_string,
+            "Csharp",
+            "RawStringLiteral",
+        );
+        assert_variant_is_string(
+            &parser,
+            Csharp::InterpolatedStringExpression as u16,
+            CsharpCode::is_string,
+            "Csharp",
+            "InterpolatedStringExpression",
+        );
 
-        let src = b"fn main() { let s = \"hi\"; }\n".to_vec();
+        // ---- Rust (2 variants): StringLiteral, RawStringLiteral ----
+        let src = b"fn main() { let a = \"hi\"; let b = r\"raw\"; }\n".to_vec();
         let parser = RustParser::new(src, &path, None);
-        assert!(count_with_parser(&parser) >= 1, "Rust");
+        assert_variant_is_string(
+            &parser,
+            Rust::StringLiteral as u16,
+            RustCode::is_string,
+            "Rust",
+            "StringLiteral",
+        );
+        assert_variant_is_string(
+            &parser,
+            Rust::RawStringLiteral as u16,
+            RustCode::is_string,
+            "Rust",
+            "RawStringLiteral",
+        );
 
-        let src = b"package main\nfunc main() { _ = \"hi\" }\n".to_vec();
+        // ---- Go (2 variants): InterpretedStringLiteral, RawStringLiteral ----
+        // Backtick-delimited string is the raw form.
+        let src = b"package main\nfunc main() { _ = \"hi\"; _ = `raw` }\n".to_vec();
         let parser = GoParser::new(src, &path, None);
-        assert!(count_with_parser(&parser) >= 1, "Go");
+        assert_variant_is_string(
+            &parser,
+            Go::InterpretedStringLiteral as u16,
+            GoCode::is_string,
+            "Go",
+            "InterpretedStringLiteral",
+        );
+        assert_variant_is_string(
+            &parser,
+            Go::RawStringLiteral as u16,
+            GoCode::is_string,
+            "Go",
+            "RawStringLiteral",
+        );
 
-        let src = b"fun main() { val s = \"hi\" }\n".to_vec();
+        // ---- Kotlin (2 variants): StringLiteral, MultilineStringLiteral ----
+        let src = b"fun main() { val a = \"hi\"; val b = \"\"\"multi\"\"\" }\n".to_vec();
         let parser = KotlinParser::new(src, &path, None);
-        assert!(count_with_parser(&parser) >= 1, "Kotlin");
+        assert_variant_is_string(
+            &parser,
+            Kotlin::StringLiteral as u16,
+            KotlinCode::is_string,
+            "Kotlin",
+            "StringLiteral",
+        );
+        assert_variant_is_string(
+            &parser,
+            Kotlin::MultilineStringLiteral as u16,
+            KotlinCode::is_string,
+            "Kotlin",
+            "MultilineStringLiteral",
+        );
 
-        let src = b"local s = \"hi\"\n".to_vec();
+        // ---- Lua (1 variant): String ----
+        let src = b"local a = \"hi\"\nlocal b = [[long]]\n".to_vec();
         let parser = LuaParser::new(src, &path, None);
-        assert!(count_with_parser(&parser) >= 1, "Lua");
+        assert_variant_is_string(
+            &parser,
+            Lua::String as u16,
+            LuaCode::is_string,
+            "Lua",
+            "String",
+        );
 
-        let src = b"my $s = \"hi\";\n".to_vec();
+        // ---- Perl (7 variants): StringSingleQuoted, StringDoubleQuoted,
+        // StringQQuoted, StringQqQuoted, BacktickQuoted, CommandQxQuoted,
+        // HeredocBodyStatement ----
+        let src = b"my $a = 'single';\nmy $b = \"double\";\nmy $c = q(qquoted);\nmy $d = qq(qqquoted);\nmy $e = `cmd`;\nmy $f = qx(qxcmd);\nmy $g = <<EOT;\nbody\nEOT\n".to_vec();
         let parser = PerlParser::new(src, &path, None);
-        assert!(count_with_parser(&parser) >= 1, "Perl");
+        assert_variant_is_string(
+            &parser,
+            Perl::StringSingleQuoted as u16,
+            PerlCode::is_string,
+            "Perl",
+            "StringSingleQuoted",
+        );
+        assert_variant_is_string(
+            &parser,
+            Perl::StringDoubleQuoted as u16,
+            PerlCode::is_string,
+            "Perl",
+            "StringDoubleQuoted",
+        );
+        assert_variant_is_string(
+            &parser,
+            Perl::StringQQuoted as u16,
+            PerlCode::is_string,
+            "Perl",
+            "StringQQuoted",
+        );
+        assert_variant_is_string(
+            &parser,
+            Perl::StringQqQuoted as u16,
+            PerlCode::is_string,
+            "Perl",
+            "StringQqQuoted",
+        );
+        assert_variant_is_string(
+            &parser,
+            Perl::BacktickQuoted as u16,
+            PerlCode::is_string,
+            "Perl",
+            "BacktickQuoted",
+        );
+        assert_variant_is_string(
+            &parser,
+            Perl::CommandQxQuoted as u16,
+            PerlCode::is_string,
+            "Perl",
+            "CommandQxQuoted",
+        );
+        assert_variant_is_string(
+            &parser,
+            Perl::HeredocBodyStatement as u16,
+            PerlCode::is_string,
+            "Perl",
+            "HeredocBodyStatement",
+        );
 
-        let src = b"set s \"hi\"\n".to_vec();
+        // ---- Bash (5 variants): String, RawString, AnsiCString,
+        // TranslatedString, HeredocBody2 ----
+        // TranslatedString surfaces as a wrapper node only in
+        // assignment-style contexts (see `bash_is_string_matches_translated_string`).
+        let src = b"a=\"d\"\nb='r'\nc=$'ansi'\nd=$\"t\"\ncat <<EOF\nbody\nEOF\n".to_vec();
+        let parser = crate::langs::BashParser::new(src, &path, None);
+        assert_variant_is_string(
+            &parser,
+            Bash::String as u16,
+            BashCode::is_string,
+            "Bash",
+            "String",
+        );
+        assert_variant_is_string(
+            &parser,
+            Bash::RawString as u16,
+            BashCode::is_string,
+            "Bash",
+            "RawString",
+        );
+        assert_variant_is_string(
+            &parser,
+            Bash::AnsiCString as u16,
+            BashCode::is_string,
+            "Bash",
+            "AnsiCString",
+        );
+        assert_variant_is_string(
+            &parser,
+            Bash::TranslatedString as u16,
+            BashCode::is_string,
+            "Bash",
+            "TranslatedString",
+        );
+        assert_variant_is_string(
+            &parser,
+            Bash::HeredocBody2 as u16,
+            BashCode::is_string,
+            "Bash",
+            "HeredocBody2",
+        );
+
+        // ---- Tcl (3 variants): QuotedWord, BracedWord, BracedWordSimple ----
+        // Tcl uses two `braced_word` rules: the named rule `braced_word`
+        // (an argument-position braced expression that admits commands
+        // and substitutions, e.g. `proc ... { body }`'s `body` arg) and
+        // `braced_word_simple` (a plain inert braced word like
+        // `{braced}` in `set v {braced}`). The fixture below mixes a
+        // `proc ... {body}` (BracedWord), a simple `set` assignment
+        // (BracedWordSimple), and a `set` to a quoted literal
+        // (QuotedWord).
+        let src = b"set a \"quoted\"\nset b {braced}\nproc p {x y} { return $x }\n".to_vec();
         let parser = TclParser::new(src, &path, None);
-        assert!(count_with_parser(&parser) >= 1, "Tcl");
+        assert_variant_is_string(
+            &parser,
+            Tcl::QuotedWord as u16,
+            TclCode::is_string,
+            "Tcl",
+            "QuotedWord",
+        );
+        assert_variant_is_string(
+            &parser,
+            Tcl::BracedWordSimple as u16,
+            TclCode::is_string,
+            "Tcl",
+            "BracedWordSimple",
+        );
+        assert_variant_is_string(
+            &parser,
+            Tcl::BracedWord as u16,
+            TclCode::is_string,
+            "Tcl",
+            "BracedWord",
+        );
 
-        let src = b"<?php $s = 'hi';\n".to_vec();
+        // ---- Php (7 variants): String, String2, String3,
+        // EncapsedString, Heredoc, Nowdoc, ShellCommandExpression ----
+        // String2 is the `string` type-keyword (`: string` return
+        // type, exercised here). String3 is the hidden `_string`
+        // supertype (kind_id => "_string" — name starts with `_`),
+        // which tree-sitter does NOT emit as a concrete node — see
+        // its empirical absence asserted below.
+        let src = b"<?php function f(): string { $a = 'single'; $b = \"double\"; $c = <<<EOT\nbody\nEOT;\n$d = <<<'EOT'\nnow\nEOT;\n$e = `ls`; return $a; }\n".to_vec();
         let parser = PhpParser::new(src, &path, None);
-        assert!(count_with_parser(&parser) >= 1, "Php");
+        assert_variant_is_string(
+            &parser,
+            Php::String as u16,
+            PhpCode::is_string,
+            "Php",
+            "String",
+        );
+        assert_variant_is_string(
+            &parser,
+            Php::String2 as u16,
+            PhpCode::is_string,
+            "Php",
+            "String2",
+        );
+        // `Php::String3` is the hidden `_string` supertype — never
+        // surfaces as a concrete kind_id in observed parses; the
+        // checker still lists it so future grammar revisions that
+        // promote it cannot silently bypass `is_string`. Verified
+        // unreachable empirically (assertion below proves the
+        // fixture does not produce it; the variant is intentionally
+        // unverifiable through a positive test until then).
+        assert!(
+            !ast_has_kind_id(&parser, Php::String3 as u16),
+            "Php::String3 is documented as the hidden _string supertype; if it now appears in parses, add a positive variant assertion",
+        );
+        assert_variant_is_string(
+            &parser,
+            Php::EncapsedString as u16,
+            PhpCode::is_string,
+            "Php",
+            "EncapsedString",
+        );
+        assert_variant_is_string(
+            &parser,
+            Php::Heredoc as u16,
+            PhpCode::is_string,
+            "Php",
+            "Heredoc",
+        );
+        assert_variant_is_string(
+            &parser,
+            Php::Nowdoc as u16,
+            PhpCode::is_string,
+            "Php",
+            "Nowdoc",
+        );
+        assert_variant_is_string(
+            &parser,
+            Php::ShellCommandExpression as u16,
+            PhpCode::is_string,
+            "Php",
+            "ShellCommandExpression",
+        );
 
-        let src = b"s = \"hi\"\n".to_vec();
+        // ---- Elixir (3 variants): String, Charlist, Sigil ----
+        // Charlists use single quotes; sigils use `~s(...)` etc.
+        let src = b"a = \"hi\"\nb = 'charlist'\nc = ~s(sigil)\n".to_vec();
         let parser = ElixirParser::new(src, &path, None);
-        assert!(count_with_parser(&parser) >= 1, "Elixir");
+        assert_variant_is_string(
+            &parser,
+            Elixir::String as u16,
+            ElixirCode::is_string,
+            "Elixir",
+            "String",
+        );
+        assert_variant_is_string(
+            &parser,
+            Elixir::Charlist as u16,
+            ElixirCode::is_string,
+            "Elixir",
+            "Charlist",
+        );
+        assert_variant_is_string(
+            &parser,
+            Elixir::Sigil as u16,
+            ElixirCode::is_string,
+            "Elixir",
+            "Sigil",
+        );
 
-        let src = b"s = \"hi\"\n".to_vec();
+        // ---- Ruby (11 variants): String, ChainedString, BareString,
+        // Subshell, Regex, HeredocBody, DelimitedSymbol, SimpleSymbol,
+        // StringArray, SymbolArray, Character ----
+        // ChainedString: two adjacent string literals (`"a" "b"`).
+        // BareString: an unquoted element inside `%w[...]` / inside
+        // a string array context. Use a script that produces every
+        // form so the per-variant assertion can hit each.
+        let src = b"a = \"hi\"\nb = \"x\" \"y\"\nc = `cmd`\nd = /re/\ne = <<EOT\nbody\nEOT\nf = :sym\ng = :\"dsym\"\nh = %w[bare1 bare2]\ni = %i[s1 s2]\nj = ?A\n".to_vec();
         let parser = RubyParser::new(src, &path, None);
-        assert!(count_with_parser(&parser) >= 1, "Ruby");
+        assert_variant_is_string(
+            &parser,
+            Ruby::String as u16,
+            RubyCode::is_string,
+            "Ruby",
+            "String",
+        );
+        assert_variant_is_string(
+            &parser,
+            Ruby::ChainedString as u16,
+            RubyCode::is_string,
+            "Ruby",
+            "ChainedString",
+        );
+        // `%w[bare1 bare2]` emits a StringArray whose children are
+        // BareString nodes. Both surface in the parse.
+        assert_variant_is_string(
+            &parser,
+            Ruby::BareString as u16,
+            RubyCode::is_string,
+            "Ruby",
+            "BareString",
+        );
+        assert_variant_is_string(
+            &parser,
+            Ruby::Subshell as u16,
+            RubyCode::is_string,
+            "Ruby",
+            "Subshell",
+        );
+        assert_variant_is_string(
+            &parser,
+            Ruby::Regex as u16,
+            RubyCode::is_string,
+            "Ruby",
+            "Regex",
+        );
+        assert_variant_is_string(
+            &parser,
+            Ruby::HeredocBody as u16,
+            RubyCode::is_string,
+            "Ruby",
+            "HeredocBody",
+        );
+        assert_variant_is_string(
+            &parser,
+            Ruby::DelimitedSymbol as u16,
+            RubyCode::is_string,
+            "Ruby",
+            "DelimitedSymbol",
+        );
+        assert_variant_is_string(
+            &parser,
+            Ruby::SimpleSymbol as u16,
+            RubyCode::is_string,
+            "Ruby",
+            "SimpleSymbol",
+        );
+        assert_variant_is_string(
+            &parser,
+            Ruby::StringArray as u16,
+            RubyCode::is_string,
+            "Ruby",
+            "StringArray",
+        );
+        assert_variant_is_string(
+            &parser,
+            Ruby::SymbolArray as u16,
+            RubyCode::is_string,
+            "Ruby",
+            "SymbolArray",
+        );
+        assert_variant_is_string(
+            &parser,
+            Ruby::Character as u16,
+            RubyCode::is_string,
+            "Ruby",
+            "Character",
+        );
 
-        let src = b"def m() { def s = \"hi\" }\n".to_vec();
+        // ---- Groovy (3 variants): StringLiteral, StringLiteral2,
+        // CharacterLiteral ----
+        // `Groovy::StringLiteral2` maps to `_string_literal` (hidden
+        // supertype) and does NOT surface as a concrete kind_id in
+        // observed parses; the macro lists it defensively so a future
+        // grammar revision that promotes the alias can't bypass
+        // `is_string`. Presence is asserted-absent below to flag drift.
+        let src =
+            b"def m() { def a = \"hi\"; def b = \"\"\"multi\"\"\"; def c = (char)'x' }\n".to_vec();
         let parser = GroovyParser::new(src, &path, None);
-        assert!(count_with_parser(&parser) >= 1, "Groovy");
-
-        // Bash uses the module-level `parse` helper.
-        assert!(count_strings("s=\"hi\"\n") >= 1, "Bash");
+        assert_variant_is_string(
+            &parser,
+            Groovy::StringLiteral as u16,
+            GroovyCode::is_string,
+            "Groovy",
+            "StringLiteral",
+        );
+        assert!(
+            !ast_has_kind_id(&parser, Groovy::StringLiteral2 as u16),
+            "Groovy::StringLiteral2 is documented as the hidden _string_literal supertype; if it now appears in parses, replace this with a positive variant assertion",
+        );
+        assert_variant_is_string(
+            &parser,
+            Groovy::CharacterLiteral as u16,
+            GroovyCode::is_string,
+            "Groovy",
+            "CharacterLiteral",
+        );
     }
 
     #[test]
     fn simple_is_string_macro_rejects_non_string_nodes() {
         // Pure-identifier source must produce zero string matches.
         // Catches a regression where a macro invocation accidentally
-        // included a too-broad variant (e.g. `Identifier`).
+        // included a too-broad variant (e.g. `Identifier`). Covers
+        // every language consolidated under `impl_simple_is_string!`.
         use crate::langs::{
-            CppParser, GoParser, JavaParser, KotlinParser, LuaParser, PythonParser, RubyParser,
-            RustParser,
+            BashParser, CcommentParser, CppParser, CsharpParser, ElixirParser, GoParser,
+            GroovyParser, JavaParser, KotlinParser, LuaParser, PerlParser, PreprocParser,
+            PythonParser, RubyParser, RustParser, TclParser,
         };
 
         let path = PathBuf::from("test");
 
-        let src = b"x = y\n".to_vec();
-        let parser = PythonParser::new(src, &path, None);
-        assert_eq!(count_with_parser(&parser), 0, "Python");
+        // Preproc: a bare identifier macro definition has no string.
+        let src = b"#define FOO 1\n".to_vec();
+        let parser = PreprocParser::new(src, &path, None);
+        assert_eq!(count_with_parser(&parser), 0, "Preproc");
+
+        // Ccomment: input that lexes as a single line comment only.
+        let src = b"// just a comment\n".to_vec();
+        let parser = CcommentParser::new(src, &path, None);
+        assert_eq!(count_with_parser(&parser), 0, "Ccomment");
 
         let src = b"int main() { return x; }\n".to_vec();
         let parser = CppParser::new(src, &path, None);
         assert_eq!(count_with_parser(&parser), 0, "Cpp");
 
+        let src = b"x = y\n".to_vec();
+        let parser = PythonParser::new(src, &path, None);
+        assert_eq!(count_with_parser(&parser), 0, "Python");
+
         let src = b"class C { int x = y; }\n".to_vec();
         let parser = JavaParser::new(src, &path, None);
         assert_eq!(count_with_parser(&parser), 0, "Java");
+
+        // Csharp: identifier-only field initializer.
+        let src = b"class C { int x = y; }\n".to_vec();
+        let parser = CsharpParser::new(src, &path, None);
+        assert_eq!(count_with_parser(&parser), 0, "Csharp");
 
         let src = b"fn main() { let x = y; }\n".to_vec();
         let parser = RustParser::new(src, &path, None);
@@ -2295,12 +2809,46 @@ mod tests {
         let parser = KotlinParser::new(src, &path, None);
         assert_eq!(count_with_parser(&parser), 0, "Kotlin");
 
+        // Perl: identifier-only assignment with no quoted forms.
+        let src = b"my $x = $y;\n".to_vec();
+        let parser = PerlParser::new(src, &path, None);
+        assert_eq!(count_with_parser(&parser), 0, "Perl");
+
         let src = b"local x = y\n".to_vec();
         let parser = LuaParser::new(src, &path, None);
         assert_eq!(count_with_parser(&parser), 0, "Lua");
 
+        // Bash: assignment of one variable to another, no literals.
+        // `s=$y` produces only Variable/SimpleExpansion nodes; no
+        // string-kind node should appear.
+        let src = b"s=$y\n".to_vec();
+        let parser = BashParser::new(src, &path, None);
+        assert_eq!(count_with_parser(&parser), 0, "Bash");
+
+        // Tcl: `set` of an unquoted identifier word. The unquoted
+        // bareword surfaces as `Word`, not any of the three string
+        // kinds.
+        let src = b"set x $y\n".to_vec();
+        let parser = TclParser::new(src, &path, None);
+        assert_eq!(count_with_parser(&parser), 0, "Tcl");
+
+        // Php: identifier-only assignment.
+        let src = b"<?php $x = $y;\n".to_vec();
+        let parser = PhpParser::new(src, &path, None);
+        assert_eq!(count_with_parser(&parser), 0, "Php");
+
+        // Elixir: integer assignment, no string/charlist/sigil.
+        let src = b"x = 1\n".to_vec();
+        let parser = ElixirParser::new(src, &path, None);
+        assert_eq!(count_with_parser(&parser), 0, "Elixir");
+
         let src = b"x = y\n".to_vec();
         let parser = RubyParser::new(src, &path, None);
         assert_eq!(count_with_parser(&parser), 0, "Ruby");
+
+        // Groovy: identifier-only method body.
+        let src = b"def m() { def x = y }\n".to_vec();
+        let parser = GroovyParser::new(src, &path, None);
+        assert_eq!(count_with_parser(&parser), 0, "Groovy");
     }
 }
