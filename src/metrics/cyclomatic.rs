@@ -5857,7 +5857,16 @@ f() {
     /// `PIPEPIPE`, plus a `switch` with two `Case` arms (one is the
     /// default and contributes nothing under standard CCN). Expected
     /// per-function: 1 (base) + if + for + while + catch + ternary +
-    /// && + || + 2 cases = 10.
+    /// && + || + 2 cases = 10 (standard).
+    ///
+    /// Modified CCN is asserted in parallel: the multi-kind arm
+    /// bumps both counters, and `Switch` (one keyword token per
+    /// switch construct) replaces the standard CCN's two `Case`
+    /// arms. Expected modified per-function: 1 (base) + if + for +
+    /// while + catch + ternary + && + || + switch = 9. Without the
+    /// modified assertion a mutation that drops
+    /// `stats.cyclomatic_modified += 1.` from any shared arm (or
+    /// drops the `Switch` arm entirely) would pass.
     #[test]
     fn cyclomatic_java_groovy_parity_300() {
         const JAVA_SRC: &str = "class C {\n\
@@ -5886,9 +5895,19 @@ f() {
         }\n";
         check_metrics::<JavaParser>(JAVA_SRC, "Foo.java", |m| {
             assert_eq!(m.cyclomatic.cyclomatic_max(), 10.0, "java parity");
+            assert_eq!(
+                m.cyclomatic.cyclomatic_modified_max(),
+                9.0,
+                "java modified parity"
+            );
         });
         check_metrics::<GroovyParser>(GROOVY_SRC, "foo.groovy", |m| {
             assert_eq!(m.cyclomatic.cyclomatic_max(), 10.0, "groovy parity");
+            assert_eq!(
+                m.cyclomatic.cyclomatic_modified_max(),
+                9.0,
+                "groovy modified parity"
+            );
         });
     }
 
@@ -5905,6 +5924,16 @@ f() {
             // unit(1) + fn(1) + assert(1) = 3
             assert_eq!(m.cyclomatic.cyclomatic_sum(), 3.0, "groovy assert sum");
             assert_eq!(m.cyclomatic.cyclomatic_max(), 2.0, "groovy assert max");
+            // Assert contributes to BOTH standard and modified CCN, so the
+            // fn-level modified score is also base(1) + assert(1) = 2.
+            // Without this assertion, a mutation that dropped
+            // `stats.cyclomatic_modified += 1.` from the multi-kind arm
+            // would pass.
+            assert_eq!(
+                m.cyclomatic.cyclomatic_modified_max(),
+                2.0,
+                "groovy assert modified max"
+            );
         });
     }
 
