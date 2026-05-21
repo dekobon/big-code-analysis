@@ -12,6 +12,22 @@
 //! entry point is [`attribute_marks_test`]; everything else is module-
 //! private.
 
+/// Return `true` if the Rust attribute body marks the annotated item
+/// as test-only.
+///
+/// Recognised forms:
+///
+/// - Bare test-attribute aliases: `test`, `rstest`, `wasm_bindgen_test`,
+///   `test_case`.
+/// - Path-form test attributes: `tokio::test`, `ext::module::test(args)`,
+///   etc. — detected without entering the predicate walker.
+/// - `cfg(...)` predicates where `test` appears as an operand of `all`,
+///   `any`, or a bare comma list, at any depth. A `not(test)` operand
+///   short-circuits — the item is included in production builds, so it
+///   is not test-only (regression test for #278).
+///
+/// The slow path collapses interior whitespace and retries, tolerating
+/// unusual spacing like `# [ cfg ( test ) ]`.
 pub(crate) fn attribute_marks_test(body: &str) -> bool {
     let matches_test = |s: &str| {
         matches!(s, "test" | "rstest" | "wasm_bindgen_test" | "test_case")
@@ -32,6 +48,11 @@ pub(crate) fn attribute_marks_test(body: &str) -> bool {
     false
 }
 
+/// Strip interior whitespace from `s`, preserving multi-byte UTF-8.
+///
+/// Uses `chars()` (not `bytes().map(char::from)`) so a multi-byte
+/// sequence like `é` (`0xC3 0xA9`) survives as a single `é` rather
+/// than getting mangled into the two Latin-1 codepoints `Ã©`.
 fn strip_whitespace(s: &str) -> String {
     s.chars().filter(|c| !c.is_whitespace()).collect()
 }
