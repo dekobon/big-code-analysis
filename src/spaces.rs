@@ -1148,10 +1148,15 @@ fn apply_suppression(state_stack: &mut [State], suppression: &Suppression) {
     // Both arms ultimately call `merge` on a `FuncSpace::suppressed`;
     // they differ only in *which* frame on the stack to target.
     //
-    // - `File`: the root `Unit` space, regardless of comment location.
-    //   The synthetic Unit pushed by `metrics_inner` for non-Unit-root
-    //   grammars and every translation-unit/module/source-file being a
-    //   `func_space` keep `state_stack[0]` populated for every input.
+    // - `File`: the topmost `Unit` frame — by construction the root
+    //   `state_stack[0]`, but we match on `SpaceKind::Unit` rather
+    //   than index 0 so the invariant is runtime-checked. The
+    //   synthetic Unit pushed by `metrics_inner` for non-Unit-root
+    //   grammars and every translation-unit/module/source-file being
+    //   a `func_space` keep `state_stack[0]` populated for every
+    //   input; a marker with no Unit frame on the stack would be a
+    //   bug elsewhere and is silently dropped rather than landing on
+    //   an arbitrary frame.
     // - `Function`: the topmost `SpaceKind::Function` frame — the
     //   syntactically nearest enclosing function body. Class / struct
     //   / trait spaces are skipped so a marker at class scope but
@@ -1161,7 +1166,9 @@ fn apply_suppression(state_stack: &mut [State], suppression: &Suppression) {
     //   outside every function body finds no `Function` frame and is
     //   silently dropped — the issue's "no enclosing function" rule.
     let target = match suppression.kind {
-        SuppressionKind::File => state_stack.first_mut(),
+        SuppressionKind::File => state_stack
+            .iter_mut()
+            .find(|s| matches!(s.space.kind, SpaceKind::Unit)),
         SuppressionKind::Function => state_stack
             .iter_mut()
             .rev()
@@ -1917,6 +1924,108 @@ mod tests {
             "top-level name must be None when Source::name is None, got {:?}",
             space.name
         );
+    }
+
+    // --- #306: file-scope suppression requires a Unit target ------
+    //
+    // `apply_suppression` historically picked `state_stack.first_mut()`
+    // for the `File` arm, relying on the convention that the root
+    // frame is always `SpaceKind::Unit`. The fix tightens that to an
+    // explicit `SpaceKind::Unit` predicate so an accidentally
+    // non-Unit root cannot silently swallow a file marker. These
+    // tests pin the new behaviour: they construct a `State` slice by
+    // hand (bypassing the parser) so the invariant violation is
+    // observable in isolation.
+
+    fn make_state<'a>(kind: SpaceKind) -> super::State<'a> {
+        // Synthetic State constructor for `apply_suppression` tests.
+        // Line spans are zeroed because these tests only inspect
+        // `space.kind` and `space.suppressed`; do not reuse this helper
+        // for tests that depend on `start_line` / `end_line` /
+        // `metrics`.
+        super::State {
+            space: super::FuncSpace {
+                name: None,
+                start_line: 0,
+                end_line: 0,
+                kind,
+                spaces: Vec::new(),
+                metrics: super::CodeMetrics::default(),
+                suppressed: super::SuppressionScope::default(),
+            },
+            halstead_maps: crate::metrics::halstead::HalsteadMaps::new(),
+        }
+    }
+
+    fn file_suppression_all() -> crate::suppression::Suppression {
+        crate::suppression::Suppression {
+            kind: crate::suppression::SuppressionKind::File,
+            scope: crate::suppression::SuppressionScope::All,
+            source: crate::suppression::SuppressionSource::Native,
+        }
+    }
+
+    #[test]
+    fn file_suppression_attaches_to_unit_frame() {
+        let mut stack = vec![make_state(SpaceKind::Unit), make_state(SpaceKind::Function)];
+        super::apply_suppression(&mut stack, &file_suppression_all());
+        assert!(
+            stack[0].space.suppressed.is_all(),
+            "file marker (scope=All) must attach to the Unit root frame"
+        );
+        assert!(
+            stack[1].space.suppressed.is_empty(),
+            "file marker must not attach to a non-Unit frame"
+        );
+    }
+
+    #[test]
+    fn file_suppression_skips_non_unit_root_frame() {
+        // Synthetic stack where index 0 is *not* `Unit` — simulates
+        // the broken-invariant case the explicit predicate guards
+        // against. With the old `first_mut()` code this would
+        // erroneously attach the file marker to a Function frame.
+        let mut stack = vec![
+            make_state(SpaceKind::Function),
+            make_state(SpaceKind::Class),
+        ];
+        super::apply_suppression(&mut stack, &file_suppression_all());
+        assert!(
+            stack.iter().all(|s| s.space.suppressed.is_empty()),
+            "file marker must be silently dropped when no Unit frame exists"
+        );
+    }
+
+    #[test]
+    fn file_suppression_finds_unit_deeper_in_stack() {
+        // The new predicate is "first frame whose kind is Unit",
+        // not "first frame". If the root invariant is violated and
+        // a Unit frame sits below a non-Unit frame, the marker must
+        // still land on the Unit frame rather than being dropped.
+        // Under the old `first_mut()` code, the Function root would
+        // have absorbed the marker; this test pins the new search
+        // semantics.
+        let mut stack = vec![make_state(SpaceKind::Function), make_state(SpaceKind::Unit)];
+        super::apply_suppression(&mut stack, &file_suppression_all());
+        assert!(
+            stack[0].space.suppressed.is_empty(),
+            "non-Unit frame above the Unit must not absorb the file marker"
+        );
+        assert!(
+            stack[1].space.suppressed.is_all(),
+            "file marker must land on the Unit frame even when not at index 0"
+        );
+    }
+
+    #[test]
+    fn file_suppression_empty_stack_is_silent_noop() {
+        // No frames on the stack — `apply_suppression` must not
+        // panic and must remain a silent no-op. Reaching the end of
+        // this body proves no-panic; the stack cannot grow through
+        // `&mut [State]`, so an explicit `is_empty()` check would
+        // be a dead assertion.
+        let mut stack: Vec<super::State<'_>> = Vec::new();
+        super::apply_suppression(&mut stack, &file_suppression_all());
     }
 
     // --- #182: exclude_tests for Rust -----------------------------
