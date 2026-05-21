@@ -114,6 +114,26 @@ macro_rules! impl_js_family_is_string {
     };
 }
 
+// Generate an `is_string` impl for languages whose `is_string`
+// predicate is a flat `matches!` against one or more variant
+// kinds. Reduces drift risk for new alias additions and gives a
+// single table that answers "which kinds count as a string for
+// `find string` / `count string`?" per language (issue #301).
+//
+// Languages whose `is_string` needs anything beyond a flat variant
+// list (e.g. JS family's `String` + `String2` + `TemplateString`
+// pattern) keep their own dedicated macros or impls.
+macro_rules! impl_simple_is_string {
+    ($lang:ident, $first:ident $(, $rest:ident)* $(,)?) => {
+        fn is_string(node: &Node) -> bool {
+            matches!(
+                node.kind_id().into(),
+                $lang::$first $(| $lang::$rest)*
+            )
+        }
+    };
+}
+
 #[inline]
 fn get_aho_corasick_match(code: &[u8]) -> bool {
     AHO_CORASICK
@@ -216,9 +236,7 @@ impl Checker for PreprocCode {
         false
     }
 
-    fn is_string(node: &Node) -> bool {
-        node.kind_id() == Preproc::StringLiteral || node.kind_id() == Preproc::RawStringLiteral
-    }
+    impl_simple_is_string!(Preproc, StringLiteral, RawStringLiteral);
 
     fn is_else_if(_: &Node) -> bool {
         false
@@ -258,9 +276,7 @@ impl Checker for CcommentCode {
         false
     }
 
-    fn is_string(node: &Node) -> bool {
-        node.kind_id() == Ccomment::StringLiteral || node.kind_id() == Ccomment::RawStringLiteral
-    }
+    impl_simple_is_string!(Ccomment, StringLiteral, RawStringLiteral);
 
     fn is_else_if(_: &Node) -> bool {
         false
@@ -330,12 +346,7 @@ impl Checker for CppCode {
         )
     }
 
-    fn is_string(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Cpp::StringLiteral | Cpp::ConcatenatedString | Cpp::RawStringLiteral
-        )
-    }
+    impl_simple_is_string!(Cpp, StringLiteral, ConcatenatedString, RawStringLiteral);
 
     fn is_else_if(node: &Node) -> bool {
         if node.kind_id() != Cpp::IfStatement {
@@ -394,9 +405,7 @@ impl Checker for PythonCode {
         )
     }
 
-    fn is_string(node: &Node) -> bool {
-        node.kind_id() == Python::String || node.kind_id() == Python::ConcatenatedString
-    }
+    impl_simple_is_string!(Python, String, ConcatenatedString);
 
     // Python models `elif` as a dedicated `elif_clause` node, which is
     // handled directly by cognitive/cyclomatic dispatch as a branch
@@ -481,12 +490,7 @@ impl Checker for JavaCode {
         )
     }
 
-    fn is_string(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Java::StringLiteral | Java::MultilineStringLiteral
-        )
-    }
+    impl_simple_is_string!(Java, StringLiteral, MultilineStringLiteral);
 
     #[inline]
     fn is_else_if(node: &Node) -> bool {
@@ -569,15 +573,13 @@ impl Checker for CsharpCode {
         )
     }
 
-    fn is_string(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Csharp::StringLiteral
-                | Csharp::VerbatimStringLiteral
-                | Csharp::RawStringLiteral
-                | Csharp::InterpolatedStringExpression
-        )
-    }
+    impl_simple_is_string!(
+        Csharp,
+        StringLiteral,
+        VerbatimStringLiteral,
+        RawStringLiteral,
+        InterpolatedStringExpression,
+    );
 
     #[inline]
     fn is_else_if(node: &Node) -> bool {
@@ -918,9 +920,7 @@ impl Checker for RustCode {
         )
     }
 
-    fn is_string(node: &Node) -> bool {
-        node.kind_id() == Rust::StringLiteral || node.kind_id() == Rust::RawStringLiteral
-    }
+    impl_simple_is_string!(Rust, StringLiteral, RawStringLiteral);
 
     #[inline]
     fn is_else_if(node: &Node) -> bool {
@@ -1015,12 +1015,7 @@ impl Checker for GoCode {
         matches!(node.kind_id().into(), Go::LPAREN | Go::COMMA | Go::RPAREN)
     }
 
-    fn is_string(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Go::InterpretedStringLiteral | Go::RawStringLiteral
-        )
-    }
+    impl_simple_is_string!(Go, InterpretedStringLiteral, RawStringLiteral);
 
     #[inline]
     fn is_else_if(node: &Node) -> bool {
@@ -1079,12 +1074,7 @@ impl Checker for KotlinCode {
         )
     }
 
-    fn is_string(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Kotlin::StringLiteral | Kotlin::MultilineStringLiteral
-        )
-    }
+    impl_simple_is_string!(Kotlin, StringLiteral, MultilineStringLiteral);
 
     #[inline]
     fn is_else_if(node: &Node) -> bool {
@@ -1151,23 +1141,21 @@ impl Checker for PerlCode {
         )
     }
 
-    fn is_string(node: &Node) -> bool {
-        // `HeredocBodyStatement` wraps the heredoc body text (and any
-        // `Interpolation` children) that appears as a top-level
-        // statement after the heredoc-introducing `<<TAG`; it is the
-        // visible literal node and is treated as a string here, the
-        // same way Bash's `heredoc_body` is treated as a string.
-        matches!(
-            node.kind_id().into(),
-            Perl::StringSingleQuoted
-                | Perl::StringDoubleQuoted
-                | Perl::StringQQuoted
-                | Perl::StringQqQuoted
-                | Perl::BacktickQuoted
-                | Perl::CommandQxQuoted
-                | Perl::HeredocBodyStatement
-        )
-    }
+    // `HeredocBodyStatement` wraps the heredoc body text (and any
+    // `Interpolation` children) that appears as a top-level
+    // statement after the heredoc-introducing `<<TAG`; it is the
+    // visible literal node and is treated as a string here, the
+    // same way Bash's `heredoc_body` is treated as a string.
+    impl_simple_is_string!(
+        Perl,
+        StringSingleQuoted,
+        StringDoubleQuoted,
+        StringQQuoted,
+        StringQqQuoted,
+        BacktickQuoted,
+        CommandQxQuoted,
+        HeredocBodyStatement,
+    );
 
     #[inline]
     fn is_else_if(node: &Node) -> bool {
@@ -1227,9 +1215,7 @@ impl Checker for LuaCode {
         )
     }
 
-    fn is_string(node: &Node) -> bool {
-        node.kind_id() == Lua::String
-    }
+    impl_simple_is_string!(Lua, String);
 
     #[inline]
     fn is_else_if(node: &Node) -> bool {
@@ -1278,22 +1264,20 @@ impl Checker for BashCode {
         )
     }
 
-    fn is_string(node: &Node) -> bool {
-        // tree-sitter-bash 0.25.1 only emits the `heredoc_body`
-        // parser-node symbol (`HeredocBody2`) in observed parse trees;
-        // the duplicate `HeredocBody` entry plus the hidden
-        // `_heredoc_body` (`HeredocBody3`) and `_simple_heredoc_body`
-        // (`SimpleHeredocBody`) rules do not surface, so they are
-        // intentionally omitted here.
-        matches!(
-            node.kind_id().into(),
-            Bash::String
-                | Bash::RawString
-                | Bash::AnsiCString
-                | Bash::TranslatedString
-                | Bash::HeredocBody2
-        )
-    }
+    // tree-sitter-bash 0.25.1 only emits the `heredoc_body`
+    // parser-node symbol (`HeredocBody2`) in observed parse trees;
+    // the duplicate `HeredocBody` entry plus the hidden
+    // `_heredoc_body` (`HeredocBody3`) and `_simple_heredoc_body`
+    // (`SimpleHeredocBody`) rules do not surface, so they are
+    // intentionally omitted here.
+    impl_simple_is_string!(
+        Bash,
+        String,
+        RawString,
+        AnsiCString,
+        TranslatedString,
+        HeredocBody2,
+    );
 
     #[inline]
     fn is_else_if(node: &Node) -> bool {
@@ -1336,12 +1320,7 @@ impl Checker for TclCode {
         false
     }
 
-    fn is_string(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Tcl::QuotedWord | Tcl::BracedWord | Tcl::BracedWordSimple
-        )
-    }
+    impl_simple_is_string!(Tcl, QuotedWord, BracedWord, BracedWordSimple);
 
     #[inline]
     fn is_else_if(node: &Node) -> bool {
@@ -1416,25 +1395,23 @@ impl Checker for PhpCode {
         )
     }
 
-    fn is_string(node: &Node) -> bool {
-        // `String` is the named single-quoted literal; `String2` and
-        // `String3` are aliased kind_ids that the language enum also
-        // maps to `"string"` (`String2` is the `string` type keyword
-        // and `String3` is the hidden `_string` supertype that covers
-        // any string literal). Include all three so generic
-        // string-filtering stays consistent with `get_op_type` and the
-        // `Alterator` text-preservation arm (issue #288).
-        matches!(
-            node.kind_id().into(),
-            Php::String
-                | Php::String2
-                | Php::String3
-                | Php::EncapsedString
-                | Php::Heredoc
-                | Php::Nowdoc
-                | Php::ShellCommandExpression
-        )
-    }
+    // `String` is the named single-quoted literal; `String2` and
+    // `String3` are aliased kind_ids that the language enum also
+    // maps to `"string"` (`String2` is the `string` type keyword
+    // and `String3` is the hidden `_string` supertype that covers
+    // any string literal). Include all three so generic
+    // string-filtering stays consistent with `get_op_type` and the
+    // `Alterator` text-preservation arm (issue #288).
+    impl_simple_is_string!(
+        Php,
+        String,
+        String2,
+        String3,
+        EncapsedString,
+        Heredoc,
+        Nowdoc,
+        ShellCommandExpression,
+    );
 
     #[inline]
     fn is_else_if(node: &Node) -> bool {
@@ -1549,12 +1526,7 @@ impl Checker for ElixirCode {
         )
     }
 
-    fn is_string(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Elixir::String | Elixir::Charlist | Elixir::Sigil
-        )
-    }
+    impl_simple_is_string!(Elixir, String, Charlist, Sigil);
 
     // Elixir lacks an `else if` chain construct. Multi-way branching uses
     // `cond do ... end` (a `Call` whose `do_block` holds many
@@ -1630,25 +1602,20 @@ impl Checker for RubyCode {
         )
     }
 
-    // Mirrors the string-literal set preserved verbatim by
-    // `Alterator::alterate`. `HeredocBeginning` is the `<<EOF` marker
-    // token rather than a literal body and is intentionally excluded.
-    fn is_string(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Ruby::String
-                | Ruby::ChainedString
-                | Ruby::BareString
-                | Ruby::Subshell
-                | Ruby::Regex
-                | Ruby::HeredocBody
-                | Ruby::DelimitedSymbol
-                | Ruby::SimpleSymbol
-                | Ruby::StringArray
-                | Ruby::SymbolArray
-                | Ruby::Character
-        )
-    }
+    impl_simple_is_string!(
+        Ruby,
+        String,
+        ChainedString,
+        BareString,
+        Subshell,
+        Regex,
+        HeredocBody,
+        DelimitedSymbol,
+        SimpleSymbol,
+        StringArray,
+        SymbolArray,
+        Character,
+    );
 
     // tree-sitter-ruby exposes `elsif` as its own named clause node, so the
     // dedicated-clause-node strategy applies here (same as Lua/Bash/PHP).
@@ -1722,13 +1689,7 @@ impl Checker for GroovyCode {
         )
     }
 
-    // `StringLiteral2` is the aliased lexer variant of the same rule.
-    fn is_string(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Groovy::StringLiteral | Groovy::StringLiteral2 | Groovy::CharacterLiteral
-        )
-    }
+    impl_simple_is_string!(Groovy, StringLiteral, StringLiteral2, CharacterLiteral);
 
     // tree-sitter-groovy inherits Java's `if_statement` shape: the `else`
     // keyword token is emitted inline inside the outer if_statement and
@@ -2198,5 +2159,148 @@ mod tests {
             !PythonCode::is_else_if(&inner),
             "inner if must NOT be recognised as else-if when its block has siblings"
         );
+    }
+
+    // Regression for #301: every language consolidated under
+    // `impl_simple_is_string!` must still recognise its canonical
+    // string literal via the `"string"` filter (which routes through
+    // `Checker::is_string`). Each row exercises one consolidated
+    // language; a future macro invocation that drops a variant
+    // (e.g. forgetting `Cpp::ConcatenatedString` after a grammar bump)
+    // would zero out the corresponding count.
+    //
+    // JS-family languages (Mozjs/Javascript/Typescript/Tsx) keep
+    // their dedicated `impl_js_family_is_string!` macro and have
+    // their own alias-aware tests above; they are intentionally
+    // not duplicated here.
+    fn count_with_parser<P: ParserTrait>(parser: &P) -> usize {
+        count(parser, &["string".to_string()]).0
+    }
+
+    #[test]
+    fn simple_is_string_macro_recognises_each_language() {
+        use crate::langs::{
+            CcommentParser, CppParser, CsharpParser, ElixirParser, GoParser, GroovyParser,
+            JavaParser, KotlinParser, LuaParser, PerlParser, PreprocParser, PythonParser,
+            RubyParser, RustParser, TclParser,
+        };
+
+        let path = PathBuf::from("test");
+
+        // Preproc: `#include "foo.h"` is the canonical site where the
+        // grammar emits a `string_literal` node.
+        let src = b"#include \"foo.h\"\n".to_vec();
+        let parser = PreprocParser::new(src, &path, None);
+        assert!(count_with_parser(&parser) >= 1, "Preproc");
+
+        // Ccomment: the parser only emits Comment / StringLiteral /
+        // RawStringLiteral; feed it a token that lexes as a string.
+        let src = b"\"hello\"".to_vec();
+        let parser = CcommentParser::new(src, &path, None);
+        assert!(count_with_parser(&parser) >= 1, "Ccomment");
+
+        let src = b"const char* s = \"hi\";\n".to_vec();
+        let parser = CppParser::new(src, &path, None);
+        assert!(count_with_parser(&parser) >= 1, "Cpp");
+
+        let src = b"s = \"hi\"\n".to_vec();
+        let parser = PythonParser::new(src, &path, None);
+        assert!(count_with_parser(&parser) >= 1, "Python");
+
+        let src = b"class C { String s = \"hi\"; }\n".to_vec();
+        let parser = JavaParser::new(src, &path, None);
+        assert!(count_with_parser(&parser) >= 1, "Java");
+
+        let src = b"class C { string s = \"hi\"; }\n".to_vec();
+        let parser = CsharpParser::new(src, &path, None);
+        assert!(count_with_parser(&parser) >= 1, "Csharp");
+
+        let src = b"fn main() { let s = \"hi\"; }\n".to_vec();
+        let parser = RustParser::new(src, &path, None);
+        assert!(count_with_parser(&parser) >= 1, "Rust");
+
+        let src = b"package main\nfunc main() { _ = \"hi\" }\n".to_vec();
+        let parser = GoParser::new(src, &path, None);
+        assert!(count_with_parser(&parser) >= 1, "Go");
+
+        let src = b"fun main() { val s = \"hi\" }\n".to_vec();
+        let parser = KotlinParser::new(src, &path, None);
+        assert!(count_with_parser(&parser) >= 1, "Kotlin");
+
+        let src = b"local s = \"hi\"\n".to_vec();
+        let parser = LuaParser::new(src, &path, None);
+        assert!(count_with_parser(&parser) >= 1, "Lua");
+
+        let src = b"my $s = \"hi\";\n".to_vec();
+        let parser = PerlParser::new(src, &path, None);
+        assert!(count_with_parser(&parser) >= 1, "Perl");
+
+        let src = b"set s \"hi\"\n".to_vec();
+        let parser = TclParser::new(src, &path, None);
+        assert!(count_with_parser(&parser) >= 1, "Tcl");
+
+        let src = b"<?php $s = 'hi';\n".to_vec();
+        let parser = PhpParser::new(src, &path, None);
+        assert!(count_with_parser(&parser) >= 1, "Php");
+
+        let src = b"s = \"hi\"\n".to_vec();
+        let parser = ElixirParser::new(src, &path, None);
+        assert!(count_with_parser(&parser) >= 1, "Elixir");
+
+        let src = b"s = \"hi\"\n".to_vec();
+        let parser = RubyParser::new(src, &path, None);
+        assert!(count_with_parser(&parser) >= 1, "Ruby");
+
+        let src = b"def m() { def s = \"hi\" }\n".to_vec();
+        let parser = GroovyParser::new(src, &path, None);
+        assert!(count_with_parser(&parser) >= 1, "Groovy");
+
+        // Bash uses the module-level `parse` helper.
+        assert!(count_strings("s=\"hi\"\n") >= 1, "Bash");
+    }
+
+    #[test]
+    fn simple_is_string_macro_rejects_non_string_nodes() {
+        // Pure-identifier source must produce zero string matches.
+        // Catches a regression where a macro invocation accidentally
+        // included a too-broad variant (e.g. `Identifier`).
+        use crate::langs::{
+            CppParser, GoParser, JavaParser, KotlinParser, LuaParser, PythonParser, RubyParser,
+            RustParser,
+        };
+
+        let path = PathBuf::from("test");
+
+        let src = b"x = y\n".to_vec();
+        let parser = PythonParser::new(src, &path, None);
+        assert_eq!(count_with_parser(&parser), 0, "Python");
+
+        let src = b"int main() { return x; }\n".to_vec();
+        let parser = CppParser::new(src, &path, None);
+        assert_eq!(count_with_parser(&parser), 0, "Cpp");
+
+        let src = b"class C { int x = y; }\n".to_vec();
+        let parser = JavaParser::new(src, &path, None);
+        assert_eq!(count_with_parser(&parser), 0, "Java");
+
+        let src = b"fn main() { let x = y; }\n".to_vec();
+        let parser = RustParser::new(src, &path, None);
+        assert_eq!(count_with_parser(&parser), 0, "Rust");
+
+        let src = b"package main\nfunc main() { _ = x }\n".to_vec();
+        let parser = GoParser::new(src, &path, None);
+        assert_eq!(count_with_parser(&parser), 0, "Go");
+
+        let src = b"fun main() { val x = y }\n".to_vec();
+        let parser = KotlinParser::new(src, &path, None);
+        assert_eq!(count_with_parser(&parser), 0, "Kotlin");
+
+        let src = b"local x = y\n".to_vec();
+        let parser = LuaParser::new(src, &path, None);
+        assert_eq!(count_with_parser(&parser), 0, "Lua");
+
+        let src = b"x = y\n".to_vec();
+        let parser = RubyParser::new(src, &path, None);
+        assert_eq!(count_with_parser(&parser), 0, "Ruby");
     }
 }
