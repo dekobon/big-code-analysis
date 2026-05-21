@@ -537,6 +537,13 @@ impl Getter for RustCode {
 
 impl Getter for CppCode {
     fn get_func_space_name<'a>(node: &Node, code: &'a [u8]) -> Option<&'a str> {
+        // Issue #285 contract: every `Cpp::FunctionDefinition*` alias
+        // must be enumerated here AND in `get_space_kind` below AND
+        // in `is_func` / `is_func_space` (see `src/checker.rs`).
+        // The aliased kind_ids 489/491/494 are not emitted by the
+        // currently pinned `tree-sitter-mozcpp` parse tables, so a
+        // dropped variant would silently fall through to the
+        // `_ => name-field` arm and yield the wrong name (or `None`).
         match node.kind_id().into() {
             Cpp::FunctionDefinition
             | Cpp::FunctionDefinition2
@@ -588,6 +595,8 @@ impl Getter for CppCode {
     fn get_space_kind(node: &Node) -> SpaceKind {
         use Cpp::*;
 
+        // Issue #285 contract: keep every `FunctionDefinition*` alias
+        // listed here — see the comment above `get_func_space_name`.
         match node.kind_id().into() {
             FunctionDefinition | FunctionDefinition2 | FunctionDefinition3
             | FunctionDefinition4 => SpaceKind::Function,
