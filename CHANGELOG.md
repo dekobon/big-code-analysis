@@ -480,6 +480,47 @@ why no value stability is offered until `1.0`. Entries above the
   cyclomatic Elixir tests had their totals bumped by +2 from the
   `Stats::default()` entry seeds on the new spaces
   ([#275](https://github.com/dekobon/big-code-analysis/issues/275)).
+- C# bare-discard switch-arm detection in `src/metrics/cyclomatic.rs`
+  now dispatches through a private `PatternKind` enum + `classify_pattern`
+  helper instead of five interleaved mutable booleans. Behavior is
+  preserved (existing #282 regression tests still pass); two new tests
+  cover typed-discard (`int _ =>`) and guarded var-underscore
+  (`var _ when g =>`) paths
+  ([#303](https://github.com/dekobon/big-code-analysis/issues/303)).
+- `apply_suppression` (`src/spaces.rs`) now matches the file-scope
+  target on `SpaceKind::Unit` explicitly instead of taking
+  `state_stack.first_mut()`. The function-scope arm already used an
+  explicit `SpaceKind::Function` predicate; this aligns the two arms
+  so a future regression that leaves a non-Unit frame at index 0
+  silently drops the file marker rather than attaching it to an
+  arbitrary frame. New tests pin both the positive case (Unit root
+  accepts the marker) and the defensive case (no Unit frame anywhere
+  on the stack is a silent no-op)
+  ([#306](https://github.com/dekobon/big-code-analysis/issues/306)).
+- Extracted the `cfg(...)` predicate parser from `src/checker.rs`
+  (~217 lines of string-level parsing plus five `cfg_*` helpers) into
+  a dedicated `src/cfg_predicate.rs` module with a single
+  `pub(crate) fn attribute_marks_test` entry point. Helpers and the
+  regression tests added by #278 move with the parser. Aligns with
+  the existing `c_macro.rs` / `preproc.rs` / `suppression.rs` pattern
+  of top-level helper modules; pure extraction, zero behavior change
+  ([#304](https://github.com/dekobon/big-code-analysis/issues/304)).
+- Replaced the `FunctionDefinition4` source-grep regression test in
+  `src/spaces.rs` (which read `src/checker.rs` and `src/getter.rs`
+  from disk and string-matched their bodies) with documenting
+  comments at the four C++ predicate call sites. The production
+  `matches!` patterns already enumerate every `Cpp::FunctionDefinition`
+  alias by name and are themselves the structural contract; the grep
+  test was brittle to cosmetic edits and could pass vacuously
+  ([#302](https://github.com/dekobon/big-code-analysis/issues/302)).
+- Tightened the `Npm` and `Npa` Java/Groovy annotation-type tests to
+  use `check_func_space` so each one additionally asserts that the
+  `AnnotationTypeDeclaration` opens a `SpaceKind::Interface`
+  FuncSpace named `Marker`, mirroring the sibling `Wmc` tightening
+  in commit `ba2a8e3`. Factored the six annotation-type assertion
+  blocks across `npm.rs` / `npa.rs` / `wmc.rs` into a single
+  `tools::assert_child_space_kind(...)` test helper
+  ([#307](https://github.com/dekobon/big-code-analysis/issues/307)).
 - **(library API, breaking)** `LANG::get_tree_sitter_language`
   returns `Result<tree_sitter::Language, MetricsError>` instead of
   `tree_sitter::Language` directly. Feature-gated builds need a
