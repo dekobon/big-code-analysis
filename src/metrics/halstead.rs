@@ -1206,6 +1206,45 @@ mod tests {
         });
     }
 
+    // Issue #299: parity guard for the JS-family `get_op_type` macro.
+    // All four languages share the same operator/operand classification
+    // for a member-access optional-chain expression, so dropping a
+    // common variant from any one language's macro invocation must
+    // fail this test. Expected totals for
+    // `function f(a) { return a?.b?.c; }`:
+    //
+    // * Operators: `function`, `(`, `{`, `return`, `?.`, `?.`, `;`
+    //   (7 total, 6 unique — `?.` is `OptionalChain` in JS/MozJS and
+    //   `QMARKDOT` in TS/TSX, but classified identically by the
+    //   shared macro).
+    // * Operands: `f`, `a`, `a`, `b`, `c`, plus the two wrapping
+    //   member expressions (`a?.b`, `a?.b?.c`) classified as
+    //   `MemberExpression*` (7 total, 6 unique).
+    //
+    // Verified by reverting the macro `op_extras` / `operand_extras`
+    // list per language: each one drops the asserted counts and
+    // trips the test (e.g., dropping `OptionalChain` from JS drops
+    // its u_operators from 6 to 5).
+    #[test]
+    fn js_family_get_op_type_parity_optional_chain_member_299() {
+        // Non-capturing closure (coerced to the `fn` pointer that
+        // `check_metrics` accepts) avoids the
+        // `clippy::needless_pass_by_value` warning that a free `fn`
+        // taking `CodeMetrics` by value would trigger.
+        const SRC: &str = "function f(a) { return a?.b?.c; }";
+        let check = |m: crate::CodeMetrics| {
+            assert_eq!(m.halstead.u_operators(), 6.0);
+            assert_eq!(m.halstead.operators(), 7.0);
+            assert_eq!(m.halstead.u_operands(), 6.0);
+            assert_eq!(m.halstead.operands(), 7.0);
+        };
+
+        check_metrics::<JavascriptParser>(SRC, "foo.js", check);
+        check_metrics::<MozjsParser>(SRC, "foo.js", check);
+        check_metrics::<TypescriptParser>(SRC, "foo.ts", check);
+        check_metrics::<TsxParser>(SRC, "foo.tsx", check);
+    }
+
     #[test]
     fn python_wrong_operators() {
         check_metrics::<PythonParser>("()[]{}", "foo.py", |metric| {
