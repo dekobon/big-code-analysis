@@ -28,6 +28,76 @@ macro_rules! get_operator {
     };
 }
 
+// Emit a `Getter::get_op_type` body for a JS-family language. The four
+// JS-family grammars (JavaScript, MozJS, TypeScript, TSX) share most of
+// their Halstead operator/operand kind classifications; per-language
+// deltas are passed as bracketed extras so all four impls stay in
+// lockstep when a kind is added or removed (issue #299).
+//
+// `$op_extras` per language:
+//   * JavaScript / MozJS: `OptionalChain` — the bare `?.` token (these
+//     grammars expose no `optional_chain` wrapper).
+//   * TypeScript / TSX:   `QMARKDOT`, `PredefinedType` — `QMARKDOT` is
+//     the bare `?.` token under the `optional_chain` wrapper (issue
+//     #281); `PredefinedType` is the TS type keyword set (`string`,
+//     `number`, `boolean`, …).
+//
+// `$operand_extras` per language:
+//   * JavaScript / MozJS: `Identifier2`, `String2` — anonymous keyword
+//     aliases the JS grammar exposes for `Identifier` and `String`.
+//   * TypeScript: `NestedIdentifier`, `MemberExpression4` — TS-only
+//     productions (`Identifier2` / `String2` aliases don't exist).
+//   * TSX: union of the above (`Identifier2`, `String2`,
+//     `NestedIdentifier`, `MemberExpression4`).
+//
+// The `TemplateString` interpolation guard is shared verbatim (issue
+// #192): a bare `` `...` `` mirrors a `"..."` operand, but an
+// interpolated template must yield `Unknown` because its inner
+// `TemplateSubstitution` expressions are walked separately.
+macro_rules! impl_js_family_get_op_type {
+    (
+        $lang:ident,
+        op_extras: [$($op_extra:ident),* $(,)?],
+        operand_extras: [$($operand_extra:ident),* $(,)?] $(,)?
+    ) => {
+        fn get_op_type(node: &Node) -> HalsteadType {
+            use $lang::*;
+
+            match node.kind_id().into() {
+                Export | Import | Import2 | Extends | DOT | From | LPAREN | COMMA | As | STAR
+                | GTGT | GTGTGT | COLON | Return | Delete | Throw | Break | Continue | If
+                | Else | Switch | Case | Default | Async | Do | For | In | Of | While | Try
+                | Catch | Finally | With | EQ | AT | AMPAMP | PIPEPIPE | PLUS | DASH | DASHDASH
+                | PLUSPLUS | SLASH | PERCENT | STARSTAR | PIPE | AMP | LTLT | TILDE | LT | LTEQ
+                | EQEQ | BANGEQ | GTEQ | GT | PLUSEQ | BANG | BANGEQEQ | EQEQEQ | DASHEQ
+                | STAREQ | SLASHEQ | PERCENTEQ | STARSTAREQ | GTGTEQ | GTGTGTEQ | LTLTEQ | AMPEQ
+                | CARET | CARETEQ | PIPEEQ | Yield | LBRACK | LBRACE | Await | QMARK
+                | QMARKQMARK | EQGT | DOTDOTDOT | New | Let | Var | Const | Function
+                | FunctionExpression | SEMI | Typeof | Instanceof | Void
+                $(| $op_extra)* => HalsteadType::Operator,
+                Identifier | MemberExpression | MemberExpression2 | MemberExpression3
+                | PropertyIdentifier | String | Number | True | False | Null | This | Super
+                | Undefined | Set | Get
+                $(| $operand_extra)* => HalsteadType::Operand,
+                // A `` `...` `` is a string literal; without interpolation it
+                // mirrors `"..."` and contributes one operand. When it has a
+                // `TemplateSubstitution` child the inner expression is already
+                // walked and classified, so counting the wrapper too would
+                // double-count its contribution to `N2` (issue #192, same
+                // pattern as #183 C# / #191 Kotlin / #199 Perl).
+                TemplateString => {
+                    if node.is_child(TemplateSubstitution as u16) {
+                        HalsteadType::Unknown
+                    } else {
+                        HalsteadType::Operand
+                    }
+                }
+                _ => HalsteadType::Unknown,
+            }
+        }
+    };
+}
+
 #[doc(hidden)]
 pub trait Getter {
     fn get_func_name<'a>(node: &Node, code: &'a [u8]) -> Option<&'a str> {
@@ -165,38 +235,11 @@ impl Getter for MozjsCode {
         }
     }
 
-    fn get_op_type(node: &Node) -> HalsteadType {
-        use Mozjs::*;
-
-        match node.kind_id().into() {
-            Export | Import | Import2 | Extends | DOT | From | LPAREN | COMMA | As | STAR
-            | GTGT | GTGTGT | COLON | Return | Delete | Throw | Break | Continue | If | Else
-            | Switch | Case | Default | Async | Do | For | In | Of | While | Try | Catch
-            | Finally | With | EQ | AT | AMPAMP | PIPEPIPE | PLUS | DASH | DASHDASH | PLUSPLUS
-            | SLASH | PERCENT | STARSTAR | PIPE | AMP | LTLT | TILDE | LT | LTEQ | EQEQ
-            | BANGEQ | GTEQ | GT | PLUSEQ | BANG | BANGEQEQ | EQEQEQ | DASHEQ | STAREQ
-            | SLASHEQ | PERCENTEQ | STARSTAREQ | GTGTEQ | GTGTGTEQ | LTLTEQ | AMPEQ | CARET
-            | CARETEQ | PIPEEQ | Yield | LBRACK | LBRACE | Await | QMARK | QMARKQMARK
-            | OptionalChain | EQGT | DOTDOTDOT | New | Let | Var | Const | Function
-            | FunctionExpression | SEMI | Typeof | Instanceof | Void => HalsteadType::Operator,
-            Identifier | Identifier2 | MemberExpression | MemberExpression2 | MemberExpression3
-            | PropertyIdentifier | String | String2 | Number | True | False | Null | This
-            | Super | Undefined | Set | Get => HalsteadType::Operand,
-            // See `JavascriptCode::get_op_type` for the rationale: a
-            // bare `` `...` `` mirrors `"..."` (one operand), and an
-            // interpolated template literal must not be counted again
-            // on top of its inner `TemplateSubstitution` expressions
-            // (issue #192).
-            TemplateString => {
-                if node.is_child(TemplateSubstitution as u16) {
-                    HalsteadType::Unknown
-                } else {
-                    HalsteadType::Operand
-                }
-            }
-            _ => HalsteadType::Unknown,
-        }
-    }
+    impl_js_family_get_op_type!(
+        Mozjs,
+        op_extras: [OptionalChain],
+        operand_extras: [Identifier2, String2],
+    );
 
     get_operator!(Mozjs);
 }
@@ -246,39 +289,11 @@ impl Getter for JavascriptCode {
         }
     }
 
-    fn get_op_type(node: &Node) -> HalsteadType {
-        use Javascript::*;
-
-        match node.kind_id().into() {
-            Export | Import | Import2 | Extends | DOT | From | LPAREN | COMMA | As | STAR
-            | GTGT | GTGTGT | COLON | Return | Delete | Throw | Break | Continue | If | Else
-            | Switch | Case | Default | Async | Do | For | In | Of | While | Try | Catch
-            | Finally | With | EQ | AT | AMPAMP | PIPEPIPE | PLUS | DASH | DASHDASH | PLUSPLUS
-            | SLASH | PERCENT | STARSTAR | PIPE | AMP | LTLT | TILDE | LT | LTEQ | EQEQ
-            | BANGEQ | GTEQ | GT | PLUSEQ | BANG | BANGEQEQ | EQEQEQ | DASHEQ | STAREQ
-            | SLASHEQ | PERCENTEQ | STARSTAREQ | GTGTEQ | GTGTGTEQ | LTLTEQ | AMPEQ | CARET
-            | CARETEQ | PIPEEQ | Yield | LBRACK | LBRACE | Await | QMARK | QMARKQMARK
-            | OptionalChain | EQGT | DOTDOTDOT | New | Let | Var | Const | Function
-            | FunctionExpression | SEMI | Typeof | Instanceof | Void => HalsteadType::Operator,
-            Identifier | Identifier2 | MemberExpression | MemberExpression2 | MemberExpression3
-            | PropertyIdentifier | String | String2 | Number | True | False | Null | This
-            | Super | Undefined | Set | Get => HalsteadType::Operand,
-            // A `` `...` `` is a string literal; without interpolation it
-            // mirrors `"..."` and contributes one operand. When it has a
-            // `TemplateSubstitution` child the inner expression is already
-            // walked and classified, so counting the wrapper too would
-            // double-count its contribution to `N2` (issue #192, same
-            // pattern as #183 C# / #191 Kotlin / #199 Perl).
-            TemplateString => {
-                if node.is_child(TemplateSubstitution as u16) {
-                    HalsteadType::Unknown
-                } else {
-                    HalsteadType::Operand
-                }
-            }
-            _ => HalsteadType::Unknown,
-        }
-    }
+    impl_js_family_get_op_type!(
+        Javascript,
+        op_extras: [OptionalChain],
+        operand_extras: [Identifier2, String2],
+    );
 
     get_operator!(Javascript);
 }
@@ -329,48 +344,11 @@ impl Getter for TypescriptCode {
         }
     }
 
-    fn get_op_type(node: &Node) -> HalsteadType {
-        use Typescript::*;
-
-        match node.kind_id().into() {
-            Export | Import | Import2 | Extends | DOT | From | LPAREN | COMMA | As | STAR
-            | GTGT | GTGTGT | COLON | Return | Delete | Throw | Break | Continue | If | Else
-            | Switch | Case | Default | Async | Do | For | In | Of | While | Try | Catch
-            | Finally | With | EQ | AT | AMPAMP | PIPEPIPE | PLUS | DASH | DASHDASH | PLUSPLUS
-            | SLASH | PERCENT | STARSTAR | PIPE | AMP | LTLT | TILDE | LT | LTEQ | EQEQ
-            | BANGEQ | GTEQ | GT | PLUSEQ | BANG | BANGEQEQ | EQEQEQ | DASHEQ | STAREQ
-            | SLASHEQ | PERCENTEQ | STARSTAREQ | GTGTEQ | GTGTGTEQ | LTLTEQ | AMPEQ | CARET
-            | CARETEQ | PIPEEQ | Yield | LBRACK | LBRACE | Await | QMARK | QMARKQMARK
-            // Optional chaining `?.`: in TS/TSX the grammar exposes both an
-            // `optional_chain` wrapper (over `member_expression`) and a bare
-            // `?.` token (over `call_expression`). The wrapper always
-            // contains the token, so counting both double-counts the
-            // member-expression form. We classify only the token
-            // (`QMARKDOT`) so every textual `?.` contributes exactly once
-            // (issue #281). JS/MozJS grammars expose only `OptionalChain`
-            // (the token itself, not a wrapper) and continue to use that.
-            | QMARKDOT | EQGT | DOTDOTDOT | New | Let | Var | Const | Function
-            | FunctionExpression | SEMI | Typeof | Instanceof | Void | PredefinedType => {
-                HalsteadType::Operator
-            }
-            Identifier | NestedIdentifier | MemberExpression | MemberExpression2
-            | MemberExpression3 | MemberExpression4 | PropertyIdentifier | String | Number
-            | True | False | Null | This | Super | Undefined | Set | Get => HalsteadType::Operand,
-            // See `JavascriptCode::get_op_type` for the rationale: a
-            // bare `` `...` `` mirrors `"..."` (one operand), and an
-            // interpolated template literal must not be counted again
-            // on top of its inner `TemplateSubstitution` expressions
-            // (issue #192).
-            TemplateString => {
-                if node.is_child(TemplateSubstitution as u16) {
-                    HalsteadType::Unknown
-                } else {
-                    HalsteadType::Operand
-                }
-            }
-            _ => HalsteadType::Unknown,
-        }
-    }
+    impl_js_family_get_op_type!(
+        Typescript,
+        op_extras: [QMARKDOT, PredefinedType],
+        operand_extras: [NestedIdentifier, MemberExpression4],
+    );
 
     get_operator!(Typescript);
 }
@@ -421,46 +399,11 @@ impl Getter for TsxCode {
         }
     }
 
-    fn get_op_type(node: &Node) -> HalsteadType {
-        use Tsx::*;
-
-        match node.kind_id().into() {
-            Export | Import | Import2 | Extends | DOT | From | LPAREN | COMMA | As | STAR
-            | GTGT | GTGTGT | COLON | Return | Delete | Throw | Break | Continue | If | Else
-            | Switch | Case | Default | Async | Do | For | In | Of | While | Try | Catch
-            | Finally | With | EQ | AT | AMPAMP | PIPEPIPE | PLUS | DASH | DASHDASH | PLUSPLUS
-            | SLASH | PERCENT | STARSTAR | PIPE | AMP | LTLT | TILDE | LT | LTEQ | EQEQ
-            | BANGEQ | GTEQ | GT | PLUSEQ | BANG | BANGEQEQ | EQEQEQ | DASHEQ | STAREQ
-            | SLASHEQ | PERCENTEQ | STARSTAREQ | GTGTEQ | GTGTGTEQ | LTLTEQ | AMPEQ | CARET
-            | CARETEQ | PIPEEQ | Yield | LBRACK | LBRACE | Await | QMARK | QMARKQMARK
-            // Optional chaining `?.`: count the bare token (`QMARKDOT`)
-            // only; the `optional_chain` named wrapper always contains
-            // the token, so counting both double-counts member-expression
-            // forms (issue #281). Mirrors the TypeScript fix above.
-            | QMARKDOT | EQGT | DOTDOTDOT | New | Let | Var | Const | Function
-            | FunctionExpression | SEMI | Typeof | Instanceof | Void | PredefinedType => {
-                HalsteadType::Operator
-            }
-            Identifier | Identifier2 | NestedIdentifier | MemberExpression | MemberExpression2
-            | MemberExpression3 | MemberExpression4 | PropertyIdentifier | String | String2
-            | Number | True | False | Null | This | Super | Undefined | Set | Get => {
-                HalsteadType::Operand
-            }
-            // See `JavascriptCode::get_op_type` for the rationale: a
-            // bare `` `...` `` mirrors `"..."` (one operand), and an
-            // interpolated template literal must not be counted again
-            // on top of its inner `TemplateSubstitution` expressions
-            // (issue #192).
-            TemplateString => {
-                if node.is_child(TemplateSubstitution as u16) {
-                    HalsteadType::Unknown
-                } else {
-                    HalsteadType::Operand
-                }
-            }
-            _ => HalsteadType::Unknown,
-        }
-    }
+    impl_js_family_get_op_type!(
+        Tsx,
+        op_extras: [QMARKDOT, PredefinedType],
+        operand_extras: [Identifier2, String2, NestedIdentifier, MemberExpression4],
+    );
 
     get_operator!(Tsx);
 }
