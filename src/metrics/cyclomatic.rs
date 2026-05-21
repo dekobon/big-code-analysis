@@ -788,19 +788,22 @@ impl Cyclomatic for ElixirCode {
 /// non-trivial decision, matching Rust's `_ if g` rule.
 fn csharp_switch_expression_arm_is_bare_discard(node: &Node) -> bool {
     use Csharp::*;
-    let mut pattern_is_discard = false;
-    let mut saw_pattern = false;
-    for child in node.children() {
-        if !child.is_named() {
-            continue;
-        }
+
+    /// Classification of a `switch_expression_arm`'s pattern child.
+    /// `BareDiscard` means `_` or `var _` (the C# analogue of
+    /// `default:`); any concrete type test, constant, or composite
+    /// pattern is `NotDiscard` and still contributes to standard CCN.
+    enum PatternKind {
+        BareDiscard,
+        NotDiscard,
+    }
+
+    fn classify_pattern(child: &Node) -> PatternKind {
         match child.kind_id().into() {
             // `pattern` is a supertype: tree-sitter flattens it to the
-            // concrete subtype in the parse tree.
-            Discard if !saw_pattern => {
-                saw_pattern = true;
-                pattern_is_discard = true;
-            }
+            // concrete subtype in the parse tree, so a bare `_` arm
+            // surfaces as a direct `discard` child.
+            Discard => PatternKind::BareDiscard,
             // `var _` parses as a `declaration_pattern` with children
             // `implicit_type` (`var`) and `discard` (`_`) rather than
             // as a `var_pattern` — tree-sitter-c-sharp treats `var` as
@@ -809,32 +812,37 @@ fn csharp_switch_expression_arm_is_bare_discard(node: &Node) -> bool {
             // `discard` is therefore semantically the bare discard.
             // A non-implicit type (`int _`) is NOT excluded — the
             // type test is still a non-trivial decision.
-            DeclarationPattern if !saw_pattern => {
-                saw_pattern = true;
+            DeclarationPattern => {
                 let mut saw_discard = false;
                 let mut saw_implicit_type = false;
-                let mut saw_other_named = false;
-                for sub in child.children() {
-                    if !sub.is_named() {
-                        continue;
-                    }
+                for sub in child.children().filter(Node::is_named) {
                     match sub.kind_id().into() {
                         Discard => saw_discard = true,
                         ImplicitType => saw_implicit_type = true,
-                        _ => saw_other_named = true,
+                        _ => return PatternKind::NotDiscard,
                     }
                 }
-                pattern_is_discard = saw_discard && saw_implicit_type && !saw_other_named;
+                if saw_discard && saw_implicit_type {
+                    PatternKind::BareDiscard
+                } else {
+                    PatternKind::NotDiscard
+                }
             }
-            WhenClause => return false,
-            _ if !saw_pattern => {
-                // First named child wasn't a discard pattern — done.
-                return false;
-            }
-            _ => {}
+            _ => PatternKind::NotDiscard,
         }
     }
-    pattern_is_discard
+
+    let mut named = node.children().filter(Node::is_named);
+    let Some(pattern) = named.next() else {
+        return false;
+    };
+    let PatternKind::BareDiscard = classify_pattern(&pattern) else {
+        return false;
+    };
+    // A guarded discard (`_ when g => …`) still counts because the
+    // guard introduces a non-trivial decision, matching Rust's
+    // `_ if g` rule.
+    !named.any(|c| c.kind_id() == WhenClause)
 }
 
 /// Detects Kotlin `when_entry` nodes that are `else -> …` arms — the
@@ -1924,6 +1932,61 @@ mod tests {
             |metric| {
                 // expected: unit(1) + class(1) + fn(base 1 + 1 explicit +
                 //           1 guarded discard; bare `_ =>` skipped) = 5,
+                //           max 3.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+            },
+        );
+    }
+
+    /// Regression #303 / #282: a typed-discard arm `int _ =>` is NOT
+    /// a bare discard — the type test (`predefined_type`) is a
+    /// non-trivial decision — so the arm still contributes one
+    /// standard decision. Locks in the
+    /// `DeclarationPattern → _ => return NotDiscard` catch-all in
+    /// `csharp_switch_expression_arm_is_bare_discard`.
+    #[test]
+    fn csharp_switch_expression_typed_discard_still_counts() {
+        check_metrics::<CsharpParser>(
+            "public class A {
+                public string Name(object n) =>
+                    n switch {
+                        1 => \"one\",
+                        int _ => \"int\",
+                        _ => \"other\"
+                    };
+            }",
+            "foo.cs",
+            |metric| {
+                // expected: unit(1) + class(1) + fn(base 1 + 1 explicit `1` +
+                //           1 typed-discard `int _`; bare `_ =>` skipped) = 5,
+                //           max 3.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+            },
+        );
+    }
+
+    /// Regression #303 / #282: a guarded `var _ when g =>` is NOT a
+    /// bare discard — the `when` guard adds a non-trivial decision —
+    /// so the arm still contributes one standard decision. Exercises
+    /// the `DeclarationPattern` arm of `classify_pattern` combined
+    /// with the post-pattern `WhenClause` sweep.
+    #[test]
+    fn csharp_switch_expression_guarded_var_underscore_still_counts() {
+        check_metrics::<CsharpParser>(
+            "public class A {
+                public string Name(int n) =>
+                    n switch {
+                        1 => \"one\",
+                        var _ when n > 10 => \"big\",
+                        _ => \"other\"
+                    };
+            }",
+            "foo.cs",
+            |metric| {
+                // expected: unit(1) + class(1) + fn(base 1 + 1 explicit `1` +
+                //           1 guarded `var _`; bare `_ =>` skipped) = 5,
                 //           max 3.
                 assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
                 assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
