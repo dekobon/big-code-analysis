@@ -22,8 +22,14 @@ class ParseError(ValueError):
 def analyze(path: str | os.PathLike[str], /) -> dict[str, Any]:
     """Compute metrics for the file at ``path``.
 
-    The returned ``dict`` mirrors the JSON shape emitted by
-    ``bca metrics --output json`` for the same file.
+    The returned ``dict`` is byte-for-byte equivalent to the JSON
+    emitted by ``bca metrics --output-format json`` for the same
+    file: identical field order (``name``, ``start_line``,
+    ``end_line``, ``kind``, ``spaces``, ``metrics``), identical
+    numeric formatting, identical shape. Both sides serialise the
+    same ``FuncSpace`` through ``serde_json::to_string``; the
+    bindings then parse that JSON with ``json.loads``, which
+    preserves insertion order on CPython 3.7+.
 
     Raises
     ------

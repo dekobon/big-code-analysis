@@ -29,7 +29,9 @@ python -c "import big_code_analysis; print(big_code_analysis.__version__)"
 ```python
 import big_code_analysis as bca
 
-# Analyse a file by path; result mirrors `bca metrics --output json`.
+# Analyse a file by path. The returned dict is byte-for-byte
+# equivalent to `bca metrics --output-format json` for the same
+# file — same field order, same numeric formatting, same shape.
 metrics = bca.analyze("src/main.rs")
 print(metrics["metrics"]["cognitive"]["cognitive_sum"])
 

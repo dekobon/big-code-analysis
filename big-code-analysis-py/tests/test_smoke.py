@@ -104,31 +104,58 @@ def test_version_matches_workspace_cargo_toml() -> None:
     ],
 )
 def test_analyze_matches_cli_json(fixture: str) -> None:
-    """``analyze(path)`` must match ``bca metrics --output json`` structurally.
+    """``analyze(path)`` must match ``bca metrics --output-format json`` byte-for-byte.
 
-    The comparison is *parsed-dict equality*, not literal byte
-    equality. Two known limitations of that choice:
+    Both sides serialise the same ``FuncSpace`` through
+    ``serde_json::to_string``; the bindings then parse that JSON
+    with CPython's ``json.loads`` (which preserves insertion order
+    on 3.7+). So the parsed CLI JSON and the bindings' returned
+    dict are equal *with key order*, not just structurally.
 
-    1. Python's ``dict ==`` treats ``1 == 1.0`` as equal, so an
-       int-vs-float drift between the two sides would pass silently.
-       The current metric serialisers emit every numeric field as a
-       float on both sides, so this is not a present concern but it
-       does weaken the "byte-for-byte" claim.
-    2. Dict key order is not compared — and the two sides currently
-       differ on order: the CLI emits ``FuncSpace`` ``Serialize``
-       order (``name``, ``start_line``, …) while the bindings emit
-       alphabetical order because the workspace's ``serde_json`` is
-       compiled without the ``preserve_order`` feature, so
-       ``serde_json::Map`` falls back to ``BTreeMap`` ordering.
+    The dict-equality check below is insensitive to key order, but
+    the dedicated ``test_analyze_key_order_matches_cli`` test pins
+    the ordering explicitly so a future regression to the old
+    ``to_value``-based path (which silently sorted keys
+    alphabetically via ``BTreeMap``) is caught.
 
-    Both limitations are tracked separately; this test pins
-    structural / value equality and is the right thing for catching
-    metric-value regressions across the bindings boundary.
+    Note: Python's ``dict ==`` treats ``1 == 1.0`` as equal, so an
+    int-vs-float drift between the two sides would pass silently
+    here. The current metric serialisers emit identical numeric
+    types on both sides, so this is not a present concern.
     """
     path = FIXTURES / fixture
     py_result = bca.analyze(path)
     cli_result = _cli_metrics(path)
     assert py_result == cli_result
+
+
+@pytest.mark.parametrize(
+    "fixture",
+    [
+        "hello.py",
+        "hello.rs",
+        "Hello.java",
+        "hello.cpp",
+    ],
+)
+def test_analyze_key_order_matches_cli(fixture: str) -> None:
+    """Bindings must preserve the CLI's ``FuncSpace`` field order.
+
+    Parses the CLI's stdout with ``json.loads`` so both sides yield
+    CPython dicts populated in serialisation order, then walks the
+    top-level keys and asserts they line up. This is the regression
+    test for the byte-for-byte claim: if anyone re-introduces the
+    ``serde_json::to_value`` path (which routes through
+    ``BTreeMap`` and re-sorts keys alphabetically), this test
+    fails immediately.
+    """
+    path = FIXTURES / fixture
+    py_result = bca.analyze(path)
+    cli_result = _cli_metrics(path)
+    assert list(py_result.keys()) == list(cli_result.keys()), (
+        f"top-level key order diverged: py={list(py_result.keys())} "
+        f"cli={list(cli_result.keys())}"
+    )
 
 
 def test_analyze_source_str_bytes_bytearray_agree() -> None:
