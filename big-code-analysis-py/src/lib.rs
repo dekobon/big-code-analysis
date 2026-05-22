@@ -29,7 +29,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyByteArray, PyBytes, PyModule, PyModuleMethods, PyString};
 use pyo3::wrap_pyfunction;
 
-use crate::analysis::{AnalysisError, PACKAGE_VERSION};
+use crate::analysis::{AnalysisError, AnalyzeOptions, PACKAGE_VERSION};
 
 // Python exception types. Both subclass `ValueError` per the API
 // contract in #265 — `UnsupportedLanguageError` covers unknown
@@ -145,10 +145,20 @@ fn analyze(
     allow_lossy_path: bool,
     skip_generated: bool,
 ) -> PyResult<Option<Bound<'_, PyAny>>> {
-    analysis::analyze_path(&path, exclude_tests, allow_lossy_path, skip_generated)
+    let opts = AnalyzeOptions {
+        exclude_tests,
+        allow_lossy_path,
+        skip_generated,
+    };
+    analysis::analyze_path(&path, opts)
         .map_err(analysis_error_to_py)?
         .map(|json| conversion::json_string_to_py(py, &json))
         .transpose()
+    // Keyword-only kwargs stay split at the PyO3 boundary (PyO3 has
+    // no struct-literal binding for `#[pyo3(signature)]`); the
+    // `AnalyzeOptions` struct lives on the Rust side of the FFI so
+    // every internal callsite reads its policy by name, not by
+    // positional bool order.
 }
 
 /// Run the metric analysis on an in-memory source buffer.
