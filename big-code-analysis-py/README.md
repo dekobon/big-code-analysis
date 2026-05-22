@@ -46,6 +46,12 @@ print(metrics["metrics"]["cognitive"]["sum"])
 # result as `bca metrics --exclude-tests --output-format json`.
 prod_only = bca.analyze("src/main.rs", exclude_tests=True)
 
+# Non-UTF-8 paths raise `ValueError` by default so the `name`
+# field is always a round-trippable identifier. Pass
+# `allow_lossy_path=True` to opt into the CLI's U+FFFD
+# substitution behaviour (see `bca.analyze.__doc__` and #316).
+lossy = bca.analyze(weird_path, allow_lossy_path=True)
+
 # Analyse an in-memory snippet (str, bytes, or bytearray accepted).
 metrics = bca.analyze_source("fn main() {}\n", "rust")
 
@@ -63,6 +69,11 @@ assert "py" in bca.language_extensions("python")
   language name.
 - `bca.ParseError` (subclass of `ValueError`) — raised when the
   underlying tree-sitter parser fails on the supplied source.
+- `ValueError` — raised by `bca.analyze` when the path is not
+  valid UTF-8 and the default strict policy is in effect; pass
+  `allow_lossy_path=True` to mirror the CLI's U+FFFD substitution
+  via `Path::to_string_lossy` and accept the resulting
+  non-round-trippable `name` field (#316).
 - `OSError` — bubbled up from the underlying file-system read.
 
 ## Type checking

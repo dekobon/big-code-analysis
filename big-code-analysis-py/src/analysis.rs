@@ -142,13 +142,38 @@ impl From<serde_json::Error> for AnalysisError {
 /// when its extension is unknown, where the prior extension-only
 /// path would have raised `UnsupportedLanguageError` without
 /// touching the filesystem.
-pub(crate) fn analyze_path(path: &Path, exclude_tests: bool) -> Result<String, AnalysisError> {
-    // UTF-8 validation runs *before* the file read so a non-UTF-8
-    // path can never reach `path.display()` in the
-    // `AnalysisError::Io` arm — the `filename` field on the resulting
-    // Python `OSError` would otherwise carry U+FFFD replacement
-    // characters for the lossy bytes.
-    let name = path.to_str().ok_or(AnalysisError::NonUtf8Path)?.to_owned();
+///
+/// `allow_lossy_path` selects the non-UTF-8 path policy (#316):
+///
+/// * `false` (default) — non-UTF-8 paths are rejected with
+///   [`AnalysisError::NonUtf8Path`], honouring the project-wide
+///   "never use `to_string_lossy` on identifier paths" rule from
+///   AGENTS.md. The `FuncSpace.name` field is guaranteed to be a
+///   real (round-trippable) UTF-8 string.
+/// * `true` — non-UTF-8 byte sequences in the path are replaced
+///   with U+FFFD via [`Path::to_string_lossy`], matching the
+///   `bca metrics --output-format json` CLI exactly. The opt-in
+///   makes the lossy substitution explicit at the call site.
+pub(crate) fn analyze_path(
+    path: &Path,
+    exclude_tests: bool,
+    allow_lossy_path: bool,
+) -> Result<String, AnalysisError> {
+    // Resolve the `FuncSpace.name` *before* the file read so a
+    // non-UTF-8 path in strict mode can never reach `path.display()`
+    // in the `AnalysisError::Io` arm — the `filename` field on the
+    // resulting Python `OSError` would otherwise carry U+FFFD
+    // replacement characters for the lossy bytes.
+    //
+    // When `allow_lossy_path` is true the caller has explicitly
+    // accepted U+FFFD substitution for the `FuncSpace.name` field,
+    // so `to_string_lossy` is the documented behaviour rather than
+    // a silent identifier corruption.
+    let name = match path.to_str() {
+        Some(s) => s.to_owned(),
+        None if allow_lossy_path => path.to_string_lossy().into_owned(),
+        None => return Err(AnalysisError::NonUtf8Path),
+    };
     // Capture the path on I/O failure so the Python OSError carries
     // `filename` and CPython can dispatch to FileNotFoundError /
     // PermissionError / IsADirectoryError based on `errno`.
@@ -323,7 +348,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("thing.unknownext");
         std::fs::write(&path, b"noise\n").expect("write fixture");
-        let err = analyze_path(&path, false);
+        let err = analyze_path(&path, false, false);
         assert!(matches!(err, Err(AnalysisError::UnsupportedLanguage(_))));
     }
 
@@ -347,7 +372,7 @@ mod tests {
         let path = dir.path().join("install");
         let source = b"#!/usr/bin/env python\ndef hello(name):\n    return name\n";
         std::fs::write(&path, source).expect("write fixture");
-        let json = analyze_path(&path, false).expect("shebang script analyses");
+        let json = analyze_path(&path, false, false).expect("shebang script analyses");
         let value = parse_json(&json);
         let obj = value.as_object().expect("top-level is an object");
         assert_eq!(
@@ -372,6 +397,69 @@ mod tests {
             child.get("kind").and_then(serde_json::Value::as_str),
             Some("function"),
             "inner space kind pins shebang→python routing",
+        );
+    }
+
+    // Non-UTF-8 paths are constructed from raw `OsStr` bytes via
+    // `OsStrExt::from_bytes`, which is unix-only. Windows has its
+    // own non-UTF-8 mechanism (unpaired surrogates in WTF-16 via
+    // `OsStringExt::from_wide`) — out of scope for this test; the
+    // `allow_lossy_path` policy applies on all platforms but
+    // constructing a fixture for it differs per OS.
+    #[cfg(unix)]
+    #[test]
+    fn analyze_path_rejects_non_utf8_path_by_default() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+        let dir = tempfile::tempdir().expect("tempdir");
+        // 0xff 0xff is not a valid UTF-8 lead byte sequence; the `.rs`
+        // suffix keeps language detection on the happy path so the
+        // failure mode under test is the UTF-8 check, not extension
+        // resolution.
+        let raw = [0xffu8, 0xff, b'.', b'r', b's'];
+        let path = dir.path().join(OsStr::from_bytes(&raw));
+        std::fs::write(&path, b"fn main() {}\n").expect("write fixture");
+        let err = analyze_path(&path, false, false);
+        assert!(
+            matches!(err, Err(AnalysisError::NonUtf8Path)),
+            "strict mode must reject non-UTF-8 path, got {err:?}",
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn analyze_path_accepts_non_utf8_path_when_allow_lossy_path_is_true() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+        // Test-via-revert: changing the `None if allow_lossy_path`
+        // arm back to `None => return Err(...)` makes this test fail
+        // with `AnalysisError::NonUtf8Path` — it exercises the new
+        // branch, not the strict path that the previous test covers.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let raw = [0xffu8, 0xff, b'.', b'r', b's'];
+        let path = dir.path().join(OsStr::from_bytes(&raw));
+        std::fs::write(&path, b"fn main() {}\n").expect("write fixture");
+        let json = analyze_path(&path, false, true).expect("lossy mode parses non-UTF-8 path");
+        let value = parse_json(&json);
+        let name = value
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .expect("name is a string");
+        // U+FFFD is the Unicode REPLACEMENT CHARACTER; `to_string_lossy`
+        // emits one per invalid byte sequence. Asserting on its presence
+        // (rather than the full string) keeps the test robust against
+        // tempdir-prefix variation while still pinning the load-bearing
+        // behaviour: invalid bytes were translated, not rejected.
+        assert!(
+            name.contains('\u{FFFD}'),
+            "expected U+FFFD substitution in name, got {name:?}",
+        );
+        // Spot-check the analysis still produced a populated
+        // FuncSpace — a regression that returned the lossy name but
+        // an empty body would slip past the U+FFFD assertion alone.
+        assert_eq!(
+            value.get("kind").and_then(serde_json::Value::as_str),
+            Some("unit"),
         );
     }
 }
