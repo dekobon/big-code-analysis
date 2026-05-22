@@ -54,8 +54,12 @@ serde = { version = "^1.0", features = ["derive"] }
 # `add_libpython_rpath_link_args` in `build.rs` bakes the libpython
 # rpath into binaries that embed Python (i.e. `cargo test`), so the
 # harness finds `libpython3.12.so` without an `LD_LIBRARY_PATH`
-# crutch. Pinned to the same minor as the runtime `pyo3` dep.
-pyo3-build-config = "0.28"
+# crutch. Exact-pinned to the same patch as the runtime `pyo3` dep
+# (`=0.28.3` in the root workspace) because `"0.28"` is a caret
+# range (`^0.28.0`) that lets `pyo3-build-config` drift onto a
+# different patch than `pyo3` — and the rpath link-args contract
+# is part of `pyo3`'s build-time API.
+pyo3-build-config = "=0.28.3"
 
 [lints]
 workspace = true
