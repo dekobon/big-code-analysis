@@ -66,6 +66,18 @@ pub(crate) fn language_for_file(path: &Path) -> Option<&'static str> {
     get_language_for_file(path).map(lang_to_name)
 }
 
+/// Iterator over the `LANG` variants exposed to Python.
+///
+/// "Public" means the variant has at least one registered file
+/// extension — internal helper variants without user-facing files
+/// (`Ccomment`, `Preproc`) are filtered out, since the Python
+/// facade has no way to feed them a file and exposing them on the
+/// `language` argument would let callers route arbitrary source
+/// through the C-preprocessing pipeline.
+fn public_languages() -> impl Iterator<Item = LANG> {
+    LANG::into_enum_iter().filter(|lang| !lang.get_extensions().is_empty())
+}
+
 /// Returns the supported language names, in declaration order.
 ///
 /// "Supported" here means the variant exists in the `LANG` enum and
@@ -76,10 +88,7 @@ pub(crate) fn language_for_file(path: &Path) -> Option<&'static str> {
 /// are filtered out because they cannot be reached through any
 /// extension table and accept no user input.
 pub(crate) fn supported_languages() -> Vec<&'static str> {
-    LANG::into_enum_iter()
-        .filter(|lang| !lang.get_extensions().is_empty())
-        .map(lang_to_name)
-        .collect()
+    public_languages().map(lang_to_name).collect()
 }
 
 /// Returns the file extensions that resolve to `name`, or `None` when
@@ -105,9 +114,7 @@ pub(crate) fn language_extensions(name: &str) -> Option<Vec<&'static str>> {
 /// to `UnsupportedLanguageError` on the Python side.
 pub(crate) fn parse_language_name(name: &str) -> Option<LANG> {
     let needle = name.to_lowercase();
-    LANG::into_enum_iter()
-        .filter(|lang| !lang.get_extensions().is_empty())
-        .find(|lang| lang_to_name(*lang) == needle)
+    public_languages().find(|lang| lang_to_name(*lang) == needle)
 }
 
 #[cfg(test)]
