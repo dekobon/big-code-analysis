@@ -1,20 +1,24 @@
 //! Bridge between the Python entry points and the upstream library.
 //!
 //! These functions own the I/O, language resolution, and tree-sitter
-//! parsing concerns; the result is always a `serde_json::Value`
-//! representation of a [`big_code_analysis::FuncSpace`], so the
-//! caller in [`crate::lib`] can hand it to
-//! [`crate::conversion::json_value_to_py`] for the final hop.
+//! parsing concerns; the result is always a JSON `String`
+//! representation of a [`big_code_analysis::FuncSpace`], produced by
+//! `serde_json::to_string(&space)` — the exact same serializer the
+//! `bca` CLI uses for its `--output-format json` path. The caller in
+//! [`crate::lib`] hands the string to [`crate::conversion::json_string_to_py`]
+//! for the final hop into a Python `dict`.
 //!
-//! Routing through `serde_json::Value` (rather than hand-mapping the
-//! metric structs) is a deliberate choice — it pins byte-for-byte
-//! parity with `bca metrics --output json`, which serialises the
-//! same `FuncSpace` through `serde_json::to_string`.
+//! Routing through `serde_json::to_string` (rather than `to_value` +
+//! recursive Python conversion) is what makes the bindings'
+//! `analyze()` output byte-for-byte identical to the CLI's: both
+//! sides serialise the same struct through the same serializer in
+//! `Serialize`-impl declaration order. `to_value` would silently
+//! re-order keys alphabetically because `serde_json::Map` is a
+//! `BTreeMap` without the `preserve_order` Cargo feature.
 
 use std::path::Path;
 
 use big_code_analysis::{LANG, MetricsOptions, Source, analyze};
-use serde_json::Value;
 
 use crate::language::parse_language_name;
 
@@ -34,9 +38,10 @@ pub(crate) enum AnalysisError {
     /// Tree-sitter parser failed to produce a usable tree.
     Parse(big_code_analysis::MetricsError),
     /// Result could not be serialised through `serde_json`. In
-    /// practice this is unreachable for the metric serializers (no
-    /// NaN/Inf, no non-string map keys) and exists as a defensive arm
-    /// to keep the `?` chain clean.
+    /// practice this is unreachable for `FuncSpace` round-trips —
+    /// the metric `Serialize` impls treat non-finite floats as
+    /// `null` rather than emitting them — and exists as a
+    /// defensive arm to keep the `?` chain clean.
     Serialization(serde_json::Error),
 }
 
@@ -76,8 +81,8 @@ impl From<serde_json::Error> for AnalysisError {
 ///
 /// Reads the file, infers its language from the path extension via
 /// [`big_code_analysis::get_language_for_file`], parses, and returns
-/// the serialised `FuncSpace` as a `serde_json::Value`.
-pub(crate) fn analyze_path(path: &Path) -> Result<Value, AnalysisError> {
+/// the serialised `FuncSpace` as a JSON `String`.
+pub(crate) fn analyze_path(path: &Path) -> Result<String, AnalysisError> {
     let lang = big_code_analysis::get_language_for_file(path).ok_or_else(|| {
         AnalysisError::UnsupportedLanguage(format!(
             "no language registered for path {}",
@@ -99,16 +104,16 @@ pub(crate) fn analyze_source(
     language: &str,
     code: &[u8],
     name: Option<String>,
-) -> Result<Value, AnalysisError> {
+) -> Result<String, AnalysisError> {
     let lang = parse_language_name(language)
         .ok_or_else(|| AnalysisError::UnsupportedLanguage(language.to_owned()))?;
     analyze_bytes(lang, code, name)
 }
 
-fn analyze_bytes(lang: LANG, code: &[u8], name: Option<String>) -> Result<Value, AnalysisError> {
+fn analyze_bytes(lang: LANG, code: &[u8], name: Option<String>) -> Result<String, AnalysisError> {
     let source = Source::new(lang, code).with_name(name);
     let space = analyze(source, MetricsOptions::default())?;
-    Ok(serde_json::to_value(&space)?)
+    Ok(serde_json::to_string(&space)?)
 }
 
 /// Convenience accessor used by the `__version__` module attribute.
@@ -121,14 +126,70 @@ pub(crate) const PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
 mod tests {
     use super::*;
 
+    fn parse_json(s: &str) -> serde_json::Value {
+        serde_json::from_str(s).expect("analyze output is valid JSON")
+    }
+
     #[test]
     fn analyze_source_returns_json_object_for_rust_snippet() {
-        let value = analyze_source("rust", b"fn main() {}", Some("x.rs".to_owned()))
+        let s = analyze_source("rust", b"fn main() {}", Some("x.rs".to_owned()))
             .expect("rust snippet parses");
+        let value = parse_json(&s);
         let obj = value.as_object().expect("top-level is an object");
-        assert_eq!(obj.get("name").and_then(Value::as_str), Some("x.rs"));
+        assert_eq!(
+            obj.get("name").and_then(serde_json::Value::as_str),
+            Some("x.rs"),
+        );
         // The walker always emits a synthetic top-level Unit FuncSpace.
-        assert_eq!(obj.get("kind").and_then(Value::as_str), Some("unit"));
+        assert_eq!(
+            obj.get("kind").and_then(serde_json::Value::as_str),
+            Some("unit"),
+        );
+    }
+
+    #[test]
+    fn analyze_source_emits_declaration_order_keys() {
+        // The whole point of routing through `to_string` (rather than
+        // `to_value` + recursive Python conversion) is that the
+        // serialised bytes preserve the `FuncSpace` `Serialize`
+        // impl's field order: `name`, `start_line`, `end_line`,
+        // `kind`, `spaces`, `metrics`. Pin that here so a future
+        // refactor that re-introduces `to_value` (which would re-sort
+        // keys alphabetically through `BTreeMap`) is caught.
+        let s = analyze_source("rust", b"fn main() {}", Some("x.rs".to_owned()))
+            .expect("rust snippet parses");
+        // Find the first six top-level keys in the order they appear
+        // in the JSON string. Using a raw text scan because parsing
+        // through `serde_json::from_str` would push them through a
+        // `BTreeMap` again and erase the order.
+        let mut seen = Vec::new();
+        for key in [
+            "name",
+            "start_line",
+            "end_line",
+            "kind",
+            "spaces",
+            "metrics",
+        ] {
+            let needle = format!("\"{key}\"");
+            let pos = s.find(&needle).unwrap_or_else(|| {
+                panic!("key {key} not found in serialised output: {s}");
+            });
+            seen.push((pos, key));
+        }
+        seen.sort_by_key(|&(pos, _)| pos);
+        let observed: Vec<&str> = seen.into_iter().map(|(_, k)| k).collect();
+        assert_eq!(
+            observed,
+            [
+                "name",
+                "start_line",
+                "end_line",
+                "kind",
+                "spaces",
+                "metrics"
+            ],
+        );
     }
 
     #[test]
@@ -144,9 +205,9 @@ mod tests {
         // the bridge surfaces *something* (a JSON object) for
         // syntactically invalid Rust rather than propagating a
         // `MetricsError`.
-        let value = analyze_source("rust", b"fn missing_brace(", None)
+        let s = analyze_source("rust", b"fn missing_brace(", None)
             .expect("tree-sitter recovers on malformed input");
-        assert!(value.is_object());
+        assert!(parse_json(&s).is_object());
     }
 
     #[test]
