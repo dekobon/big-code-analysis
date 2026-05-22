@@ -195,14 +195,19 @@ mod tests {
     }
 
     #[test]
-    fn object_maps_to_python_dict_preserving_insertion_order() {
+    fn object_maps_to_python_dict_with_btreemap_key_order() {
+        // serde_json without `preserve_order` stores `Map` as a
+        // `BTreeMap`, so iteration is alphabetical regardless of
+        // insertion order. Build a map whose insertion order is
+        // explicitly *non*-alphabetical so the test would fail if
+        // `json_value_to_py` ever started honouring insertion order
+        // (for example after `serde_json/preserve_order` is enabled).
         Python::initialize();
         Python::attach(|py| {
-            // Build an explicit ordered map so we can assert key order.
             let mut map = serde_json::Map::new();
-            map.insert("first".to_owned(), json!(1));
-            map.insert("second".to_owned(), json!(2));
-            map.insert("third".to_owned(), json!(3));
+            map.insert("zeta".to_owned(), json!(1));
+            map.insert("alpha".to_owned(), json!(2));
+            map.insert("mu".to_owned(), json!(3));
             let obj = json_value_to_py(py, &Value::Object(map)).expect("object converts");
             assert!(obj.is_instance_of::<PyDict>());
             let dict = obj.cast_into::<PyDict>().expect("cast dict");
@@ -211,28 +216,57 @@ mod tests {
                 .iter()
                 .map(|k| k.extract::<String>().expect("key str"))
                 .collect();
-            assert_eq!(keys, ["first", "second", "third"]);
+            assert_eq!(keys, ["alpha", "mu", "zeta"]);
         });
     }
 
     #[test]
-    fn nested_structure_round_trips_field_order() {
-        // Mirror the FuncSpace shape: name (str), start_line (int),
-        // end_line (int), kind (str), spaces (list), metrics (dict).
+    fn nested_structure_pins_current_key_ordering() {
+        // The workspace does not enable serde_json's `preserve_order`
+        // feature, so `serde_json::Map` is a `BTreeMap` that sorts
+        // keys alphabetically. `json_value_to_py` iterates that map
+        // to populate the Python dict, so the *observed* order in
+        // the Python output is alphabetical, NOT the insertion
+        // order from the `FuncSpace` `Serialize` impl. This test
+        // pins that behaviour so any future change — for instance
+        // enabling `preserve_order` to actually match the CLI's
+        // serialised JSON — surfaces as a test break to be reviewed
+        // intentionally, not slipped in silently.
+        //
+        // The mismatch with the CLI's emitted JSON (`name`,
+        // `start_line`, …) is tracked separately; the `json_value_to_py`
+        // doc comment overstates the parity guarantee.
         Python::initialize();
         Python::attach(|py| {
-            let sample = json!({
-                "name": "snippet.rs",
-                "start_line": 1,
-                "end_line": 10,
-                "kind": "unit",
-                "spaces": [],
-                "metrics": {
-                    "nargs": { "total_functions": 0 },
-                }
-            });
-            let obj = json_value_to_py(py, &sample).expect("nested converts");
+            let mut metrics_map = serde_json::Map::new();
+            metrics_map.insert("nargs".to_owned(), json!({ "total_functions": 0 }));
+            let mut top = serde_json::Map::new();
+            top.insert("name".to_owned(), json!("snippet.rs"));
+            top.insert("start_line".to_owned(), json!(1));
+            top.insert("end_line".to_owned(), json!(10));
+            top.insert("kind".to_owned(), json!("unit"));
+            top.insert("spaces".to_owned(), json!([]));
+            top.insert("metrics".to_owned(), Value::Object(metrics_map));
+            let obj = json_value_to_py(py, &Value::Object(top)).expect("nested converts");
             let dict = obj.cast_into::<PyDict>().expect("cast top dict");
+            let keys: Vec<String> = dict
+                .keys()
+                .iter()
+                .map(|k| k.extract::<String>().expect("key str"))
+                .collect();
+            assert_eq!(
+                keys,
+                [
+                    "end_line",
+                    "kind",
+                    "metrics",
+                    "name",
+                    "spaces",
+                    "start_line"
+                ],
+                "observed key order should be BTreeMap-alphabetical until \
+                 `serde_json/preserve_order` is enabled",
+            );
             assert_eq!(
                 dict.get_item("name")
                     .expect("get name")

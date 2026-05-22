@@ -104,13 +104,26 @@ def test_version_matches_workspace_cargo_toml() -> None:
     ],
 )
 def test_analyze_matches_cli_json(fixture: str) -> None:
-    """``analyze(path)`` must match ``bca metrics --output json`` exactly.
+    """``analyze(path)`` must match ``bca metrics --output json`` structurally.
 
-    Compare the *parsed* JSON rather than the raw string so dict key
-    ordering differences from Python's ``json.dumps`` reordering do
-    not produce a false negative — but the byte-for-byte expectation
-    still holds because ``json.loads(json.dumps(d, sort_keys=True))``
-    of either side yields the same canonical structure.
+    The comparison is *parsed-dict equality*, not literal byte
+    equality. Two known limitations of that choice:
+
+    1. Python's ``dict ==`` treats ``1 == 1.0`` as equal, so an
+       int-vs-float drift between the two sides would pass silently.
+       The current metric serialisers emit every numeric field as a
+       float on both sides, so this is not a present concern but it
+       does weaken the "byte-for-byte" claim.
+    2. Dict key order is not compared — and the two sides currently
+       differ on order: the CLI emits ``FuncSpace`` ``Serialize``
+       order (``name``, ``start_line``, …) while the bindings emit
+       alphabetical order because the workspace's ``serde_json`` is
+       compiled without the ``preserve_order`` feature, so
+       ``serde_json::Map`` falls back to ``BTreeMap`` ordering.
+
+    Both limitations are tracked separately; this test pins
+    structural / value equality and is the right thing for catching
+    metric-value regressions across the bindings boundary.
     """
     path = FIXTURES / fixture
     py_result = bca.analyze(path)
