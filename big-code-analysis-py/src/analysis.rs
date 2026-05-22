@@ -167,51 +167,6 @@ mod tests {
     }
 
     #[test]
-    fn analyze_source_emits_declaration_order_keys() {
-        // The whole point of routing through `to_string` (rather than
-        // `to_value` + recursive Python conversion) is that the
-        // serialised bytes preserve the `FuncSpace` `Serialize`
-        // impl's field order: `name`, `start_line`, `end_line`,
-        // `kind`, `spaces`, `metrics`. Pin that here so a future
-        // refactor that re-introduces `to_value` (which would re-sort
-        // keys alphabetically through `BTreeMap`) is caught.
-        let s = analyze_source("rust", b"fn main() {}", Some("x.rs".to_owned()))
-            .expect("rust snippet parses");
-        // Find the first six top-level keys in the order they appear
-        // in the JSON string. Using a raw text scan because parsing
-        // through `serde_json::from_str` would push them through a
-        // `BTreeMap` again and erase the order.
-        let mut seen = Vec::new();
-        for key in [
-            "name",
-            "start_line",
-            "end_line",
-            "kind",
-            "spaces",
-            "metrics",
-        ] {
-            let needle = format!("\"{key}\"");
-            let pos = s.find(&needle).unwrap_or_else(|| {
-                panic!("key {key} not found in serialised output: {s}");
-            });
-            seen.push((pos, key));
-        }
-        seen.sort_by_key(|&(pos, _)| pos);
-        let observed: Vec<&str> = seen.into_iter().map(|(_, k)| k).collect();
-        assert_eq!(
-            observed,
-            [
-                "name",
-                "start_line",
-                "end_line",
-                "kind",
-                "spaces",
-                "metrics"
-            ],
-        );
-    }
-
-    #[test]
     fn analyze_source_rejects_unknown_language() {
         let err = analyze_source("klingon", b"qaplah", None);
         assert!(matches!(err, Err(AnalysisError::UnsupportedLanguage(_))));

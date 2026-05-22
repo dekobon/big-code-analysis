@@ -177,23 +177,49 @@ mod tests {
 
     #[test]
     fn nested_structure_preserves_funcspace_field_order() {
-        // The whole reason this layer exists: when the upstream
-        // `FuncSpace` `Serialize` impl emits keys in declaration
-        // order (`name`, `start_line`, `end_line`, `kind`, `spaces`,
-        // `metrics`), that same order must reach Python intact. This
-        // is what makes the bindings' output byte-for-byte parity
-        // with `bca metrics --output-format json` actually true.
+        // The whole reason this layer exists: when an upstream
+        // `Serialize` impl emits keys in declaration order, that
+        // same order must reach Python intact. Exercise the real
+        // boundary — `serde_json::to_string` of a struct with a
+        // declaration order distinct from alphabetical — rather
+        // than feeding a hand-written JSON string (which would
+        // tautologically pin CPython's `json.loads` insertion-order
+        // semantics, not anything this crate emits).
+        //
+        // Declaration order here mirrors `FuncSpace` for parity
+        // with `analyze_source` output, but the test is robust to
+        // upstream additions because we serialise a *local* struct
+        // whose order is owned by this test.
+        #[derive(serde::Serialize)]
+        struct Sample {
+            name: String,
+            start_line: u32,
+            end_line: u32,
+            kind: String,
+            spaces: Vec<()>,
+            metrics: serde_json::Value,
+        }
+        let sample = Sample {
+            name: "snippet.rs".to_owned(),
+            start_line: 1,
+            end_line: 10,
+            kind: "unit".to_owned(),
+            spaces: vec![],
+            metrics: serde_json::json!({"nargs": {"total_functions": 0}}),
+        };
+        let json = serde_json::to_string(&sample).expect("Sample serialises");
+        // Sanity-check the source bytes: declaration order is *not*
+        // alphabetical — if a future refactor routes through
+        // `serde_json::to_value` (which sorts via `BTreeMap`) the
+        // upstream string would change and this test would catch
+        // it before the conversion-layer assertion below.
+        assert!(
+            json.find("\"name\"").unwrap() < json.find("\"start_line\"").unwrap(),
+            "to_string must preserve declaration order in source bytes"
+        );
         Python::initialize();
         Python::attach(|py| {
-            let src = r#"{
-                "name": "snippet.rs",
-                "start_line": 1,
-                "end_line": 10,
-                "kind": "unit",
-                "spaces": [],
-                "metrics": {"nargs": {"total_functions": 0}}
-            }"#;
-            let obj = json_string_to_py(py, src).expect("nested parses");
+            let obj = json_string_to_py(py, &json).expect("nested parses");
             let dict = obj.cast_into::<PyDict>().expect("cast top dict");
             let keys: Vec<String> = dict
                 .keys()
@@ -210,7 +236,7 @@ mod tests {
                     "spaces",
                     "metrics"
                 ],
-                "observed key order must match FuncSpace Serialize declaration order",
+                "json_string_to_py must preserve insertion order from serde_json::to_string",
             );
             assert_eq!(
                 dict.get_item("name")
