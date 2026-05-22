@@ -41,5 +41,12 @@ big-code-analysis = { path = "..", default-features = true }
 pyo3 = { workspace = true }
 serde_json = { workspace = true }
 
+[build-dependencies]
+# `add_libpython_rpath_link_args` in `build.rs` bakes the libpython
+# rpath into binaries that embed Python (i.e. `cargo test`), so the
+# harness finds `libpython3.12.so` without an `LD_LIBRARY_PATH`
+# crutch. Pinned to the same minor as the runtime `pyo3` dep.
+pyo3-build-config = "0.28"
+
 [lints]
 workspace = true

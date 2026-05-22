@@ -427,6 +427,7 @@ version = "0.0.25"
 dependencies = [
  "big-code-analysis",
  "pyo3",
+ "pyo3-build-config",
  "serde_json",
 ]
 
