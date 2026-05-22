@@ -15,6 +15,7 @@ import json
 import os
 import shutil
 import subprocess
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -31,29 +32,29 @@ def _workspace_version() -> str:
 
     Avoids hard-coding the version in the test — bumping the workspace
     version must propagate to ``bca.__version__`` without test edits.
+    Uses ``tomllib`` (stdlib since 3.11; the bindings target >=3.12)
+    rather than a hand-rolled line parser, which would mis-match a
+    future ``versioning-strategy = ...`` key or a multi-line value.
     """
     cargo_toml = REPO_ROOT / "Cargo.toml"
-    in_workspace_package = False
-    for line in cargo_toml.read_text().splitlines():
-        stripped = line.strip()
-        if stripped == "[workspace.package]":
-            in_workspace_package = True
-            continue
-        if stripped.startswith("[") and stripped.endswith("]"):
-            in_workspace_package = False
-            continue
-        if in_workspace_package and stripped.startswith("version"):
-            _, _, value = stripped.partition("=")
-            return value.strip().strip('"')
-    raise RuntimeError("could not parse workspace version from Cargo.toml")
+    with cargo_toml.open("rb") as fh:
+        data = tomllib.load(fh)
+    return data["workspace"]["package"]["version"]
 
 
-def _bca_binary() -> str | None:
-    """Locate the ``bca`` CLI binary.
+def _locate_bca_binary() -> str | None:
+    """Locate a prebuilt ``bca`` CLI binary, without building one.
 
     Prefer ``$BCA_BINARY`` if set; otherwise look in the workspace's
-    ``target/debug`` and ``target/release`` directories. Tests that
-    require the CLI are skipped when the binary cannot be found.
+    ``target/debug`` and ``target/release`` directories. Returns
+    ``None`` if no binary is found.
+
+    Deliberately does NOT fall back to ``shutil.which("bca")`` —
+    a system-wide ``bca`` may be a different version than the
+    workspace currently checked out, which would silently break the
+    parity tests with mismatched JSON shape. The parity contract is
+    tested against THIS workspace's CLI; the fixture builds one if
+    needed.
     """
     env_path = os.environ.get("BCA_BINARY")
     if env_path and Path(env_path).is_file():
@@ -64,17 +65,56 @@ def _bca_binary() -> str | None:
     ):
         if candidate.is_file():
             return str(candidate)
-    return shutil.which("bca")
+    return None
 
 
-def _cli_metrics(path: Path) -> Any:
-    """Run ``bca metrics --output-format json`` on ``path`` and parse.
+@pytest.fixture(scope="session")
+def bca_binary() -> str:
+    """Session-scoped path to the ``bca`` CLI binary, built if needed.
 
-    Skips the calling test if the CLI binary is unavailable.
+    The parity tests compare ``analyze()`` output against the CLI's
+    JSON, so a missing CLI silently skipping every parity test
+    (G1: ``pytest.skip`` with no signal in the summary) would defeat
+    the whole contract. This fixture instead BUILDS the CLI on demand
+    via ``cargo build -p big-code-analysis-cli`` and only fails when
+    even that cannot succeed (no cargo, no source, network down on a
+    fresh check-out, …) — surfaced as a fixture error, not a silent
+    skip.
     """
-    bca_path = _bca_binary()
-    if bca_path is None:
-        pytest.skip("bca CLI not built; run `cargo build` first or set BCA_BINARY")
+    existing = _locate_bca_binary()
+    if existing is not None:
+        return existing
+    cargo = shutil.which("cargo")
+    if cargo is None:
+        pytest.fail(
+            "bca CLI is not built and `cargo` is not on PATH; "
+            "parity tests cannot run. Set $BCA_BINARY to a prebuilt "
+            "binary, or install Rust and re-run."
+        )
+    result = subprocess.run(
+        [cargo, "build", "-p", "big-code-analysis-cli", "--quiet"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        pytest.fail(
+            "`cargo build -p big-code-analysis-cli` failed; parity "
+            f"tests cannot run.\nstdout:\n{result.stdout}\n"
+            f"stderr:\n{result.stderr}"
+        )
+    built = _locate_bca_binary()
+    if built is None:
+        pytest.fail(
+            "cargo build succeeded but the bca binary is still not "
+            "locatable — search paths may need updating."
+        )
+    return built
+
+
+def _cli_metrics(bca_path: str, path: Path) -> Any:
+    """Run ``bca metrics --output-format json`` on ``path`` and parse."""
     result = subprocess.run(
         [bca_path, "metrics", "--output-format", "json", "--paths", str(path)],
         check=True,
@@ -103,7 +143,7 @@ def test_version_matches_workspace_cargo_toml() -> None:
         "hello.cpp",
     ],
 )
-def test_analyze_matches_cli_json(fixture: str) -> None:
+def test_analyze_matches_cli_json(fixture: str, bca_binary: str) -> None:
     """``analyze(path)`` must match ``bca metrics --output-format json`` byte-for-byte.
 
     Both sides serialise the same ``FuncSpace`` through
@@ -125,7 +165,7 @@ def test_analyze_matches_cli_json(fixture: str) -> None:
     """
     path = FIXTURES / fixture
     py_result = bca.analyze(path)
-    cli_result = _cli_metrics(path)
+    cli_result = _cli_metrics(bca_binary, path)
     assert py_result == cli_result
 
 
@@ -138,7 +178,7 @@ def test_analyze_matches_cli_json(fixture: str) -> None:
         "hello.cpp",
     ],
 )
-def test_analyze_key_order_matches_cli(fixture: str) -> None:
+def test_analyze_key_order_matches_cli(fixture: str, bca_binary: str) -> None:
     """Bindings must preserve the CLI's ``FuncSpace`` field order.
 
     Parses the CLI's stdout with ``json.loads`` so both sides yield
@@ -151,7 +191,7 @@ def test_analyze_key_order_matches_cli(fixture: str) -> None:
     """
     path = FIXTURES / fixture
     py_result = bca.analyze(path)
-    cli_result = _cli_metrics(path)
+    cli_result = _cli_metrics(bca_binary, path)
     assert list(py_result.keys()) == list(cli_result.keys()), (
         f"top-level key order diverged: py={list(py_result.keys())} "
         f"cli={list(cli_result.keys())}"
@@ -221,28 +261,52 @@ def test_analyze_raises_unsupported_language_for_unknown_extension(
 ) -> None:
     bogus = tmp_path / "thing.unknownext"
     bogus.write_text("noise")
-    with pytest.raises(bca.UnsupportedLanguageError):
+    with pytest.raises(
+        bca.UnsupportedLanguageError,
+        match=r"no language registered for path .*\.unknownext",
+    ):
         bca.analyze(bogus)
 
 
 def test_analyze_source_raises_unsupported_language_for_unknown_name() -> None:
-    with pytest.raises(bca.UnsupportedLanguageError):
+    with pytest.raises(bca.UnsupportedLanguageError, match=r"^klingon$"):
         bca.analyze_source("noise", "klingon")
 
 
 def test_language_extensions_raises_unsupported_language_for_unknown_name() -> None:
-    with pytest.raises(bca.UnsupportedLanguageError):
+    with pytest.raises(bca.UnsupportedLanguageError, match=r"^klingon$"):
         bca.language_extensions("klingon")
 
 
-def test_analyze_raises_oserror_for_missing_file(tmp_path: Path) -> None:
+def test_analyze_raises_filenotfounderror_with_errno_and_filename(
+    tmp_path: Path,
+) -> None:
+    """`analyze` on a missing file must dispatch to FileNotFoundError
+    and populate ``errno`` / ``filename`` so idiomatic Python handling
+    works.
+
+    A bare ``OSError(message)`` (one-argument form) does not trigger
+    CPython's subclass dispatch and leaves ``errno`` / ``filename``
+    set to ``None``.
+    """
+    import errno as _errno
+
     missing = tmp_path / "does_not_exist.rs"
-    with pytest.raises(OSError):
+    with pytest.raises(FileNotFoundError) as exc_info:
         bca.analyze(missing)
+    err = exc_info.value
+    assert err.errno == _errno.ENOENT
+    assert err.filename == str(missing)
 
 
 def test_analyze_source_rejects_non_text_non_bytes_code() -> None:
-    with pytest.raises(ValueError):
+    # Pin the exact message so a future regression where the bad
+    # input falls through to the language resolver (and raises
+    # UnsupportedLanguageError, which is also a ValueError subclass)
+    # is caught — G7 from the post-#265 code review.
+    with pytest.raises(
+        ValueError, match=r"code must be str, bytes, or bytearray"
+    ):
         bca.analyze_source(12345, "rust")  # type: ignore[arg-type]
 
 

@@ -27,7 +27,10 @@ why no value stability is offered until `1.0`. Entries above the
   `supported_languages`, `language_extensions`, plus
   `UnsupportedLanguageError` and `ParseError` (both `ValueError`
   subclasses). `analyze()` output is byte-for-byte equal to
-  `bca metrics --output json` for the same input — the bindings
+  `bca metrics --output-format json` for the same input (modulo
+  CLI-only behaviours tracked as phase-1 follow-ups: shebang
+  detection #314, `--exclude-tests` kwarg #315, non-UTF-8 path
+  policy #316, `is_generated` filter #317) — the bindings
   serialize `FuncSpace` through `serde_json::to_string` and rebuild
   the Python `dict` via `json.loads`, so CPython's insertion-order
   semantics carry the field order through. PEP 561 type stubs ship
