@@ -1,0 +1,48 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "big-code-analysis"
+description = "Python bindings for the big-code-analysis Rust library"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MPL-2.0"
+authors = [
+  { name = "Calixte Denizet", email = "cdenizet@mozilla.com" },
+  { name = "Elijah Zupancic", email = "elijah@zupancic.name" },
+]
+keywords = ["metrics", "tree-sitter", "static-analysis"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Rust",
+  "Topic :: Software Development :: Libraries",
+  "Topic :: Software Development :: Quality Assurance",
+]
+# Version is read from the Rust workspace's Cargo.toml at build time
+# by maturin (see [tool.maturin].version below).
+dynamic = ["version"]
+
+[project.urls]
+Repository = "https://github.com/dekobon/big-code-analysis"
+
+[project.optional-dependencies]
+# Test/lint dependencies. Hermetic — `uv pip install -e .[dev]`
+# is the supported development install.
+dev = ["pytest>=8.0", "mypy>=1.10"]
+
+[tool.maturin]
+# Compiled extension lands at `big_code_analysis._native` so the
+# Python facade in `python/big_code_analysis/__init__.py` can re-export
+# from it without colliding with the package name.
+module-name = "big_code_analysis._native"
+python-source = "python"
+# `extension-module` is gated behind a Cargo feature so a plain
+# `cargo test` from inside the workspace can use `pyo3/auto-initialize`
+# instead. maturin builds always need the wheel-side variant.
+features = ["pyo3/extension-module"]
+no-default-features = true
