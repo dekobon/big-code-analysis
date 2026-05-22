@@ -189,7 +189,13 @@ mod tests {
         // Declaration order here mirrors `FuncSpace` for parity
         // with `analyze_source` output, but the test is robust to
         // upstream additions because we serialise a *local* struct
-        // whose order is owned by this test.
+        // whose order is owned by this test. `FuncSpace` carries one
+        // additional field — `suppressed` — that is
+        // `#[serde(skip_serializing_if = ...)]` and absent from the
+        // JSON when the suppression scope is empty; we elide it from
+        // `Sample` for that reason. The Python
+        // `test_analyze_key_order_matches_cli` exercises the full
+        // shape against the CLI binary.
         #[derive(serde::Serialize)]
         struct Sample {
             name: String,

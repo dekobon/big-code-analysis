@@ -42,27 +42,37 @@ def _workspace_version() -> str:
     return data["workspace"]["package"]["version"]
 
 
-def _locate_bca_binary() -> str | None:
-    """Locate a prebuilt ``bca`` CLI binary, without building one.
+def _workspace_target_dir() -> Path:
+    """Resolve the cargo target directory, honouring ``$CARGO_TARGET_DIR``.
 
-    Prefer ``$BCA_BINARY`` if set; otherwise look in the workspace's
-    ``target/debug`` and ``target/release`` directories. Returns
-    ``None`` if no binary is found.
+    Falls back to ``<repo-root>/target`` when the env var is unset.
+    Without this, CI configs that set ``$CARGO_TARGET_DIR`` (sccache,
+    isolated build dirs, …) would build the CLI successfully but
+    leave ``_locate_workspace_binary`` returning ``None``.
+    """
+    env_dir = os.environ.get("CARGO_TARGET_DIR")
+    if env_dir:
+        return Path(env_dir)
+    return REPO_ROOT / "target"
 
-    Deliberately does NOT fall back to ``shutil.which("bca")`` —
-    a system-wide ``bca`` may be a different version than the
+
+def _locate_workspace_binary() -> str | None:
+    """Look for a freshly-built ``bca`` under the workspace target dir.
+
+    Searches the standard ``debug`` and ``release`` subdirs of the
+    effective ``CARGO_TARGET_DIR``. Returns ``None`` if neither
+    exists — the fixture's job is then to invoke ``cargo build`` and
+    retry.
+
+    Deliberately does NOT fall back to ``shutil.which("bca")`` — a
+    system-wide ``bca`` may be a different version than the
     workspace currently checked out, which would silently break the
     parity tests with mismatched JSON shape. The parity contract is
     tested against THIS workspace's CLI; the fixture builds one if
     needed.
     """
-    env_path = os.environ.get("BCA_BINARY")
-    if env_path and Path(env_path).is_file():
-        return env_path
-    for candidate in (
-        REPO_ROOT / "target" / "debug" / "bca",
-        REPO_ROOT / "target" / "release" / "bca",
-    ):
+    target = _workspace_target_dir()
+    for candidate in (target / "debug" / "bca", target / "release" / "bca"):
         if candidate.is_file():
             return str(candidate)
     return None
@@ -80,16 +90,34 @@ def bca_binary() -> str:
     even that cannot succeed (no cargo, no source, network down on a
     fresh check-out, …) — surfaced as a fixture error, not a silent
     skip.
+
+    Always invokes ``cargo build`` unless ``$BCA_BINARY`` is set
+    explicitly. Cargo is idempotent (no-op when nothing changed), so
+    the repeated invocation is essentially free on cache hits. The
+    rebuild is load-bearing: a stale ``target/debug/bca`` from a
+    previous branch checkout is the same failure class as a system-
+    wide ``bca`` of a different version — the fixture's contract is
+    "match the source tree currently checked out", and only a
+    freshly-built binary satisfies that.
     """
-    existing = _locate_bca_binary()
-    if existing is not None:
-        return existing
+    env_path = os.environ.get("BCA_BINARY")
+    if env_path:
+        # Caller knows what they're doing — trust the path without
+        # rebuilding. Useful for CI configs that build the CLI in a
+        # separate job and pass it through artifact upload/download.
+        if not Path(env_path).is_file():
+            pytest.fail(
+                f"$BCA_BINARY={env_path!r} does not point at a "
+                "regular file; either fix the path or unset to let "
+                "the fixture build the CLI."
+            )
+        return env_path
     cargo = shutil.which("cargo")
     if cargo is None:
         pytest.fail(
-            "bca CLI is not built and `cargo` is not on PATH; "
-            "parity tests cannot run. Set $BCA_BINARY to a prebuilt "
-            "binary, or install Rust and re-run."
+            "bca CLI cannot be built: `cargo` is not on PATH. Set "
+            "$BCA_BINARY to a prebuilt binary, or install Rust and "
+            "re-run."
         )
     result = subprocess.run(
         [cargo, "build", "-p", "big-code-analysis-cli", "--quiet"],
@@ -104,11 +132,14 @@ def bca_binary() -> str:
             f"tests cannot run.\nstdout:\n{result.stdout}\n"
             f"stderr:\n{result.stderr}"
         )
-    built = _locate_bca_binary()
+    built = _locate_workspace_binary()
     if built is None:
+        target = _workspace_target_dir()
         pytest.fail(
-            "cargo build succeeded but the bca binary is still not "
-            "locatable — search paths may need updating."
+            f"cargo build succeeded but no bca binary was found "
+            f"under {target}/{{debug,release}}/. If you set "
+            "$CARGO_TARGET_DIR, ensure the fixture sees the same "
+            "value as the cargo invocation."
         )
     return built
 
