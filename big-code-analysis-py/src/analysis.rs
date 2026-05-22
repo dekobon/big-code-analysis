@@ -34,6 +34,34 @@ use big_code_analysis::{LANG, MetricsOptions, Source, analyze, guess_language, i
 
 use crate::language::parse_language_name;
 
+/// File-analysis policy knobs threaded through [`analyze_path`].
+///
+/// Each field maps one-to-one to a keyword-only kwarg on the public
+/// `bca.analyze` Python entry point. The struct is `pub(crate)` and
+/// owned by the bridge layer; the `PyO3` dispatcher in [`crate::lib`]
+/// builds it from the kwargs and hands the whole record across the
+/// crate boundary so call sites read as
+/// `analyze_path(&path, AnalyzeOptions { skip_generated: false, ..Default::default() })`
+/// rather than relying on positional bool order.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct AnalyzeOptions {
+    /// Mirror `bca metrics --exclude-tests`: prune Rust `#[test]` /
+    /// `#[cfg(test)]` subtrees before any per-metric `compute` runs
+    /// (#315).
+    pub exclude_tests: bool,
+    /// Substitute U+FFFD for non-UTF-8 path bytes via
+    /// `Path::to_string_lossy` instead of returning
+    /// `AnalysisError::NonUtf8Path`. Opt-in by design — the strict
+    /// default keeps `FuncSpace.name` a round-trippable identifier
+    /// (#316).
+    pub allow_lossy_path: bool,
+    /// Skip the file (return `Ok(None)`) when its leading window
+    /// matches [`big_code_analysis::is_generated`]'s `@generated` /
+    /// `DO NOT EDIT` / `GENERATED CODE` predicate. Default `true`
+    /// (set via call sites) matches the CLI walker (#317).
+    pub skip_generated: bool,
+}
+
 /// Errors surfaced from the bridge layer. Mapped to specific Python
 /// exception types in [`crate::lib`].
 #[derive(Debug)]
@@ -182,9 +210,7 @@ impl From<serde_json::Error> for AnalysisError {
 /// `UnsupportedLanguage`, matching the CLI walker's ordering.
 pub(crate) fn analyze_path(
     path: &Path,
-    exclude_tests: bool,
-    allow_lossy_path: bool,
-    skip_generated: bool,
+    opts: AnalyzeOptions,
 ) -> Result<Option<String>, AnalysisError> {
     // Resolve the `FuncSpace.name` *before* the file read so a
     // non-UTF-8 path in strict mode can never reach `path.display()`
@@ -198,7 +224,7 @@ pub(crate) fn analyze_path(
     // a silent identifier corruption.
     let name = match path.to_str() {
         Some(s) => s.to_owned(),
-        None if allow_lossy_path => path.to_string_lossy().into_owned(),
+        None if opts.allow_lossy_path => path.to_string_lossy().into_owned(),
         None => return Err(AnalysisError::NonUtf8Path),
     };
     // Capture the path on I/O failure so the Python OSError carries
@@ -213,7 +239,7 @@ pub(crate) fn analyze_path(
     // returns `Ok(None)` rather than raising `UnsupportedLanguage` —
     // matches the CLI walker, which discards generated files without
     // attempting to resolve their language.
-    if skip_generated && is_generated(&code) {
+    if opts.skip_generated && is_generated(&code) {
         return Ok(None);
     }
     // `guess_language` returns a `(Option<LANG>, &str)` tuple — we
@@ -225,7 +251,7 @@ pub(crate) fn analyze_path(
             path.display()
         ))
     })?;
-    analyze_bytes(lang, &code, Some(name), exclude_tests).map(Some)
+    analyze_bytes(lang, &code, Some(name), opts.exclude_tests).map(Some)
 }
 
 /// Analyse an in-memory source buffer with an explicit language.
@@ -383,7 +409,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("thing.unknownext");
         std::fs::write(&path, b"noise\n").expect("write fixture");
-        let err = analyze_path(&path, false, false, false);
+        let err = analyze_path(&path, AnalyzeOptions::default());
         assert!(matches!(err, Err(AnalysisError::UnsupportedLanguage(_))));
     }
 
@@ -407,7 +433,7 @@ mod tests {
         let path = dir.path().join("install");
         let source = b"#!/usr/bin/env python\ndef hello(name):\n    return name\n";
         std::fs::write(&path, source).expect("write fixture");
-        let json = analyze_path(&path, false, false, false)
+        let json = analyze_path(&path, AnalyzeOptions::default())
             .expect("shebang script analyses")
             .expect("non-generated file yields a populated FuncSpace");
         let value = parse_json(&json);
@@ -456,7 +482,7 @@ mod tests {
         let raw = [0xffu8, 0xff, b'.', b'r', b's'];
         let path = dir.path().join(OsStr::from_bytes(&raw));
         std::fs::write(&path, b"fn main() {}\n").expect("write fixture");
-        let err = analyze_path(&path, false, false, false);
+        let err = analyze_path(&path, AnalyzeOptions::default());
         assert!(
             matches!(err, Err(AnalysisError::NonUtf8Path)),
             "strict mode must reject non-UTF-8 path, got {err:?}",
@@ -476,9 +502,15 @@ mod tests {
         let raw = [0xffu8, 0xff, b'.', b'r', b's'];
         let path = dir.path().join(OsStr::from_bytes(&raw));
         std::fs::write(&path, b"fn main() {}\n").expect("write fixture");
-        let json = analyze_path(&path, false, true, false)
-            .expect("lossy mode parses non-UTF-8 path")
-            .expect("non-generated file yields a populated FuncSpace");
+        let json = analyze_path(
+            &path,
+            AnalyzeOptions {
+                allow_lossy_path: true,
+                ..AnalyzeOptions::default()
+            },
+        )
+        .expect("lossy mode parses non-UTF-8 path")
+        .expect("non-generated file yields a populated FuncSpace");
         let value = parse_json(&json);
         let name = value
             .get("name")
@@ -521,7 +553,14 @@ mod tests {
             b"// @generated by some-tool. DO NOT EDIT.\npub fn x() {}\n",
         )
         .expect("write fixture");
-        let out = analyze_path(&path, false, false, true).expect("generated file is not an error");
+        let out = analyze_path(
+            &path,
+            AnalyzeOptions {
+                skip_generated: true,
+                ..AnalyzeOptions::default()
+            },
+        )
+        .expect("generated file is not an error");
         assert!(
             out.is_none(),
             "skip_generated=true must elide the FuncSpace, got Some(_)",
@@ -545,7 +584,7 @@ mod tests {
             b"// @generated by some-tool. DO NOT EDIT.\npub fn x() {}\n",
         )
         .expect("write fixture");
-        let json = analyze_path(&path, false, false, false)
+        let json = analyze_path(&path, AnalyzeOptions::default())
             .expect("generated file parses with skip_generated=false")
             .expect("skip_generated=false must yield Some(json)");
         let value = parse_json(&json);
@@ -577,8 +616,14 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("gen.unknownext");
         std::fs::write(&path, b"// @generated\npub fn x() {}\n").expect("write fixture");
-        let out =
-            analyze_path(&path, false, false, true).expect("skip must precede language inference");
+        let out = analyze_path(
+            &path,
+            AnalyzeOptions {
+                skip_generated: true,
+                ..AnalyzeOptions::default()
+            },
+        )
+        .expect("skip must precede language inference");
         assert!(out.is_none(), "expected None, got {out:?}");
     }
 }
