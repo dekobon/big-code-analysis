@@ -38,10 +38,10 @@ pub(crate) enum AnalysisError {
     /// Tree-sitter parser failed to produce a usable tree.
     Parse(big_code_analysis::MetricsError),
     /// Result could not be serialised through `serde_json`. In
-    /// practice this fires only on the NaN/Inf path (a metric struct
-    /// with a non-finite float — possible for several
-    /// "no functions in code" metrics today), which `serde_json`
-    /// refuses to encode as valid JSON.
+    /// practice this is unreachable for `FuncSpace` round-trips —
+    /// the metric `Serialize` impls treat non-finite floats as
+    /// `null` rather than emitting them — and exists as a
+    /// defensive arm to keep the `?` chain clean.
     Serialization(serde_json::Error),
 }
 
