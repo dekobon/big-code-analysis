@@ -137,6 +137,12 @@ fn rule_description(metric: &str) -> &str {
 /// The empty case emits a well-formed run with empty `results: []` and
 /// `rules: []` so snapshots are stable and CI consumers can already
 /// integrate before the threshold engine (#96) lands.
+///
+/// # Errors
+///
+/// Returns any [`io::Error`] produced by `writer` while emitting the
+/// SARIF JSON document, or a `serde_json::Error` (mapped to `io::Error`
+/// via `io::Error::other`) if a record cannot be serialised.
 pub fn write_sarif<W: Write>(offenders: &[OffenderRecord], mut writer: W) -> io::Result<()> {
     let mut results: Vec<SarifResult<'_>> = Vec::with_capacity(offenders.len());
     // BTreeSet so the rules array is deterministic (alphabetical by id).

@@ -208,6 +208,20 @@ impl<Config: 'static + Send + Sync> ConcurrentRunner<Config> {
     /// * `config` - Information used to process a file.
     /// * `files_data` - Information about the files to be included or excluded
     ///   from a search more the number of paths considered in the search.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConcurrentErrors::Thread`] when any worker thread
+    /// (the single producer OR one of the `num_jobs` consumers)
+    /// cannot be spawned via [`std::thread::Builder::spawn`];
+    /// [`ConcurrentErrors::Producer`] when the producer thread
+    /// panics during its directory walk and join fails;
+    /// [`ConcurrentErrors::Sender`] when a worker cannot place an
+    /// item (or the post-walk `None` poison-pill) on the channel;
+    /// [`ConcurrentErrors::Receiver`] when a consumer thread panics
+    /// and its join fails. Per-file processing errors raised by the
+    /// user-supplied callbacks are surfaced through the callbacks
+    /// themselves, not through this `Result`.
     pub fn run(
         self,
         config: Config,

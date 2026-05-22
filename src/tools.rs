@@ -37,6 +37,12 @@ use crate::langs::*;
 /// `\n` after this call. This is intentional — the metric engine requires LF-
 /// only input — but it is a behavioural difference from a plain `fs::read`.
 ///
+/// # Errors
+///
+/// Returns any [`std::io::Error`] surfaced by [`File::open`] (the
+/// path is missing, lacks read permission, is a directory, …) or by
+/// [`File::read_to_end`] while reading the file contents.
+///
 /// # Examples
 ///
 /// ```
@@ -60,6 +66,13 @@ pub fn read_file(path: &Path) -> std::io::Result<Vec<u8>> {
 /// Reads a file, normalising all CR-only and CRLF line endings to LF, and ensures
 /// the buffer ends with exactly one `\n`. Returns `None` for files ≤ 3 bytes or
 /// files that appear to be non-UTF-8.
+///
+/// # Errors
+///
+/// Returns any [`std::io::Error`] surfaced by [`File::open`] (the
+/// path is missing, lacks read permission, is a directory, …) or by
+/// the subsequent reads from the open file handle. A non-UTF-8 head
+/// or a too-small file is reported via `Ok(None)`, not an error.
 ///
 /// # Examples
 ///
@@ -114,6 +127,12 @@ pub fn read_file_with_eol(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
 }
 
 /// Writes data to a file.
+///
+/// # Errors
+///
+/// Returns any [`std::io::Error`] surfaced by [`File::create`]
+/// (parent directory missing, lacks write permission, target is a
+/// directory, …) or by [`File::write_all`] while writing the buffer.
 ///
 /// # Examples
 ///

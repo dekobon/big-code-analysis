@@ -39,6 +39,12 @@ const DEFAULT_COL: u32 = 1;
 /// Format: `{path}:{line}:{col}: {severity}: {message} [{rule}]`,
 /// terminated by `\n`. Non-UTF-8 paths are skipped with a stderr
 /// warning. An empty `offenders` slice writes nothing.
+///
+/// # Errors
+///
+/// Returns any [`io::Error`] produced by `writer` while emitting a
+/// warning line. Stops at the first error; partially-written output
+/// may have reached the writer before the failure.
 pub fn write_clang_warning<W: Write>(
     offenders: &[OffenderRecord],
     mut writer: W,
@@ -69,6 +75,12 @@ pub fn write_clang_warning<W: Write>(
 /// (matching cl.exe output); on other platforms it is emitted as-is.
 /// Non-UTF-8 paths are skipped with a stderr warning. An empty
 /// `offenders` slice writes nothing.
+///
+/// # Errors
+///
+/// Returns any [`io::Error`] produced by `writer` while emitting a
+/// warning line. Stops at the first error; partially-written output
+/// may have reached the writer before the failure.
 pub fn write_msvc_warning<W: Write>(offenders: &[OffenderRecord], mut writer: W) -> io::Result<()> {
     for record in offenders {
         let Some(raw_path) = warn_non_utf8_path("msvc-warning", &record.path) else {

@@ -176,6 +176,12 @@ pub const CSV_HEADER: &[&str] = &[
 /// is not valid UTF-8 the entire document is skipped (header + zero
 /// rows) and a warning is emitted to stderr — there is no useful
 /// fallback for a CSV identifier.
+///
+/// # Errors
+///
+/// Returns any [`io::Error`] surfaced by the underlying [`csv::Writer`]
+/// while emitting the header row or any of the per-`FuncSpace` data
+/// rows. The error preserves the cause from the wrapped `writer`.
 pub fn write_csv<W: Write>(space: &FuncSpace, source_path: &Path, writer: W) -> io::Result<()> {
     let mut wtr = csv::WriterBuilder::new()
         .has_headers(false) // we drive the header manually so it stays in lock-step with CSV_HEADER

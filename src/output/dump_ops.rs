@@ -9,6 +9,11 @@ use crate::tools::{color, intense_color};
 ///
 /// Returns a [`Result`] value, when an error occurs.
 ///
+/// # Errors
+///
+/// Propagates any [`std::io::Error`] produced by the color-aware
+/// writer that backs `stdout` (broken pipe, write failure, …).
+///
 /// # Examples
 ///
 /// ```

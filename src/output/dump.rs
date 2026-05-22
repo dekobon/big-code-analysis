@@ -19,6 +19,11 @@ use crate::traits::*;
 ///
 /// Returns a [`Result`] value, when an error occurs.
 ///
+/// # Errors
+///
+/// Propagates any [`std::io::Error`] produced by the color-aware
+/// writer that backs `stdout` (broken pipe, write failure, …).
+///
 /// # Examples
 ///
 /// ```
