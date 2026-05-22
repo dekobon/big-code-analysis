@@ -230,12 +230,23 @@ def test_analyze_key_order_matches_cli(fixture: str, bca_binary: str) -> None:
 
 
 def test_analyze_source_str_bytes_bytearray_agree() -> None:
-    """All three input forms must yield byte-identical results."""
+    """All three input forms must yield equivalent results.
+
+    ``dict ==`` is structural (order-insensitive, ``1 == 1.0``), so it
+    is a necessary check but not a sufficient one. The companion
+    ``json.dumps`` assertion below catches an int-vs-float drift or a
+    nested-key reorder between the input forms — both of which would
+    leave ``dict ==`` passing silently.
+    """
     code = "def f(x):\n    return x + 1\n"
     from_str = bca.analyze_source(code, "python")
     from_bytes = bca.analyze_source(code.encode("utf-8"), "python")
     from_bytearray = bca.analyze_source(bytearray(code, "utf-8"), "python")
     assert from_str == from_bytes == from_bytearray
+    # `sort_keys=False` (the default) preserves CPython dict insertion
+    # order, so this comparison fires on any divergence — including
+    # the int-vs-float and nested-reorder cases that `dict ==` masks.
+    assert json.dumps(from_str) == json.dumps(from_bytes) == json.dumps(from_bytearray)
 
 
 # ----- Language metadata --------------------------------------------------
@@ -352,5 +363,18 @@ def test_analyze_source_returns_dict_with_expected_keys() -> None:
     # and `metrics` always render as a list and a dict respectively.
     for key in ("name", "start_line", "end_line", "kind", "spaces", "metrics"):
         assert key in result, f"missing key {key} in {result!r}"
-    assert isinstance(result["spaces"], list)
-    assert isinstance(result["metrics"], dict)
+    # `spaces` must contain the inner FuncSpace for `main`, and `metrics`
+    # must carry the populated metric table — checking only the container
+    # type would let a regression that returned `spaces: [], metrics: {}`
+    # pass silently.
+    assert isinstance(result["spaces"], list) and result["spaces"], (
+        f"expected at least one child FuncSpace for `fn main`, got {result['spaces']!r}"
+    )
+    assert isinstance(result["metrics"], dict) and result["metrics"], (
+        f"expected populated metric table, got {result['metrics']!r}"
+    )
+    # Spot-check one canonical metric that every language emits — guards
+    # against a future regression where `metrics` carries unrelated keys.
+    assert "cyclomatic" in result["metrics"], (
+        f"expected `cyclomatic` in metrics, got keys {list(result['metrics'])!r}"
+    )
