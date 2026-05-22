@@ -29,11 +29,15 @@ python -c "import big_code_analysis; print(big_code_analysis.__version__)"
 ```python
 import big_code_analysis as bca
 
-# Analyse a file by path. The returned dict is byte-for-byte
-# equivalent to `bca metrics --output-format json` for the same
-# file — same field order, same numeric formatting, same shape.
+# Analyse a file by path. The returned dict matches the JSON
+# emitted by `bca metrics --output-format json` for the same
+# file at the `FuncSpace` boundary — same field order, same
+# numeric formatting, same shape. CLI-only behaviours
+# (shebang/emacs-mode language detection, `--exclude-tests`,
+# the `is_generated` filter) are deferred to phase-1 follow-ups;
+# see `bca.analyze.__doc__` for the full parity contract.
 metrics = bca.analyze("src/main.rs")
-print(metrics["metrics"]["cognitive"]["cognitive_sum"])
+print(metrics["metrics"]["cognitive"]["sum"])
 
 # Analyse an in-memory snippet (str, bytes, or bytearray accepted).
 metrics = bca.analyze_source("fn main() {}\n", "rust")
