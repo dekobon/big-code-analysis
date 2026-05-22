@@ -56,7 +56,24 @@ create_exception!(
 /// types in this crate.
 fn analysis_error_to_py(err: AnalysisError) -> PyErr {
     match err {
-        AnalysisError::Io(e) => PyOSError::new_err(e.to_string()),
+        // CPython's `OSError(errno, msg, filename)` 3-tuple
+        // constructor dispatches to the right subclass
+        // (`FileNotFoundError` for ENOENT, `PermissionError` for
+        // EACCES, etc.) and populates `err.errno` / `err.filename`
+        // so idiomatic `except FileNotFoundError as e: e.filename`
+        // works. Passing `e.to_string()` alone collapses every
+        // I/O failure to bare `OSError` with `errno is None`.
+        AnalysisError::Io { source, path } => {
+            let errno = source.raw_os_error();
+            let msg = source.to_string();
+            // Path display is lossy on non-UTF-8, but `analyze_path`
+            // has already validated UTF-8 by the point I/O can fail
+            // for an inferred extension; for the rare reachable case
+            // (file deleted between language inference and read)
+            // `display()` is the right call — this string is the
+            // user-facing `filename` field, not an identifier.
+            PyOSError::new_err((errno, msg, path.display().to_string()))
+        }
         AnalysisError::NonUtf8Path => {
             PyValueError::new_err("path is not valid UTF-8 and cannot be used as a FuncSpace name")
         }
@@ -70,12 +87,18 @@ fn analysis_error_to_py(err: AnalysisError) -> PyErr {
 
 /// Run the metric analysis on a single file path.
 ///
-/// Returns a Python `dict` byte-for-byte equivalent to
-/// `bca metrics --output-format json` for the same input — same
-/// field order, same numeric formatting, same shape — because both
-/// sides serialise the same `FuncSpace` through
-/// `serde_json::to_string` and the bindings then parse that JSON
-/// with `CPython`'s `json.loads` (which preserves insertion order).
+/// Returns a Python `dict` matching the JSON emitted by
+/// `bca metrics --output-format json` for the same input at the
+/// `FuncSpace` boundary — same field order, same numeric formatting,
+/// same shape. Both sides serialise the same `FuncSpace` through
+/// `serde_json::to_string` and the bindings parse that JSON with
+/// `CPython`'s `json.loads` (which preserves insertion order).
+///
+/// Parity is exact only when (1) the language can be inferred from
+/// the path extension (shebang / emacs-mode detection is a
+/// follow-up — see `_native.pyi` for the full caveat list), (2) the
+/// CLI's `--exclude-tests` flag is not used, (3) the file is not
+/// marked `@generated`, and (4) the path is valid UTF-8.
 #[pyfunction]
 #[pyo3(signature = (path, /))]
 #[allow(clippy::needless_pass_by_value)]

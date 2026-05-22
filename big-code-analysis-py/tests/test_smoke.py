@@ -235,10 +235,23 @@ def test_language_extensions_raises_unsupported_language_for_unknown_name() -> N
         bca.language_extensions("klingon")
 
 
-def test_analyze_raises_oserror_for_missing_file(tmp_path: Path) -> None:
+def test_analyze_raises_filenotfounderror_with_errno_and_filename(
+    tmp_path: Path,
+) -> None:
+    """`analyze` on a missing file must dispatch to FileNotFoundError
+    and populate ``errno`` / ``filename`` so idiomatic Python handling
+    works.
+
+    A bare ``OSError(message)`` (one-argument form) does not trigger
+    CPython's subclass dispatch and leaves ``errno`` / ``filename``
+    set to ``None``.
+    """
     missing = tmp_path / "does_not_exist.rs"
-    with pytest.raises(OSError):
+    with pytest.raises(FileNotFoundError) as exc_info:
         bca.analyze(missing)
+    err = exc_info.value
+    assert err.errno == 2  # ENOENT
+    assert err.filename == str(missing)
 
 
 def test_analyze_source_rejects_non_text_non_bytes_code() -> None:

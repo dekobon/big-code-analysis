@@ -10,11 +10,19 @@
 //!
 //! Routing through `serde_json::to_string` (rather than `to_value` +
 //! recursive Python conversion) is what makes the bindings'
-//! `analyze()` output byte-for-byte identical to the CLI's: both
-//! sides serialise the same struct through the same serializer in
-//! `Serialize`-impl declaration order. `to_value` would silently
-//! re-order keys alphabetically because `serde_json::Map` is a
-//! `BTreeMap` without the `preserve_order` Cargo feature.
+//! `analyze()` output byte-for-byte identical to the CLI's *at the
+//! `FuncSpace` boundary*: both sides serialise the same struct
+//! through the same serializer in `Serialize`-impl declaration
+//! order. `to_value` would silently re-order keys alphabetically
+//! because `serde_json::Map` is a `BTreeMap` without the
+//! `preserve_order` Cargo feature.
+//!
+//! Note that this layer's parity claim does not extend to the CLI's
+//! surrounding behaviours: shebang / emacs-mode language detection
+//! (the CLI uses `guess_language`, the bindings only consult the
+//! path extension), the `--exclude-tests` flag (always off here),
+//! and the `is_generated` walker filter (always off here). See
+//! `_native.pyi`'s `analyze.__doc__` for the user-facing contract.
 
 use std::path::Path;
 
@@ -26,9 +34,16 @@ use crate::language::parse_language_name;
 /// exception types in [`crate::lib`].
 #[derive(Debug)]
 pub(crate) enum AnalysisError {
-    /// I/O failure when reading the source file (mapped to Python
-    /// `OSError`).
-    Io(std::io::Error),
+    /// I/O failure when reading the source file. Carries the source
+    /// `std::io::Error` AND the path that triggered it so the Python
+    /// side can build an `OSError(errno, msg, filename)` 3-tuple —
+    /// the form `CPython` needs to dispatch to the right subclass
+    /// (`FileNotFoundError`, `PermissionError`, `IsADirectoryError`,
+    /// …) and to populate `err.errno` / `err.filename`.
+    Io {
+        source: std::io::Error,
+        path: std::path::PathBuf,
+    },
     /// Path could not be expressed as UTF-8 — required for the
     /// `FuncSpace.name` field, which round-trips through JSON.
     NonUtf8Path,
@@ -45,11 +60,9 @@ pub(crate) enum AnalysisError {
     Serialization(serde_json::Error),
 }
 
-impl From<std::io::Error> for AnalysisError {
-    fn from(err: std::io::Error) -> Self {
-        Self::Io(err)
-    }
-}
+// `AnalysisError::Io` is constructed only at the file-read site so
+// the path can be captured alongside the `std::io::Error`. A blanket
+// `From<std::io::Error>` impl would let `?` lose that path silently.
 
 impl From<big_code_analysis::MetricsError> for AnalysisError {
     fn from(err: big_code_analysis::MetricsError) -> Self {
@@ -89,7 +102,13 @@ pub(crate) fn analyze_path(path: &Path) -> Result<String, AnalysisError> {
             path.display()
         ))
     })?;
-    let code = std::fs::read(path)?;
+    // Capture the path on I/O failure so the Python OSError carries
+    // `filename` and CPython can dispatch to FileNotFoundError /
+    // PermissionError / IsADirectoryError based on `errno`.
+    let code = std::fs::read(path).map_err(|source| AnalysisError::Io {
+        source,
+        path: path.to_path_buf(),
+    })?;
     let name = path.to_str().ok_or(AnalysisError::NonUtf8Path)?.to_owned();
     analyze_bytes(lang, &code, Some(name))
 }
