@@ -203,6 +203,37 @@ mod tests {
     }
 
     #[test]
+    fn analyze_source_emits_funcspace_top_level_keys_in_declaration_order() {
+        // Rust-side sentinel for the upstream `FuncSpace::Serialize`
+        // impl's field order. The Python `test_analyze_key_order_matches_cli`
+        // is the canonical regression test (it walks the dict via
+        // CPython's insertion-order semantics, robust to nested-key
+        // collisions), but it requires `maturin develop` and pytest
+        // — a Rust contributor running `cargo test --workspace
+        // --all-features` would otherwise see no signal if the
+        // `FuncSpace` field order regressed.
+        //
+        // Check the JSON *prefix* rather than `s.find()` positions:
+        // any reorder that puts a different field before `name`
+        // would change the leading bytes, including the alphabetical
+        // re-sort the `to_value` path would produce (which starts
+        // with `"end_line"` because `e` < `k` < `m` < `n`). Keeping
+        // the assertion narrow this way avoids the P9 nested-key
+        // trap that a positional check (`name_pos < start_line_pos`)
+        // would re-introduce: alphabetical also satisfies that
+        // particular inequality (`name@4 < start_line@6` after sort).
+        let s = analyze_source("rust", b"fn main() {}", Some("x.rs".to_owned()))
+            .expect("rust snippet parses");
+        assert!(
+            s.starts_with(r#"{"name":"x.rs","start_line":"#),
+            "expected `FuncSpace::Serialize` to emit `name` then `start_line` \
+             as the first two top-level fields — routing through \
+             `serde_json::to_value` would re-sort the JSON object \
+             alphabetically (starting with `\"end_line\"`); got: {s}",
+        );
+    }
+
+    #[test]
     fn analyze_source_rejects_unknown_language() {
         let err = analyze_source("klingon", b"qaplah", None);
         assert!(matches!(err, Err(AnalysisError::UnsupportedLanguage(_))));

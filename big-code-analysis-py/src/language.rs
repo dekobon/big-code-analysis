@@ -216,10 +216,21 @@ mod tests {
         // entry returned by `supported_languages()` must be a LANG
         // variant whose grammar is actually compiled into this
         // build. Under the default `all-languages` feature set this
-        // is trivially true; the test exists so a future
-        // `--no-default-features --features rust,...` consumer
-        // can't silently advertise a language that will then raise
-        // `LanguageDisabled` on `analyze_source`.
+        // is trivially true and the assertion below cannot fail —
+        // the test is a *call-site sentinel* rather than a runtime
+        // regression check.
+        //
+        // To actually exercise the disabled-language branch, build
+        // and run this test with a feature subset, e.g.
+        //
+        //   cargo test -p big-code-analysis --no-default-features \
+        //               --features rust language::tests
+        //
+        // (a CI job that does this would automate the coverage, but
+        // the repo currently has no checked-in workflows). The
+        // assertion catches a future-self mistake — someone deleting
+        // the `.filter(LANG::is_enabled)` call in
+        // `supported_languages` — only IF that workflow exists.
         let langs = supported_languages();
         for name in &langs {
             let lang = parse_language_name(name).unwrap_or_else(|| {
