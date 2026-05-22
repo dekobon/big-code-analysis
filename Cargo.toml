@@ -66,6 +66,7 @@ tree-sitter-tcl = { path = "./tree-sitter-tcl", version = "=1.1.0" }
 # series; bumping is a deliberate, separate change because the Bound
 # API shape changed across minors.
 pyo3 = "=0.28.3"
+serde = { version = "^1.0", features = ["derive"] }
 serde_json = "^1.0"
 
 # Workspace-wide lint posture. The allow set is intentionally minimal
@@ -104,7 +105,7 @@ num-format = "^0.4"
 num-traits = "^0.2"
 petgraph = "^0.8"
 regex = "^1.7"
-serde = { version = "^1.0", features = ["derive"] }
+serde.workspace = true
 serde_json = "^1.0"
 termcolor = "^1.2"
 walkdir = "^2.3"

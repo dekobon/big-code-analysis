@@ -43,12 +43,11 @@ serde_json = { workspace = true }
 
 [dev-dependencies]
 # `serde` (derive) is used only by the conversion-layer key-order
-# test, which derives `Serialize` on a local struct to exercise the
-# real `to_string` → `json.loads` boundary without depending on
-# `FuncSpace`'s declaration order. Not in `[workspace.dependencies]`
-# upstream, so version is duplicated here from the root crate's
-# direct dep (kept in lockstep manually).
-serde = { version = "^1.0", features = ["derive"] }
+# test, which derives `Serialize` on a local struct to exercise
+# the real `to_string` → `json.loads` boundary without depending
+# on `FuncSpace`'s declaration order. Inherits version + features
+# from `[workspace.dependencies]`.
+serde.workspace = true
 
 [build-dependencies]
 # `add_libpython_rpath_link_args` in `build.rs` bakes the libpython
