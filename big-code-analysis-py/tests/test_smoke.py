@@ -440,6 +440,63 @@ def test_analyze_raises_filenotfounderror_with_errno_and_filename(
     assert err.filename == str(missing)
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason=(
+        "Non-UTF-8 path fixtures use OsStrExt::from_bytes / "
+        "os.fsencode of a surrogateescape string, which is unix-only. "
+        "Windows has its own non-UTF-8 mechanism (unpaired surrogates "
+        "via OsStringExt::from_wide); covering it is a separate fixture."
+    ),
+)
+def test_analyze_rejects_non_utf8_path_by_default(tmp_path: Path) -> None:
+    """Default policy: non-UTF-8 path bytes raise ``ValueError`` (#316).
+
+    Constructs a path via ``os.fsdecode(bytes)``: on Linux with
+    PEP 383 surrogateescape, raw 0xff bytes round-trip through ``str``
+    as lone surrogates. PyO3's path extractor calls ``os.fsencode`` on
+    the str to recover the original bytes, so the underlying ``Path``
+    is the same byte sequence the OS sees.
+    """
+    raw_name = b"\xff\xff.rs"
+    str_name = os.fsdecode(raw_name)
+    bogus = tmp_path / str_name
+    bogus.write_bytes(b"fn main() {}\n")
+    with pytest.raises(
+        ValueError,
+        match=r"path is not valid UTF-8.*allow_lossy_path=True",
+    ):
+        bca.analyze(bogus)
+
+
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="See test_analyze_rejects_non_utf8_path_by_default.",
+)
+def test_analyze_allow_lossy_path_mirrors_cli_substitution(
+    tmp_path: Path,
+) -> None:
+    """``allow_lossy_path=True`` substitutes U+FFFD instead of raising.
+
+    The CLI emits non-UTF-8 path bytes as U+FFFD via
+    ``Path::to_string_lossy``; the opt-in kwarg routes the bindings
+    through the same call so the ``name`` field matches byte-for-byte
+    in lossy mode. Asserts on substring presence (rather than the
+    full name) to stay robust against the tempdir prefix.
+    """
+    raw_name = b"\xff\xff.rs"
+    str_name = os.fsdecode(raw_name)
+    bogus = tmp_path / str_name
+    bogus.write_bytes(b"fn main() {}\n")
+    result = bca.analyze(bogus, allow_lossy_path=True)
+    assert "�" in result["name"], (
+        f"expected U+FFFD substitution in name, got {result['name']!r}"
+    )
+    # Sanity: the file still analysed; lossy mode is a name-rendering
+    # toggle, not a parser flag.
+    assert result["kind"] == "unit"
+
+
 def test_analyze_source_rejects_non_text_non_bytes_code() -> None:
     # Pin the exact message so a future regression where the bad
     # input falls through to the language resolver (and raises

@@ -66,18 +66,23 @@ fn analysis_error_to_py(err: AnalysisError) -> PyErr {
         AnalysisError::Io { source, path } => {
             let errno = source.raw_os_error();
             let msg = source.to_string();
-            // `analyze_path` validates `path.to_str()` *before* it
-            // attempts `std::fs::read`, so any path reaching this arm
-            // is known to be valid UTF-8 and `path.display()` is
-            // lossless. This is the user-facing `filename` field, not
-            // an identifier — `display()` (rather than `to_str()` +
-            // explicit error handling) is the right call because the
-            // caller has already certified the path string.
+            // `analyze_path` resolves the `FuncSpace.name` *before*
+            // `std::fs::read`, so in strict mode (`allow_lossy_path
+            // = False`) any path reaching this arm is valid UTF-8
+            // and `path.display()` is lossless. In opt-in lossy mode
+            // (#316) the caller has explicitly accepted U+FFFD
+            // substitution at the `name`-field boundary, and the
+            // same convention applies to the `filename` field on
+            // the resulting `OSError`: both surfaces are user-facing
+            // text, not identifiers, so `display()` is the right
+            // call here — the caller has already certified that
+            // lossy rendering is acceptable for this path.
             PyOSError::new_err((errno, msg, path.display().to_string()))
         }
-        AnalysisError::NonUtf8Path => {
-            PyValueError::new_err("path is not valid UTF-8 and cannot be used as a FuncSpace name")
-        }
+        AnalysisError::NonUtf8Path => PyValueError::new_err(
+            "path is not valid UTF-8 and cannot be used as a FuncSpace name; \
+             pass allow_lossy_path=True to mirror the CLI's U+FFFD substitution",
+        ),
         AnalysisError::UnsupportedLanguage(msg) => UnsupportedLanguageError::new_err(msg),
         AnalysisError::Parse(e) => ParseError::new_err(e.to_string()),
         AnalysisError::Serialization(e) => PyValueError::new_err(format!(
@@ -103,20 +108,33 @@ fn analysis_error_to_py(err: AnalysisError) -> PyErr {
 /// before any metric runs. Languages without a
 /// `Checker::should_skip_subtree` override ignore the flag.
 ///
-/// Parity is exact only when (1) the file is not marked
-/// `@generated`, and (2) the path is valid UTF-8. Language
-/// detection now mirrors the CLI — path extension first, then a
-/// `#!`-shebang line or emacs `-*- mode: … -*-` declaration via
-/// `big_code_analysis::guess_language`.
+/// Pass `allow_lossy_path=True` (keyword-only) to mirror the CLI's
+/// non-UTF-8 path handling: the `FuncSpace.name` field is filled
+/// via `Path::to_string_lossy` (U+FFFD substitution) instead of
+/// raising `ValueError`. Default is `False` — strict mode rejects
+/// non-UTF-8 paths so the `name` field is always a round-trippable
+/// identifier (#316).
+///
+/// Parity is exact only when the file is not marked `@generated`.
+/// Language detection now mirrors the CLI — path extension first,
+/// then a `#!`-shebang line or emacs `-*- mode: … -*-` declaration
+/// via `big_code_analysis::guess_language`. Non-UTF-8 paths now
+/// match the CLI byte-for-byte when `allow_lossy_path=True`.
 #[pyfunction]
-#[pyo3(signature = (path, /, *, exclude_tests = false))]
+#[pyo3(signature = (path, /, *, exclude_tests = false, allow_lossy_path = false))]
 #[allow(clippy::needless_pass_by_value)]
 // `path: PathBuf` (rather than `&Path`) is mandated by PyO3's
 // path conversion: `FromPyObject` materializes a fresh `PathBuf`
 // out of the `os.PathLike` argument, and there is no borrow to
 // extract a `&Path` from.
-fn analyze(py: Python<'_>, path: PathBuf, exclude_tests: bool) -> PyResult<Bound<'_, PyAny>> {
-    let json = analysis::analyze_path(&path, exclude_tests).map_err(analysis_error_to_py)?;
+fn analyze(
+    py: Python<'_>,
+    path: PathBuf,
+    exclude_tests: bool,
+    allow_lossy_path: bool,
+) -> PyResult<Bound<'_, PyAny>> {
+    let json = analysis::analyze_path(&path, exclude_tests, allow_lossy_path)
+        .map_err(analysis_error_to_py)?;
     conversion::json_string_to_py(py, &json)
 }
 

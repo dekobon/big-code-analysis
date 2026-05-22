@@ -24,6 +24,7 @@ def analyze(
     /,
     *,
     exclude_tests: bool = False,
+    allow_lossy_path: bool = False,
 ) -> dict[str, Any]:
     """Compute metrics for the file at ``path``.
 
@@ -47,6 +48,16 @@ def analyze(
     per-metric ``compute`` runs. Languages without that override
     ignore the flag, matching CLI behaviour.
 
+    Pass ``allow_lossy_path=True`` to mirror the CLI's non-UTF-8
+    path handling: bytes that are not valid UTF-8 are replaced
+    with U+FFFD (Unicode REPLACEMENT CHARACTER) via
+    ``Path::to_string_lossy`` before being written into the
+    returned ``FuncSpace.name``. The default (``False``) keeps the
+    strict policy: non-UTF-8 paths raise :class:`ValueError` so
+    ``name`` remains a round-trippable identifier and cannot
+    silently collapse two distinct paths onto the same lossy key
+    (#316).
+
     Parity is exact **only when** every condition below holds; phase-1
     of the bindings (#265) intentionally scopes the parity claim to
     the FuncSpace boundary and defers the surrounding CLI behaviours
@@ -59,9 +70,10 @@ def analyze(
       lines for an emacs ``-*- mode: … -*-`` (or vim modeline)
       declaration. An extension-less script with no detectable
       interpreter still raises :class:`UnsupportedLanguageError`.
-    * Non-UTF-8 path bytes raise ``ValueError`` here (see Raises);
-      the CLI substitutes U+FFFD via ``Path::to_string_lossy`` —
-      see #316.
+    * Non-UTF-8 path bytes match the CLI byte-for-byte when
+      ``allow_lossy_path=True``; the default still raises
+      ``ValueError`` (see Raises) so the strict identifier
+      contract is opt-out, not opt-in.
     * Generated files (CLI's ``is_generated`` filter) are NOT
       skipped by the bindings; the CLI emits no record for files
       marked ``@generated`` / ``DO NOT EDIT`` / ``GENERATED CODE``,
@@ -75,10 +87,12 @@ def analyze(
     ParseError
         If the tree-sitter parser fails on the source.
     ValueError
-        If ``path`` is not valid UTF-8 and cannot be used as a
-        ``FuncSpace`` name. (``UnsupportedLanguageError`` and
-        ``ParseError`` are also ``ValueError`` subclasses, so a
-        single ``except ValueError`` covers all three.)
+        If ``path`` is not valid UTF-8 and ``allow_lossy_path`` is
+        ``False`` (the default). Pass ``allow_lossy_path=True`` to
+        opt into U+FFFD substitution and match the CLI.
+        (``UnsupportedLanguageError`` and ``ParseError`` are also
+        ``ValueError`` subclasses, so a single ``except
+        ValueError`` covers all three.)
     OSError
         For any underlying I/O failure. Dispatches to the canonical
         subclass (``FileNotFoundError``, ``PermissionError``,
