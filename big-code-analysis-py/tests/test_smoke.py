@@ -246,11 +246,13 @@ def test_analyze_raises_filenotfounderror_with_errno_and_filename(
     CPython's subclass dispatch and leaves ``errno`` / ``filename``
     set to ``None``.
     """
+    import errno as _errno
+
     missing = tmp_path / "does_not_exist.rs"
     with pytest.raises(FileNotFoundError) as exc_info:
         bca.analyze(missing)
     err = exc_info.value
-    assert err.errno == 2  # ENOENT
+    assert err.errno == _errno.ENOENT
     assert err.filename == str(missing)
 
 

@@ -150,18 +150,17 @@ mod tests {
         // same string so a user reading the CLI output and feeding
         // it back through `analyze_source` does not hit
         // UnsupportedLanguageError.
-        assert_eq!(
-            language_for_file(&PathBuf::from("foo.js")),
-            Some("javascript")
-        );
-        assert_eq!(
-            language_for_file(&PathBuf::from("foo.jsx")),
-            Some("javascript")
-        );
-        assert_eq!(
-            language_for_file(&PathBuf::from("foo.mjs")),
-            Some("javascript")
-        );
+        //
+        // Cover every extension Mozjs registers in `langs.rs`
+        // (`[js, jsm, mjs, jsx]`) — missing one is a silent
+        // coverage gap (audit finding A2).
+        for ext in ["js", "jsm", "mjs", "jsx"] {
+            assert_eq!(
+                language_for_file(&PathBuf::from(format!("foo.{ext}"))),
+                Some("javascript"),
+                ".{ext} should resolve to \"javascript\"",
+            );
+        }
     }
 
     #[test]
