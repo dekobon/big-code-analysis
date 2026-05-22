@@ -32,9 +32,10 @@ import big_code_analysis as bca
 # Analyse a file by path. The returned dict matches the JSON
 # emitted by `bca metrics --output-format json` for the same
 # file at the `FuncSpace` boundary — same field order, same
-# numeric formatting, same shape. CLI-only behaviours
-# (shebang/emacs-mode language detection, `--exclude-tests`,
-# the `is_generated` filter) are deferred to phase-1 follow-ups;
+# numeric formatting, same shape. Language detection mirrors the
+# CLI (path extension, then shebang, then emacs `-*- mode -*-`);
+# remaining CLI-only behaviours (`--exclude-tests`, the
+# `is_generated` filter) are deferred to phase-1 follow-ups;
 # see `bca.analyze.__doc__` for the full parity contract.
 metrics = bca.analyze("src/main.rs")
 print(metrics["metrics"]["cognitive"]["sum"])
