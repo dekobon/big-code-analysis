@@ -53,6 +53,10 @@ walking `FuncSpace` results, and error handling — see the
 [**Using as a Library**](https://dekobon.github.io/big-code-analysis/library/index.html)
 section of the book.
 
+Python bindings (PyO3) live in
+[`big-code-analysis-py/`](./big-code-analysis-py/README.md) and ship
+the same metric pipeline as a Python package.
+
 ### Per-language Cargo features
 
 Every tree-sitter grammar is gated behind a per-language Cargo

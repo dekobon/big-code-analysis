@@ -1,2 +1,6 @@
 [tools]
 node = "25.9.0"
+# Python is required for the `big-code-analysis-py` crate
+# (PyO3 + maturin). Pinned to a 3.12 series — bindings declare
+# `requires-python = ">=3.12"` in `big-code-analysis-py/pyproject.toml`.
+python = "3.12"

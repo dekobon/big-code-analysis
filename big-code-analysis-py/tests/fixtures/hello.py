@@ -1,0 +1,4 @@
+def hello(name: str) -> str:
+    if name:
+        return f"hello, {name}"
+    return "hello, world"

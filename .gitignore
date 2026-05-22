@@ -7,3 +7,13 @@ enums/target
 .mcp.json
 .serena/
 *.pending-snap
+
+# Python bindings: per-developer virtualenv, build artefacts, caches
+big-code-analysis-py/.venv/
+big-code-analysis-py/**/__pycache__/
+big-code-analysis-py/.pytest_cache/
+big-code-analysis-py/.mypy_cache/
+# `maturin develop` drops the compiled extension directly into the
+# python source tree (next to `_native.pyi`); it must not be checked in.
+big-code-analysis-py/python/big_code_analysis/_native*.so
+*.pyc

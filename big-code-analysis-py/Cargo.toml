@@ -1,0 +1,45 @@
+[package]
+name = "big-code-analysis-py"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+description = "Python bindings for big-code-analysis"
+publish = false
+
+[lib]
+# `cdylib` is the artefact `maturin` ships inside the wheel — CPython
+# loads it at runtime. `rlib` lets `cargo test --workspace` link the
+# crate into the test harness so the Rust-side
+# `serde_json::Value` → `PyAny` converter can be exercised without a
+# round-trip through `maturin develop`.
+name = "big_code_analysis_py"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# PyO3's `extension-module` (skip libpython link) and
+# `auto-initialize` (boot the interpreter on first GIL acquire) are
+# mutually exclusive: the wheel-build path needs the first, the
+# `cargo test` path needs the second.
+#
+# Both are wired through *this crate's* `default` feature so a
+# single, idiomatic `--no-default-features` flip is enough to swap
+# build modes — `[tool.maturin].no-default-features = true` plus
+# `features = ["pyo3/extension-module"]` in pyproject.toml.
+#
+# We deliberately do NOT expose `extension-module` as a feature of
+# *this* crate. If we did, `cargo test --workspace --all-features`
+# would activate both simultaneously and the libpython link would
+# break — see lesson (added in this PR) on PyO3 feature shape vs
+# `--all-features`.
+default = ["pyo3/auto-initialize"]
+
+[dependencies]
+big-code-analysis = { path = "..", default-features = true }
+pyo3 = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
