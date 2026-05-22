@@ -700,6 +700,31 @@ macro_rules! mk_extensions {
                 _ => None,
             }
         }
+
+        impl LANG {
+            /// Returns the file extensions recognised for this language.
+            ///
+            /// The returned list is the same one consulted by
+            /// [`get_from_ext`] and [`crate::get_language_for_file`].
+            /// Helper variants without user-facing files (`Ccomment`,
+            /// `Preproc`) return an empty slice.
+            ///
+            /// # Examples
+            ///
+            /// ```
+            /// use big_code_analysis::LANG;
+            ///
+            /// assert!(LANG::Rust.get_extensions().contains(&"rs"));
+            /// ```
+            #[must_use]
+            pub fn get_extensions(&self) -> &'static [&'static str] {
+                match self {
+                    $(
+                        LANG::$camel => &[ $( stringify!($ext), )* ],
+                    )*
+                }
+            }
+        }
     };
 }
 

@@ -15,6 +15,7 @@ The repository is a Cargo workspace:
 |-------|------|---------|
 | `big-code-analysis` | `./` (root) | Library: parsers, AST traversal, metric computation |
 | `big-code-analysis-cli` | `big-code-analysis-cli/` | CLI for invoking the library on files / trees |
+| `big-code-analysis-py` | `big-code-analysis-py/` (excluded from default-members; needs Python headers + maturin) | PyO3 Python bindings |
 | `big-code-analysis-web` | `big-code-analysis-web/` | REST API server wrapping the library |
 | `enums` | `enums/` (excluded from default workspace) | Code-generation helper for language enums |
 
