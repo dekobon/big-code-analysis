@@ -20,6 +20,33 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Added
 
+- `bca.analyze(path)` now resolves an extension-less script's language
+  from its `#!` shebang or emacs `-*- mode: … -*-` declaration via the
+  same `guess_language` helper the CLI uses, closing the phase-1
+  parity caveat. The file is read before language inference, so a
+  missing path now surfaces as `OSError` regardless of extension
+  ([#314](https://github.com/dekobon/big-code-analysis/issues/314)).
+- New `exclude_tests: bool = False` keyword-only kwarg on `bca.analyze`
+  and `bca.analyze_source` mirroring the CLI's `--exclude-tests` flag.
+  The flag flows into `MetricsOptions::with_exclude_tests`, which
+  prunes Rust `#[test]` / `#[cfg(test)]` subtrees before metric
+  computation; default `False` preserves prior behaviour
+  ([#315](https://github.com/dekobon/big-code-analysis/issues/315)).
+- New `allow_lossy_path: bool = False` keyword-only kwarg on
+  `bca.analyze`. Default `False` keeps the strict ValueError contract
+  for non-UTF-8 paths; setting `True` mirrors the CLI's
+  `Path::to_string_lossy` substitution of U+FFFD into the
+  `FuncSpace.name` field. `to_string_lossy()` is reached only on the
+  opt-in branch, preserving the project's identifier-path discipline
+  ([#316](https://github.com/dekobon/big-code-analysis/issues/316)).
+- New `skip_generated: bool = True` keyword-only kwarg on `bca.analyze`
+  honours the CLI walker's `is_generated` filter. When the flag is on
+  (default) and the file's leading window matches `@generated`,
+  `DO NOT EDIT`, or `GENERATED CODE`, `analyze` returns `None` without
+  paying parse cost — matching the CLI, which emits no record for the
+  same file. Pass `skip_generated=False` to opt out symmetrically; the
+  stub return type widens to `dict[str, Any] | None`
+  ([#317](https://github.com/dekobon/big-code-analysis/issues/317)).
 - Python bindings via PyO3 / maturin (new `big-code-analysis-py`
   crate, excluded from `default-members` because it needs Python
   headers). Phase 1/9 of [#103](https://github.com/dekobon/big-code-analysis/issues/103):
