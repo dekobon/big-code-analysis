@@ -367,6 +367,52 @@ def test_analyze_skip_generated_matches_cli_walker(bca_binary: str) -> None:
     assert bca.analyze(path) is None
 
 
+def test_analyze_combines_skip_generated_false_with_exclude_tests() -> None:
+    """Both kwargs cooperate on the same file.
+
+    The fixture is marked ``@generated`` AND carries a ``#[cfg(test)]``
+    block. With the defaults (``skip_generated=True``) it returns
+    ``None`` like the CLI walker. Opting back into parsing
+    (``skip_generated=False``) AND simultaneously requesting test
+    pruning (``exclude_tests=True``) must:
+
+    1. parse the file (the marker no longer skips it), and
+    2. prune the ``#[cfg(test)]`` subtree before metric computation
+       (matches the bare-``exclude_tests`` behaviour for non-generated
+       files).
+
+    Pins that the three kwargs are independent levers — each one
+    routes to a distinct upstream knob (early-return,
+    ``MetricsOptions``, ``Path::to_string_lossy``) and they cannot
+    interfere with each other. A regression that, say, made the
+    ``is_generated`` check toggle ``MetricsOptions::exclude_tests``
+    instead of the early-return would slip past the bare-kwarg
+    tests but show up here.
+    """
+    path = FIXTURES / "generated_with_tests.rs"
+
+    # Default: skip_generated=True → bindings (and CLI) see no record.
+    assert bca.analyze(path) is None
+
+    # Opt out of the skip but keep exclude_tests on. The combined
+    # call must hit the parser AND prune the inner `#[cfg(test)] mod
+    # tests` subtree.
+    baseline = bca.analyze(path, skip_generated=False, exclude_tests=False)
+    pruned = bca.analyze(path, skip_generated=False, exclude_tests=True)
+    assert baseline is not None and pruned is not None
+    # `nom.functions` counts: `prod`, `helper`, `checks_positive`.
+    # Pruning the `#[cfg(test)]` mod removes `helper` + `checks_positive`,
+    # leaving only `prod`.
+    assert baseline["metrics"]["nom"]["functions"] == 3.0, (
+        f"baseline must count prod + helper + checks_positive, got "
+        f"{baseline['metrics']['nom']['functions']!r}"
+    )
+    assert pruned["metrics"]["nom"]["functions"] == 1.0, (
+        f"exclude_tests=True must elide the #[cfg(test)] subtree, "
+        f"leaving only prod; got {pruned['metrics']['nom']['functions']!r}"
+    )
+
+
 def test_analyze_source_exclude_tests_prunes_rust_tests() -> None:
     """In-memory variant of the Rust ``exclude_tests`` parity check.
 
