@@ -20,6 +20,22 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Added
 
+- Python bindings via PyO3 / maturin (new `big-code-analysis-py`
+  crate, excluded from `default-members` because it needs Python
+  headers). Phase 1/9 of [#103](https://github.com/dekobon/big-code-analysis/issues/103):
+  ships `analyze`, `analyze_source`, `language_for_file`,
+  `supported_languages`, `language_extensions`, plus
+  `UnsupportedLanguageError` and `ParseError` (both `ValueError`
+  subclasses). `analyze()` output is byte-for-byte equal to
+  `bca metrics --output json` for the same input — the bindings
+  serialize `FuncSpace` through `serde_json::to_string` and rebuild
+  the Python `dict` via `json.loads`, so CPython's insertion-order
+  semantics carry the field order through. PEP 561 type stubs ship
+  alongside (`py.typed` + `_native.pyi`); `mypy --strict` clean. A
+  new `LANG::get_extensions()` accessor on the Rust side pairs with
+  the existing `get_from_ext` reverse map. Build via
+  `maturin develop` from `big-code-analysis-py/`
+  ([#265](https://github.com/dekobon/big-code-analysis/issues/265)).
 - Public `Ast` type for parse-once, compute-many-times analysis. Build
   one with `Ast::parse(Source)` (re-parses bytes, mirrors `analyze`)
   or `Ast::from_tree_sitter(lang, tree, code, name)` (adopts a
