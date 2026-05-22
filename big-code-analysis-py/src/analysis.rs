@@ -18,15 +18,15 @@
 //! `preserve_order` Cargo feature.
 //!
 //! Note that this layer's parity claim does not extend to the CLI's
-//! surrounding behaviours: shebang / emacs-mode language detection
-//! (the CLI uses `guess_language`, the bindings only consult the
-//! path extension), the `--exclude-tests` flag (always off here),
-//! and the `is_generated` walker filter (always off here). See
-//! `_native.pyi`'s `analyze.__doc__` for the user-facing contract.
+//! surrounding behaviours: the `--exclude-tests` flag (always off
+//! here) and the `is_generated` walker filter (always off here).
+//! Shebang / emacs-mode language detection IS mirrored — both sides
+//! resolve language through [`big_code_analysis::guess_language`].
+//! See `_native.pyi`'s `analyze.__doc__` for the user-facing contract.
 
 use std::path::Path;
 
-use big_code_analysis::{LANG, MetricsOptions, Source, analyze};
+use big_code_analysis::{LANG, MetricsOptions, Source, analyze, guess_language};
 
 use crate::language::parse_language_name;
 
@@ -129,24 +129,24 @@ impl From<serde_json::Error> for AnalysisError {
 
 /// Analyse a single file on disk.
 ///
-/// Reads the file, infers its language from the path extension via
-/// [`big_code_analysis::get_language_for_file`], parses, and returns
-/// the serialised `FuncSpace` as a JSON `String`.
+/// Reads the file, resolves its language via
+/// [`big_code_analysis::guess_language`] — the same helper the `bca`
+/// CLI uses, which inspects the path extension first and falls back
+/// to a `#!`-shebang line or an emacs `-*- mode: … -*-` declaration
+/// for extension-less scripts — parses, and returns the serialised
+/// `FuncSpace` as a JSON `String`.
+///
+/// The file is read *before* language inference (CLI parity): a
+/// missing or unreadable file therefore raises an I/O error even
+/// when its extension is unknown, where the prior extension-only
+/// path would have raised `UnsupportedLanguageError` without
+/// touching the filesystem.
 pub(crate) fn analyze_path(path: &Path) -> Result<String, AnalysisError> {
-    let lang = big_code_analysis::get_language_for_file(path).ok_or_else(|| {
-        AnalysisError::UnsupportedLanguage(format!(
-            "no language registered for path {}",
-            path.display()
-        ))
-    })?;
     // UTF-8 validation runs *before* the file read so a non-UTF-8
     // path can never reach `path.display()` in the
     // `AnalysisError::Io` arm — the `filename` field on the resulting
     // Python `OSError` would otherwise carry U+FFFD replacement
-    // characters for the lossy bytes. `get_language_for_file` above
-    // only validates the *extension* (not the whole path), so a path
-    // like `\xff\xff.rs` would reach this point with a valid `LANG`
-    // and a non-UTF-8 prefix.
+    // characters for the lossy bytes.
     let name = path.to_str().ok_or(AnalysisError::NonUtf8Path)?.to_owned();
     // Capture the path on I/O failure so the Python OSError carries
     // `filename` and CPython can dispatch to FileNotFoundError /
@@ -154,6 +154,15 @@ pub(crate) fn analyze_path(path: &Path) -> Result<String, AnalysisError> {
     let code = std::fs::read(path).map_err(|source| AnalysisError::Io {
         source,
         path: path.to_path_buf(),
+    })?;
+    // `guess_language` returns a `(Option<LANG>, &str)` tuple — we
+    // only care about the variant; the display name is recovered
+    // downstream from `LANG::get_name` via the metric serialiser.
+    let lang = guess_language(&code, path).0.ok_or_else(|| {
+        AnalysisError::UnsupportedLanguage(format!(
+            "no language registered for path {}",
+            path.display()
+        ))
     })?;
     analyze_bytes(lang, &code, Some(name))
 }
@@ -262,7 +271,63 @@ mod tests {
 
     #[test]
     fn analyze_path_rejects_unknown_extension() {
-        let err = analyze_path(Path::new("nonexistent.xyz"));
+        // After the #314 reordering (read before language inference),
+        // a missing file surfaces as `Io` regardless of extension —
+        // the extension check no longer short-circuits. Write a real
+        // file with an unknown extension to exercise the
+        // `UnsupportedLanguage` arm.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("thing.unknownext");
+        std::fs::write(&path, b"noise\n").expect("write fixture");
+        let err = analyze_path(&path);
         assert!(matches!(err, Err(AnalysisError::UnsupportedLanguage(_))));
+    }
+
+    #[test]
+    fn analyze_path_resolves_shebang_for_extension_less_script() {
+        // CLI parity: an extension-less file whose first line is a
+        // recognised shebang must be analysed, not rejected. The
+        // pre-#314 bindings consulted only the extension and would
+        // raise `UnsupportedLanguage` here; the `guess_language`
+        // path falls through to the shebang interpreter table.
+        //
+        // The fixture defines a Python function so the inner
+        // `spaces` array carries a `function`-kind child only if
+        // tree-sitter parsed the bytes as Python. A regression that
+        // mis-routes the shebang to a different language (or leaves
+        // the synthetic top-level `unit` empty) would change the
+        // inner shape — a bare `kind == "unit"` check on the top
+        // level would pass for *any* successful analysis and would
+        // not catch such a drift.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("install");
+        let source = b"#!/usr/bin/env python\ndef hello(name):\n    return name\n";
+        std::fs::write(&path, source).expect("write fixture");
+        let json = analyze_path(&path).expect("shebang script analyses");
+        let value = parse_json(&json);
+        let obj = value.as_object().expect("top-level is an object");
+        assert_eq!(
+            obj.get("kind").and_then(serde_json::Value::as_str),
+            Some("unit"),
+            "top-level FuncSpace kind",
+        );
+        let spaces = obj
+            .get("spaces")
+            .and_then(serde_json::Value::as_array)
+            .expect("`spaces` is an array");
+        let child = spaces
+            .iter()
+            .find_map(|s| s.as_object())
+            .expect("at least one inner FuncSpace");
+        assert_eq!(
+            child.get("name").and_then(serde_json::Value::as_str),
+            Some("hello"),
+            "inner space name pins the Python `def hello(...)` parse",
+        );
+        assert_eq!(
+            child.get("kind").and_then(serde_json::Value::as_str),
+            Some("function"),
+            "inner space kind pins shebang→python routing",
+        );
     }
 }

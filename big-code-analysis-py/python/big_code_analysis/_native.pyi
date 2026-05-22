@@ -36,10 +36,13 @@ def analyze(path: str | os.PathLike[str], /) -> dict[str, Any]:
     the FuncSpace boundary and defers the surrounding CLI behaviours
     to follow-up issues:
 
-    * The language is inferred from ``path``'s extension; shebang
-      / emacs-mode detection (``bca metrics`` uses
-      ``guess_language``) is not yet mirrored. Extension-less
-      scripts diverge — see #314.
+    * Language detection mirrors the CLI's ``guess_language``: the
+      path extension wins when recognised, otherwise the first
+      line is checked for a ``#!`` shebang (``#!/usr/bin/env
+      python``, ``#!/bin/bash``, …) and the leading / trailing
+      lines for an emacs ``-*- mode: … -*-`` (or vim modeline)
+      declaration. An extension-less script with no detectable
+      interpreter still raises :class:`UnsupportedLanguageError`.
     * The CLI's ``--exclude-tests`` flag is not threaded through
       this entry point (the bindings always use
       ``MetricsOptions::default()``) — see #315.
@@ -54,7 +57,8 @@ def analyze(path: str | os.PathLike[str], /) -> dict[str, Any]:
     Raises
     ------
     UnsupportedLanguageError
-        If ``path`` has no extension or its extension is not recognised.
+        If ``path``'s extension is unknown AND no shebang or
+        emacs-mode declaration resolves to a supported language.
     ParseError
         If the tree-sitter parser fails on the source.
     ValueError

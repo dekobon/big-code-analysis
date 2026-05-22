@@ -172,6 +172,12 @@ def test_version_matches_workspace_cargo_toml() -> None:
         "hello.rs",
         "Hello.java",
         "hello.cpp",
+        # Extension-less script with a `#!/usr/bin/env python`
+        # shebang. Exercises CLI parity for `guess_language`'s
+        # shebang fallback (#314) — both the CLI and the bindings
+        # must resolve the language from the first line and emit
+        # the same `FuncSpace` JSON.
+        "install",
     ],
 )
 def test_analyze_matches_cli_json(fixture: str, bca_binary: str) -> None:
@@ -207,6 +213,12 @@ def test_analyze_matches_cli_json(fixture: str, bca_binary: str) -> None:
         "hello.rs",
         "Hello.java",
         "hello.cpp",
+        # Extension-less script with a `#!/usr/bin/env python`
+        # shebang. Exercises CLI parity for `guess_language`'s
+        # shebang fallback (#314) — both the CLI and the bindings
+        # must resolve the language from the first line and emit
+        # the same `FuncSpace` JSON.
+        "install",
     ],
 )
 def test_analyze_key_order_matches_cli(fixture: str, bca_binary: str) -> None:

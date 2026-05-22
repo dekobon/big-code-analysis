@@ -95,11 +95,12 @@ fn analysis_error_to_py(err: AnalysisError) -> PyErr {
 /// `serde_json::to_string` and the bindings parse that JSON with
 /// `CPython`'s `json.loads` (which preserves insertion order).
 ///
-/// Parity is exact only when (1) the language can be inferred from
-/// the path extension (shebang / emacs-mode detection is a
-/// follow-up — see `_native.pyi` for the full caveat list), (2) the
-/// CLI's `--exclude-tests` flag is not used, (3) the file is not
-/// marked `@generated`, and (4) the path is valid UTF-8.
+/// Parity is exact only when (1) the CLI's `--exclude-tests` flag
+/// is not used, (2) the file is not marked `@generated`, and (3)
+/// the path is valid UTF-8. Language detection now mirrors the
+/// CLI — path extension first, then a `#!`-shebang line or
+/// emacs `-*- mode: … -*-` declaration via
+/// `big_code_analysis::guess_language`.
 #[pyfunction]
 #[pyo3(signature = (path, /))]
 #[allow(clippy::needless_pass_by_value)]
