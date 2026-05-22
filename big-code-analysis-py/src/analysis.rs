@@ -50,13 +50,21 @@ pub(crate) enum AnalysisError {
     /// File extension was unrecognised, or the explicit `language`
     /// argument named an unknown language.
     UnsupportedLanguage(String),
-    /// Tree-sitter parser failed to produce a usable tree.
+    /// Tree-sitter parser failed to produce a usable tree, or any
+    /// other `MetricsError` variant that does not map cleanly onto
+    /// a more specific Python exception.
     Parse(big_code_analysis::MetricsError),
     /// Result could not be serialised through `serde_json`. In
-    /// practice this is unreachable for `FuncSpace` round-trips —
-    /// the metric `Serialize` impls treat non-finite floats as
-    /// `null` rather than emitting them — and exists as a
-    /// defensive arm to keep the `?` chain clean.
+    /// practice this is unreachable for `FuncSpace` round-trips
+    /// today — `serde_json::to_string`'s `serialize_f64` writes
+    /// `null` for non-finite floats rather than erroring, and no
+    /// other failure mode is reachable from our struct shape — but
+    /// the arm exists as a defensive boundary in case a future
+    /// upstream `Serialize` impl introduces a fallible path (e.g.
+    /// a metric that uses `serde_json::Number::from_f64` directly,
+    /// which DOES return `None` on non-finite). The
+    /// `non_finite_floats_round_trip_as_python_none` test in
+    /// `conversion.rs` pins the current round-trip contract.
     Serialization(serde_json::Error),
 }
 
@@ -65,7 +73,16 @@ pub(crate) enum AnalysisError {
 // `From<std::io::Error>` impl would let `?` lose that path silently.
 
 impl From<big_code_analysis::MetricsError> for AnalysisError {
+    // The explicit `EmptyRoot | ParseHasErrors` arm maps to the same
+    // expression as the catch-all (`Self::Parse(err)`), which clippy
+    // flags via `match_same_arms`. The redundancy is intentional —
+    // the explicit arm is a *tripwire*: a future upstream rename or
+    // removal of either reserved variant will produce a compile
+    // error here, forcing a review of the Python-side taxonomy.
+    // Collapsing into the catch-all would lose that signal.
+    #[allow(clippy::match_same_arms)]
     fn from(err: big_code_analysis::MetricsError) -> Self {
+        use big_code_analysis::MetricsError;
         match err {
             // A disabled language reaches Python through the same
             // surface as an unknown language name — both mean
@@ -73,13 +90,32 @@ impl From<big_code_analysis::MetricsError> for AnalysisError {
             // `UnsupportedLanguageError` keeps the Python-side
             // taxonomy honest (the variant name lookup succeeded
             // but the grammar is not in the build).
-            big_code_analysis::MetricsError::LanguageDisabled(lang) => {
-                Self::UnsupportedLanguage(format!(
-                    "language {} is recognised but its grammar was not compiled into this build",
-                    lang.get_name()
-                ))
-            }
-            other => Self::Parse(other),
+            MetricsError::LanguageDisabled(lang) => Self::UnsupportedLanguage(format!(
+                "language {} is recognised but its grammar was not compiled into this build",
+                lang.get_name()
+            )),
+            // `EmptyRoot` is reserved upstream (no walker emits it
+            // today) and `ParseHasErrors` is reserved for a future
+            // strict-parse mode. Both belong in the parse-failure
+            // bucket on the Python side.
+            MetricsError::EmptyRoot | MetricsError::ParseHasErrors => Self::Parse(err),
+            // Upstream `NonUtf8Path` is reserved for a future
+            // strict-identifier validator; the bindings already
+            // reject non-UTF-8 paths themselves in `analyze_path`,
+            // but if the upstream layer ever surfaces this variant
+            // it should yield the same Python exception class
+            // (`ValueError`) so callers' handling stays consistent
+            // across both detection sites.
+            MetricsError::NonUtf8Path => Self::NonUtf8Path,
+            // `MetricsError` is `#[non_exhaustive]`. Any future
+            // upstream variant lands here unmapped and surfaces as
+            // `ParseError` on the Python side — a sensible default
+            // for "something went wrong during analysis", but the
+            // catch-all also acts as a tripwire: a `cargo update`
+            // that introduces a new variant should be paired with
+            // an explicit arm above so the Python-side taxonomy
+            // stays intentional rather than defaulting.
+            _ => Self::Parse(err),
         }
     }
 }

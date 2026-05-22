@@ -95,15 +95,24 @@ fn public_languages() -> impl Iterator<Item = LANG> {
 
 /// Returns the supported language names, in declaration order.
 ///
-/// "Supported" here means the variant exists in the `LANG` enum and
-/// has at least one registered file extension. Every variant is
-/// always present regardless of the Cargo feature set, so this list
-/// does not depend on which grammars were compiled in. Internal
-/// helper variants without user-facing files (`Ccomment`, `Preproc`)
-/// are filtered out because they cannot be reached through any
-/// extension table and accept no user input.
+/// "Supported" here means the variant (a) is exposed to Python (i.e.
+/// it has at least one registered file extension — internal helper
+/// variants `Ccomment` / `Preproc` without user-facing files are
+/// filtered out because they cannot be reached through any extension
+/// table) AND (b) is enabled in the current build (its per-language
+/// Cargo feature is on). The bindings hard-code
+/// `default-features = true` on the `big-code-analysis` dep, so in
+/// the shipped wheel every grammar is compiled in and condition (b)
+/// is always true. The `is_enabled` filter is defensive: a downstream
+/// consumer building the bindings with `--no-default-features
+/// --features rust` would otherwise see `supported_languages()` list
+/// e.g. `"bash"` while `analyze_source(code, "bash")` raises
+/// `UnsupportedLanguageError(LanguageDisabled)` at runtime.
 pub(crate) fn supported_languages() -> Vec<&'static str> {
-    public_languages().map(lang_to_name).collect()
+    public_languages()
+        .filter(LANG::is_enabled)
+        .map(lang_to_name)
+        .collect()
 }
 
 /// Returns the file extensions that resolve to `name`, or `None` when
@@ -199,6 +208,28 @@ mod tests {
         // C/C++ pipeline with no registered extensions.
         assert!(!langs.contains(&"ccomment"));
         assert!(!langs.contains(&"preproc"));
+    }
+
+    #[test]
+    fn supported_languages_only_lists_enabled_grammars() {
+        // Defensive against feature-subset downstream builds: every
+        // entry returned by `supported_languages()` must be a LANG
+        // variant whose grammar is actually compiled into this
+        // build. Under the default `all-languages` feature set this
+        // is trivially true; the test exists so a future
+        // `--no-default-features --features rust,...` consumer
+        // can't silently advertise a language that will then raise
+        // `LanguageDisabled` on `analyze_source`.
+        let langs = supported_languages();
+        for name in &langs {
+            let lang = parse_language_name(name).unwrap_or_else(|| {
+                panic!("supported_languages emitted {name:?} but parse_language_name rejected it")
+            });
+            assert!(
+                lang.is_enabled(),
+                "supported_languages listed {name:?} but its grammar is disabled in this build",
+            );
+        }
     }
 
     #[test]
