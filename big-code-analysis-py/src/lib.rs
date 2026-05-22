@@ -115,13 +115,24 @@ fn analysis_error_to_py(err: AnalysisError) -> PyErr {
 /// non-UTF-8 paths so the `name` field is always a round-trippable
 /// identifier (#316).
 ///
-/// Parity is exact only when the file is not marked `@generated`.
-/// Language detection now mirrors the CLI — path extension first,
+/// Pass `skip_generated=False` (keyword-only) to opt out of the
+/// CLI's generated-file walker filter. The default is `True`,
+/// matching the CLI walker: files whose leading window matches
+/// `@generated` / `DO NOT EDIT` / `GENERATED CODE` return `None`
+/// without parsing. The `is_generated` check runs before language
+/// inference so a generated file with an unknown extension still
+/// returns `None` rather than raising `UnsupportedLanguageError`
+/// (#317).
+///
+/// Language detection mirrors the CLI — path extension first,
 /// then a `#!`-shebang line or emacs `-*- mode: … -*-` declaration
-/// via `big_code_analysis::guess_language`. Non-UTF-8 paths now
-/// match the CLI byte-for-byte when `allow_lossy_path=True`.
+/// via `big_code_analysis::guess_language`. Non-UTF-8 paths match
+/// the CLI byte-for-byte when `allow_lossy_path=True`. Generated
+/// files are skipped on both sides when `skip_generated=True` (the
+/// default), so the parity claim is now exact across all four
+/// CLI-walker behaviours.
 #[pyfunction]
-#[pyo3(signature = (path, /, *, exclude_tests = false, allow_lossy_path = false))]
+#[pyo3(signature = (path, /, *, exclude_tests = false, allow_lossy_path = false, skip_generated = true))]
 #[allow(clippy::needless_pass_by_value)]
 // `path: PathBuf` (rather than `&Path`) is mandated by PyO3's
 // path conversion: `FromPyObject` materializes a fresh `PathBuf`
@@ -132,10 +143,12 @@ fn analyze(
     path: PathBuf,
     exclude_tests: bool,
     allow_lossy_path: bool,
-) -> PyResult<Bound<'_, PyAny>> {
-    let json = analysis::analyze_path(&path, exclude_tests, allow_lossy_path)
-        .map_err(analysis_error_to_py)?;
-    conversion::json_string_to_py(py, &json)
+    skip_generated: bool,
+) -> PyResult<Option<Bound<'_, PyAny>>> {
+    analysis::analyze_path(&path, exclude_tests, allow_lossy_path, skip_generated)
+        .map_err(analysis_error_to_py)?
+        .map(|json| conversion::json_string_to_py(py, &json))
+        .transpose()
 }
 
 /// Run the metric analysis on an in-memory source buffer.
