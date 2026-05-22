@@ -36,11 +36,14 @@ import big_code_analysis as bca
 # CLI (path extension, then shebang, then emacs `-*- mode -*-`).
 # Pass `exclude_tests=True` to mirror `bca metrics --exclude-tests`
 # (prunes Rust `#[test]` / `#[cfg(test)]` subtrees before metric
-# computation). The remaining CLI-only behaviour (the
-# `is_generated` filter) is deferred to a phase-1 follow-up;
-# see `bca.analyze.__doc__` for the full parity contract.
-metrics = bca.analyze("src/main.rs")
-print(metrics["metrics"]["cognitive"]["sum"])
+# computation). Generated files (`@generated`, `DO NOT EDIT`,
+# `GENERATED CODE` markers) are skipped by default, matching the
+# CLI walker — `analyze` returns `None` for them; pass
+# `skip_generated=False` to opt out. See `bca.analyze.__doc__`
+# for the full parity contract.
+result = bca.analyze("src/main.rs")
+if result is not None:
+    print(result["metrics"]["cognitive"]["sum"])
 
 # Analyse a Rust file with `#[test]` subtrees pruned out — same
 # result as `bca metrics --exclude-tests --output-format json`.
@@ -51,6 +54,9 @@ prod_only = bca.analyze("src/main.rs", exclude_tests=True)
 # `allow_lossy_path=True` to opt into the CLI's U+FFFD
 # substitution behaviour (see `bca.analyze.__doc__` and #316).
 lossy = bca.analyze(weird_path, allow_lossy_path=True)
+
+# Force analysis of files marked `@generated` (default skips them).
+forced = bca.analyze("third_party/generated.pb.go", skip_generated=False)
 
 # Analyse an in-memory snippet (str, bytes, or bytearray accepted).
 metrics = bca.analyze_source("fn main() {}\n", "rust")

@@ -25,10 +25,11 @@ def analyze(
     *,
     exclude_tests: bool = False,
     allow_lossy_path: bool = False,
-) -> dict[str, Any]:
+    skip_generated: bool = True,
+) -> dict[str, Any] | None:
     """Compute metrics for the file at ``path``.
 
-    The returned ``dict`` matches the JSON emitted by ``bca metrics
+    Returns a ``dict`` matching the JSON emitted by ``bca metrics
     --output-format json`` for the same file at the ``FuncSpace``
     serialisation layer: identical field order (``name``,
     ``start_line``, ``end_line``, ``kind``, ``spaces``, ``metrics``),
@@ -36,6 +37,20 @@ def analyze(
     serialise through ``serde_json::to_string``; the bindings parse
     that JSON with ``json.loads``, which preserves insertion order
     on CPython 3.7+.
+
+    Returns ``None`` when ``skip_generated=True`` (the default) and
+    the file's leading window matches the CLI walker's
+    ``is_generated`` predicate — see ``skip_generated`` below.
+    Callers must therefore handle the optional return:
+
+    .. code-block:: python
+
+        result = bca.analyze(path)
+        if result is None:
+            # File is marked `@generated` / `DO NOT EDIT` /
+            # `GENERATED CODE`; the CLI walker would skip it too.
+            continue
+        process(result)
 
     Pass ``exclude_tests=True`` to mirror the CLI's global
     ``--exclude-tests`` flag (``bca metrics --exclude-tests
@@ -58,32 +73,45 @@ def analyze(
     silently collapse two distinct paths onto the same lossy key
     (#316).
 
-    Parity is exact **only when** every condition below holds; phase-1
-    of the bindings (#265) intentionally scopes the parity claim to
-    the FuncSpace boundary and defers the surrounding CLI behaviours
-    to follow-up issues:
+    Pass ``skip_generated=False`` to bypass the CLI's
+    ``is_generated`` walker filter. The default (``True``) matches
+    the CLI walker: a file whose leading ~5 KiB / first 50 lines
+    carry an ``@generated`` / ``DO NOT EDIT`` / ``GENERATED CODE``
+    marker (case-insensitive for ``@generated``) returns ``None``
+    without paying parse cost. The check runs *before* language
+    inference, so a generated file with an unrecognised extension
+    still returns ``None`` rather than raising
+    :class:`UnsupportedLanguageError` (#317).
+
+    Parity with ``bca metrics --output-format json`` is now exact
+    at the ``FuncSpace`` boundary in the default configuration:
 
     * Language detection mirrors the CLI's ``guess_language``: the
       path extension wins when recognised, otherwise the first
       line is checked for a ``#!`` shebang (``#!/usr/bin/env
       python``, ``#!/bin/bash``, …) and the leading / trailing
       lines for an emacs ``-*- mode: … -*-`` (or vim modeline)
-      declaration. An extension-less script with no detectable
-      interpreter still raises :class:`UnsupportedLanguageError`.
+      declaration. An extension-less, non-generated script with no
+      detectable interpreter still raises
+      :class:`UnsupportedLanguageError`.
     * Non-UTF-8 path bytes match the CLI byte-for-byte when
       ``allow_lossy_path=True``; the default still raises
-      ``ValueError`` (see Raises) so the strict identifier
-      contract is opt-out, not opt-in.
-    * Generated files (CLI's ``is_generated`` filter) are NOT
-      skipped by the bindings; the CLI emits no record for files
-      marked ``@generated`` / ``DO NOT EDIT`` / ``GENERATED CODE``,
-      the bindings emit a populated ``FuncSpace`` — see #317.
+      ``ValueError`` so the strict identifier contract is opt-out,
+      not opt-in.
+    * Generated files (CLI's ``is_generated`` filter) are skipped
+      on both sides when ``skip_generated=True`` (the default):
+      the bindings return ``None``, the CLI walker emits no
+      record. Pass ``skip_generated=False`` on both sides to opt
+      out symmetrically.
 
     Raises
     ------
     UnsupportedLanguageError
         If ``path``'s extension is unknown AND no shebang or
         emacs-mode declaration resolves to a supported language.
+        Not raised when ``skip_generated=True`` and the file
+        matches the ``is_generated`` predicate — ``None`` is
+        returned instead.
     ParseError
         If the tree-sitter parser fails on the source.
     ValueError

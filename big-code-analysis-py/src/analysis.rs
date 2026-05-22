@@ -17,17 +17,20 @@
 //! because `serde_json::Map` is a `BTreeMap` without the
 //! `preserve_order` Cargo feature.
 //!
-//! Note that this layer's parity claim does not extend to the CLI's
-//! `is_generated` walker filter (always off here). The
-//! `--exclude-tests` flag IS now mirrored — callers thread it through
-//! the `exclude_tests` kwarg on `analyze` / `analyze_source` (#315).
-//! Shebang / emacs-mode language detection is also mirrored — both
-//! sides resolve language through [`big_code_analysis::guess_language`].
-//! See `_native.pyi`'s `analyze.__doc__` for the user-facing contract.
+//! The CLI's `is_generated` walker filter is now mirrored via the
+//! `skip_generated` kwarg on `analyze` (default `true`, matching the
+//! CLI walker); the bindings return `None` for files whose leading
+//! bytes carry an `@generated` / `DO NOT EDIT` / `GENERATED CODE`
+//! marker so callers can drop them without paying parse cost (#317).
+//! The `--exclude-tests` flag is mirrored via the `exclude_tests`
+//! kwarg (#315). Shebang / emacs-mode language detection is also
+//! mirrored — both sides resolve language through
+//! [`big_code_analysis::guess_language`]. See `_native.pyi`'s
+//! `analyze.__doc__` for the user-facing contract.
 
 use std::path::Path;
 
-use big_code_analysis::{LANG, MetricsOptions, Source, analyze, guess_language};
+use big_code_analysis::{LANG, MetricsOptions, Source, analyze, guess_language, is_generated};
 
 use crate::language::parse_language_name;
 
@@ -143,6 +146,14 @@ impl From<serde_json::Error> for AnalysisError {
 /// path would have raised `UnsupportedLanguageError` without
 /// touching the filesystem.
 ///
+/// `exclude_tests` mirrors the CLI's `--exclude-tests` flag (#315):
+/// when `true`, the analysis runs under
+/// `MetricsOptions::default().with_exclude_tests(true)`, which the
+/// Rust language checker uses to prune `#[test]` / `#[cfg(test)]` /
+/// `#[tokio::test]` subtrees before any metric runs. Languages
+/// without a `Checker::should_skip_subtree` override ignore the
+/// flag; the default `false` preserves prior bindings behaviour.
+///
 /// `allow_lossy_path` selects the non-UTF-8 path policy (#316):
 ///
 /// * `false` (default) — non-UTF-8 paths are rejected with
@@ -154,11 +165,27 @@ impl From<serde_json::Error> for AnalysisError {
 ///   with U+FFFD via [`Path::to_string_lossy`], matching the
 ///   `bca metrics --output-format json` CLI exactly. The opt-in
 ///   makes the lossy substitution explicit at the call site.
+///
+/// `skip_generated` selects the generated-file policy (#317):
+///
+/// * `true` (default) — files whose leading window matches
+///   [`big_code_analysis::is_generated`] (`@generated` /
+///   `DO NOT EDIT` / `GENERATED CODE` markers) return `Ok(None)`
+///   without parsing, mirroring the CLI walker which emits no
+///   record for these files.
+/// * `false` — the marker check is bypassed and every readable
+///   file produces a populated `FuncSpace`.
+///
+/// The check runs after the file read but before language inference
+/// and parsing: a file with a generated marker but an unknown
+/// extension still skips silently rather than raising
+/// `UnsupportedLanguage`, matching the CLI walker's ordering.
 pub(crate) fn analyze_path(
     path: &Path,
     exclude_tests: bool,
     allow_lossy_path: bool,
-) -> Result<String, AnalysisError> {
+    skip_generated: bool,
+) -> Result<Option<String>, AnalysisError> {
     // Resolve the `FuncSpace.name` *before* the file read so a
     // non-UTF-8 path in strict mode can never reach `path.display()`
     // in the `AnalysisError::Io` arm — the `filename` field on the
@@ -181,6 +208,14 @@ pub(crate) fn analyze_path(
         source,
         path: path.to_path_buf(),
     })?;
+    // Generated-file filter (CLI parity, #317): runs *before* language
+    // inference so a generated file with an unknown extension still
+    // returns `Ok(None)` rather than raising `UnsupportedLanguage` —
+    // matches the CLI walker, which discards generated files without
+    // attempting to resolve their language.
+    if skip_generated && is_generated(&code) {
+        return Ok(None);
+    }
     // `guess_language` returns a `(Option<LANG>, &str)` tuple — we
     // only care about the variant; the display name is recovered
     // downstream from `LANG::get_name` via the metric serialiser.
@@ -190,7 +225,7 @@ pub(crate) fn analyze_path(
             path.display()
         ))
     })?;
-    analyze_bytes(lang, &code, Some(name), exclude_tests)
+    analyze_bytes(lang, &code, Some(name), exclude_tests).map(Some)
 }
 
 /// Analyse an in-memory source buffer with an explicit language.
@@ -348,7 +383,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("thing.unknownext");
         std::fs::write(&path, b"noise\n").expect("write fixture");
-        let err = analyze_path(&path, false, false);
+        let err = analyze_path(&path, false, false, false);
         assert!(matches!(err, Err(AnalysisError::UnsupportedLanguage(_))));
     }
 
@@ -372,7 +407,9 @@ mod tests {
         let path = dir.path().join("install");
         let source = b"#!/usr/bin/env python\ndef hello(name):\n    return name\n";
         std::fs::write(&path, source).expect("write fixture");
-        let json = analyze_path(&path, false, false).expect("shebang script analyses");
+        let json = analyze_path(&path, false, false, false)
+            .expect("shebang script analyses")
+            .expect("non-generated file yields a populated FuncSpace");
         let value = parse_json(&json);
         let obj = value.as_object().expect("top-level is an object");
         assert_eq!(
@@ -419,7 +456,7 @@ mod tests {
         let raw = [0xffu8, 0xff, b'.', b'r', b's'];
         let path = dir.path().join(OsStr::from_bytes(&raw));
         std::fs::write(&path, b"fn main() {}\n").expect("write fixture");
-        let err = analyze_path(&path, false, false);
+        let err = analyze_path(&path, false, false, false);
         assert!(
             matches!(err, Err(AnalysisError::NonUtf8Path)),
             "strict mode must reject non-UTF-8 path, got {err:?}",
@@ -439,7 +476,9 @@ mod tests {
         let raw = [0xffu8, 0xff, b'.', b'r', b's'];
         let path = dir.path().join(OsStr::from_bytes(&raw));
         std::fs::write(&path, b"fn main() {}\n").expect("write fixture");
-        let json = analyze_path(&path, false, true).expect("lossy mode parses non-UTF-8 path");
+        let json = analyze_path(&path, false, true, false)
+            .expect("lossy mode parses non-UTF-8 path")
+            .expect("non-generated file yields a populated FuncSpace");
         let value = parse_json(&json);
         let name = value
             .get("name")
@@ -461,5 +500,85 @@ mod tests {
             value.get("kind").and_then(serde_json::Value::as_str),
             Some("unit"),
         );
+    }
+
+    #[test]
+    fn analyze_path_returns_none_for_generated_file_when_skip_generated_is_true() {
+        // CLI parity (#317): a file whose leading window matches
+        // `is_generated` must be skipped without parsing, just like
+        // `bca metrics --output-format json` discards it from the
+        // walker. Returning `Ok(None)` is the Python-facing "no
+        // record emitted" signal.
+        //
+        // Test-via-revert: removing the `if skip_generated &&
+        // is_generated(&code) { return Ok(None); }` branch makes
+        // this test fail because the file parses fine and the
+        // function returns `Ok(Some(_))`.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("gen.rs");
+        std::fs::write(
+            &path,
+            b"// @generated by some-tool. DO NOT EDIT.\npub fn x() {}\n",
+        )
+        .expect("write fixture");
+        let out = analyze_path(&path, false, false, true).expect("generated file is not an error");
+        assert!(
+            out.is_none(),
+            "skip_generated=true must elide the FuncSpace, got Some(_)",
+        );
+    }
+
+    #[test]
+    fn analyze_path_parses_generated_file_when_skip_generated_is_false() {
+        // Opt-out path: the same marker no longer triggers the skip,
+        // so the function returns the populated FuncSpace JSON. Pins
+        // that the kwarg is load-bearing rather than always-skip.
+        //
+        // A bare `kind == "unit"` check would miss a regression where
+        // the parser ran but emitted an empty `spaces` array; assert
+        // the inner `pub fn x` shows up so the test exercises the
+        // full parse path, not just the unit envelope.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("gen.rs");
+        std::fs::write(
+            &path,
+            b"// @generated by some-tool. DO NOT EDIT.\npub fn x() {}\n",
+        )
+        .expect("write fixture");
+        let json = analyze_path(&path, false, false, false)
+            .expect("generated file parses with skip_generated=false")
+            .expect("skip_generated=false must yield Some(json)");
+        let value = parse_json(&json);
+        assert_eq!(
+            value.get("kind").and_then(serde_json::Value::as_str),
+            Some("unit"),
+        );
+        let spaces = value
+            .get("spaces")
+            .and_then(serde_json::Value::as_array)
+            .expect("spaces is an array");
+        let inner_names: Vec<&str> = spaces
+            .iter()
+            .filter_map(|s| s.get("name").and_then(serde_json::Value::as_str))
+            .collect();
+        assert!(
+            inner_names.contains(&"x"),
+            "expected inner `x` fn in spaces, got {inner_names:?}",
+        );
+    }
+
+    #[test]
+    fn analyze_path_skips_generated_file_before_language_inference() {
+        // CLI walker ordering: `is_generated` runs before
+        // `guess_language`, so a generated file with an unrecognised
+        // extension still skips silently. A regression that moved the
+        // marker check after the language lookup would surface as
+        // `UnsupportedLanguage` here.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("gen.unknownext");
+        std::fs::write(&path, b"// @generated\npub fn x() {}\n").expect("write fixture");
+        let out =
+            analyze_path(&path, false, false, true).expect("skip must precede language inference");
+        assert!(out.is_none(), "expected None, got {out:?}");
     }
 }

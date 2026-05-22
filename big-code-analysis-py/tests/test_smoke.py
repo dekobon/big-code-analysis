@@ -290,6 +290,83 @@ def test_analyze_exclude_tests_matches_cli_for_rust_fixture(bca_binary: str) -> 
     )
 
 
+def test_analyze_skip_generated_default_returns_none_for_generated_file() -> None:
+    """Default ``skip_generated=True`` must mirror the CLI walker.
+
+    The fixture's first line carries ``@generated ... DO NOT EDIT.``
+    so the upstream ``is_generated`` predicate matches. The CLI walker
+    drops the file from its output entirely; the bindings surface that
+    decision as ``None`` so callers can drop the file from their own
+    pipeline with one ``if result is None`` check.
+
+    Test-via-revert: passing ``skip_generated=False`` (covered by the
+    next test) demonstrates the kwarg is load-bearing rather than
+    always-skip.
+    """
+    path = FIXTURES / "generated.rs"
+    assert bca.analyze(path) is None
+
+
+def test_analyze_skip_generated_false_parses_generated_file() -> None:
+    """``skip_generated=False`` opts out of the CLI walker filter.
+
+    With the marker check bypassed, the same fixture parses normally
+    and returns a populated ``FuncSpace`` — the regression check that
+    the kwarg actually controls behaviour rather than being ignored.
+    The structural check on inner ``spaces`` pins that the Rust
+    parser ran successfully (a regression that surfaced an empty
+    ``FuncSpace`` would slip past a bare ``kind == "unit"`` check).
+    """
+    path = FIXTURES / "generated.rs"
+    result = bca.analyze(path, skip_generated=False)
+    assert result is not None, "skip_generated=False must yield a dict"
+    assert result["kind"] == "unit"
+    # The fixture defines `pub fn generated()`; with the marker check
+    # bypassed, the parser sees it and emits a child FuncSpace.
+    inner_names = {
+        space.get("name") for space in result["spaces"] if isinstance(space, dict)
+    }
+    assert "generated" in inner_names, (
+        f"expected `generated` fn in spaces, got names {inner_names!r}"
+    )
+
+
+def test_analyze_skip_generated_matches_cli_walker(bca_binary: str) -> None:
+    """CLI parity for generated files (#317).
+
+    ``bca metrics --output-format json --paths <generated.rs>`` runs
+    the walker against a single file: the walker checks
+    ``is_generated`` before parsing and emits **nothing at all** for
+    our fixture (zero-byte stdout, exit 0). The bindings represent
+    that same "no record" decision as ``None`` from ``analyze``.
+
+    The CLI emits per-file JSON records to stdout as it walks; when
+    every input is filtered out, there are simply no records to
+    write — not an empty array, not a wrapping container. Asserting
+    on the raw stdout bytes (rather than ``json.loads``) pins the
+    CLI's no-output convention and prevents a future regression
+    where the walker starts emitting `null` / `{}` / `[]` for
+    skipped files (which would silently break callers piping the
+    output through `jq`).
+    """
+    path = FIXTURES / "generated.rs"
+    argv = [
+        bca_binary,
+        "metrics",
+        "--output-format",
+        "json",
+        "--paths",
+        str(path),
+    ]
+    result = subprocess.run(argv, check=True, capture_output=True, text=True)
+    assert result.stdout == "", (
+        f"expected CLI to emit no output for a generated file, got "
+        f"{result.stdout!r}; if this fails the CLI walker semantics "
+        "have changed and the bindings' parity claim needs revisiting."
+    )
+    assert bca.analyze(path) is None
+
+
 def test_analyze_source_exclude_tests_prunes_rust_tests() -> None:
     """In-memory variant of the Rust ``exclude_tests`` parity check.
 
