@@ -17,15 +17,25 @@ use big_code_analysis::{LANG, get_language_for_file};
 /// Returns the Python-facing language identifier for `lang`.
 ///
 /// The upstream `LANG::get_name` returns a *display* name shared
-/// across variants (e.g. both `LANG::Tsx` and `LANG::Typescript`
-/// report `"typescript"`), which makes it ambiguous as a lookup
-/// key. The Python bindings use the lowercase Rust variant name
-/// instead — every `LANG` value has a unique one, and a few small
-/// canonical aliases keep CLI-style names usable:
+/// across variants — both `LANG::Tsx` and `LANG::Typescript` report
+/// `"typescript"`, both `LANG::Mozjs` and `LANG::Javascript` report
+/// `"javascript"` — which makes it ambiguous as a *lookup* key when
+/// two variants would round-trip differently through
+/// `parse_language_name`. The Python bindings disambiguate by
+/// preferring the upstream display name when only one variant in a
+/// display group is actually reachable (no helper-variant collision),
+/// and falling back to the lowercase Rust variant name otherwise:
 ///
-/// - `Mozjs` is exposed as `"mozjs"` (variant name lowercased).
-/// - `Tsx` is exposed as `"tsx"`.
-/// - `Typescript` is exposed as `"typescript"`.
+/// - `Mozjs` is exposed as `"javascript"` — matches the CLI's
+///   `"language"` field on every `.js` / `.jsm` / `.mjs` / `.jsx`
+///   file. `LANG::Javascript` exists as a placeholder for a future
+///   strict-ECMAScript dispatch but has no registered extensions
+///   and is filtered out by [`public_languages`], so the shared
+///   `"javascript"` name is unambiguous from the Python API.
+/// - `Tsx` and `Typescript` get distinct variant names (`"tsx"`,
+///   `"typescript"`) because both are reachable (TSX via `.tsx`
+///   files, TypeScript via `.ts`) and the CLI display collision
+///   would lose information at the API boundary.
 /// - `Csharp` is exposed as `"csharp"`.
 /// - All other variants use their variant name lowercased
 ///   (`Rust` → `"rust"`, `Java` → `"java"`, …).
@@ -39,10 +49,15 @@ pub(crate) fn lang_to_name(lang: LANG) -> &'static str {
         LANG::Go => "go",
         LANG::Groovy => "groovy",
         LANG::Java => "java",
-        LANG::Javascript => "javascript",
+        // `Javascript` has no extensions and is filtered out of
+        // `public_languages`, so this arm is never reached through
+        // the Python API — but the match must stay exhaustive, and
+        // grouping the two `"javascript"` variants together documents
+        // the intentional CLI-name alias and keeps clippy
+        // (`match_same_arms`) quiet.
+        LANG::Javascript | LANG::Mozjs => "javascript",
         LANG::Kotlin => "kotlin",
         LANG::Lua => "lua",
-        LANG::Mozjs => "mozjs",
         LANG::Perl => "perl",
         LANG::Php => "php",
         LANG::Preproc => "preproc",
@@ -128,6 +143,28 @@ mod tests {
     }
 
     #[test]
+    fn language_for_file_recognises_js_as_javascript() {
+        // CLI parity: `bca metrics --output-format json foo.js`
+        // reports `"language": "javascript"` (via
+        // `Mozjs.get_name()`). The bindings must round-trip the
+        // same string so a user reading the CLI output and feeding
+        // it back through `analyze_source` does not hit
+        // UnsupportedLanguageError.
+        assert_eq!(
+            language_for_file(&PathBuf::from("foo.js")),
+            Some("javascript")
+        );
+        assert_eq!(
+            language_for_file(&PathBuf::from("foo.jsx")),
+            Some("javascript")
+        );
+        assert_eq!(
+            language_for_file(&PathBuf::from("foo.mjs")),
+            Some("javascript")
+        );
+    }
+
+    #[test]
     fn language_for_file_returns_none_for_unknown_extension() {
         assert_eq!(language_for_file(&PathBuf::from("foo.xyz")), None);
     }
@@ -143,6 +180,17 @@ mod tests {
         assert!(langs.contains(&"rust"));
         assert!(langs.contains(&"python"));
         assert!(langs.contains(&"java"));
+        // `Mozjs` is exposed under the canonical CLI-display name
+        // `"javascript"`, NOT the variant name `"mozjs"`. This is
+        // the parity contract — a user who reads `"language":
+        // "javascript"` from `bca metrics --output-format json` on
+        // a `.js` file can pass that same string back through
+        // `analyze_source` and get a result.
+        assert!(langs.contains(&"javascript"));
+        assert!(
+            !langs.contains(&"mozjs"),
+            "supported_languages should not advertise the internal variant name"
+        );
     }
 
     #[test]
@@ -204,6 +252,27 @@ mod tests {
         assert!(matches!(parse_language_name("RUST"), Some(LANG::Rust)));
         assert!(matches!(parse_language_name("Rust"), Some(LANG::Rust)));
         assert!(parse_language_name("bogus").is_none());
+    }
+
+    #[test]
+    fn parse_language_name_resolves_javascript_to_mozjs() {
+        // `Mozjs` is the variant that handles `.js`/`.jsx`/`.mjs`/
+        // `.jsm` and reports `"javascript"` as its display name in
+        // CLI output. The bindings must accept that same string,
+        // not the internal variant name.
+        assert!(matches!(
+            parse_language_name("javascript"),
+            Some(LANG::Mozjs)
+        ));
+        assert!(matches!(
+            parse_language_name("JavaScript"),
+            Some(LANG::Mozjs)
+        ));
+        // The variant name is *not* exposed — `LANG::Javascript`
+        // has no extensions and is filtered out by
+        // `public_languages`, so the string "mozjs" does not
+        // resolve to any LANG.
+        assert!(parse_language_name("mozjs").is_none());
     }
 
     #[test]
