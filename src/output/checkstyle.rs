@@ -36,6 +36,12 @@ use crate::output::offenders::{OffenderRecord, TOOL_ID, warn_non_utf8_path};
 /// The empty case still emits a well-formed `<checkstyle version="4.3"/>`
 /// document so consumers can rely on a non-empty file always being
 /// parseable.
+///
+/// # Errors
+///
+/// Propagates any [`io::Error`] returned by `writer` while emitting
+/// the XML envelope, the per-file `<file>` blocks, or their contained
+/// `<error>` elements.
 pub fn write_checkstyle<W: Write>(offenders: &[OffenderRecord], mut writer: W) -> io::Result<()> {
     writer.write_all(b"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")?;
 
