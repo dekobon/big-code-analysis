@@ -18,10 +18,11 @@
 //! `preserve_order` Cargo feature.
 //!
 //! Note that this layer's parity claim does not extend to the CLI's
-//! surrounding behaviours: the `--exclude-tests` flag (always off
-//! here) and the `is_generated` walker filter (always off here).
-//! Shebang / emacs-mode language detection IS mirrored — both sides
-//! resolve language through [`big_code_analysis::guess_language`].
+//! `is_generated` walker filter (always off here). The
+//! `--exclude-tests` flag IS now mirrored — callers thread it through
+//! the `exclude_tests` kwarg on `analyze` / `analyze_source` (#315).
+//! Shebang / emacs-mode language detection is also mirrored — both
+//! sides resolve language through [`big_code_analysis::guess_language`].
 //! See `_native.pyi`'s `analyze.__doc__` for the user-facing contract.
 
 use std::path::Path;
@@ -141,7 +142,7 @@ impl From<serde_json::Error> for AnalysisError {
 /// when its extension is unknown, where the prior extension-only
 /// path would have raised `UnsupportedLanguageError` without
 /// touching the filesystem.
-pub(crate) fn analyze_path(path: &Path) -> Result<String, AnalysisError> {
+pub(crate) fn analyze_path(path: &Path, exclude_tests: bool) -> Result<String, AnalysisError> {
     // UTF-8 validation runs *before* the file read so a non-UTF-8
     // path can never reach `path.display()` in the
     // `AnalysisError::Io` arm — the `filename` field on the resulting
@@ -164,7 +165,7 @@ pub(crate) fn analyze_path(path: &Path) -> Result<String, AnalysisError> {
             path.display()
         ))
     })?;
-    analyze_bytes(lang, &code, Some(name))
+    analyze_bytes(lang, &code, Some(name), exclude_tests)
 }
 
 /// Analyse an in-memory source buffer with an explicit language.
@@ -177,15 +178,22 @@ pub(crate) fn analyze_source(
     language: &str,
     code: &[u8],
     name: Option<String>,
+    exclude_tests: bool,
 ) -> Result<String, AnalysisError> {
     let lang = parse_language_name(language)
         .ok_or_else(|| AnalysisError::UnsupportedLanguage(language.to_owned()))?;
-    analyze_bytes(lang, code, name)
+    analyze_bytes(lang, code, name, exclude_tests)
 }
 
-fn analyze_bytes(lang: LANG, code: &[u8], name: Option<String>) -> Result<String, AnalysisError> {
+fn analyze_bytes(
+    lang: LANG,
+    code: &[u8],
+    name: Option<String>,
+    exclude_tests: bool,
+) -> Result<String, AnalysisError> {
     let source = Source::new(lang, code).with_name(name);
-    let space = analyze(source, MetricsOptions::default())?;
+    let options = MetricsOptions::default().with_exclude_tests(exclude_tests);
+    let space = analyze(source, options)?;
     Ok(serde_json::to_string(&space)?)
 }
 
@@ -205,7 +213,7 @@ mod tests {
 
     #[test]
     fn analyze_source_returns_json_object_for_rust_snippet() {
-        let s = analyze_source("rust", b"fn main() {}", Some("x.rs".to_owned()))
+        let s = analyze_source("rust", b"fn main() {}", Some("x.rs".to_owned()), false)
             .expect("rust snippet parses");
         let value = parse_json(&s);
         let obj = value.as_object().expect("top-level is an object");
@@ -240,7 +248,7 @@ mod tests {
         // trap that a positional check (`name_pos < start_line_pos`)
         // would re-introduce: alphabetical also satisfies that
         // particular inequality (`name@4 < start_line@6` after sort).
-        let s = analyze_source("rust", b"fn main() {}", Some("x.rs".to_owned()))
+        let s = analyze_source("rust", b"fn main() {}", Some("x.rs".to_owned()), false)
             .expect("rust snippet parses");
         assert!(
             s.starts_with(r#"{"name":"x.rs","start_line":"#),
@@ -253,7 +261,7 @@ mod tests {
 
     #[test]
     fn analyze_source_rejects_unknown_language() {
-        let err = analyze_source("klingon", b"qaplah", None);
+        let err = analyze_source("klingon", b"qaplah", None, false);
         assert!(matches!(err, Err(AnalysisError::UnsupportedLanguage(_))));
     }
 
@@ -264,9 +272,45 @@ mod tests {
         // the bridge surfaces *something* (a JSON object) for
         // syntactically invalid Rust rather than propagating a
         // `MetricsError`.
-        let s = analyze_source("rust", b"fn missing_brace(", None)
+        let s = analyze_source("rust", b"fn missing_brace(", None, false)
             .expect("tree-sitter recovers on malformed input");
         assert!(parse_json(&s).is_object());
+    }
+
+    #[test]
+    fn analyze_source_exclude_tests_prunes_rust_test_attribute() {
+        // The flag is plumbed all the way to `MetricsOptions::exclude_tests`
+        // in the parent crate, which prunes Rust `#[test]` /
+        // `#[cfg(test)]` subtrees inside `metrics_inner`. A single-file
+        // call to `analyze_source` therefore observes the pruning at the
+        // top-level `FuncSpace.metrics.nom.functions.sum` count.
+        //
+        // Test-via-revert: temporarily change the body of `analyze_bytes`
+        // to ignore `exclude_tests` (always pass `MetricsOptions::default()`)
+        // and this assertion fails because `pruned_functions` then matches
+        // `baseline_functions` (both 2).
+        let source = b"fn prod() -> i32 { 1 + 2 }\n\n#[test]\nfn t() { assert_eq!(1 + 1, 2); }\n";
+
+        let baseline = analyze_source("rust", source, None, false).expect("rust snippet parses");
+        let pruned = analyze_source("rust", source, None, true).expect("rust snippet parses");
+
+        // The `nom` serializer emits the field as `"functions"` (see
+        // `src/metrics/nom.rs::Serialize`), not `functions_sum`.
+        let baseline_functions = parse_json(&baseline)["metrics"]["nom"]["functions"]
+            .as_f64()
+            .expect("functions is numeric");
+        let pruned_functions = parse_json(&pruned)["metrics"]["nom"]["functions"]
+            .as_f64()
+            .expect("functions is numeric");
+
+        assert!(
+            (baseline_functions - 2.0).abs() < f64::EPSILON,
+            "baseline must count both `prod` and `#[test] fn t`; got {baseline_functions}",
+        );
+        assert!(
+            (pruned_functions - 1.0).abs() < f64::EPSILON,
+            "exclude_tests=true must elide `#[test] fn t`; got {pruned_functions}",
+        );
     }
 
     #[test]
@@ -279,7 +323,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("thing.unknownext");
         std::fs::write(&path, b"noise\n").expect("write fixture");
-        let err = analyze_path(&path);
+        let err = analyze_path(&path, false);
         assert!(matches!(err, Err(AnalysisError::UnsupportedLanguage(_))));
     }
 
@@ -303,7 +347,7 @@ mod tests {
         let path = dir.path().join("install");
         let source = b"#!/usr/bin/env python\ndef hello(name):\n    return name\n";
         std::fs::write(&path, source).expect("write fixture");
-        let json = analyze_path(&path).expect("shebang script analyses");
+        let json = analyze_path(&path, false).expect("shebang script analyses");
         let value = parse_json(&json);
         let obj = value.as_object().expect("top-level is an object");
         assert_eq!(

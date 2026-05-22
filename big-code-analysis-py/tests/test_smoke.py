@@ -144,10 +144,22 @@ def bca_binary() -> str:
     return built
 
 
-def _cli_metrics(bca_path: str, path: Path) -> Any:
-    """Run ``bca metrics --output-format json`` on ``path`` and parse."""
+def _cli_metrics(bca_path: str, path: Path, *, exclude_tests: bool = False) -> Any:
+    """Run ``bca metrics --output-format json`` on ``path`` and parse.
+
+    ``--exclude-tests`` is the CLI's global flag (declared on
+    ``GlobalOpts`` in ``big-code-analysis-cli/src/lib.rs``); clap
+    accepts it either before the subcommand or after it. We place
+    it before ``metrics`` to match the documented invocation form
+    in the README, which is what users will type to reach for the
+    Python kwarg via the bindings.
+    """
+    argv = [bca_path]
+    if exclude_tests:
+        argv.append("--exclude-tests")
+    argv.extend(["metrics", "--output-format", "json", "--paths", str(path)])
     result = subprocess.run(
-        [bca_path, "metrics", "--output-format", "json", "--paths", str(path)],
+        argv,
         check=True,
         capture_output=True,
         text=True,
@@ -239,6 +251,81 @@ def test_analyze_key_order_matches_cli(fixture: str, bca_binary: str) -> None:
         f"top-level key order diverged: py={list(py_result.keys())} "
         f"cli={list(cli_result.keys())}"
     )
+
+
+def test_analyze_exclude_tests_matches_cli_for_rust_fixture(bca_binary: str) -> None:
+    """``analyze(path, exclude_tests=True)`` must match ``bca --exclude-tests``.
+
+    Uses the ``rust_with_tests.rs`` fixture, which has a production
+    function plus a ``#[cfg(test)] mod tests`` block containing two
+    ``#[test]`` functions and one helper. Without ``exclude_tests``,
+    the FuncSpace counts the four functions; with it, only ``prod``
+    survives — the language checker's ``should_skip_subtree`` hook
+    prunes the ``#[cfg(test)]`` module before any metric runs.
+
+    The parity check is a structural ``dict ==``: both sides must
+    yield byte-equivalent ``FuncSpace`` JSON. Asserting the pruned
+    ``functions`` count explicitly anchors the test against a
+    regression where the kwarg is silently ignored (both sides
+    would still agree at 4, but the contract would be broken).
+    """
+    path = FIXTURES / "rust_with_tests.rs"
+    py_pruned = bca.analyze(path, exclude_tests=True)
+    cli_pruned = _cli_metrics(bca_binary, path, exclude_tests=True)
+    assert py_pruned == cli_pruned
+
+    # Anchor: only `prod` must remain after pruning.
+    assert py_pruned["metrics"]["nom"]["functions"] == 1.0, (
+        f"expected exclude_tests to prune everything but `prod`, got "
+        f"functions={py_pruned['metrics']['nom']['functions']!r}"
+    )
+
+    # Sanity: baseline (no flag) sees all four functions, proving the
+    # fixture exercises the pruning path rather than a degenerate
+    # both-sides-empty agreement.
+    py_baseline = bca.analyze(path)
+    assert py_baseline["metrics"]["nom"]["functions"] == 4.0, (
+        f"baseline should count prod + helper + 2 tests = 4, got "
+        f"functions={py_baseline['metrics']['nom']['functions']!r}"
+    )
+
+
+def test_analyze_source_exclude_tests_prunes_rust_tests() -> None:
+    """In-memory variant of the Rust ``exclude_tests`` parity check.
+
+    Mirrors the path-based test above but exercises
+    ``analyze_source`` so the kwarg surface is covered on both
+    PyO3 entry points. No CLI parity check here — the CLI has no
+    stdin form for ``analyze_source`` — but the int counts pin
+    the load-bearing behaviour.
+    """
+    source = (
+        "fn prod() -> i32 { 1 + 2 }\n"
+        "\n"
+        "#[test]\n"
+        "fn t() { assert_eq!(1 + 1, 2); }\n"
+    )
+    baseline = bca.analyze_source(source, "rust")
+    pruned = bca.analyze_source(source, "rust", exclude_tests=True)
+    assert baseline["metrics"]["nom"]["functions"] == 2.0
+    assert pruned["metrics"]["nom"]["functions"] == 1.0
+
+
+def test_analyze_source_exclude_tests_is_no_op_for_non_rust_language() -> None:
+    """``exclude_tests=True`` must be a no-op for languages without a
+    ``Checker::should_skip_subtree`` override.
+
+    Pins the documented contract that the flag is currently Rust-only
+    — Python (and every other language) must emit the identical
+    ``FuncSpace`` JSON whether the flag is set or not. Without this
+    pin, a future regression that wires the flag through a language
+    checker which is *not* opt-in (e.g. matching by attribute name
+    in Python's grammar) would silently change Python-side numbers.
+    """
+    code = "def f(x):\n    return x + 1\n"
+    baseline = bca.analyze_source(code, "python")
+    flagged = bca.analyze_source(code, "python", exclude_tests=True)
+    assert baseline == flagged
 
 
 def test_analyze_source_str_bytes_bytearray_agree() -> None:

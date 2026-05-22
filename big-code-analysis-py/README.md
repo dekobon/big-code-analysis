@@ -33,12 +33,18 @@ import big_code_analysis as bca
 # emitted by `bca metrics --output-format json` for the same
 # file at the `FuncSpace` boundary — same field order, same
 # numeric formatting, same shape. Language detection mirrors the
-# CLI (path extension, then shebang, then emacs `-*- mode -*-`);
-# remaining CLI-only behaviours (`--exclude-tests`, the
-# `is_generated` filter) are deferred to phase-1 follow-ups;
+# CLI (path extension, then shebang, then emacs `-*- mode -*-`).
+# Pass `exclude_tests=True` to mirror `bca metrics --exclude-tests`
+# (prunes Rust `#[test]` / `#[cfg(test)]` subtrees before metric
+# computation). The remaining CLI-only behaviour (the
+# `is_generated` filter) is deferred to a phase-1 follow-up;
 # see `bca.analyze.__doc__` for the full parity contract.
 metrics = bca.analyze("src/main.rs")
 print(metrics["metrics"]["cognitive"]["sum"])
+
+# Analyse a Rust file with `#[test]` subtrees pruned out — same
+# result as `bca metrics --exclude-tests --output-format json`.
+prod_only = bca.analyze("src/main.rs", exclude_tests=True)
 
 # Analyse an in-memory snippet (str, bytes, or bytearray accepted).
 metrics = bca.analyze_source("fn main() {}\n", "rust")
