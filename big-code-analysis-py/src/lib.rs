@@ -70,8 +70,12 @@ fn analysis_error_to_py(err: AnalysisError) -> PyErr {
 
 /// Run the metric analysis on a single file path.
 ///
-/// Returns a Python `dict` mirroring `bca metrics --output json` for
-/// the same input byte-for-byte (modulo JSON-to-Python type mapping).
+/// Returns a Python `dict` byte-for-byte equivalent to
+/// `bca metrics --output-format json` for the same input — same
+/// field order, same numeric formatting, same shape — because both
+/// sides serialise the same `FuncSpace` through
+/// `serde_json::to_string` and the bindings then parse that JSON
+/// with `CPython`'s `json.loads` (which preserves insertion order).
 #[pyfunction]
 #[pyo3(signature = (path, /))]
 #[allow(clippy::needless_pass_by_value)]
@@ -80,14 +84,15 @@ fn analysis_error_to_py(err: AnalysisError) -> PyErr {
 // out of the `os.PathLike` argument, and there is no borrow to
 // extract a `&Path` from.
 fn analyze(py: Python<'_>, path: PathBuf) -> PyResult<Bound<'_, PyAny>> {
-    let value = analysis::analyze_path(&path).map_err(analysis_error_to_py)?;
-    conversion::json_value_to_py(py, &value)
+    let json = analysis::analyze_path(&path).map_err(analysis_error_to_py)?;
+    conversion::json_string_to_py(py, &json)
 }
 
 /// Run the metric analysis on an in-memory source buffer.
 ///
 /// `code` accepts `str`, `bytes`, or `bytearray`. `language` is a
 /// language name from [`supported_languages`] (case-insensitive).
+/// Output shape matches [`analyze`].
 #[pyfunction]
 #[pyo3(signature = (code, language, /))]
 fn analyze_source<'py>(
@@ -96,8 +101,8 @@ fn analyze_source<'py>(
     language: &str,
 ) -> PyResult<Bound<'py, PyAny>> {
     let bytes = extract_source_bytes(code)?;
-    let value = analysis::analyze_source(language, &bytes, None).map_err(analysis_error_to_py)?;
-    conversion::json_value_to_py(py, &value)
+    let json = analysis::analyze_source(language, &bytes, None).map_err(analysis_error_to_py)?;
+    conversion::json_string_to_py(py, &json)
 }
 
 /// Pull a `Vec<u8>` out of a Python value that may be `str`, `bytes`,
