@@ -66,12 +66,13 @@ fn analysis_error_to_py(err: AnalysisError) -> PyErr {
         AnalysisError::Io { source, path } => {
             let errno = source.raw_os_error();
             let msg = source.to_string();
-            // Path display is lossy on non-UTF-8, but `analyze_path`
-            // has already validated UTF-8 by the point I/O can fail
-            // for an inferred extension; for the rare reachable case
-            // (file deleted between language inference and read)
-            // `display()` is the right call — this string is the
-            // user-facing `filename` field, not an identifier.
+            // `analyze_path` validates `path.to_str()` *before* it
+            // attempts `std::fs::read`, so any path reaching this arm
+            // is known to be valid UTF-8 and `path.display()` is
+            // lossless. This is the user-facing `filename` field, not
+            // an identifier — `display()` (rather than `to_str()` +
+            // explicit error handling) is the right call because the
+            // caller has already certified the path string.
             PyOSError::new_err((errno, msg, path.display().to_string()))
         }
         AnalysisError::NonUtf8Path => {

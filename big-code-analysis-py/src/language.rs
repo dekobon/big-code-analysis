@@ -210,38 +210,17 @@ mod tests {
         assert!(!langs.contains(&"preproc"));
     }
 
-    #[test]
-    fn supported_languages_only_lists_enabled_grammars() {
-        // Defensive against feature-subset downstream builds: every
-        // entry returned by `supported_languages()` must be a LANG
-        // variant whose grammar is actually compiled into this
-        // build. Under the default `all-languages` feature set this
-        // is trivially true and the assertion below cannot fail —
-        // the test is a *call-site sentinel* rather than a runtime
-        // regression check.
-        //
-        // To actually exercise the disabled-language branch, build
-        // and run this test with a feature subset, e.g.
-        //
-        //   cargo test -p big-code-analysis --no-default-features \
-        //               --features rust language::tests
-        //
-        // (a CI job that does this would automate the coverage, but
-        // the repo currently has no checked-in workflows). The
-        // assertion catches a future-self mistake — someone deleting
-        // the `.filter(LANG::is_enabled)` call in
-        // `supported_languages` — only IF that workflow exists.
-        let langs = supported_languages();
-        for name in &langs {
-            let lang = parse_language_name(name).unwrap_or_else(|| {
-                panic!("supported_languages emitted {name:?} but parse_language_name rejected it")
-            });
-            assert!(
-                lang.is_enabled(),
-                "supported_languages listed {name:?} but its grammar is disabled in this build",
-            );
-        }
-    }
+    // The disabled-grammar filter on `supported_languages()` cannot
+    // be exercised under the default `all-languages` feature set — a
+    // test like `assert!(parse_language_name(name).unwrap().is_enabled())`
+    // is trivially true under default features and would only fire
+    // under a `--no-default-features --features rust` build, for
+    // which no CI job currently exists. The `supported_languages
+    // <-> parse_language_name` round-trip is already covered by
+    // `language_extensions_round_trips_for_every_supported_language`
+    // below (it calls `language_extensions(lang)`, which fans out to
+    // `parse_language_name(name)`), so no additional sentinel test
+    // is needed today.
 
     #[test]
     fn tsx_and_typescript_are_distinct_python_identifiers() {

@@ -107,14 +107,15 @@ impl From<big_code_analysis::MetricsError> for AnalysisError {
             // (`ValueError`) so callers' handling stays consistent
             // across both detection sites.
             MetricsError::NonUtf8Path => Self::NonUtf8Path,
-            // `MetricsError` is `#[non_exhaustive]`. Any future
-            // upstream variant lands here unmapped and surfaces as
-            // `ParseError` on the Python side — a sensible default
-            // for "something went wrong during analysis", but the
-            // catch-all also acts as a tripwire: a `cargo update`
-            // that introduces a new variant should be paired with
-            // an explicit arm above so the Python-side taxonomy
-            // stays intentional rather than defaulting.
+            // `MetricsError` is `#[non_exhaustive]`, which *requires*
+            // this wildcard arm — so it does NOT act as a compile-time
+            // tripwire. New upstream variants will silently default to
+            // `ParseError` on the Python side until someone teaches
+            // this match a more specific mapping. That is a sensible
+            // landing zone for "something went wrong during analysis",
+            // but it does mean a `cargo update` can shift error
+            // taxonomy without warning; audit this arm whenever the
+            // upstream `MetricsError` enum gains a variant.
             _ => Self::Parse(err),
         }
     }
@@ -138,6 +139,15 @@ pub(crate) fn analyze_path(path: &Path) -> Result<String, AnalysisError> {
             path.display()
         ))
     })?;
+    // UTF-8 validation runs *before* the file read so a non-UTF-8
+    // path can never reach `path.display()` in the
+    // `AnalysisError::Io` arm — the `filename` field on the resulting
+    // Python `OSError` would otherwise carry U+FFFD replacement
+    // characters for the lossy bytes. `get_language_for_file` above
+    // only validates the *extension* (not the whole path), so a path
+    // like `\xff\xff.rs` would reach this point with a valid `LANG`
+    // and a non-UTF-8 prefix.
+    let name = path.to_str().ok_or(AnalysisError::NonUtf8Path)?.to_owned();
     // Capture the path on I/O failure so the Python OSError carries
     // `filename` and CPython can dispatch to FileNotFoundError /
     // PermissionError / IsADirectoryError based on `errno`.
@@ -145,7 +155,6 @@ pub(crate) fn analyze_path(path: &Path) -> Result<String, AnalysisError> {
         source,
         path: path.to_path_buf(),
     })?;
-    let name = path.to_str().ok_or(AnalysisError::NonUtf8Path)?.to_owned();
     analyze_bytes(lang, &code, Some(name))
 }
 
