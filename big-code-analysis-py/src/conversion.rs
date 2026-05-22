@@ -255,4 +255,54 @@ mod tests {
             assert!(metrics.contains("nargs").expect("contains nargs"));
         });
     }
+
+    #[test]
+    fn non_finite_floats_round_trip_as_python_none() {
+        // `json_string_to_py` calls Python's `json.loads` with no
+        // `parse_constant=` override. CPython's default loader is
+        // permissive about non-standard tokens (it would accept
+        // literal `NaN`, `Infinity`, `-Infinity` and return the
+        // corresponding float values) — which would silently widen
+        // the bindings' output relative to spec JSON.
+        //
+        // We do NOT add a `parse_constant` shim because
+        // `serde_json::to_string` does not emit those tokens in
+        // the first place: its `serialize_f64` writes `null` for
+        // any non-finite value (verified empirically against
+        // serde_json 1.0.149, `ser.rs::serialize_f64`). Pin that
+        // round-trip property here so any future serde_json
+        // version that decides to emit literal `NaN` instead would
+        // (a) change the JSON byte stream below, breaking the
+        // first assertion, and (b) flag that we now need to add
+        // `parse_constant` to `json_string_to_py` to keep the
+        // bindings spec-compliant.
+        #[derive(serde::Serialize)]
+        struct WithNonFinite {
+            nan: f64,
+            inf: f64,
+            neg_inf: f64,
+        }
+        let json = serde_json::to_string(&WithNonFinite {
+            nan: f64::NAN,
+            inf: f64::INFINITY,
+            neg_inf: f64::NEG_INFINITY,
+        })
+        .expect("serde_json emits null for non-finite, not an error");
+        assert_eq!(
+            json, r#"{"nan":null,"inf":null,"neg_inf":null}"#,
+            "serde_json must continue to emit null (not the literal `NaN` / `Infinity` tokens) for non-finite floats — see the test docstring",
+        );
+        Python::initialize();
+        Python::attach(|py| {
+            let obj = json_string_to_py(py, &json).expect("null parses");
+            let dict = obj.cast_into::<PyDict>().expect("cast top dict");
+            for key in ["nan", "inf", "neg_inf"] {
+                let value = dict.get_item(key).expect("get key").expect("key present");
+                assert!(
+                    value.is_none(),
+                    "non-finite {key} should round-trip to Python None, got {value:?}",
+                );
+            }
+        });
+    }
 }
