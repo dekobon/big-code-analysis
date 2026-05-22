@@ -95,21 +95,28 @@ fn analysis_error_to_py(err: AnalysisError) -> PyErr {
 /// `serde_json::to_string` and the bindings parse that JSON with
 /// `CPython`'s `json.loads` (which preserves insertion order).
 ///
-/// Parity is exact only when (1) the CLI's `--exclude-tests` flag
-/// is not used, (2) the file is not marked `@generated`, and (3)
-/// the path is valid UTF-8. Language detection now mirrors the
-/// CLI — path extension first, then a `#!`-shebang line or
-/// emacs `-*- mode: … -*-` declaration via
+/// Pass `exclude_tests=True` (keyword-only) to mirror the CLI's
+/// global `--exclude-tests` flag: the bindings then thread
+/// `MetricsOptions::default().with_exclude_tests(true)` into the
+/// analysis, which the Rust language-checker hook uses to prune
+/// Rust `#[test]` / `#[cfg(test)]` / `#[tokio::test]` subtrees
+/// before any metric runs. Languages without a
+/// `Checker::should_skip_subtree` override ignore the flag.
+///
+/// Parity is exact only when (1) the file is not marked
+/// `@generated`, and (2) the path is valid UTF-8. Language
+/// detection now mirrors the CLI — path extension first, then a
+/// `#!`-shebang line or emacs `-*- mode: … -*-` declaration via
 /// `big_code_analysis::guess_language`.
 #[pyfunction]
-#[pyo3(signature = (path, /))]
+#[pyo3(signature = (path, /, *, exclude_tests = false))]
 #[allow(clippy::needless_pass_by_value)]
 // `path: PathBuf` (rather than `&Path`) is mandated by PyO3's
 // path conversion: `FromPyObject` materializes a fresh `PathBuf`
 // out of the `os.PathLike` argument, and there is no borrow to
 // extract a `&Path` from.
-fn analyze(py: Python<'_>, path: PathBuf) -> PyResult<Bound<'_, PyAny>> {
-    let json = analysis::analyze_path(&path).map_err(analysis_error_to_py)?;
+fn analyze(py: Python<'_>, path: PathBuf, exclude_tests: bool) -> PyResult<Bound<'_, PyAny>> {
+    let json = analysis::analyze_path(&path, exclude_tests).map_err(analysis_error_to_py)?;
     conversion::json_string_to_py(py, &json)
 }
 
@@ -117,16 +124,19 @@ fn analyze(py: Python<'_>, path: PathBuf) -> PyResult<Bound<'_, PyAny>> {
 ///
 /// `code` accepts `str`, `bytes`, or `bytearray`. `language` is a
 /// language name from [`supported_languages`] (case-insensitive).
-/// Output shape matches [`analyze`].
+/// Output shape matches [`analyze`]. `exclude_tests` mirrors the
+/// CLI's `--exclude-tests` flag — see [`analyze`] for the details.
 #[pyfunction]
-#[pyo3(signature = (code, language, /))]
+#[pyo3(signature = (code, language, /, *, exclude_tests = false))]
 fn analyze_source<'py>(
     py: Python<'py>,
     code: &Bound<'py, PyAny>,
     language: &str,
+    exclude_tests: bool,
 ) -> PyResult<Bound<'py, PyAny>> {
     let bytes = extract_source_bytes(code)?;
-    let json = analysis::analyze_source(language, &bytes, None).map_err(analysis_error_to_py)?;
+    let json = analysis::analyze_source(language, &bytes, None, exclude_tests)
+        .map_err(analysis_error_to_py)?;
     conversion::json_string_to_py(py, &json)
 }
 

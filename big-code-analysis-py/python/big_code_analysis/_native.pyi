@@ -19,7 +19,12 @@ class UnsupportedLanguageError(ValueError):
 class ParseError(ValueError):
     """Raised when the tree-sitter parser fails on the supplied source."""
 
-def analyze(path: str | os.PathLike[str], /) -> dict[str, Any]:
+def analyze(
+    path: str | os.PathLike[str],
+    /,
+    *,
+    exclude_tests: bool = False,
+) -> dict[str, Any]:
     """Compute metrics for the file at ``path``.
 
     The returned ``dict`` matches the JSON emitted by ``bca metrics
@@ -30,6 +35,17 @@ def analyze(path: str | os.PathLike[str], /) -> dict[str, Any]:
     serialise through ``serde_json::to_string``; the bindings parse
     that JSON with ``json.loads``, which preserves insertion order
     on CPython 3.7+.
+
+    Pass ``exclude_tests=True`` to mirror the CLI's global
+    ``--exclude-tests`` flag (``bca metrics --exclude-tests
+    --output-format json``). The bindings then thread
+    ``MetricsOptions::default().with_exclude_tests(True)`` into the
+    analysis: language checkers that override
+    ``should_skip_subtree`` (today: Rust — ``#[test]``,
+    ``#[cfg(test)]``, ``#[tokio::test]``, ``#[rstest]``,
+    ``#![cfg(test)]``) prune the matching subtrees before any
+    per-metric ``compute`` runs. Languages without that override
+    ignore the flag, matching CLI behaviour.
 
     Parity is exact **only when** every condition below holds; phase-1
     of the bindings (#265) intentionally scopes the parity claim to
@@ -43,9 +59,6 @@ def analyze(path: str | os.PathLike[str], /) -> dict[str, Any]:
       lines for an emacs ``-*- mode: … -*-`` (or vim modeline)
       declaration. An extension-less script with no detectable
       interpreter still raises :class:`UnsupportedLanguageError`.
-    * The CLI's ``--exclude-tests`` flag is not threaded through
-      this entry point (the bindings always use
-      ``MetricsOptions::default()``) — see #315.
     * Non-UTF-8 path bytes raise ``ValueError`` here (see Raises);
       the CLI substitutes U+FFFD via ``Path::to_string_lossy`` —
       see #316.
@@ -77,6 +90,8 @@ def analyze_source(
     code: str | bytes | bytearray,
     language: str,
     /,
+    *,
+    exclude_tests: bool = False,
 ) -> dict[str, Any]:
     """Compute metrics for an in-memory source buffer.
 
@@ -85,8 +100,9 @@ def analyze_source(
     ``bytes``, or ``bytearray``. The returned ``dict`` matches the
     ``FuncSpace`` shape used by :func:`analyze`, with ``name`` set
     to ``None`` because no path is associated with an in-memory
-    buffer. See :func:`analyze` for the full parity contract and
-    its caveats.
+    buffer. ``exclude_tests`` mirrors ``bca metrics
+    --exclude-tests`` — see :func:`analyze` for the full parity
+    contract and the language-checker semantics it triggers.
 
     Raises
     ------
