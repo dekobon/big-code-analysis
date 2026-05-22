@@ -763,6 +763,23 @@ introspects to assert every slug has both a light and dark CSS rule,
 and added a `tsx_section_uses_typescript_palette` test that drives
 the helper through `LANG::Tsx -> get_name() -> palette` end-to-end.
 
+**`bca.analyze_source(code, "javascript")` rejected the canonical
+CLI display name** (#265 batch, `182974b`). The first cut of the
+PyO3 bindings published the lowercased Rust variant name
+(`"mozjs"`) as the language identifier on
+`bca.analyze_source(code, language)`, while
+`bca metrics --output-format json` showed `"language":
+"javascript"` (via `LANG::Mozjs::get_name() == "javascript"`).
+Users reading the CLI output and feeding that string back to the
+bindings hit `UnsupportedLanguageError("javascript")`. The
+inverse of the TSX case above: there, production matched on a
+name the enum can never emit; here, the *binding's public API*
+exposed a name the canonical identity method can never emit. Same
+enum-identity-collapse root, opposite-direction symptom — the fix
+routes `parse_language_name` through `lang_to_name`, the same
+helper the rest of the binding already uses for the inverse
+lookup.
+
 **Lesson:** Whenever a helper branches on the output of a domain
 enum's identity method (`get_name()`, `to_str()`, `as_canonical()`),
 test it through the enum, not through literal strings — the literal
@@ -1803,5 +1820,200 @@ occurrence. Disagreement that ships becomes a Halstead drift bug
 that takes a cross-file review to spot — far cheaper to catch at
 predicate-edit time with a parity walk than at user-report time
 from a metric mismatch.
+
+---
+
+## 36. `serde_json::to_value` re-sorts JSON object keys via `BTreeMap`
+
+`serde_json::Value::Object` is backed by `BTreeMap<String, Value>`
+unless the `preserve_order` Cargo feature is enabled — which the
+workspace does not enable. Any round trip that goes
+`Serialize → to_value → ... → re-emit` silently alphabetises the
+keys, regardless of the original `Serialize` impl's declaration
+order. Code that bridges serde-Rust output into another
+insertion-ordered runtime (CPython's `dict`, Lua's `pairs`, an
+ordered-map-backed JS object) loses the field order at the
+`to_value` boundary; the loss is invisible unless a reader
+compares the original struct's field order against the output
+bytes.
+
+**`bca.analyze()` field order silently re-sorted alphabetically
+through `to_value`** (#265 batch, `6574aff`). The first cut of
+the PyO3 bindings serialised `FuncSpace` via
+`serde_json::to_value` and then walked the `Value` tree to build
+a Python `dict`. The output came out
+`{"end_line", "kind", "metrics", "name", "spaces", "start_line"}`
+— alphabetical — instead of the `Serialize` impl's
+`{"name", "start_line", "end_line", "kind", "spaces", "metrics"}`
+declaration order, which the `bca` CLI emits via `to_string`.
+Byte-for-byte parity with the CLI was the bindings' stated
+contract; the trap was invisible because `dict ==` is
+order-insensitive in Python, every test that compared dicts to
+dicts passed. The fix routes the bindings through
+`serde_json::to_string(&space)` followed by CPython's
+`json.loads`, which builds the `dict` in input order (CPython
+3.7+ guarantees insertion-order iteration). A
+`nested_structure_preserves_funcspace_field_order` Rust test now
+pins the contract by serialising a local struct whose declaration
+order differs from alphabetical and walking the resulting `dict`
+keys verbatim.
+
+**Lesson:** When crossing a serde→insertion-ordered-runtime
+boundary, route through `serde_json::to_string` and re-parse on
+the other side, not through `to_value`. The `preserve_order`
+feature is an alternative but applies workspace-wide and may
+interact with downstream crates expecting the default sort. The
+diagnostic test that catches this regression *cannot* compare
+structurally-equivalent containers — it must compare the emitted
+key order against a hand-pinned sequence whose source order is
+deliberately non-alphabetical (or it must compare raw JSON bytes
+position-by-position). A test that asserts equality of two dicts
+walks right past the bug.
+
+---
+
+## 37. CPython `OSError(errno, msg, filename)` dispatches to the right subclass; the 1-arg form collapses to bare `OSError`
+
+CPython's `OSError` constructor is overloaded by arity: passing
+`OSError(errno, message, filename)` dispatches to the matching
+subclass (`FileNotFoundError` for `ENOENT`, `PermissionError` for
+`EACCES`, `IsADirectoryError` for `EISDIR`, …) and populates
+`err.errno` / `err.filename` so idiomatic Python handling —
+`except FileNotFoundError as e: log(e.filename)` — works. Passing
+`OSError(message)` (1-arg) loses the dispatch entirely: every
+I/O failure surfaces as bare `OSError` with `errno is None`, no
+subclass match, no `filename` field. The 1-arg form is the
+natural shape when bridging Rust's `std::io::Error::to_string()`
+into Python and is the easy default that everyone reaches for
+first.
+
+**`bca.analyze(missing_path)` raised bare `OSError`, not
+`FileNotFoundError`** (#265 batch, `f91fac0`). The PyO3 bindings'
+`AnalysisError::Io { source }` arm originally mapped to
+`PyOSError::new_err(source.to_string())` — string-only. Python
+callers writing `except FileNotFoundError as e: e.filename` never
+matched the subclass and never saw the path. The fix carries the
+originating `PathBuf` through `AnalysisError::Io { source, path }`
+and constructs the PyError as
+`PyOSError::new_err((source.raw_os_error(), source.to_string(),
+path.display().to_string()))`. A regression test pins the
+contract:
+`pytest.raises(FileNotFoundError) as exc_info;
+exc_info.value.errno == errno.ENOENT; exc_info.value.filename ==
+str(missing)`.
+
+**Lesson:** Every PyO3 binding that surfaces a Rust
+`std::io::Error` must build the Python exception with the 3-tuple
+`(errno, msg, filename)` form — `errno` from
+`io::Error::raw_os_error()`, `filename` from the path that
+triggered the failure. This requires capturing the `Path` at the
+failure site, not just the `io::Error` (a blanket
+`From<io::Error>` impl would drop it). The 1-arg
+`PyOSError::new_err(message)` form is wrong by default for I/O
+bridges; reserve it for non-I/O `OSError` usage where no path or
+errno applies. Verify via a `FileNotFoundError` round-trip test
+that inspects `err.errno` and `err.filename`, not just the
+exception class — a test that catches `OSError` would pass
+against the buggy code.
+
+---
+
+## 38. Co-pinned runtime + build-time companion crates must share an exact patch, not a caret range
+
+When a crate ecosystem splits its FFI contract across two crates
+— one for the runtime ABI, one for the build-time link-args /
+codegen — Cargo's default caret semver can resolve the two to
+different patches even though they implement two halves of the
+same contract. Once the drift happens, a build-time symbol or
+link flag emitted under the older patch can disagree with what
+the runtime crate of the newer patch expects on the search path,
+and the symptom is a mysterious link error at test time, not a
+compile error in either crate. The cheap defence is to catch
+the drift at the pin, before any observed failure — once it
+surfaces, bisecting two interlocked patches is far more
+expensive than spelling `= "X.Y.Z"` at both sites up front.
+
+**`pyo3 = "0.28"` paired with `pyo3-build-config = "0.28"` was
+pinned preventatively before the drift could surface** (#265
+batch, `50c7fca`). The `big-code-analysis-py` build script called
+`pyo3_build_config::add_libpython_rpath_link_args()` to bake the
+libpython rpath into binaries that embed Python (i.e.
+`cargo test` with `pyo3/auto-initialize`). The rpath link-args
+contract is part of pyo3's build-time API; whether it emits
+`-Wl,-rpath,…` or `-Wl,-rpath-link,…`, and where the path comes
+from (interpreter probe vs. `PYO3_PYTHON` env var), depend on the
+pyo3-build-config patch. Both deps were originally spelled
+`"0.28"` (caret `^0.28.0`), so cargo was free to resolve them
+independently to e.g. `pyo3 0.28.3` + `pyo3-build-config
+0.28.1`. At the time of the fix both crates happened to be
+resolving to `0.28.3` — `cargo tree -d` was clean, no link
+failure had been triaged — but the next `cargo update` could
+have moved one without the other. The pin to `= "0.28.3"`
+forecloses the drift: a future patch bump (`pyo3 → 0.28.4`) now
+requires a deliberate paired edit of `pyo3-build-config`, and
+the comment at each pin names the partner crate so the lockstep
+survives the next contributor.
+
+**Lesson:** Identify co-pinned crate pairs that span the
+runtime / build-time FFI boundary in any dependency family you
+adopt (pyo3 / pyo3-build-config, sqlx / sqlx-macros,
+opentelemetry / opentelemetry-otlp). Use exact pins (`=
+"X.Y.Z"`) on every crate
+in the pair, not the caret default, and put a one-line comment at
+each pin naming the partner crate and the contract they share.
+The diagnostic for "did this happen?" is `cargo tree -d` (look
+for the same crate at two versions) or
+`cargo metadata | jq '.packages[] | select(.name |
+startswith("pyo3"))'`. A `cargo update` PR that bumps one crate
+without the other should fail review immediately — the lockstep
+is more important than chasing the latest patch.
+
+---
+
+## 39. `#[non_exhaustive]` enum wildcards are required, not tripwires
+
+When an upstream crate marks an enum `#[non_exhaustive]`,
+downstream `match` expressions outside that crate must include a
+wildcard arm — the compiler refuses to compile an exhaustive
+match without one. The wildcard is a *legal requirement*, not a
+hook for future audits. Comments that describe the wildcard as a
+"tripwire" that will fire when a new variant lands are wrong
+twice over: the compiler accepts new variants silently (they hit
+the wildcard), and the variant's downstream classification
+defaults to whatever the wildcard maps to — usually the most
+generic bucket. A reviewer relying on the tripwire framing will
+not audit the match on `cargo update`; the regression slips in
+unmapped.
+
+**`From<MetricsError> for AnalysisError` claimed its wildcard was
+a tripwire** (#265 batch, `e8ec96b` / corrected in `8d7ef17`).
+The bindings' mapping from upstream `MetricsError` to the
+Python-side `AnalysisError` included a catch-all
+`_ => Self::Parse(err)` arm with a comment claiming that
+"a `cargo update` that introduces a new variant should be paired
+with an explicit arm above so the Python-side taxonomy stays
+intentional rather than defaulting." The framing was load-bearing:
+it implied a reviewer would notice. But `MetricsError` is
+`#[non_exhaustive]`, so the wildcard is *required* outside the
+defining crate; a new upstream variant compiles fine, lands in
+`Self::Parse`, and the Python exception class silently changes to
+`ParseError` until someone manually audits the From impl. The
+fix corrected the comment to acknowledge the wildcard's
+non-exhaustive requirement and called out that the only real
+tripwire would be removing the wildcard — which doesn't compile.
+
+**Lesson:** A "tripwire" is an *exhaustive* match on a closed
+enum, where adding a variant produces a compile error at the
+match site. `#[non_exhaustive]` forecloses that mechanism by
+definition. If you need a real audit signal when an upstream
+variant is added, the only options are: (1) opt into `cargo deny`
+/ `cargo semver-checks` rules that flag the variant addition; (2)
+add explicit named arms for every variant you've audited and
+document the default for unmapped ones honestly (not as a
+tripwire); or (3) generate the match from the upstream enum's
+variants via a build script that fails when the set changes. Do
+*not* describe a wildcard arm as a tripwire — the comment will
+mislead the next reader, and the next `cargo update` will land an
+unmapped variant unaudited.
 
 ---
