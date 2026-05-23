@@ -56,8 +56,16 @@ class AnalysisError:
       (forward-looking) a future strict-parse mode rejected
       the input. Also the bucket for internal JSON-serialisation
       failures of the resulting ``FuncSpace`` (rare; reserved
-      upstream); the error message is prefixed with ``"internal
-      serialization error: "`` in that case.
+      upstream); the error message is prefixed with ``"internal:
+      serialization error: "`` in that case (the synthetic
+      analyze_batch errors share the same ``"internal:
+      <subkind>: <detail>"`` shape). A retry classifier
+      keyed on ``error_kind`` cannot distinguish a real parse
+      failure from a serialisation failure — inspect the
+      ``error`` string for the prefix when the distinction
+      matters (serialisation failures are NOT recoverable by
+      re-reading the file; parse failures *may* be, with a
+      future strict-parse toggle).
     * ``"IoError"`` — the most common kind: ``std::fs::read``
       failed. Also folds in non-UTF-8 path errors (the path
       cannot be encoded as a ``FuncSpace.name``); the issue spec
@@ -267,6 +275,17 @@ def analyze_batch(
     * ``ValueError`` if ``metrics`` is an explicitly empty
       sequence. ``None`` (the default) is fine and means "all".
 
+    There is a third raise path that is **not** a programmer
+    error: any exception raised by the input iterator itself
+    (e.g. a generator that ``raise``s mid-yield, or a custom
+    container whose ``__len__`` raises a non-``TypeError``) also
+    propagates out and discards results computed so far. The
+    *per-file* never-raise guarantee covers the analysis of
+    each yielded path — not the act of yielding the paths in
+    the first place. Wrap your generator with a guard (or
+    materialise to a list first) if you need the partial
+    results preserved on a yield-time exception.
+
     ``paths`` is consumed lazily, so generators work — only the
     yielded paths are materialised on the Rust side. ``metrics``
     accepts any ``Sequence[str]`` (list, tuple, …); the kwarg is
@@ -279,9 +298,14 @@ def analyze_batch(
     yields either a ``dict`` or an :class:`AnalysisError` (never
     ``None``). Call :func:`analyze` per-file with the default
     ``skip_generated=True`` if you need the CLI walker's skip
-    behaviour. ``exclude_tests`` and ``allow_lossy_path`` are also
-    not configurable today (a future phase may add them); the
-    bridge runs with both ``False``.
+    behaviour. ``exclude_tests``, ``allow_lossy_path``, and
+    ``skip_generated`` are all hardcoded today (a future phase may
+    expose them as kwargs); the bridge runs with ``exclude_tests=False``,
+    ``allow_lossy_path=False``, and ``skip_generated=False``. The
+    ``skip_generated=False`` choice is the inverse of
+    :func:`analyze`'s default — migrating
+    ``[bca.analyze(p) for p in paths]`` to
+    ``bca.analyze_batch(paths)`` changes generated-file handling.
 
     The GIL is released across each file's read + tree-sitter
     parse via PyO3's ``Python::detach``, so a multi-threaded

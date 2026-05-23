@@ -13,6 +13,7 @@ Run via::
 
 from __future__ import annotations
 
+import pickle
 import sys
 from collections.abc import Iterator
 from pathlib import Path
@@ -256,6 +257,35 @@ def test_unknown_metric_name_accepted_today_but_reserved() -> None:
     assert isinstance(results[0], dict)
 
 
+def test_paths_len_runtime_error_propagates_not_swallowed() -> None:
+    """A custom container whose ``__len__`` raises a non-``TypeError``
+    surfaces the error instead of silently falling back to ``cap=0``.
+
+    The Rust bridge only swallows ``TypeError`` from ``len()`` (the
+    expected "object has no len" signal from generators); any other
+    exception — e.g. a lazy proxy raising ``RuntimeError`` to signal
+    a transient backing-store failure — propagates so the caller
+    sees the real problem instead of getting an empty / partial
+    result list with no diagnostic.
+
+    Pins the documented behaviour at _native.pyi: "any exception
+    raised by the input iterator itself (e.g. … a custom container
+    whose ``__len__`` raises a non-``TypeError``) also propagates
+    out". Regressing the match arm to ``Err(_) => 0`` would
+    silently re-introduce the swallow.
+    """
+
+    class HostileLen:
+        def __iter__(self) -> Iterator[Path]:
+            return iter([FIXTURES / "hello.py"])
+
+        def __len__(self) -> int:
+            raise RuntimeError("snapshot unavailable")
+
+    with pytest.raises(RuntimeError, match="snapshot unavailable"):
+        bca.analyze_batch(HostileLen())
+
+
 # ── analyze_batch: never-raise on per-file failures ─────────────
 
 
@@ -331,16 +361,19 @@ def test_analysis_error_repr_includes_all_fields() -> None:
     because both labels and both values would still appear in
     the output. Pin the label-value pair so a swap is caught.
 
-    The Rust impl uses ``{:?}`` formatting on each ``String``
-    field, which surrounds each value with double quotes — so
-    the expected fragment is ``path="p.py"``.
+    The Rust impl routes each field through Python's ``repr()``
+    builtin (so ``eval(repr(x))`` round-trips for arbitrary string
+    content — see
+    ``test_analysis_error_repr_round_trips_through_eval_for_non_ascii``).
+    Python's ``repr`` surrounds simple strings with single quotes,
+    so the expected fragment is ``path='p.py'``.
     """
     err = bca.AnalysisError("p.py", "missing", "IoError")
     r = repr(err)
     assert r.startswith("AnalysisError(")
-    assert 'path="p.py"' in r
-    assert 'error="missing"' in r
-    assert 'error_kind="IoError"' in r
+    assert "path='p.py'" in r
+    assert "error='missing'" in r
+    assert "error_kind='IoError'" in r
 
 
 def test_analysis_error_rejects_unknown_kind() -> None:
@@ -429,6 +462,57 @@ def test_large_batch_processes_every_input() -> None:
     results = bca.analyze_batch(paths)
     assert len(results) == 1_000
     assert all(isinstance(r, dict) for r in results)
+
+
+def test_analysis_error_round_trips_through_pickle() -> None:
+    """``pickle.dumps`` / ``pickle.loads`` preserves all three fields.
+
+    Unlocks the ``concurrent.futures.ProcessPoolExecutor`` and
+    ``multiprocessing.Pool`` workflows for CPU-bound batch
+    pipelines. The ``__reduce__`` hook on the Rust side reuses the
+    public ``__init__`` constructor, so an out-of-taxonomy
+    ``error_kind`` in a tampered pickle stream still raises
+    ``ValueError`` on ``pickle.loads`` — the second assertion
+    below pins that validation actually runs on the way back in
+    (without it, a future regression that bypassed ``__init__``
+    via ``__setstate__`` would still pass the round-trip
+    assertion but silently weaken the closed-taxonomy contract).
+    """
+    original = bca.AnalysisError("p.py", "boom", "IoError")
+    revived = pickle.loads(pickle.dumps(original))
+    assert revived == original
+    assert revived.path == "p.py"
+    assert revived.error == "boom"
+    assert revived.error_kind == "IoError"
+    # Hash equality is the dedup contract; round-tripping must
+    # preserve it so a worker-process result can be looked up in
+    # a parent-process set.
+    assert hash(revived) == hash(original)
+
+    # Tamper-rejection: substitute an out-of-taxonomy kind in the
+    # pickle byte stream and confirm ``pickle.loads`` raises.
+    # ``IoError`` and ``BadKind`` are both 7 chars so the pickle
+    # length prefix stays valid — the substitution mutates the
+    # value but not the framing.
+    tampered = pickle.dumps(original).replace(b"IoError", b"BadKind")
+    with pytest.raises(ValueError):
+        pickle.loads(tampered)
+
+
+def test_analysis_error_repr_round_trips_through_eval_for_non_ascii() -> None:
+    """``eval(repr(err))`` reconstructs the object even when fields
+    contain non-printable / non-ASCII characters.
+
+    Pins the docstring claim that ``__repr__`` produces a Python
+    literal. A regression to Rust's ``{:?}`` Debug formatter would
+    emit ``\\u{1F600}`` brace syntax — valid Rust but ``SyntaxError``
+    in Python — which the bare-ASCII fixtures elsewhere in this
+    file do not catch.
+    """
+    err = bca.AnalysisError("/tmp/\x01中.py", "boom ሴ", "IoError")
+    # ``eval`` needs ``AnalysisError`` bound in scope to reconstruct.
+    revived = eval(repr(err), {"AnalysisError": bca.AnalysisError})
+    assert revived == err
 
 
 def test_generated_file_is_analyzed_not_skipped(tmp_path: Path) -> None:
