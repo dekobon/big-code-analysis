@@ -318,11 +318,33 @@ def analyze_batch(
     """
 
 def language_for_file(path: str | os.PathLike[str], /) -> str | None:
-    """Return the language name for ``path``'s extension, or ``None``.
+    """Return the language name :func:`analyze` would dispatch for ``path``.
 
-    Never raises — agrees with the Rust
-    ``big_code_analysis::get_language_for_file`` for every supported
-    extension.
+    Resolves through the same ``big_code_analysis::guess_language``
+    pipeline :func:`analyze` uses: the path extension wins when
+    recognised, otherwise the file's leading window is inspected for
+    a ``#!`` shebang (``#!/usr/bin/env python``, ``#!/bin/bash``, …)
+    or an emacs ``-*- mode: … -*-`` declaration. Returns ``None``
+    only when none of those signals resolve.
+
+    Reads the file before inspection (parity with :func:`analyze`,
+    #318). The previous extension-only ``language_for_file`` could
+    return ``None`` for an extension-less shebang script while
+    :func:`analyze` on the same path succeeded — that asymmetry is
+    closed at the cost of dropping the prior "Never raises" contract.
+
+    Raises
+    ------
+    OSError
+        For any underlying I/O failure. Dispatches to the canonical
+        subclass (``FileNotFoundError``, ``PermissionError``,
+        ``IsADirectoryError``, …) based on ``errno``, with
+        ``err.errno`` and ``err.filename`` populated — same shape as
+        :func:`analyze`. If you need the prior "extension only, never
+        raises" semantics for a cheap path-only check, wrap the call
+        in ``try / except OSError`` (or pre-check
+        ``os.path.exists(path)``) — the extension table itself is
+        unchanged.
     """
 
 def supported_languages() -> list[str]:

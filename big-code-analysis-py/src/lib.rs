@@ -220,17 +220,32 @@ fn extract_source_bytes(value: &Bound<'_, PyAny>) -> PyResult<Vec<u8>> {
     ))
 }
 
-/// Return the language name that matches the given path's extension,
-/// or `None` when the extension is not recognised.
+/// Return the language name resolved from `path` by the same
+/// detection pipeline `analyze` uses — path extension first, then a
+/// `#!`-shebang line or emacs `-*- mode: … -*-` declaration in the
+/// file's leading window (`big_code_analysis::guess_language`).
 ///
-/// Never raises — mirrors [`big_code_analysis::get_language_for_file`].
+/// Returns `None` only when neither the extension nor the file's
+/// leading bytes match a known language. Raises `OSError`
+/// (dispatched to `FileNotFoundError` / `PermissionError` / …) on
+/// I/O failure — same taxonomy as `analyze`, since the underlying
+/// `AnalysisError::Io` is routed through the shared
+/// `analysis_error_to_py` mapper. The previous extension-only,
+/// never-raising contract closed an asymmetry with `analyze` for
+/// extension-less shebang scripts (#318) — at the cost of
+/// promoting the function from pure path inspection to a real read.
 #[pyfunction]
 #[pyo3(signature = (path, /))]
 #[allow(clippy::needless_pass_by_value)]
 // `PathBuf` (not `&Path`) is required by PyO3's path conversion —
 // see the comment on `analyze` above.
-fn language_for_file(path: PathBuf) -> Option<&'static str> {
-    language::language_for_file(&path)
+fn language_for_file(py: Python<'_>, path: PathBuf) -> PyResult<Option<&'static str>> {
+    // Release the GIL across the file read so other Python threads
+    // wrapping the call (the documented parallelism pattern around
+    // `analyze`) actually make progress. `language::language_for_file`
+    // touches no Python objects, so the detach is sound.
+    py.detach(|| language::language_for_file(&path))
+        .map_err(analysis_error_to_py)
 }
 
 /// Return the supported language names, in declaration order.

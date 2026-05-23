@@ -482,7 +482,9 @@ def test_supported_languages_is_non_empty_list_of_strings() -> None:
         assert isinstance(lang, str) and lang
 
 
-def test_language_extensions_round_trips_to_language_for_file() -> None:
+def test_language_extensions_round_trips_to_language_for_file(
+    tmp_path: Path,
+) -> None:
     """Every advertised extension must resolve back to its language.
 
     Walks ``supported_languages() x language_extensions(lang)`` and
@@ -490,25 +492,72 @@ def test_language_extensions_round_trips_to_language_for_file() -> None:
     each pair. This is the Python-side cross-check that backs the
     Rust ``language_extensions_round_trips_for_every_supported_language``
     unit test in ``src/language.rs``.
+
+    Each ``foo.<ext>`` is materialised under ``tmp_path`` because
+    ``language_for_file`` now reads the file before falling back to
+    shebang / emacs-mode inspection (#318) — a stub-path string
+    would surface as ``FileNotFoundError`` instead of resolving
+    through the extension table.
     """
     for lang in bca.supported_languages():
         extensions = bca.language_extensions(lang)
         assert extensions, f"language {lang} has no extensions registered"
         for ext in extensions:
-            resolved = bca.language_for_file(f"foo.{ext}")
+            fixture = tmp_path / f"foo.{ext}"
+            fixture.write_bytes(b"")
+            resolved = bca.language_for_file(fixture)
             assert resolved == lang, (
                 f".{ext} resolved to {resolved}, expected {lang}"
             )
 
 
-def test_language_for_file_returns_none_for_unknown_extension() -> None:
-    assert bca.language_for_file("foo.unknownext") is None
-    assert bca.language_for_file("README") is None
+def test_language_for_file_returns_none_for_unknown_extension(
+    tmp_path: Path,
+) -> None:
+    bogus = tmp_path / "foo.unknownext"
+    bogus.write_text("noise")
+    assert bca.language_for_file(bogus) is None
+
+    plain = tmp_path / "README"
+    plain.write_text("plain text\n")
+    assert bca.language_for_file(plain) is None
 
 
-def test_language_for_file_accepts_pathlike() -> None:
+def test_language_for_file_resolves_extension_less_shebang() -> None:
+    """#318 — parity with :func:`analyze` for shebang-detected files.
+
+    The ``tests/fixtures/install`` fixture is an extension-less
+    script with a ``#!/usr/bin/env python`` first line. Pre-fix,
+    ``language_for_file`` was extension-only and returned ``None``
+    while ``analyze`` on the same path resolved to Python — the
+    asymmetry this test pins closed.
+    """
+    fixture = Path(__file__).parent / "fixtures" / "install"
+    assert bca.language_for_file(fixture) == "python"
+
+
+def test_language_for_file_raises_file_not_found_for_missing_path(
+    tmp_path: Path,
+) -> None:
+    """#318 — the new contract drops "Never raises".
+
+    A missing file surfaces as :class:`FileNotFoundError` (same
+    typed ``OSError`` dispatch :func:`analyze` uses) so callers can
+    differentiate "language unknown" (``None``) from "could not
+    read the file" — collapsing both to ``None`` would let typos in
+    caller paths silently route to "no language."
+    """
+    missing = tmp_path / "does-not-exist.rs"
+    with pytest.raises(FileNotFoundError) as excinfo:
+        bca.language_for_file(missing)
+    assert excinfo.value.filename == str(missing)
+    assert excinfo.value.errno is not None
+
+
+def test_language_for_file_accepts_pathlike(tmp_path: Path) -> None:
     """PEP 519 — ``os.PathLike`` objects must work, not just ``str``."""
-    p = Path("foo.py")
+    p = tmp_path / "foo.py"
+    p.write_text("print('hi')\n")
     assert bca.language_for_file(p) == "python"
 
 
