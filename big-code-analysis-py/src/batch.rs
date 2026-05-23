@@ -87,8 +87,12 @@ pub(crate) struct PyAnalysisError {
 #[pymethods]
 impl PyAnalysisError {
     /// Build an `AnalysisError` directly. Useful for tests and for
-    /// callers that want to deduplicate batch errors into a set keyed
-    /// on `(path, error_kind)`.
+    /// callers that want to deduplicate batch errors into a `set`
+    /// — equality / hashing covers `(path, error, error_kind)` (all
+    /// three fields), so two failures of the same kind on the same
+    /// path but with differing `error` messages remain distinct.
+    /// Bucket on `(r.path, r.error_kind)` explicitly if message
+    /// drift is undesirable for the dedup key.
     #[new]
     #[pyo3(signature = (path, error, error_kind))]
     fn py_new(path: String, error: String, error_kind: String) -> PyResult<Self> {
@@ -136,9 +140,10 @@ impl PyAnalysisError {
         let (error, kind) = match err {
             AnalysisError::Io { source, .. } => (source.to_string(), "IoError"),
             AnalysisError::NonUtf8Path => (
-                "path is not valid UTF-8; analyze_batch treats it as an I/O failure \
-                 so the never-raise contract holds — pre-filter or call analyze() \
-                 directly with allow_lossy_path=True to opt into U+FFFD substitution"
+                "path is not valid UTF-8 and cannot be encoded as a FuncSpace \
+                 name; analyze_batch surfaces this under error_kind='IoError' \
+                 to keep the public taxonomy at three kinds — filter the \
+                 batch input upstream if you need to distinguish the two"
                     .to_owned(),
                 "IoError",
             ),
@@ -153,8 +158,27 @@ impl PyAnalysisError {
                 (format!("internal serialization error: {e}"), "ParseError")
             }
         };
+        Self::new_internal(path_str, error, kind)
+    }
+
+    /// Centralised internal constructor that enforces the
+    /// [`ERROR_KINDS`] closed taxonomy in dev builds.
+    ///
+    /// Routes both `from_internal` and the defensive `Ok(None)` arm
+    /// through one path so a future maintainer adding a fourth
+    /// internal construction site cannot silently emit a kind value
+    /// outside the documented `Literal`. `debug_assert!` makes the
+    /// invariant break loud during `cargo test` without paying a
+    /// runtime cost in release builds — the public `py_new`
+    /// constructor still validates unconditionally for Python
+    /// callers.
+    fn new_internal(path: String, error: String, kind: &'static str) -> Self {
+        debug_assert!(
+            ERROR_KINDS.contains(&kind),
+            "kind {kind:?} not in ERROR_KINDS — taxonomy invariant broken",
+        );
         Self {
-            path: path_str,
+            path,
             error,
             error_kind: kind.to_owned(),
         }
@@ -229,32 +253,48 @@ pub(crate) fn analyze_batch<'py>(
         skip_generated: false,
     };
 
-    let mut results: Vec<Py<PyAny>> = Vec::new();
+    // Use the input's `__length_hint__` (Python's sized-iterable
+    // protocol) to preallocate when the caller passes a list or
+    // tuple. Generators report 0 / fall through; for them
+    // `Vec::with_capacity(0)` is identical to `Vec::new()`. The
+    // hint is best-effort by Python contract — over-allocation is
+    // acceptable; we only pay one extra capacity slot in the
+    // common list case and save ~14 doubling reallocations on a
+    // 10k-path batch.
+    let cap = paths.len().unwrap_or(0);
+    let mut results: Vec<Py<PyAny>> = Vec::with_capacity(cap);
     for item in iter {
         let item = item?;
         let path: PathBuf = item.extract()?;
-        match analysis::analyze_path(&path, opts) {
+        // Release the GIL across the file read and tree-sitter
+        // parse so other Python threads can run during the
+        // sequential sweep. `analyze_path` touches no Python
+        // objects (`Source`, `MetricsOptions`, `FuncSpace`,
+        // `serde_json::to_string` all live on the Rust side), so
+        // `py.detach` is sound; the GIL is re-acquired before
+        // `json_string_to_py` builds the Python `dict`. (PyO3
+        // 0.28 renamed `allow_threads` → `detach`.)
+        let outcome = py.detach(|| analysis::analyze_path(&path, opts));
+        match outcome {
             Ok(Some(json)) => {
                 let dict = conversion::json_string_to_py(py, &json)?;
                 results.push(dict.unbind());
             }
             // `skip_generated = false` makes `Ok(None)` unreachable
-            // from `analyze_path`; the explicit arm exists so a
-            // future bridge-layer change that introduces a second
-            // skip surface (e.g. a `.gitignore`-style filter) does
-            // not silently shift a position out of the result list.
-            // If it ever fires we surface it as an `IoError`-kind
-            // entry so the 1:1 ordering invariant holds.
-            Ok(None) => {
-                let err = PyAnalysisError {
-                    path: path
-                        .to_str()
-                        .map_or_else(|| path.to_string_lossy().into_owned(), str::to_owned),
-                    error: "file skipped by bridge layer (unexpected in batch mode)".to_owned(),
-                    error_kind: "IoError".to_owned(),
-                };
-                results.push(Py::new(py, err)?.into_any());
-            }
+            // from `analyze_path` today. `unreachable!` rather than
+            // a silent fallback means a future bridge-layer change
+            // that introduces a second skip surface (e.g. a
+            // `.gitignore`-style filter) fails loudly in
+            // development — preferable to silently shifting a
+            // result slot into an IoError-kind entry that
+            // downstream dashboards would count as a real I/O
+            // failure. The matching invariant is also pinned by
+            // `analyze_path`'s test
+            // `analyze_path_parses_generated_file_when_skip_generated_is_false`.
+            Ok(None) => unreachable!(
+                "bridge layer returned Ok(None) despite AnalyzeOptions::skip_generated == false; \
+                 batch's 1:1 ordering invariant is broken — audit analyze_path() for new skip surfaces"
+            ),
             Err(err) => {
                 let py_err = PyAnalysisError::from_internal(err, &path);
                 results.push(Py::new(py, py_err)?.into_any());

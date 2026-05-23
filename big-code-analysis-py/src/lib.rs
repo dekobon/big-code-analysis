@@ -152,7 +152,15 @@ fn analyze(
         allow_lossy_path,
         skip_generated,
     };
-    analysis::analyze_path(&path, opts)
+    // Release the GIL across the file read + tree-sitter parse so
+    // other Python threads (e.g. `concurrent.futures.ThreadPoolExecutor.map`
+    // around this function, the documented parallelism pattern) can
+    // actually run. `analyze_path` touches no Python objects, so the
+    // release is sound; the GIL is re-acquired before
+    // `json_string_to_py` materialises the Python `dict`. In PyO3
+    // 0.28 the spelling is `Python::detach` (renamed from
+    // `allow_threads`).
+    py.detach(|| analysis::analyze_path(&path, opts))
         .map_err(analysis_error_to_py)?
         .map(|json| conversion::json_string_to_py(py, &json))
         .transpose()
@@ -178,7 +186,14 @@ fn analyze_source<'py>(
     exclude_tests: bool,
 ) -> PyResult<Bound<'py, PyAny>> {
     let bytes = extract_source_bytes(code)?;
-    let json = analysis::analyze_source(language, &bytes, None, exclude_tests)
+    // Same GIL-release pattern as `analyze`: parsing is the heavy
+    // step and uses no Python objects. `Ungil` requires `Send`, so
+    // `language: &str` is owned into a `String` first because the
+    // input borrow ties to `'py` which the detached closure
+    // outlives via PyO3's guard.
+    let language = language.to_owned();
+    let json = py
+        .detach(|| analysis::analyze_source(&language, &bytes, None, exclude_tests))
         .map_err(analysis_error_to_py)?;
     conversion::json_string_to_py(py, &json)
 }
