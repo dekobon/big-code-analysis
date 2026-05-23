@@ -98,9 +98,11 @@ def test_anonymous_function_preserves_marker() -> None:
 
     anon = [r for r in records if r["name"] == "<anonymous>"]
     assert anon, "expected at least one anonymous space in Rust closure source"
+    # The filter pins ``name == "<anonymous>"`` by construction; assert
+    # the paired kind to catch a future Rust-side change that introduces
+    # a ``SpaceKind::Closure`` variant.
     for record in anon:
         assert record["kind"] == "function"
-        assert record["name"] == "<anonymous>"
 
 
 # ── Metric flattening: dotted keys, no nested-dict leaks ───────
@@ -164,6 +166,62 @@ def test_iterator_is_lazy_and_single_use() -> None:
     assert first_pass, "generator must yield at least the unit record"
     # Second consumption is empty (single-use semantics).
     assert list(gen) == []
+
+
+def test_iterator_is_actually_lazy_not_pre_materialized() -> None:
+    """Build a very wide synthetic tree and consume just the first
+    record. A pre-materialising implementation would walk every
+    child before yielding — a genuinely lazy one stops at depth 0.
+
+    We detect the difference by counting how many ``.get`` lookups
+    the walker performs on a mutation-tracking dict subclass: the
+    root record requires ~7 ``get`` calls (one per forwarded field
+    plus metrics + spaces), while pre-materialising the whole tree
+    would invoke ``get`` on every one of the 5_000 child nodes
+    too. The threshold is set well above the per-record cost and
+    well below the cost of full materialisation."""
+    width = 5_000
+
+    class CountingDict(dict[str, Any]):
+        gets: int = 0
+
+        def get(self, key: str, default: Any = None) -> Any:
+            CountingDict.gets += 1
+            return super().get(key, default)
+
+    children = [
+        CountingDict(
+            name=f"c{i}",
+            kind="function",
+            start_line=1,
+            end_line=1,
+            spaces=[],
+            metrics={},
+        )
+        for i in range(width)
+    ]
+    root = CountingDict(
+        name=None,
+        kind="unit",
+        start_line=1,
+        end_line=1,
+        spaces=children,
+        metrics={},
+    )
+
+    CountingDict.gets = 0
+    gen = bca.flatten_spaces(root)
+    first = next(gen)
+    after_first = CountingDict.gets
+
+    assert first["kind"] == "unit"
+    # Lazy: only the root's fields are visited before the first
+    # yield. A pre-materialising walker would have visited every
+    # child by now (≈ width × 7 lookups).
+    assert after_first < 100, (
+        f"first yield touched {after_first} dict lookups — generator "
+        "appears to pre-materialize children"
+    )
 
 
 # ── Round-trip against hand-curated fixtures ───────────────────
@@ -284,6 +342,164 @@ def test_missing_metric_subtree_is_omitted_not_none() -> None:
     assert record["cyclomatic.sum"] == 1.0
     assert "halstead.volume" not in record
     assert "halstead" not in record
+
+
+def test_deep_metric_nesting_does_not_blow_recursion_limit() -> None:
+    """The metrics flattener uses an explicit stack too, so a future
+    metric author who introduces a deep nested metric subtree cannot
+    regress the recursion-limit guarantee. The Rust serializer caps
+    nesting at 2 levels today (``cyclomatic.modified.X``); this test
+    synthesizes a 300-deep metric subtree and walks it under a tight
+    recursion limit to pin the contract."""
+    metric_depth = 300
+    metrics: dict[str, Any] = {"leaf": 1.0}
+    for i in range(metric_depth):
+        metrics = {f"m{i}": metrics}
+    root: dict[str, Any] = {
+        "name": None,
+        "kind": "unit",
+        "start_line": 1,
+        "end_line": 1,
+        "spaces": [],
+        "metrics": metrics,
+    }
+
+    original_limit = sys.getrecursionlimit()
+    sys.setrecursionlimit(100)
+    try:
+        record = next(iter(bca.flatten_spaces(root)))
+    finally:
+        sys.setrecursionlimit(original_limit)
+
+    # The single deep-nested leaf flattens to one dotted key.
+    expected_key = ".".join(
+        [f"m{i}" for i in range(metric_depth - 1, -1, -1)] + ["leaf"]
+    )
+    assert record[expected_key] == 1.0
+
+
+def test_empty_string_metric_keys_are_skipped() -> None:
+    """Empty-string keys in a metric subtree would otherwise produce
+    nonsense column names (``""`` at the root, ``"halstead."`` when
+    nested). Skip them — the Rust serializer never emits empty
+    field names, but ``flatten_spaces`` accepts arbitrary mappings."""
+    root: dict[str, Any] = {
+        "name": None,
+        "kind": "unit",
+        "start_line": 1,
+        "end_line": 1,
+        "spaces": [],
+        "metrics": {"": 1.0, "halstead": {"": 2.0, "volume": 3.0}},
+    }
+    record = next(iter(bca.flatten_spaces(root)))
+
+    assert "" not in record
+    assert "halstead." not in record
+    assert record["halstead.volume"] == 3.0
+
+
+def test_metric_keys_emitted_in_source_order() -> None:
+    """``_flatten_metrics`` must preserve the JSON output's encounter
+    order — matters for ``pandas.DataFrame.from_records`` and
+    similar consumers that infer column order from the first
+    record's keys. The Rust serializer emits ``nargs`` first and
+    ``wmc`` (when present) last; assert relative ordering of three
+    representative families to pin the contract.
+
+    Regression guard for the iterative-refactor LIFO order asymmetry
+    that the initial /code-review fix introduced (subtrees popped in
+    reverse encounter order)."""
+    result = bca.analyze_source("def f(x): return x + 1\n", "python")
+    record = next(iter(bca.flatten_spaces(result)))
+    keys = list(record)
+
+    nargs_idx = keys.index("nargs.total")
+    cognitive_idx = keys.index("cognitive.sum")
+    cyclomatic_idx = keys.index("cyclomatic.sum")
+    # JSON emits nargs → nexits → cognitive → cyclomatic → halstead …
+    assert nargs_idx < cognitive_idx < cyclomatic_idx, (
+        f"metric keys out of JSON encounter order: nargs@{nargs_idx}, "
+        f"cognitive@{cognitive_idx}, cyclomatic@{cyclomatic_idx}"
+    )
+
+    # Doubly-nested keys (cyclomatic.modified.*) must follow the
+    # parent's direct scalars (cyclomatic.sum / .average / .min / .max)
+    # — depth-first source order at each level.
+    cyclomatic_max_idx = keys.index("cyclomatic.max")
+    cyclomatic_modified_sum_idx = keys.index("cyclomatic.modified.sum")
+    assert cyclomatic_max_idx < cyclomatic_modified_sum_idx
+
+
+def test_non_mapping_metrics_value_is_silently_skipped() -> None:
+    """The defensive ``isinstance(metrics, Mapping)`` guard in
+    ``_walk`` lets a hand-built dict whose ``metrics`` is ``None``,
+    a scalar, or a list flow through without crashing or emitting
+    spurious keys."""
+    for bad_metrics in (None, 1.0, "not a dict", [1, 2, 3]):
+        root: dict[str, Any] = {
+            "name": None,
+            "kind": "unit",
+            "start_line": 1,
+            "end_line": 1,
+            "spaces": [],
+            "metrics": bad_metrics,
+        }
+        record = next(iter(bca.flatten_spaces(root)))
+
+        # Identity columns still populate; no metric keys present.
+        assert record["kind"] == "unit"
+        metric_keys = [k for k in record if "." in k]
+        assert metric_keys == [], (
+            f"expected no metric keys for metrics={bad_metrics!r}, "
+            f"got {metric_keys}"
+        )
+
+
+def test_non_mapping_child_in_spaces_is_silently_skipped() -> None:
+    """Non-Mapping items in ``space["spaces"]`` (None, scalars,
+    strings) are filtered out by the ``isinstance(child, Mapping)``
+    guard in ``_walk``. Real ``analyze()`` output never produces
+    these, but the function accepts arbitrary mappings."""
+    real_child: dict[str, Any] = {
+        "name": "good",
+        "kind": "function",
+        "start_line": 1,
+        "end_line": 1,
+        "spaces": [],
+        "metrics": {},
+    }
+    root: dict[str, Any] = {
+        "name": None,
+        "kind": "unit",
+        "start_line": 1,
+        "end_line": 1,
+        "spaces": [None, "not a dict", 42, real_child],
+        "metrics": {},
+    }
+    records = list(bca.flatten_spaces(root))
+
+    # Only the unit root + the one real Mapping child should be yielded.
+    assert len(records) == 2
+    assert [r["name"] for r in records] == [None, "good"]
+
+
+def test_tokens_metric_keys_follow_json_shape_not_csv_header() -> None:
+    """Regression-pins the README/docstring's documented divergence:
+    the JSON output emits ``tokens.tokens``/``tokens_average``/… ,
+    not the CLI's CSV_HEADER ``tokens.sum``/``tokens.average``.
+
+    If the Rust serializer is ever fixed to emit ``sum``/``average``,
+    this test fails and the README + CHANGELOG callouts must be
+    updated (or deleted)."""
+    result = bca.analyze_source("def f(x): return x + 1\n", "python")
+    record = next(iter(bca.flatten_spaces(result)))
+
+    # JSON-shape keys present.
+    assert "tokens.tokens" in record
+    assert "tokens.tokens_average" in record
+    # CSV_HEADER-shape keys absent (still a known divergence today).
+    assert "tokens.sum" not in record
+    assert "tokens.average" not in record
 
 
 @pytest.mark.parametrize("bad", [None, [], 42, "a", (1, 2)])

@@ -2,8 +2,11 @@
 
 Kept in lockstep with ``src/lib.rs`` by hand — PyO3 does not generate
 stubs today. The public ``big_code_analysis.__init__`` re-exports
-every name listed here, so callers can ``from big_code_analysis
-import analyze`` and have it resolve under ``mypy --strict``.
+every name from the compiled extension listed here, so callers can
+``from big_code_analysis import analyze`` and have it resolve under
+``mypy --strict``. Pure-Python helpers (e.g. ``flatten_spaces``
+from ``_flatten.py``) are also re-exported from ``__init__`` and
+carry their own inline type annotations.
 """
 
 from __future__ import annotations

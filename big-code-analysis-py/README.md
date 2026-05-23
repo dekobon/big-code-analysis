@@ -147,15 +147,28 @@ pre-order and yields one flat, scalar-only `dict` per node — ready
 for `sqlite3.executemany`, `pandas.DataFrame.from_records`, or any
 other tabular consumer. Metric keys use the same dotted convention
 as the CLI's CSV writer (`cyclomatic.modified.sum`,
-`halstead.volume`, `loc.lloc_average`, …), so flat records and CSV
-columns line up 1:1.
+`halstead.volume`, `loc.lloc_average`, …). Metric *columns* match
+the CLI's `CSV_HEADER` set; the identity columns do not — CSV uses
+`space_name` / `space_kind` and has no `parent_name` / `depth`,
+while flat records use `name` / `kind` and add the parent / depth
+pair. One metric also diverges: `tokens.*` flattens to the JSON
+shape (`tokens.tokens`, `tokens.tokens_average`,
+`tokens.tokens_min`, `tokens.tokens_max`), while CSV_HEADER renames
+those columns to `tokens.sum` / `.average` / `.min` / `.max`.
+Rename in the consumer if you need exact CSV alignment.
 
 ```python
 import sqlite3
 import big_code_analysis as bca
 
-records = list(bca.flatten_spaces(bca.analyze("src/main.rs")))
+result = bca.analyze("src/lib.rs")
+if result is None:  # generated/skipped file
+    raise SystemExit("nothing to analyze")
+records = list(bca.flatten_spaces(result))
 columns = sorted({k for r in records for k in r})
+# flatten_spaces keys come from a bounded alphabet (`.`, `_`,
+# ASCII alnum), so f-string quoting is safe here. Sanitize if you
+# ever build records by hand.
 with sqlite3.connect("metrics.db") as db:
     cols = ", ".join(f'"{c}"' for c in columns)
     qs = ", ".join("?" for _ in columns)
@@ -175,6 +188,17 @@ function expressions / arrows) keep their `name == "<anonymous>"`
 marker verbatim — `flatten_spaces` does not normalize. Missing
 metric subtrees produce no keys (absent, not `None`), matching the
 "Halstead disabled" edge case for `metrics=` selection.
+
+`parent_name` alone cannot disambiguate same-named siblings nested
+under different parents (e.g. two `Inner` classes under two
+different outer classes both surface as `parent_name == 'Inner'`
+for their own children). Pair with `depth` and source-order
+position, or rebuild the qualified name in your consumer, if you
+need a fully-qualified path.
+
+Don't mutate the input `result` while iterating: the walker keeps
+references into it, so mutations to not-yet-yielded subtrees will
+be observed in later records.
 
 `flatten_spaces` raises `TypeError` if the input is not a mapping;
 callers must filter `None` returns from `bca.analyze` (e.g. when
