@@ -6,10 +6,11 @@ Rust library — compute maintainability metrics for source code in
 ~20 languages using the same tree-sitter parsers the Rust crate
 ships with.
 
-This is **phase 1+2** of the Python bindings work
-(issues #265, #266; parent #103): single-file analysis plus the
-never-raise batch entry point. `flatten_spaces`, SARIF rendering,
-and explicit metric selection land in follow-up phases.
+This is **phases 1–3** of the Python bindings work
+(issues #265, #266, #267; parent #103): single-file analysis, the
+never-raise batch entry point, and the `flatten_spaces` flat-record
+iterator. SARIF rendering and explicit metric selection land in
+follow-up phases.
 
 ## Installation
 
@@ -138,6 +139,46 @@ parallel single-file calls. `analyze_batch` also runs with the
 yields either a `dict` or an `AnalysisError` (never `None`).
 Call `bca.analyze(path)` per-file with the default
 `skip_generated=True` if you need the CLI walker's skip behaviour.
+
+## Flatten to records
+
+`bca.flatten_spaces(result)` walks the nested `FuncSpace` tree in
+pre-order and yields one flat, scalar-only `dict` per node — ready
+for `sqlite3.executemany`, `pandas.DataFrame.from_records`, or any
+other tabular consumer. Metric keys use the same dotted convention
+as the CLI's CSV writer (`cyclomatic.modified.sum`,
+`halstead.volume`, `loc.lloc_average`, …), so flat records and CSV
+columns line up 1:1.
+
+```python
+import sqlite3
+import big_code_analysis as bca
+
+records = list(bca.flatten_spaces(bca.analyze("src/main.rs")))
+columns = sorted({k for r in records for k in r})
+with sqlite3.connect("metrics.db") as db:
+    cols = ", ".join(f'"{c}"' for c in columns)
+    qs = ", ".join("?" for _ in columns)
+    db.execute(f"CREATE TABLE m ({cols})")
+    db.executemany(
+        f"INSERT INTO m ({cols}) VALUES ({qs})",
+        [tuple(r.get(c) for c in columns) for r in records],
+    )
+```
+
+The iterator is lazy and single-use: it walks the input once
+without materialising the whole list, and a second iteration is
+empty. Records always carry `path` (the analyzed file, or `None`
+for `analyze_source`), `name`, `kind`, `start_line`, `end_line`,
+`parent_name`, and `depth`. Anonymous spaces (Rust closures, JS
+function expressions / arrows) keep their `name == "<anonymous>"`
+marker verbatim — `flatten_spaces` does not normalize. Missing
+metric subtrees produce no keys (absent, not `None`), matching the
+"Halstead disabled" edge case for `metrics=` selection.
+
+`flatten_spaces` raises `TypeError` if the input is not a mapping;
+callers must filter `None` returns from `bca.analyze` (e.g. when
+`skip_generated=True` matched a generated file) before passing.
 
 ## Errors
 

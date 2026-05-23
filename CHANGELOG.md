@@ -20,6 +20,27 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Added
 
+- `bca.flatten_spaces(result)` — phase 3/9 of
+  [#103](https://github.com/dekobon/big-code-analysis/issues/103).
+  Pure-Python pre-order walker that yields one flat, scalar-only
+  `dict` per `FuncSpace` node — ready for `sqlite3.executemany`,
+  `pandas.DataFrame.from_records`, or any other tabular consumer.
+  Metric keys use the same dotted convention as the CLI's
+  `CSV_HEADER` (`cyclomatic.modified.sum`, `halstead.volume`,
+  `loc.lloc_average`, …), so flat records and CSV rows correlate
+  column-for-column. Each record carries `path`, `name`, `kind`,
+  `start_line`, `end_line`, `parent_name`, and `depth` alongside
+  the flattened metrics. The walker keeps its own explicit stack
+  rather than recursing, so deeply-nested closures / class
+  hierarchies cannot exhaust CPython's recursion limit. The
+  returned iterator is a genuine lazy generator (single-use).
+  Missing metric subtrees (e.g. `wmc` on a function-level space,
+  or a metric the caller excluded) elide their keys rather than
+  emitting `None`. Anonymous spaces (Rust closures, JS function
+  expressions / arrows) keep their `name == "<anonymous>"` marker
+  verbatim. Passing a non-mapping (including `None` from a
+  generated-file skip) raises `TypeError` eagerly at the call site
+  ([#267](https://github.com/dekobon/big-code-analysis/issues/267)).
 - `bca.analyze_batch(paths)` and `bca.AnalysisError` — phase 2/9 of
   [#103](https://github.com/dekobon/big-code-analysis/issues/103).
   Batch entry point with never-raise semantics: every per-file
