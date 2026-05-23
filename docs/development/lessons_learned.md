@@ -2017,3 +2017,272 @@ mislead the next reader, and the next `cargo update` will land an
 unmapped variant unaudited.
 
 ---
+
+## 40. `#[cfg(unix)] { ... }` inside a test body silently passes on other targets
+
+A `#[cfg(unix)]` attribute placed on an inner block inside a
+`#[test]` function compiles to an empty body on non-Unix
+targets — and an empty `#[test]` function is a passing test.
+The harness sees one more green check on Windows / WASI / any
+non-target, but the test exercises zero assertions. The
+pattern is one character away from the platform-correct form
+(`#[cfg(unix)]` on the `fn` itself, so the test is hidden
+cleanly instead of vacuously passing), and it is easy to
+write because it reads like "guard the platform-specific
+setup" rather than "skip this test off-platform".
+
+**`from_internal_preserves_byte_uniqueness_for_distinct_non_utf8_paths`**
+(`big-code-analysis-py/src/batch.rs`; caught in a session draft
+prepared for commit `515e840`, never reached `main`). The
+audit-tests pass on the `analyze_batch` work caught the draft
+test wrapping its entire body in `#[cfg(unix)] { … }`. On
+Linux it correctly exercised the byte-uniqueness contract for
+non-UTF-8 paths; on Windows it would have compiled to an
+empty function — `cargo test` on Windows would report it as
+passing, with zero coverage of the dedup invariant. The
+committed form hoisted `#[cfg(unix)]` onto the `fn`
+(matching the existing pattern at
+`analyze_path_rejects_non_utf8_path_by_default` in the same
+crate) so the test is emitted only on Unix. A `git show
+515e840` of the test therefore shows the corrected shape,
+not the bug — the lesson here is the *pattern*, not a
+historical regression.
+
+**Lesson:** When a test needs platform-gated *fixtures*
+(e.g. `OsStrExt::from_bytes` on Unix, `OsStringExt::from_wide`
+on Windows), gate the entire `fn` — not the inner block. An
+inner-block `#[cfg]` produces a vacuously-passing test
+off-target; the function-level form hides the test off-target
+so the harness does not report bogus coverage. Audit any
+`#[cfg(target_os = …)]` / `#[cfg(unix)]` / `#[cfg(windows)]`
+attribute inside a `#[test]` body — the only correct
+placement is on the function attribute stack, alongside
+`#[test]` itself.
+
+---
+
+## 41. Clone-based hash/eq tests don't pin the dedup contract — construct two independent instances
+
+A test that builds one instance, clones it, and asserts the
+clone hashes / compares equal to the original verifies the
+`Clone` derive, not the production constructor's invariants.
+`Clone` produces a byte-identical struct by definition, so
+the test holds regardless of what the constructor does —
+including under regressions that mix per-call state (a static
+counter, a UUID, a timestamp) into one of the fields. Two
+*independently-constructed* equal-by-value instances are the
+only shape that pins the dedup contract production code
+relies on: that the constructor produces deterministic
+output, and that equal-by-input means equal-by-hash.
+
+**`equal_errors_hash_equal` on `PyAnalysisError`**
+(`big-code-analysis-py/src/batch.rs`; introduced in `96fe3ab`
+(`feat(bindings-py): analyze_batch + AnalysisError`),
+corrected in `515e840`). The audit-tests pass found the test
+using `let a = …; let b = a.clone();` for the `Hash` / `Eq`
+contract that `set(results)` deduplication promises in
+Python. Verified via test-via-revert: perturbing
+`new_internal` to interleave a `static AtomicU64` counter
+into the `error` field left the clone-based test passing
+(counter never advanced because the clone bypasses the
+constructor) while the strengthened two-`new_internal` form
+correctly failed (each call advanced the counter, the second
+instance's `error` differed from the first). The fix
+constructs two instances via `PyAnalysisError::new_internal`
+and asserts they collide in a `HashSet`.
+
+**Lesson:** Any test that pins a hash/equality contract for
+a value type — especially one used as a set / dict / dedup
+key — must construct the two compared instances through the
+production constructor *twice*, not once-plus-clone. The
+clone path tests only the derive; the two-call path tests
+the constructor's determinism. Apply the discipline anywhere
+`#[derive(Hash, PartialEq, Eq)]` (or PyO3's
+`#[pyclass(eq, hash)]`) reaches a downstream consumer that
+calls `.contains()`, `.iter().collect::<HashSet<_>>()`, or
+any other equality-keyed lookup. Related to lesson #33
+(test-via-revert): use the revert technique to verify the
+test exercises the constructor path, not merely the language
+semantics of `Clone`.
+
+---
+
+## 42. `unreachable!()` at a PyO3 FFI boundary surfaces as `PanicException`, bypassing `except Exception`
+
+Rust's `unreachable!()` macro panics at runtime when reached.
+PyO3 catches that panic at the FFI boundary and re-raises it
+as `pyo3.PanicException`, which extends `BaseException`
+directly — *not* `Exception`. A Python caller's idiomatic
+`except Exception:` block (or any of its narrower forms like
+`except (TypeError, ValueError):`) does not catch it. Any
+function whose docstring promises "never raises on per-file
+errors" or any equivalent never-raise contract is silently
+broken by an `unreachable!()` arm the moment a future change
+makes that arm reachable: the panic aborts the call, every
+accumulated result is discarded, and the caller sees an
+uncatchable exception. The Rust idiom that reads as
+"defensive" is, at the FFI boundary, the inverse.
+
+**`analyze_batch`'s `Ok(None)` arm**
+(`big-code-analysis-py/src/batch.rs`; the original `96fe3ab`
+shipped with a defensive `PyAnalysisError` fallback, then a
+review-remediation pass in `e670f8b`
+(`fix(bindings-py): address code-review findings for
+analyze_batch`) regressed it to `unreachable!()`, and
+`515e840` restored a defensive fallback). The single-file
+`analyze_path` bridge returns `Ok(None)` only when
+`skip_generated=true` and the file matches the
+`is_generated` predicate; `analyze_batch` hard-codes
+`skip_generated=false` and therefore treats `Ok(None)` as
+unreachable. The `e670f8b` shape was
+`unreachable!("bridge layer returned Ok(None) despite skip_generated=false …")`
+with a comment claiming it would "fail loudly in
+development" — exactly the failure mode this lesson warns
+against. A follow-up /review pass flagged it: the contract
+`analyze_batch` documents (`never raises on per-file errors`)
+demands a structured `AnalysisError` in the result slot, not
+a `PanicException`. The fix replaced the panic with a
+synthetic `PyAnalysisError` (`error_kind="IoError"`, message
+naming the invariant break and telling the operator to audit
+`analyze_path` for new skip surfaces) so the never-raise
+contract survives any future `analyze_path` refactor that
+adds a second skip surface (gitignore filter, size cap,
+etc.).
+
+**Lesson:** Refines lesson #5 (no panic on reachable error
+paths) with a PyO3-specific corollary: at any FFI boundary
+that documents a never-raise contract, even
+*unreachable-today* panics violate the contract because PyO3
+surfaces them as `PanicException` — outside the `Exception`
+hierarchy Python callers' handlers cover. Replace
+`unreachable!()` / `panic!()` / `assert!()` on those
+boundaries with a defensive structured-error fallback (a
+synthetic error in the result slot, an explicit `Err(…)`
+branch with a loud message). The fallback should name the
+broken invariant in its message so telemetry surfaces it for
+triage, but it must not abort the call. Apply this
+discipline to every PyO3 `#[pyfunction]` / `#[pymethods]`
+that documents partial-success semantics —
+`analyze_batch`-style sweeps, bulk APIs, anything where the
+contract is "process N items, never short-circuit on a single
+failure".
+
+---
+
+## 43. `to_string_lossy()` on a path field promoted into `Hash` / `PartialEq` keys silently collapses dedup
+
+AGENTS.md already forbids `to_string_lossy()` on "identifier
+paths" (map keys, JSON output, error correlation). The
+non-obvious second-order hazard: a struct field that
+participates in a derived `Hash` / `PartialEq` is *de facto*
+an identifier the moment a downstream consumer puts the
+struct in a `HashSet` or `dict` key — even when the field's
+docstring calls it "diagnostic" or "user-facing text".
+`to_string_lossy()` substitutes U+FFFD for every invalid
+byte, collapsing every distinct non-UTF-8 path with the same
+length-and-position pattern onto one rendered string. Two
+genuinely-distinct failures then `__eq__`-compare equal,
+hash to the same bucket, and silently de-duplicate in the
+`set(results)` pattern the API was specifically designed to
+support.
+
+**`PyAnalysisError.path` collapsing distinct non-UTF-8 paths
+under `set` dedup**
+(`big-code-analysis-py/src/batch.rs`; introduced in `96fe3ab`,
+corrected in `515e840`). The original `from_internal` used
+`path.to_str().map_or_else(|| path.to_string_lossy().into_owned(), str::to_owned)`
+for the `path` field; the docstring described the lossy
+fallback as "diagnostic only". But `#[pyclass(eq, hash)]`
+promoted `path` into the equality / hash key, and the
+documented `set(results)` dedup pattern keyed on
+`(path, error, error_kind)`. Two distinct non-UTF-8 paths
+(e.g. `b"/a\xff"` and `b"/a\xfe"`) both rendered to `/a` +
+U+FFFD; their `PyAnalysisError` instances compared equal
+under `__eq__`, hashed identically, and silently merged in
+`set(results)` — exactly the contract `__hash__`/`__eq__`
+was advertised to serve. Verified via the
+`from_internal_preserves_byte_uniqueness_for_distinct_non_utf8_paths`
+Rust unit test added in the same commit, which constructs
+two `PyAnalysisError` instances from byte-distinct non-UTF-8
+paths and asserts both `path` strings *and* `PartialEq`
+differ. The fix routes the non-UTF-8 fallback through Rust's
+`Debug` formatting on `Path` / `OsStr` (`\xNN` hex escapes
+for invalid bytes — casing matches Rust's default Debug
+output: uppercase hex, so `b"\xff"` renders as `"\xFF"`),
+which is byte-preserving and surrounded with double
+quotes — a visible cue that the path was not valid UTF-8.
+
+**Lesson:** Audit every struct field that participates in
+`#[derive(Hash, PartialEq, Eq)]` or PyO3's
+`#[pyclass(eq, hash)]` for lossy rendering. If a string
+field can be constructed from non-UTF-8 bytes via
+`to_string_lossy()`, `from_utf8_lossy()`,
+`escape_default()`, or any other lossy projection, distinct
+inputs can collapse to equal hashes — even when the field is
+documented as "for display only". The available fixes: (1)
+render via a byte-preserving projection like
+`format!("{:?}", path)` (Rust's `OsStr` Debug uses `\xNN`
+hex escapes); (2) exclude the lossy field from the derive
+(custom impl); or (3) carry the raw bytes in a separate
+field that participates in the hash. Default to (1) — it
+preserves the visual cue and is the smallest change.
+
+---
+
+## 44. Rust's `{:?}` Debug format escapes non-printables as `\u{N}`, which Python's parser rejects
+
+A PyO3 `__repr__` implemented as
+`format!("Cls(field={:?})", self.field)` looks correct,
+passes every test with ASCII fixtures, and silently breaks
+`eval(repr(x))` round-trip on any input containing a
+non-printable character. Rust's `Debug` for `str` escapes
+characters outside the printable-ASCII range as `\u{N}` —
+curly braces, hex codepoint. Python's source parser does not
+accept that syntax: it expects `\xNN`, `\uNNNN`, or
+`\UNNNNNNNN` (no braces). A single control character
+(`\x01`), a multi-byte Unicode codepoint outside the BMP, or
+even some characters Rust's `escape_debug` considers
+non-printable produces a `repr` that `eval` rejects with
+`SyntaxError: 'unicodeescape' codec can't decode bytes`. The
+repr's documented "debuggable" property — copy it into a
+REPL to reconstruct the value — silently fails when the
+input is exactly the kind of weird data a debugger is most
+useful for.
+
+**`PyAnalysisError.__repr__` breaking on control-char paths**
+(`big-code-analysis-py/src/batch.rs`; introduced in `96fe3ab`,
+corrected in `515e840`). The original `__repr__` used
+`format!("AnalysisError(path={:?}, error={:?}, error_kind={:?})", self.path, self.error, self.error_kind)`
+with a docstring promising that `eval(repr(x))` would
+reconstruct an equivalent object. The /review pass and a
+follow-up Python test
+(`test_analysis_error_repr_round_trips_through_eval_for_non_ascii`)
+caught the regression:
+`bca.AnalysisError("/tmp/\x01中.py", "boom ሴ", "IoError")`
+produced `path="/tmp/\u{1}中.py"` under `{:?}`, and `eval`
+raised `SyntaxError` on the `\u{1}` token. The fix routes
+each field through Python's own `repr()` builtin —
+`py.import("builtins").getattr("repr").call1((&self.path,))?.extract::<String>()?` —
+so the output uses `\xNN` / `\uNNNN` / `\UNNNNNNNN` escapes
+the parser accepts.
+
+**Lesson:** Any hand-written `__repr__` / `__str__` on a
+`#[pyclass]` that handles string fields must delegate the
+per-field escape to Python's `repr()`, not Rust's `{:?}`.
+Rust's `Debug` escape vocabulary and Python's source-parser
+escape vocabulary disagree on non-printable codepoints —
+`Debug` emits `\u{N}` (braces, variable-width), Python
+accepts `\uNNNN` / `\UNNNNNNNN` (no braces, fixed-width)
+and `\xNN`. The mismatch only shows up for inputs containing
+control characters or characters Rust's `escape_debug` flags
+non-printable; ASCII-only test fixtures never reach the
+broken path. Test the round-trip explicitly with
+non-printable / non-ASCII / non-BMP inputs — a fixture with
+a single control character is enough to expose the failure
+mode. The implementation cost is one `py.import("builtins")`
+and three `repr_fn.call1((&field,))?.extract()?` per
+`__repr__` call; the correctness gain restores the
+`eval(repr(x))` contract the docstring almost always
+promises.
+
+---
