@@ -20,6 +20,20 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Added
 
+- `bca.analyze_batch(paths)` and `bca.AnalysisError` — phase 2/9 of
+  [#103](https://github.com/dekobon/big-code-analysis/issues/103).
+  Batch entry point with never-raise semantics: every per-file
+  failure becomes an `AnalysisError` in the matching result slot
+  (1:1 ordering preserved, generators supported) so pipeline /
+  workflow callers can keep going past missing files, unknown
+  extensions, or parser failures without a `try` / `except` per
+  path. `AnalysisError` is a frozen `@dataclass`-shaped PyO3 class
+  with `path`, `error`, and `error_kind ∈ {UnsupportedLanguage,
+  ParseError, IoError}`; implements `__eq__` / `__hash__` /
+  `__repr__` so callers can deduplicate via `set` / `dict`. The
+  `metrics=` kwarg is accepted (and validated for the empty-list
+  case) today — selection itself lands in phase 4
+  ([#266](https://github.com/dekobon/big-code-analysis/issues/266)).
 - `bca.analyze(path)` now resolves an extension-less script's language
   from its `#!` shebang or emacs `-*- mode: … -*-` declaration via the
   same `guess_language` helper the CLI uses, closing the phase-1

@@ -9,7 +9,7 @@ import analyze`` and have it resolve under ``mypy --strict``.
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import Any, Iterable, Literal
 
 __version__: str
 
@@ -18,6 +18,43 @@ class UnsupportedLanguageError(ValueError):
 
 class ParseError(ValueError):
     """Raised when the tree-sitter parser fails on the supplied source."""
+
+class AnalysisError:
+    """Structured per-file failure returned by :func:`analyze_batch`.
+
+    Instances are **returned**, never raised — :func:`analyze_batch`
+    interleaves them with successful ``dict`` results so a single
+    pipeline failure does not break the rest of the batch. Use
+    ``isinstance(r, AnalysisError)`` as the discriminator:
+
+    .. code-block:: python
+
+        for r in bca.analyze_batch(paths):
+            if isinstance(r, bca.AnalysisError):
+                log.warning("%s (%s): %s", r.path, r.error_kind, r.error)
+            else:
+                process(r)
+
+    ``path`` is the caller-supplied path as a string. The class is
+    frozen (immutable) and implements ``__eq__`` / ``__hash__`` /
+    ``__repr__``, so callers may put errors in ``set`` / ``dict``
+    keys to deduplicate. It is **not** a subclass of ``Exception``.
+    """
+
+    path: str
+    error: str
+    error_kind: Literal["UnsupportedLanguage", "ParseError", "IoError"]
+
+    def __init__(
+        self,
+        path: str,
+        error: str,
+        error_kind: Literal["UnsupportedLanguage", "ParseError", "IoError"],
+        /,
+    ) -> None: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __hash__(self) -> int: ...
+    def __repr__(self) -> str: ...
 
 def analyze(
     path: str | os.PathLike[str],
@@ -156,6 +193,51 @@ def analyze_source(
         If ``code`` is a ``str`` containing unpaired surrogates
         (legal in CPython, not valid UTF-8), or is not one of the
         accepted buffer types.
+    """
+
+def analyze_batch(
+    paths: Iterable[str | os.PathLike[str]],
+    /,
+    *,
+    metrics: list[str] | None = None,
+) -> list[dict[str, Any] | AnalysisError]:
+    """Compute metrics for every path in ``paths``.
+
+    Returns a list of length ``len(paths)`` in the **same order** as
+    the input iterable. Each element is either:
+
+    * a ``dict`` matching :func:`analyze`'s output shape, or
+    * an :class:`AnalysisError` describing the per-file failure.
+
+    The function **never raises on per-file errors** — a missing
+    file, an unknown extension, or a parser failure becomes an
+    :class:`AnalysisError` in the matching result slot instead. It
+    still raises on *programmer* errors:
+
+    * ``TypeError`` if ``paths`` is not iterable, or an element is
+      not ``str``/``os.PathLike[str]``.
+    * ``ValueError`` if ``metrics`` is an explicitly empty list. A
+      ``None`` ``metrics`` (the default) is fine and means "all".
+
+    ``paths`` is consumed lazily, so generators work — only the
+    yielded paths are materialised on the Rust side.
+
+    Unlike :func:`analyze`, ``analyze_batch`` runs with the
+    ``is_generated`` walker filter **off** so every input position
+    yields either a ``dict`` or an :class:`AnalysisError` (never
+    ``None``). Call :func:`analyze` per-file with the default
+    ``skip_generated=True`` if you need the CLI walker's skip
+    behaviour.
+
+    ``metrics`` is reserved for the per-metric selection work
+    landing in a follow-up phase; the kwarg is accepted (and
+    validated) today so existing call sites do not need to change
+    when the selection plumbing arrives.
+
+    There is no built-in parallelism — the recommended pattern is
+    ``concurrent.futures.ThreadPoolExecutor.map(bca.analyze, paths)``
+    when the GIL release inside the Rust parser yields enough
+    headroom for your workload.
     """
 
 def language_for_file(path: str | os.PathLike[str], /) -> str | None:

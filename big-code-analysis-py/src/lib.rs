@@ -15,6 +15,7 @@
 // by the PyO3 macro).
 
 mod analysis;
+mod batch;
 mod conversion;
 mod language;
 
@@ -30,6 +31,7 @@ use pyo3::types::{PyAny, PyByteArray, PyBytes, PyModule, PyModuleMethods, PyStri
 use pyo3::wrap_pyfunction;
 
 use crate::analysis::{AnalysisError, AnalyzeOptions, PACKAGE_VERSION};
+use crate::batch::{PyAnalysisError, analyze_batch};
 
 // Python exception types. Both subclass `ValueError` per the API
 // contract in #265 — `UnsupportedLanguageError` covers unknown
@@ -248,8 +250,10 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.py().get_type::<UnsupportedLanguageError>(),
     )?;
     m.add("ParseError", m.py().get_type::<ParseError>())?;
+    m.add_class::<PyAnalysisError>()?;
     m.add_function(wrap_pyfunction!(analyze, m)?)?;
     m.add_function(wrap_pyfunction!(analyze_source, m)?)?;
+    m.add_function(wrap_pyfunction!(analyze_batch, m)?)?;
     m.add_function(wrap_pyfunction!(language_for_file, m)?)?;
     m.add_function(wrap_pyfunction!(supported_languages, m)?)?;
     m.add_function(wrap_pyfunction!(language_extensions, m)?)?;

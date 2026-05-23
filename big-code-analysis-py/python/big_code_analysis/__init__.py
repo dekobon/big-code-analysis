@@ -12,10 +12,12 @@ project book for the per-language metric semantics.
 from __future__ import annotations
 
 from ._native import (
+    AnalysisError,
     ParseError,
     UnsupportedLanguageError,
     __version__,
     analyze,
+    analyze_batch,
     analyze_source,
     language_extensions,
     language_for_file,
@@ -23,10 +25,12 @@ from ._native import (
 )
 
 __all__ = [
+    "AnalysisError",
     "ParseError",
     "UnsupportedLanguageError",
     "__version__",
     "analyze",
+    "analyze_batch",
     "analyze_source",
     "language_extensions",
     "language_for_file",
