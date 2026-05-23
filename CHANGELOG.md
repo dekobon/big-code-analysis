@@ -27,19 +27,25 @@ why no value stability is offered until `1.0`. Entries above the
   `pandas.DataFrame.from_records`, or any other tabular consumer.
   Metric keys use the same dotted convention as the CLI's
   `CSV_HEADER` (`cyclomatic.modified.sum`, `halstead.volume`,
-  `loc.lloc_average`, …), so flat records and CSV rows correlate
-  column-for-column. Each record carries `path`, `name`, `kind`,
-  `start_line`, `end_line`, `parent_name`, and `depth` alongside
-  the flattened metrics. The walker keeps its own explicit stack
-  rather than recursing, so deeply-nested closures / class
-  hierarchies cannot exhaust CPython's recursion limit. The
-  returned iterator is a genuine lazy generator (single-use).
-  Missing metric subtrees (e.g. `wmc` on a function-level space,
-  or a metric the caller excluded) elide their keys rather than
-  emitting `None`. Anonymous spaces (Rust closures, JS function
-  expressions / arrows) keep their `name == "<anonymous>"` marker
-  verbatim. Passing a non-mapping (including `None` from a
-  generated-file skip) raises `TypeError` eagerly at the call site
+  `loc.lloc_average`, …); the metric *column names* match
+  `CSV_HEADER`'s metric columns. Identity columns differ — CSV uses
+  `space_name` / `space_kind` and has no `parent_name` / `depth`;
+  flat records use `name` / `kind` and add the parent / depth pair.
+  One metric also diverges: `tokens.*` flattens to the JSON shape
+  (`tokens.tokens` / `tokens_average` / `tokens_min` /
+  `tokens_max`), while `CSV_HEADER` renames those columns to
+  `tokens.sum` / `.average` / `.min` / `.max`. Both walkers (the
+  space tree and each space's metrics subtree) use explicit stacks
+  rather than recursion, so deeply-nested closures, class
+  hierarchies, or future deeply-nested metric subtrees cannot
+  exhaust CPython's recursion limit. The returned iterator is a
+  genuine lazy generator (single-use). Missing metric subtrees
+  (e.g. `wmc` on a function-level space, or a metric the caller
+  excluded) elide their keys rather than emitting `None`.
+  Anonymous spaces (Rust closures, JS function expressions /
+  arrows) keep their `name == "<anonymous>"` marker verbatim.
+  Passing a non-mapping (including `None` from a generated-file
+  skip) raises `TypeError` eagerly at the call site
   ([#267](https://github.com/dekobon/big-code-analysis/issues/267)).
 - `bca.analyze_batch(paths)` and `bca.AnalysisError` — phase 2/9 of
   [#103](https://github.com/dekobon/big-code-analysis/issues/103).

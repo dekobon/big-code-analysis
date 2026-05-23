@@ -9,25 +9,44 @@ function / class / namespace instead — a shape ready for
 ``flatten_spaces`` walks the tree in pre-order and yields one flat,
 scalar-only ``dict`` per ``FuncSpace`` node. Metric keys use the
 same dotted convention as the CLI's CSV writer (see
-``src/output/csv.rs::CSV_HEADER``), so flat records correlate
-column-for-column against CSV output produced by ``bca metrics
---output-format csv``.
+``src/output/csv.rs::CSV_HEADER``) — ``cyclomatic.modified.sum``,
+``halstead.volume``, ``loc.lloc_average``, … Metric *columns* line
+up with CSV_HEADER's metric columns; the identity columns are
+**not** identical (CSV uses ``space_name`` / ``space_kind`` and
+omits ``parent_name`` / ``depth``; flat records use ``name`` /
+``kind`` and add the parent / depth pair). One known metric also
+diverges: the ``tokens`` family flattens to ``tokens.tokens``,
+``tokens.tokens_average``, ``tokens.tokens_min``, ``tokens.tokens_max``
+(the JSON shape), while CSV_HEADER lists ``tokens.sum`` etc. —
+the CLI's CSV writer renames those columns. Rename in the consumer
+if you need an exact CSV match.
 
-The walker keeps its own explicit stack rather than recursing, so
-pathological inputs (hundreds of nested closures, deeply nested
-class hierarchies) cannot exhaust CPython's recursion limit. The
-returned iterator is a genuine generator — lazy and single-use.
+Both walkers (the space tree and each space's metrics subtree) use
+explicit stacks rather than recursion, so pathological inputs —
+hundreds of nested closures, or a future metric author who adds a
+deep metric subtree — cannot exhaust CPython's recursion limit.
+The returned iterator is a genuine generator: lazy and single-use.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Generator, Mapping
 from typing import Any
 
 __all__ = ["flatten_spaces"]
 
+# Top-level FuncSpace fields the walker propagates onto each flat
+# record. Any other key (e.g. ``suppressed``, future scalar
+# additions) is intentionally **not** copied — phase 3 scopes the
+# flat-record contract to function/class identity + metrics. If you
+# add a top-level FuncSpace field and want it on the flat record,
+# extend this set and the ``_record_for_space`` builder below.
+_FORWARDED_FIELDS = ("name", "kind", "start_line", "end_line")
 
-def flatten_spaces(result: Mapping[str, Any]) -> Iterator[dict[str, Any]]:
+
+def flatten_spaces(
+    result: Mapping[str, Any],
+) -> Generator[dict[str, Any], None, None]:
     """Yield one flat ``dict`` per ``FuncSpace`` in *result*.
 
     *result* is the nested ``dict`` returned by :func:`analyze` or
@@ -35,6 +54,10 @@ def flatten_spaces(result: Mapping[str, Any]) -> Iterator[dict[str, Any]]:
 
     * ``path`` — the analyzed file path (``None`` for
       ``analyze_source``); copied from the root space's ``name``.
+      If *result* is a nested space rather than a unit root, this
+      field is whatever the passed-in space's ``name`` happens to
+      be — pass the full ``analyze()`` result if you want the file
+      path semantics.
     * ``name`` — the space's own ``name`` (the literal
       ``"<anonymous>"`` for unnamed closures / function
       expressions; the file path on the root for ``analyze``).
@@ -42,32 +65,48 @@ def flatten_spaces(result: Mapping[str, Any]) -> Iterator[dict[str, Any]]:
       (``"function"``, ``"class"``, ``"unit"``, ``"namespace"``, …).
     * ``start_line`` / ``end_line`` — copied from the space.
     * ``parent_name`` — the enclosing space's name (``None`` for
-      the root).
+      the root). Note this alone cannot disambiguate same-named
+      siblings nested under different parents (e.g. two classes
+      ``Inner`` under different outer classes both surface as
+      ``parent_name == 'Inner'`` for their own children); pair with
+      ``depth`` plus source-order position if you need to reconstruct
+      a fully-qualified path.
     * ``depth`` — 0 for the root, +1 per nested level.
     * One flat key per metric leaf, joined by ``"."`` —
       ``cyclomatic.sum``, ``cyclomatic.modified.sum``,
-      ``halstead.volume``, ``loc.lloc_average``, etc. Keys match the
-      CLI's CSV_HEADER column names verbatim.
+      ``halstead.volume``, ``loc.lloc_average``, etc. Names mirror
+      the JSON output's nested-dict shape; see the module docstring
+      for the (small) divergence vs the CLI CSV writer's
+      ``tokens.*`` column names.
 
     Records are emitted in pre-order: each parent before its
     children, children in source order. Missing metric subtrees
     (e.g. ``wmc`` on a function-level space, or a metric the caller
     excluded) elide their keys — they are absent, not ``None``.
 
+    The iterator holds references into *result*; do **not** mutate
+    *result* while iterating (mutations to not-yet-yielded subtrees
+    will be observed).
+
     Example::
 
         import sqlite3
         import big_code_analysis as bca
 
-        records = list(bca.flatten_spaces(bca.analyze("src/lib.rs")))
+        result = bca.analyze("src/lib.rs")
+        if result is None:  # generated/skipped file
+            raise SystemExit("nothing to analyze")
+        records = list(bca.flatten_spaces(result))
         cols = sorted({k for r in records for k in r})
+        # ``flatten_spaces`` keys come from a bounded alphabet
+        # (``.``, ``_``, ASCII alnum) so f-string quoting is safe
+        # here — sanitize if you ever build records by hand.
+        quoted = ", ".join(f'"{c}"' for c in cols)
+        placeholders = ", ".join("?" for _ in cols)
         with sqlite3.connect(":memory:") as db:
-            db.execute(
-                f"CREATE TABLE m ({', '.join(f'\"{c}\"' for c in cols)})"
-            )
+            db.execute(f"CREATE TABLE m ({quoted})")
             db.executemany(
-                f"INSERT INTO m ({', '.join(f'\"{c}\"' for c in cols)}) "
-                f"VALUES ({', '.join('?' for _ in cols)})",
+                f"INSERT INTO m ({quoted}) VALUES ({placeholders})",
                 [tuple(r.get(c) for c in cols) for r in records],
             )
 
@@ -85,7 +124,7 @@ def flatten_spaces(result: Mapping[str, Any]) -> Iterator[dict[str, Any]]:
     return _walk(result)
 
 
-def _walk(result: Mapping[str, Any]) -> Iterator[dict[str, Any]]:
+def _walk(result: Mapping[str, Any]) -> Generator[dict[str, Any], None, None]:
     path = result.get("name")
 
     # (space, parent_name, depth). Stack is LIFO, so we push children
@@ -93,36 +132,68 @@ def _walk(result: Mapping[str, Any]) -> Iterator[dict[str, Any]]:
     stack: list[tuple[Mapping[str, Any], str | None, int]] = [(result, None, 0)]
     while stack:
         space, parent_name, depth = stack.pop()
-        record: dict[str, Any] = {
-            "path": path,
-            "name": space.get("name"),
-            "kind": space.get("kind"),
-            "start_line": space.get("start_line"),
-            "end_line": space.get("end_line"),
-            "parent_name": parent_name,
-            "depth": depth,
-        }
+        record: dict[str, Any] = {"path": path}
+        for field in _FORWARDED_FIELDS:
+            record[field] = space.get(field)
+        record["parent_name"] = parent_name
+        record["depth"] = depth
+
         metrics = space.get("metrics")
         if isinstance(metrics, Mapping):
-            _flatten_metrics(metrics, "", record)
+            _flatten_metrics(metrics, record)
         yield record
 
         children = space.get("spaces")
         if not children:
             continue
         own_name = space.get("name")
-        for child in reversed(children):
+        # ``children[::-1]`` instead of ``reversed(children)`` so a
+        # hand-built dict that supplied an iterable but not a
+        # sequence (set, dict_values) fails at the slicing line with
+        # a clearer error rather than mid-iteration.
+        for child in children[::-1]:
             if isinstance(child, Mapping):
                 stack.append((child, own_name, depth + 1))
 
 
-def _flatten_metrics(
-    subtree: Mapping[str, Any], prefix: str, out: dict[str, Any]
-) -> None:
-    """Recursively flatten *subtree* into *out* using dotted keys."""
-    for key, value in subtree.items():
-        full = f"{prefix}.{key}" if prefix else key
-        if isinstance(value, Mapping):
-            _flatten_metrics(value, full, out)
-        else:
-            out[full] = value
+def _flatten_metrics(metrics: Mapping[str, Any], out: dict[str, Any]) -> None:
+    """Flatten *metrics* into *out* using dotted keys, iteratively.
+
+    The Rust serializer caps nesting at two levels today
+    (``cyclomatic.modified.X``), so a recursive implementation would
+    be safe in practice. We use an explicit stack regardless, so a
+    future metric author cannot regress the recursion-limit
+    contract without also tripping a test (see
+    ``test_deep_metric_nesting_does_not_blow_recursion_limit``).
+
+    Keys are emitted in depth-first source-encounter order — the
+    same order the original recursive walk would produce. Matters
+    for downstream consumers that infer column order from the
+    first record's keys (e.g. ``pandas.DataFrame.from_records``).
+    Each stack frame is a tagged operation: ``("walk", subtree,
+    prefix)`` expands a subtree, ``("set", key, value)`` writes a
+    scalar. Subtree expansion pushes its child operations in
+    **reverse** source order so ``.pop()`` yields them back in
+    source order — the same convention ``_walk`` uses for child
+    spaces. Empty-string keys are dropped to avoid nonsense column
+    names like ``"halstead."``; the Rust serializer never emits
+    them, so this only guards the hand-built-dict surface area.
+    """
+    stack: list[tuple[Any, ...]] = [("walk", metrics, "")]
+    while stack:
+        op = stack.pop()
+        if op[0] == "set":
+            _, key, value = op
+            out[key] = value
+            continue
+        _, subtree, prefix = op
+        children: list[tuple[Any, ...]] = []
+        for key, value in subtree.items():
+            if not key:
+                continue
+            full = f"{prefix}.{key}" if prefix else key
+            if isinstance(value, Mapping):
+                children.append(("walk", value, full))
+            else:
+                children.append(("set", full, value))
+        stack.extend(reversed(children))
