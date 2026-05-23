@@ -92,10 +92,12 @@ impl FromStr for ErrorKind {
 /// successful results is still strict UTF-8, so the project rule
 /// against lossy identifiers (AGENTS.md) is not relaxed.
 ///
-/// `error_kind` is one of [`ERROR_KINDS`]. The class itself is **not**
-/// an exception subclass — instances appear in the return list of
-/// [`analyze_batch`], they are never raised — so `isinstance(r,
-/// AnalysisError)` is the canonical discriminator.
+/// `error_kind` surfaces as a `String` carrying one of the three
+/// [`ErrorKind`] variants (`"UnsupportedLanguage"`, `"ParseError"`,
+/// `"IoError"`). The class itself is **not** an exception subclass —
+/// instances appear in the return list of [`analyze_batch`], they
+/// are never raised — so `isinstance(r, AnalysisError)` is the
+/// canonical discriminator.
 #[pyclass(
     frozen,
     name = "AnalysisError",
@@ -198,13 +200,17 @@ impl PyAnalysisError {
     /// Internal constructor that owns the conversion from the typed
     /// [`ErrorKind`] enum to the Python-facing `String` field.
     ///
-    /// Every Rust-side construction site flows through here, so the
-    /// exhaustive `match` in [`Self::from_internal`] is the single
-    /// place a future `AnalysisError` variant must be mapped — the
-    /// compiler enforces the taxonomy. `py_new` similarly parses
-    /// Python strings through [`ErrorKind::from_str`] before
-    /// arriving here, so the `error_kind` field is provably one of
-    /// the three documented values without runtime validation.
+    /// Every non-test Rust-side construction site flows through
+    /// here, so the exhaustive `match` in [`Self::from_internal`]
+    /// is the single place a future `AnalysisError` variant must be
+    /// mapped — the compiler enforces the taxonomy. `py_new`
+    /// similarly parses Python strings through
+    /// [`ErrorKind::from_str`] before arriving here, so the
+    /// `error_kind` field is provably one of the three documented
+    /// values without runtime validation. (The `equal_errors_hash_equal`
+    /// unit test below does build a `PyAnalysisError` via struct
+    /// literal because that test exercises the `Hash` / `Eq`
+    /// derives directly — production paths never do.)
     fn new_internal(path: String, error: String, kind: ErrorKind) -> Self {
         Self {
             path,
