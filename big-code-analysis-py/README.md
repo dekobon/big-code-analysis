@@ -112,6 +112,12 @@ Call `bca.analyze(path)` per-file with the default
 
 ## Errors
 
+`bca.analyze` raises exceptions; `bca.analyze_batch` returns
+`bca.AnalysisError` values inside the result list (never raised on
+per-file failures — see the Batch processing section above).
+
+Exception types raised by `bca.analyze` / `bca.analyze_source`:
+
 - `bca.UnsupportedLanguageError` (subclass of `ValueError`) —
   raised when a file extension is unrecognised, or when
   `analyze_source(..., language="...")` is passed an unknown
@@ -124,6 +130,25 @@ Call `bca.analyze(path)` per-file with the default
   via `Path::to_string_lossy` and accept the resulting
   non-round-trippable `name` field (#316).
 - `OSError` — bubbled up from the underlying file-system read.
+  Dispatches to the canonical subclass (`FileNotFoundError`,
+  `PermissionError`, `IsADirectoryError`, …) based on `errno`,
+  with `err.errno` and `err.filename` populated.
+
+Returned by `bca.analyze_batch` inside the result list:
+
+- `bca.AnalysisError` — frozen value type with `path: str`,
+  `error: str`, and `error_kind: Literal["UnsupportedLanguage",
+  "ParseError", "IoError"]`. Not an `Exception` subclass.
+  `error_kind` is a closed taxonomy: ``"IoError"`` covers both
+  filesystem failures and the non-UTF-8 path case (kept at three
+  kinds per the API contract); ``"ParseError"`` similarly covers
+  internal JSON-serialisation failures of the resulting
+  `FuncSpace` (rare; reserved upstream). The OS `errno` is
+  preserved in the `error` string via Rust's ``"<msg> (os error
+  <N>)"`` default formatting — parse with regex
+  ``r"\(os error (\d+)\)$"`` if you need it for retry
+  classification, or call `bca.analyze` per-file to get a typed
+  `OSError` subclass instead.
 
 ## Type checking
 

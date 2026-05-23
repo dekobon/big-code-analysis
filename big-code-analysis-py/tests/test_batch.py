@@ -125,12 +125,17 @@ def test_directory_path_yields_io_error(tmp_path: Path) -> None:
 # variants are reserved for a future strict-parse mode. The issue
 # (#266) lists a ParseError test for completeness; we keep the
 # coverage on the mapping itself in ``src/batch.rs`` (Rust unit
-# tests) and mark the Python-side check as expected-to-skip so a
-# future strict-parse landing flips it green without test edits.
+# tests) and mark the Python-side check as a *strict* xfail so
+# that the day a future strict-parse landing makes ParseError
+# reachable, this test XPASSes — and pytest fails the suite
+# loudly, forcing a contributor to remove the xfail marker and
+# inspect the new error surface. `strict=False` would silently
+# accept XPASS, which is precisely the failure mode tripwire
+# tests are meant to avoid.
 @pytest.mark.xfail(
     reason="tree-sitter is permissive — MetricsError::Parse not yet reachable; "
-    "kept as a tripwire for the strict-parse mode reserved upstream.",
-    strict=False,
+    "kept as a strict tripwire for the strict-parse mode reserved upstream.",
+    strict=True,
 )
 def test_syntactically_broken_source_yields_parse_error(tmp_path: Path) -> None:
     broken = tmp_path / "broken.rs"
@@ -308,15 +313,40 @@ def test_analysis_error_rejects_unknown_kind() -> None:
 
 
 def test_analysis_error_is_frozen() -> None:
-    """``#[pyclass(frozen)]`` means assignment to fields raises.
+    """``#[pyclass(frozen)]`` means assignment to any field raises.
 
-    A regression that drops ``frozen`` would let callers mutate
-    ``err.path`` in place — breaking the ``set`` / ``dict``-key
-    use case (mutation would corrupt hash consistency).
+    A regression that drops ``frozen`` — or that introduces a
+    per-field ``#[pyo3(set)]`` on just one of the three — would let
+    callers mutate an instance in place and break the
+    ``set`` / ``dict``-key dedup contract (mutation corrupts hash
+    consistency). Cover every field so a partial-frozen regression
+    can't slip past a single-attribute check.
     """
     err = bca.AnalysisError("p.py", "msg", "IoError")
-    with pytest.raises(AttributeError):
-        err.path = "other.py"  # type: ignore[misc]
+    for attr, value in [
+        ("path", "other.py"),
+        ("error", "new message"),
+        ("error_kind", "ParseError"),
+    ]:
+        with pytest.raises(AttributeError):
+            setattr(err, attr, value)
+
+
+def test_analysis_error_accepts_keyword_arguments() -> None:
+    """Constructor takes positional OR keyword args (no ``/`` in
+    the PyO3 signature, matching the stub).
+
+    Regression guard for the stub/runtime mismatch fixed in this
+    PR — the original stub declared positional-only via ``/``
+    while the Rust ``#[pyo3(signature = (...))]`` accepts kwargs,
+    so a strict-mypy caller writing ``AnalysisError(path=...,
+    ...)`` would have failed type-check despite the runtime
+    accepting it.
+    """
+    err = bca.AnalysisError(path="p.py", error="boom", error_kind="IoError")
+    assert err.path == "p.py"
+    assert err.error == "boom"
+    assert err.error_kind == "IoError"
 
 
 # ── Edge cases from the issue ───────────────────────────────────
@@ -338,15 +368,49 @@ def test_symlinked_path_is_followed(tmp_path: Path) -> None:
 
 
 def test_large_batch_processes_every_input() -> None:
-    """1k duplicated paths — pins the linear scan, no per-result
-    blow-up (each output is a small dict-or-error).
+    """1k duplicated paths — smoke test that ``analyze_batch``
+    completes in CI time on a representative bulk input.
 
-    The issue mentions "10k+ paths" as an aspirational target; the
-    1k bar is what we run in CI without a slow-test gate. A
-    regression to O(n²) memory in result storage would surface as
-    a flaky OOM here even at 1k.
+    What this test does NOT catch: at n=1000 with ~8B refs per
+    result, even an O(n²) regression in result storage only
+    reaches ~8 MB, well below any CI runner's OOM threshold —
+    quadratic blow-up would need n ≥ 10k AND distinct paths
+    (to defeat any cache that's O(1) for repeated inputs) to be
+    detectable here. Treat this as a "does it finish" smoke
+    rather than a perf regression guard; the issue's aspirational
+    10k+ target is exercised manually, not in CI.
     """
     paths = [FIXTURES / "hello.py"] * 1_000
     results = bca.analyze_batch(paths)
     assert len(results) == 1_000
     assert all(isinstance(r, dict) for r in results)
+
+
+def test_generated_file_is_analyzed_not_skipped(tmp_path: Path) -> None:
+    """Batch runs with ``skip_generated=false`` so generated files
+    still produce a populated dict — the opposite of single-file
+    ``analyze()`` which returns ``None`` for them.
+
+    Pins the documented batch invariant: every input position
+    yields ``dict`` or ``AnalysisError`` — never ``None``. A
+    regression that flipped batch back to ``skip_generated=True``
+    would trip the bridge's ``unreachable!`` arm and panic, OR
+    (if the arm were silently relaxed) leak ``None`` into the
+    result list — either would break the type contract pinned in
+    ``_native.pyi``.
+    """
+    generated = tmp_path / "gen.rs"
+    generated.write_bytes(b"// @generated by some-tool. DO NOT EDIT.\npub fn x() {}\n")
+
+    # Single-file analyze() with the default skip_generated=True
+    # returns None for the same file — confirms the fixture is
+    # actually marked as generated, so any divergence below is
+    # the batch behaviour, not the marker not matching.
+    assert bca.analyze(generated) is None
+
+    results = bca.analyze_batch([generated])
+    assert len(results) == 1
+    assert isinstance(results[0], dict), (
+        "batch must not return None for generated files — "
+        "the documented contract is dict | AnalysisError"
+    )

@@ -9,7 +9,8 @@ import analyze`` and have it resolve under ``mypy --strict``.
 from __future__ import annotations
 
 import os
-from typing import Any, Iterable, Literal
+from collections.abc import Iterable, Sequence
+from typing import Any, Literal
 
 __version__: str
 
@@ -35,22 +36,65 @@ class AnalysisError:
             else:
                 process(r)
 
-    ``path`` is the caller-supplied path as a string. The class is
-    frozen (immutable) and implements ``__eq__`` / ``__hash__`` /
-    ``__repr__``, so callers may put errors in ``set`` / ``dict``
-    keys to deduplicate. It is **not** a subclass of ``Exception``.
+    The class is frozen (immutable) and implements ``__eq__`` /
+    ``__hash__`` / ``__repr__`` over **all three** of
+    ``(path, error, error_kind)``, so callers may put errors in
+    ``set`` / ``dict`` keys to deduplicate. Two failures of the
+    same kind on the same path but with differing ``error``
+    messages remain distinct under set membership — bucket on
+    ``(r.path, r.error_kind)`` explicitly if message drift across
+    runs (locale, OS version) is undesirable for the dedup key.
+
+    Not a subclass of :class:`Exception`.
+
+    Taxonomy notes for ``error_kind``:
+
+    * ``"UnsupportedLanguage"`` — file extension and shebang /
+      emacs-mode resolution both came up empty, or the upstream
+      language is disabled in this build.
+    * ``"ParseError"`` — the tree-sitter parser failed, or
+      (forward-looking) a future strict-parse mode rejected
+      the input. Also the bucket for internal JSON-serialisation
+      failures of the resulting ``FuncSpace`` (rare; reserved
+      upstream); the error message is prefixed with ``"internal
+      serialization error: "`` in that case.
+    * ``"IoError"`` — the most common kind: ``std::fs::read``
+      failed. Also folds in non-UTF-8 path errors (the path
+      cannot be encoded as a ``FuncSpace.name``); the issue spec
+      pins the taxonomy at three kinds, so the path-encoding
+      case is surfaced here rather than as a distinct value.
+
+    For ``"IoError"`` instances the underlying OS error code (when
+    available) is preserved in the ``error`` string via Rust's
+    ``std::io::Error`` default formatting (``"<msg> (os error
+    <N>)"`` on Unix). Parse it with ``re.search(r"\\(os error
+    (\\d+)\\)$", err.error)`` if you need ``errno`` for retry
+    classification — single-file :func:`analyze` raises a typed
+    :class:`OSError` subclass instead (e.g. ``FileNotFoundError``,
+    ``PermissionError``), which is the recommended path when
+    structured error dispatch matters.
     """
 
-    path: str
-    error: str
-    error_kind: Literal["UnsupportedLanguage", "ParseError", "IoError"]
+    @property
+    def path(self) -> str:
+        """Caller-supplied path that triggered the failure."""
+
+    @property
+    def error(self) -> str:
+        """Human-readable failure message. See class docstring for
+        ``error_kind``-specific formatting notes (notably the
+        ``(os error N)`` errno suffix on ``"IoError"`` entries).
+        """
+
+    @property
+    def error_kind(self) -> Literal["UnsupportedLanguage", "ParseError", "IoError"]:
+        """Closed taxonomy discriminator — see class docstring."""
 
     def __init__(
         self,
         path: str,
         error: str,
         error_kind: Literal["UnsupportedLanguage", "ParseError", "IoError"],
-        /,
     ) -> None: ...
     def __eq__(self, other: object) -> bool: ...
     def __hash__(self) -> int: ...
@@ -199,12 +243,13 @@ def analyze_batch(
     paths: Iterable[str | os.PathLike[str]],
     /,
     *,
-    metrics: list[str] | None = None,
+    metrics: Sequence[str] | None = None,
 ) -> list[dict[str, Any] | AnalysisError]:
     """Compute metrics for every path in ``paths``.
 
-    Returns a list of length ``len(paths)`` in the **same order** as
-    the input iterable. Each element is either:
+    Returns a list with one element per yielded path, in the same
+    order as the input iterable, so ``zip(paths, results)`` lines
+    up by index. Each element is either:
 
     * a ``dict`` matching :func:`analyze`'s output shape, or
     * an :class:`AnalysisError` describing the per-file failure.
@@ -215,29 +260,37 @@ def analyze_batch(
     still raises on *programmer* errors:
 
     * ``TypeError`` if ``paths`` is not iterable, or an element is
-      not ``str``/``os.PathLike[str]``.
-    * ``ValueError`` if ``metrics`` is an explicitly empty list. A
-      ``None`` ``metrics`` (the default) is fine and means "all".
+      not ``str``/``os.PathLike[str]``. Note that this aborts the
+      whole call: any successful results computed before the bad
+      element are discarded (the function does not return a
+      partial list).
+    * ``ValueError`` if ``metrics`` is an explicitly empty
+      sequence. ``None`` (the default) is fine and means "all".
 
     ``paths`` is consumed lazily, so generators work — only the
-    yielded paths are materialised on the Rust side.
+    yielded paths are materialised on the Rust side. ``metrics``
+    accepts any ``Sequence[str]`` (list, tuple, …); the kwarg is
+    reserved for the per-metric selection work landing in a
+    follow-up phase, validated (empty rejected) but not yet
+    threaded through to the analysis.
 
     Unlike :func:`analyze`, ``analyze_batch`` runs with the
     ``is_generated`` walker filter **off** so every input position
     yields either a ``dict`` or an :class:`AnalysisError` (never
     ``None``). Call :func:`analyze` per-file with the default
     ``skip_generated=True`` if you need the CLI walker's skip
-    behaviour.
+    behaviour. ``exclude_tests`` and ``allow_lossy_path`` are also
+    not configurable today (a future phase may add them); the
+    bridge runs with both ``False``.
 
-    ``metrics`` is reserved for the per-metric selection work
-    landing in a follow-up phase; the kwarg is accepted (and
-    validated) today so existing call sites do not need to change
-    when the selection plumbing arrives.
-
-    There is no built-in parallelism — the recommended pattern is
-    ``concurrent.futures.ThreadPoolExecutor.map(bca.analyze, paths)``
-    when the GIL release inside the Rust parser yields enough
-    headroom for your workload.
+    The GIL is released across each file's read + tree-sitter
+    parse via PyO3's ``Python::detach``, so a multi-threaded
+    caller wrapping ``analyze_batch`` (or per-file ``analyze``)
+    in ``concurrent.futures.ThreadPoolExecutor.map`` actually
+    parallelises the heavy work. There is no built-in concurrency
+    inside ``analyze_batch`` itself — the entry point is a
+    sequential sweep — but the GIL release means other Python
+    threads in the process are not blocked for the duration.
     """
 
 def language_for_file(path: str | os.PathLike[str], /) -> str | None:
