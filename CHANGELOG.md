@@ -506,6 +506,21 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Changed
 
+- **(breaking, bindings-py)** `bca.language_for_file(path)` now reads
+  the file and resolves through `big_code_analysis::guess_language`
+  — the same detection pipeline `bca.analyze` uses — so an
+  extension-less script with a `#!/usr/bin/env python` shebang
+  resolves to `"python"` instead of `None`. Closes the API
+  asymmetry with `analyze` introduced in
+  [#314](https://github.com/dekobon/big-code-analysis/issues/314).
+  The prior "Never raises" contract is dropped: I/O failures
+  surface as `OSError` (dispatching to `FileNotFoundError`,
+  `PermissionError`, …) with `errno` / `filename` populated — same
+  typed-exception taxonomy `analyze` uses. Callers needing the
+  prior extension-only, never-raising semantics for a cheap path
+  inspection can wrap the call in `try / except OSError`; the
+  underlying `LANG::get_extensions` table is unchanged
+  ([#318](https://github.com/dekobon/big-code-analysis/issues/318)).
 - Consolidate the four JS-family `Getter::get_op_type` impls
   (JavaScript, MozJS, TypeScript, TSX) behind a single
   `impl_js_family_get_op_type!` macro that takes per-language operator

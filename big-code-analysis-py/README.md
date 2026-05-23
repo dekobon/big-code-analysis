@@ -61,8 +61,21 @@ forced = bca.analyze("third_party/generated.pb.go", skip_generated=False)
 # Analyse an in-memory snippet (str, bytes, or bytearray accepted).
 metrics = bca.analyze_source("fn main() {}\n", "rust")
 
-# Language detection helpers.
-assert bca.language_for_file("foo.py") == "python"
+# Language detection helpers. `language_for_file` reads the file
+# and runs the same detection pipeline as `analyze` — path
+# extension first, then shebang / emacs-mode fallback (#318) —
+# so an extension-less script with a `#!/usr/bin/env python`
+# leading line resolves the same way it would for `analyze`. The
+# file is read on every call (parity with `analyze`), so the path
+# must exist; I/O failures raise the same typed `OSError` subclass
+# `analyze` does (`FileNotFoundError`, `PermissionError`, …). If
+# you only need the cheap extension lookup (`.py` → `python`) and
+# do not want the file read, use
+# `bca.language_extensions("python")` and match the extension
+# yourself.
+assert bca.language_for_file("path/to/real/foo.py") == "python"
+# Extension-less script with a `#!/usr/bin/env python` first line
+# would resolve to "python" too (the asymmetry #318 closed).
 assert "python" in bca.supported_languages()
 assert "py" in bca.language_extensions("python")
 ```

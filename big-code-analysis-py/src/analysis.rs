@@ -120,6 +120,21 @@ pub(crate) enum AnalysisError {
     Serialization(serde_json::Error),
 }
 
+impl AnalysisError {
+    /// Construct an [`AnalysisError::Io`] from a `std::io::Error` and
+    /// the path that triggered it. Centralised so both `analyze_path`
+    /// and `language::language_for_file` capture path + source in
+    /// the same shape — the dispatcher in [`crate::lib`] expects
+    /// both fields to populate the resulting `OSError`'s `filename`
+    /// and `errno`.
+    pub(crate) fn io(source: std::io::Error, path: &Path) -> Self {
+        Self::Io {
+            source,
+            path: path.to_path_buf(),
+        }
+    }
+}
+
 // `AnalysisError::Io` is constructed only at the file-read site so
 // the path can be captured alongside the `std::io::Error`. A blanket
 // `From<std::io::Error>` impl would let `?` lose that path silently.
@@ -250,10 +265,7 @@ pub(crate) fn analyze_path(
     // Capture the path on I/O failure so the Python OSError carries
     // `filename` and CPython can dispatch to FileNotFoundError /
     // PermissionError / IsADirectoryError based on `errno`.
-    let code = std::fs::read(path).map_err(|source| AnalysisError::Io {
-        source,
-        path: path.to_path_buf(),
-    })?;
+    let code = std::fs::read(path).map_err(|source| AnalysisError::io(source, path))?;
     // Generated-file filter (CLI parity, #317): runs *before* language
     // inference so a generated file with an unknown extension still
     // returns `Ok(None)` rather than raising `UnsupportedLanguage` —
