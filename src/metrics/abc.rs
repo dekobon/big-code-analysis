@@ -524,10 +524,13 @@ fn java_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
     }
 }
 
-// Groovy mirror of `java_inspect_container`. amaanq's grammar inherits
-// `parenthesized_expression`, `unary_expression`, and the standard
-// boolean-context kinds from tree-sitter-java verbatim, so the body is
-// structurally identical to Java's helper.
+// Groovy mirror of `java_inspect_container`. The dekobon Groovy grammar
+// inherits `parenthesized_expression`, `unary_expression`, and the
+// standard boolean-context kinds from tree-sitter-java verbatim, so the
+// body is structurally identical to Java's helper. The terminal set
+// includes `CommandChain` (the new grammar's distinct node for Groovy's
+// parens-less call form `println foo`), keeping it in sync with the
+// `impl Abc for GroovyCode` branches dispatch.
 fn groovy_inspect_container(container_node: &Node, conditions: &mut f64) {
     use Groovy::*;
 
@@ -536,7 +539,7 @@ fn groovy_inspect_container(container_node: &Node, conditions: &mut f64) {
 
     let Some(parent) = node.parent() else { return };
     let mut has_boolean_content = match parent.kind_id().into() {
-        BinaryExpression | IfStatement | WhileStatement | DoStatement | ForStatement => true,
+        BinaryExpression | IfStatement | WhileStatement | DoWhileStatement | ForStatement => true,
         TernaryExpression => node
             .previous_sibling()
             .is_none_or(|prev_node| !matches!(prev_node.kind_id().into(), QMARK | COLON)),
@@ -562,14 +565,9 @@ fn groovy_inspect_container(container_node: &Node, conditions: &mut f64) {
         node = child;
         node_kind = node.kind_id().into();
 
-        // `JuxtFunctionCall` covers Groovy's parens-less call form
-        // (`println foo`), which the ABC dispatch in `impl Abc for
-        // GroovyCode` already counts as a branch; keep the terminal
-        // set in sync so a `juxt_call(...)` used as a unary condition
-        // is recognised here too.
         if matches!(
             node_kind,
-            MethodInvocation | JuxtFunctionCall | Identifier | True | False
+            MethodInvocation | CommandChain | Identifier | True | False
         ) {
             if has_boolean_content {
                 *conditions += 1.;
@@ -592,7 +590,7 @@ fn groovy_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 
             if matches!(
                 node_kind,
-                MethodInvocation | JuxtFunctionCall | Identifier | True | False
+                MethodInvocation | CommandChain | Identifier | True | False
             ) && matches!(list_kind, BinaryExpression)
             {
                 *conditions += 1.;
@@ -1452,13 +1450,22 @@ impl Abc for JavaCode {
     }
 }
 
-// Groovy's ABC mirrors Java's directly because amaanq's grammar reuses
-// Java's expression/statement vocabulary verbatim. Closures
-// (`{ x -> ... }`) introduce their own "implicit return" semantics but
-// the right-operand pattern matching handles them via
-// `LambdaExpression` — Groovy's `Closure` body is a `Block`, not an
-// expression, so the LambdaExpression arm carries the implicit-return
-// path for lambdas; closure-only bodies do not factor in here.
+// Groovy's ABC mirrors Java's directly because the dekobon Groovy
+// grammar shares Java's expression / statement vocabulary for the
+// shapes ABC cares about (assignments, branches, conditions).
+// Groovy-specific touches over Java:
+//   - `CommandChain` (parens-less calls like `println foo`) counts as
+//     a branch alongside `MethodInvocation` (#247).
+//   - `DoWhileStatement` (the new grammar's name for `do { } while`)
+//     replaces the prior `DoStatement` (which the amaanq grammar used).
+//   - Closures (`{ x -> ... }`) have block bodies — no implicit-return
+//     "single-expression arm" like a Java lambda, so the prior
+//     `LambdaExpression` arm is intentionally absent.
+//   - The dekobon grammar inlines the parens of `if (…)` / `while (…)`
+//     / `do { … } while (…)` as `(` / `)` token children rather than
+//     wrapping the condition in a `parenthesized_expression`, so the
+//     condition is at a different child index than under Java's
+//     grammar and must be inspected differently.
 impl Abc for GroovyCode {
     fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Groovy::*;
@@ -1488,7 +1495,7 @@ impl Abc for GroovyCode {
             {
                 stats.assignments += 1.;
             }
-            MethodInvocation | JuxtFunctionCall | New => {
+            MethodInvocation | CommandChain | New => {
                 stats.branches += 1.;
             }
             GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | Default | QMARK | Try | Catch => {
@@ -1508,7 +1515,7 @@ impl Abc for GroovyCode {
                     groovy_count_unary_conditions(&parent, &mut stats.conditions);
                 }
             }
-            ArgumentList | ArgumentList2 => {
+            ArgumentList => {
                 groovy_count_unary_conditions(node, &mut stats.conditions);
             }
             VariableDeclarator | AssignmentExpression => {
@@ -1522,43 +1529,40 @@ impl Abc for GroovyCode {
                 }
             }
             IfStatement | WhileStatement => {
-                if let Some(condition) = node.child(1)
-                    && matches!(condition.kind_id().into(), ParenthesizedExpression)
-                {
-                    groovy_inspect_container(&condition, &mut stats.conditions);
+                // dekobon `if_statement` / `while_statement` shape:
+                // [keyword, `(`, condition, `)`, body, …]. Condition
+                // lives at child index 2 (not 1 as under tree-sitter-
+                // java, where the parens come wrapped in a
+                // `parenthesized_expression`).
+                if let Some(condition) = node.child(2) {
+                    groovy_count_condition(&condition, &mut stats.conditions);
                 }
             }
-            DoStatement => {
-                if let Some(condition) = node.child(3)
-                    && matches!(condition.kind_id().into(), ParenthesizedExpression)
-                {
-                    groovy_inspect_container(&condition, &mut stats.conditions);
+            DoWhileStatement => {
+                // dekobon shape: [`do`, body, `while`, `(`, condition,
+                // `)`]. Condition is at child index 4.
+                if let Some(condition) = node.child(4) {
+                    groovy_count_condition(&condition, &mut stats.conditions);
                 }
             }
             ForStatement => {
+                // Two shapes: a present condition lives at child(3);
+                // an empty condition shows up as a bare `SEMI` token at
+                // child(3) with the next slot (child(4)) holding either
+                // the update expression or `;`/`)` for `for(;;)`-style
+                // empty-condition loops, which still count as a single
+                // condition slot.
                 if let Some(condition) = node.child(3) {
-                    match condition.kind_id().into() {
-                        SEMI => {
-                            if let Some(cond) = node.child(4) {
-                                match cond.kind_id().into() {
-                                    MethodInvocation | JuxtFunctionCall | Identifier | True
-                                    | False | SEMI | RPAREN => {
-                                        stats.conditions += 1.;
-                                    }
-                                    ParenthesizedExpression | UnaryExpression => {
-                                        groovy_inspect_container(&cond, &mut stats.conditions);
-                                    }
-                                    _ => {}
-                                }
+                    if matches!(condition.kind_id().into(), SEMI) {
+                        if let Some(cond) = node.child(4) {
+                            if matches!(cond.kind_id().into(), SEMI | RPAREN) {
+                                stats.conditions += 1.;
+                            } else {
+                                groovy_count_condition(&cond, &mut stats.conditions);
                             }
                         }
-                        MethodInvocation | JuxtFunctionCall | Identifier | True | False => {
-                            stats.conditions += 1.;
-                        }
-                        ParenthesizedExpression | UnaryExpression => {
-                            groovy_inspect_container(&condition, &mut stats.conditions);
-                        }
-                        _ => {}
+                    } else {
+                        groovy_count_condition(&condition, &mut stats.conditions);
                     }
                 }
             }
@@ -1572,47 +1576,44 @@ impl Abc for GroovyCode {
                     groovy_inspect_container(&value, &mut stats.conditions);
                 }
             }
-            LambdaExpression => {
-                if let Some(value) = node.child(2)
-                    && matches!(
-                        value.kind_id().into(),
-                        ParenthesizedExpression | UnaryExpression
-                    )
-                {
-                    groovy_inspect_container(&value, &mut stats.conditions);
-                }
-            }
             TernaryExpression => {
                 if let Some(condition) = node.child(0) {
-                    match condition.kind_id().into() {
-                        MethodInvocation | JuxtFunctionCall | Identifier | True | False => {
-                            stats.conditions += 1.;
-                        }
-                        ParenthesizedExpression | UnaryExpression => {
-                            groovy_inspect_container(&condition, &mut stats.conditions);
-                        }
-                        _ => {}
+                    groovy_count_condition(&condition, &mut stats.conditions);
+                }
+                for branch_idx in [2, 4] {
+                    if let Some(expression) = node.child(branch_idx)
+                        && matches!(
+                            expression.kind_id().into(),
+                            ParenthesizedExpression | UnaryExpression
+                        )
+                    {
+                        groovy_inspect_container(&expression, &mut stats.conditions);
                     }
-                }
-                if let Some(expression) = node.child(2)
-                    && matches!(
-                        expression.kind_id().into(),
-                        ParenthesizedExpression | UnaryExpression
-                    )
-                {
-                    groovy_inspect_container(&expression, &mut stats.conditions);
-                }
-                if let Some(expression) = node.child(4)
-                    && matches!(
-                        expression.kind_id().into(),
-                        ParenthesizedExpression | UnaryExpression
-                    )
-                {
-                    groovy_inspect_container(&expression, &mut stats.conditions);
                 }
             }
             _ => {}
         }
+    }
+}
+
+// Counts a single boolean-context condition expression for the dekobon
+// Groovy grammar. The grammar inlines `(` / `)` as token children of
+// `if_statement` / `while_statement` / `do_while_statement` rather than
+// wrapping the condition in a `parenthesized_expression`, so the
+// condition shows up bare. A bare identifier / boolean / call / command
+// chain contributes one condition directly; parenthesised and unary
+// containers delegate to `groovy_inspect_container`; binary / ternary
+// expressions are picked up by their own arms.
+fn groovy_count_condition(condition: &Node, conditions: &mut f64) {
+    use Groovy::*;
+    match condition.kind_id().into() {
+        MethodInvocation | CommandChain | Identifier | True | False => {
+            *conditions += 1.;
+        }
+        ParenthesizedExpression | UnaryExpression => {
+            groovy_inspect_container(condition, conditions);
+        }
+        _ => {}
     }
 }
 
@@ -3028,9 +3029,9 @@ mod tests {
     fn groovy_conditions_in_if() {
         check_metrics::<GroovyParser>(
             "void f(int a) {
-                if (a == 0) { println a }
-                if (a >= 1) { println a }
-                if (a != 2) { println a }
+                if (a == 0) { println(a) }
+                if (a >= 1) { println(a) }
+                if (a != 2) { println(a) }
             }",
             "foo.groovy",
             |metric| {
@@ -3131,9 +3132,9 @@ mod tests {
         // `BinaryExpression` and counts them too.
         check_metrics::<GroovyParser>(
             "void f(boolean a, boolean b, boolean c) {
-                if (a || b || c) { println a }
-                if (a && b && c) { println a }
-                if (!a && !b) { println a }
+                if (a || b || c) { println(a) }
+                if (a && b && c) { println(a) }
+                if (!a && !b) { println(a) }
             }",
             "foo.groovy",
             |metric| {
@@ -3237,7 +3238,7 @@ mod tests {
         check_metrics::<GroovyParser>(
             "void f() {
                 for (int i = 0; i < 10; i++) {
-                    println i
+                    println(i)
                 }
             }",
             "foo.groovy",

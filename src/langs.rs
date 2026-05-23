@@ -274,7 +274,7 @@ mk_langs!(
         "groovy",
         GroovyCode,
         GroovyParser,
-        tree_sitter_groovy,
+        dekobon_tree_sitter_groovy,
         [groovy, gradle, gvy, gy, gsh],
         ["groovy"]
     )

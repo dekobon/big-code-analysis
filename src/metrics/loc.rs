@@ -952,16 +952,20 @@ impl Loc for GroovyCode {
         let (start, end) = init(node, stats, is_func_space, is_unit);
         let kind_id: Groovy = node.kind_id().into();
         // LLOC counts statements only — same definition as Java.
-        // Additions over Java's list:
-        //   - `YieldStatement` / `SynchronizedStatement` for the
-        //     Java-14+ switch-expression form
-        //   - `JuxtFunctionCall` for Groovy's parens-less call as a
-        //     top-level statement
-        // `FunctionDefinition` is a declaration, not a statement, so
-        // it's intentionally excluded.
+        // Groovy additions over Java's list:
+        //   - `YieldStatement` for the Java-14+ switch-expression form.
+        //   - `CommandChain` for Groovy's parens-less call as a top-
+        //     level statement (the dekobon grammar's distinct node;
+        //     the prior amaanq grammar called this `juxt_function_call`).
+        //   - `ForInStatement` (the dekobon grammar's name for the
+        //     `for (x in xs)` / `for (Foo x : xs)` shape; the prior
+        //     amaanq grammar called this `enhanced_for_statement`).
+        //   - `PipelineStatement` is the dekobon grammar's distinct
+        //     node for a Jenkinsfile `pipeline { … }` block, treated
+        //     here as a single statement.
         match kind_id {
-            Program => {}
-            LineComment | BlockComment => {
+            SourceFile => {}
+            LineComment | BlockComment | GroovydocComment => {
                 add_cloc_lines(stats, start, end);
             }
             // An `ExpressionStatement` whose only child is a bare
@@ -971,28 +975,16 @@ impl Loc for GroovyCode {
             // even though the user wrote it as part of the surrounding
             // `if`. Skipping the wrapper avoids double-counting the
             // else-branch as a separate LLOC. Real expression
-            // statements like `expression_statement (juxt_function_call)`
-            // for `println x` keep firing because their child is not
+            // statements like `expression_statement (command_chain)`
+            // for `println(x)` keep firing because their child is not
             // a bare `Closure`.
             ExpressionStatement if node.child(0).is_some_and(|c| c.kind_id() == Closure) => {
                 // No-op: do not count as LLOC.
             }
-            AssertStatement
-            | BreakStatement
-            | ContinueStatement
-            | DoStatement
-            | EnhancedForStatement
-            | ExpressionStatement
-            | ForStatement
-            | IfStatement
-            | JuxtFunctionCall
-            | ReturnStatement
-            | SwitchExpression
-            | SynchronizedStatement
-            | ThrowStatement
-            | TryStatement
-            | WhileStatement
-            | YieldStatement => {
+            AssertStatement | BreakStatement | CommandChain | ContinueStatement
+            | DoWhileStatement | ExpressionStatement | ForInStatement | ForStatement
+            | IfStatement | PipelineStatement | ReturnStatement | SwitchExpression
+            | ThrowStatement | TryStatement | WhileStatement | YieldStatement => {
                 stats.lloc.logical_lines += 1;
             }
             LocalVariableDeclaration => {
@@ -9029,11 +9021,11 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         // for-loop). Same gating as Java's `java_for_lloc`.
         check_metrics::<GroovyParser>(
             "for (int i = 0; i < 10; i++) {
-                println i
+                println(i)
             }",
             "foo.groovy",
             |metric| {
-                // for-statement (1) + expression-statement `println i` (1) = 2
+                // for-statement (1) + expression-statement `println(i)` (1) = 2
                 assert_eq!(metric.loc.lloc(), 2.0);
             },
         );
@@ -9041,9 +9033,12 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
 
     #[test]
     fn groovy_lambda_in_method_lloc() {
-        // Lambdas are expressions: the declaration `def f = …` is one
-        // LLOC; the call `f(3)` is another. Lambda body itself is not
-        // a separate statement.
+        // Closures contain a statement list — the dekobon grammar wraps
+        // a single-expression body in `expression_statement` rather than
+        // emitting the expression directly (as Java's `lambda_expression`
+        // does), so a one-line closure body counts as its own LLOC.
+        // Declaration `def f = …` (1) + closure body `x + 1` (1) +
+        // call `f(3)` (1) = 3.
         check_metrics::<GroovyParser>(
             "class Foo {
                 void bar() {
@@ -9053,7 +9048,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             }",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.loc.lloc(), 2.0);
+                assert_eq!(metric.loc.lloc(), 3.0);
             },
         );
     }
@@ -9173,12 +9168,12 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
     #[test]
     fn groovy_for_lloc() {
         // The classical `for` statement itself counts as one LLOC;
-        // the body's `println i` adds another. The init-slot
+        // the body's `println(i)` adds another. The init-slot
         // var-decl is suppressed by the LocalVariableDeclaration
         // ancestor-check (same rule as `java_for_lloc`).
         check_metrics::<GroovyParser>(
             "for (int i = 0; i < 100; i++) {
-                println i
+                println(i)
             }",
             "foo.groovy",
             |metric| {
@@ -9194,7 +9189,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         // counts as one LLOC.
         check_metrics::<GroovyParser>(
             "for (item in items) {
-                println item
+                println(item)
             }",
             "foo.groovy",
             |metric| {
@@ -9212,7 +9207,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "int i = 0
             while (i < 10) {
                 i++
-                println i
+                println(i)
             }",
             "foo.groovy",
             |metric| {
@@ -9247,7 +9242,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
                 if (i == 5) {
                     continue
                 }
-                println i
+                println(i)
             }",
             "foo.groovy",
             |metric| {
@@ -9265,7 +9260,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "int a = 1
             a = 2
             a += 3
-            println a
+            println(a)
             doSomething()",
             "foo.groovy",
             |metric| {
@@ -9294,7 +9289,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         //
         // LLOC = 4, fully attributable:
         //   IfStatement (the outer if/else):     +1
-        //   `println x`     (JuxtFunctionCall):  +1
+        //   `println(x)`     (JuxtFunctionCall):  +1
         //   `println 'neg'` (JuxtFunctionCall):  +1
         //   `return`        (ReturnStatement):   +1
         // The else-branch's `expression_statement (closure)`
@@ -9304,7 +9299,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             "class A {
                 void f(int x) {
                     if (x > 0) {
-                        println x
+                        println(x)
                     } else {
                         println 'neg'
                     }

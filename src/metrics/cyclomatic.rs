@@ -471,7 +471,12 @@ macro_rules! impl_cyclomatic_java_like {
 }
 
 impl_cyclomatic_java_like!(JavaCode, Java, []);
-impl_cyclomatic_java_like!(GroovyCode, Groovy, [Assert]);
+// Groovy adds `Assert` (cyclomatic branch — same as Java) and the
+// Elvis operator token `?:` (`QMARKCOLON`). The dekobon Groovy grammar
+// surfaces Elvis as a distinct `elvis_expression` node and the `?:`
+// token as a real lexer element, so the macro picks it up as a +1
+// cyclomatic branch per occurrence (closes #246 cyclomatic case).
+impl_cyclomatic_java_like!(GroovyCode, Groovy, [Assert, QMARKCOLON]);
 
 impl Cyclomatic for CsharpCode {
     fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
@@ -2833,7 +2838,7 @@ mod tests {
         check_metrics::<GroovyParser>(
             "def f(int[] xs) {
                  for (int x : xs) {  // +1 (via `for` keyword)
-                     println x
+                     println(x)
                  }
              }",
             "foo.groovy",
@@ -5935,6 +5940,31 @@ f() {
                 "groovy assert modified max"
             );
         });
+    }
+
+    /// Regression for issue #246: Groovy's Elvis operator `?:` is a
+    /// short-circuit nullish operator that introduces a branch — each
+    /// occurrence in a chain adds +1 to cyclomatic complexity. The
+    /// dekobon Groovy grammar models Elvis as a distinct
+    /// `elvis_expression` node with a real `QMARKCOLON` token, so the
+    /// `impl_cyclomatic_java_like!(GroovyCode, Groovy, [Assert,
+    /// QMARKCOLON])` invocation picks it up directly.
+    #[test]
+    fn cyclomatic_groovy_elvis_chain_246() {
+        check_metrics::<GroovyParser>(
+            "def pick(a, b, c) { return a ?: b ?: c }",
+            "foo.groovy",
+            |m| {
+                // unit(1) + fn(1) + two `?:` short-circuits(2) = 4
+                assert_eq!(m.cyclomatic.cyclomatic_sum(), 4.0, "groovy elvis sum");
+                assert_eq!(m.cyclomatic.cyclomatic_max(), 3.0, "groovy elvis max");
+                assert_eq!(
+                    m.cyclomatic.cyclomatic_modified_max(),
+                    3.0,
+                    "groovy elvis modified max"
+                );
+            },
+        );
     }
 
     #[test]

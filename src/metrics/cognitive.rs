@@ -648,18 +648,22 @@ impl Cognitive for GroovyCode {
     ) {
         use Groovy::*;
 
-        let (mut nesting, depth, mut lambda) = get_nesting_from_map(node, nesting_map);
+        let (mut nesting, depth, lambda) = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             IfStatement if !Self::is_else_if(node) => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
-            ForStatement | EnhancedForStatement | WhileStatement | DoStatement | SwitchBlock
+            // `for_in_statement` is the dekobon grammar's distinct node
+            // for `for (x in xs)` / `for (Foo x : xs)` (the prior amaanq
+            // grammar called this `enhanced_for_statement`); `do_while`
+            // and `switch_block` keep their familiar names.
+            ForStatement | ForInStatement | WhileStatement | DoWhileStatement | SwitchBlock
             | CatchClause | TernaryExpression => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
             // `Else` covers plain `else` blocks *and* the chained
-            // `else if` form, because amaanq's grammar inlines the
+            // `else if` form, because the grammar inlines the
             // `else` token before the nested `if_statement` rather
             // than wrapping it in an `else_clause` node.
             Else => {
@@ -676,23 +680,16 @@ impl Cognitive for GroovyCode {
             BinaryExpression => {
                 compute_booleans(node, stats, AMPAMP, PIPEPIPE);
             }
-            // Only `LambdaExpression` (arrow-bodied form, `(x) -> body`
-            // or `{ x -> body }` whose inner expression is captured
-            // as a `lambda_expression`) introduces a nested
-            // function-like scope. The bare `Closure` rule in
-            // amaanq's grammar is `prec(1, seq('{', ..., '}'))` —
-            // it eagerly matches *every* brace-block, including
-            // for-loop / if-body blocks that are syntactically
-            // `block`s. Bumping `lambda` for those would incorrectly
-            // inflate the nesting penalty for ordinary control flow,
-            // so we leave bare `Closure` out of this arm. Implicit-
-            // `it` closures (`{ println it }`) parse as bare
-            // `Closure` without an inner `LambdaExpression` and so
-            // will not be counted; that's an accepted accuracy loss
-            // in exchange for matching Java's cognitive numbers on
-            // identical control-flow shapes.
-            LambdaExpression => {
-                lambda += 1;
+            // Groovy's Elvis `?:` is a short-circuit nullish operator
+            // analogous to Kotlin's `?:` (#239) and JS `??`. Per
+            // SonarSource B1, a chain of identical short-circuit
+            // operators contributes a single boolean-sequence increment
+            // — the same rule as `&&` / `||`. The dekobon grammar
+            // models Elvis as a distinct `elvis_expression` node
+            // rather than a Java-shaped `ternary_expression` with a
+            // missing consequence (closes #246).
+            ElvisExpression => {
+                compute_booleans_with(node, stats, |id| matches!(id.into(), QMARKCOLON));
             }
             _ => {}
         }
@@ -6644,7 +6641,7 @@ end",
         check_metrics::<GroovyParser>(
             "void f(int x) {
                 if (x > 0) {
-                    println x
+                    println(x)
                 }
             }",
             "foo.groovy",
@@ -6661,7 +6658,7 @@ end",
             "void f(int x, int y) {
                 if (x > 0) {
                     if (y > 0) {
-                        println x
+                        println(x)
                     }
                 }
             }",
@@ -6729,7 +6726,7 @@ end",
         // SonarSource B1: a chain of identical short-circuit ops counts as one.
         check_metrics::<GroovyParser>(
             "void f(boolean a, boolean b, boolean c) {
-                if (a && b && c) { println a }
+                if (a && b && c) { println(a) }
             }",
             "foo.groovy",
             |metric| {
@@ -6744,7 +6741,7 @@ end",
         // A `&&` followed by `||` is two distinct sequences = +2.
         check_metrics::<GroovyParser>(
             "void f(boolean a, boolean b, boolean c) {
-                if (a && b || c) { println a }
+                if (a && b || c) { println(a) }
             }",
             "foo.groovy",
             |metric| {
@@ -6760,7 +6757,7 @@ end",
         // but doesn't add cognitive cost on its own.
         check_metrics::<GroovyParser>(
             "void f(boolean a, boolean b) {
-                if (a && !b) { println a }
+                if (a && !b) { println(a) }
             }",
             "foo.groovy",
             |metric| {
@@ -6793,7 +6790,7 @@ end",
         check_metrics::<GroovyParser>(
             "void f(List items) {
                 for (item in items) {
-                    println item
+                    println(item)
                 }
             }",
             "foo.groovy",
@@ -6831,6 +6828,49 @@ end",
             |metric| {
                 // ternary(+1) = 1
                 assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_elvis_chain_246() {
+        // Regression for issue #246: Groovy's Elvis operator `?:` is
+        // a short-circuit nullish operator analogous to Kotlin's `?:`
+        // (#239) and JS `??`. `a ?: b ?: c` is a single chain of
+        // identical operators and collapses to a single +1 under
+        // SonarSource Cognitive Complexity B1 — the same rule applied
+        // to `&&` / `||`. Closed by swapping the prior amaanq grammar
+        // (which mis-parsed Elvis as `ternary_expression` + MISSING
+        // identifier) for `dekobon-tree-sitter-groovy`, which models
+        // Elvis as a distinct `elvis_expression` node.
+        check_metrics::<GroovyParser>(
+            "def pick(a, b, c) {
+                return a ?: b ?: c // +1 (Elvis chain)
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_elvis_inside_if_246() {
+        // Regression for issue #246: Elvis chain inside an `if` body.
+        // Boolean sequences pay a flat +1 (no nesting penalty) per
+        // SonarSource B1: if(+1) + Elvis chain(+1) = 2.
+        check_metrics::<GroovyParser>(
+            "def f(a, b) {
+                if (a != null) { // +1
+                    return a ?: b ?: 'x' // +1 (Elvis chain)
+                }
+                return 'no'
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
             },
         );
     }
