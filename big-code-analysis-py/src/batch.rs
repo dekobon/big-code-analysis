@@ -361,6 +361,15 @@ mod tests {
             Path::new("/nope"),
         );
         assert_eq!(err.error_kind, "IoError");
+        // Pin path + error message too so a regression that
+        // swapped fields or emitted an empty diagnostic on the
+        // Io arm is caught — the other arms' tests use the same
+        // shape, keep them symmetric.
+        assert_eq!(err.path, "/nope");
+        assert!(
+            !err.error.is_empty(),
+            "Io arm must surface std::io::Error::Display text, got empty string",
+        );
     }
 
     #[test]

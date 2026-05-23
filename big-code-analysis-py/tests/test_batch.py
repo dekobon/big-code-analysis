@@ -45,17 +45,45 @@ def test_all_valid_inputs_match_individual_analyze_outputs() -> None:
 def test_mixed_language_batch_preserves_per_file_routing() -> None:
     """Each input position carries its own language detection.
 
-    Asserts the per-file ``name`` and ``kind`` fields rather than
-    deep-comparing the metrics — the latter would re-fight the
-    parity tests in ``test_smoke.py``. The point here is that
-    batch does not collapse the language map onto a single
-    detector instance.
+    Asserts the **inner** ``FuncSpace`` shape per result so a
+    regression that collapsed the language map onto a single
+    parser would fail here. The Java fixture's inner
+    ``kind == "class"`` is the discriminating signal: parsing the
+    same bytes with the Python or Rust grammar produces an error
+    tree with no ``class``-kind inner space, so the assertion
+    below would fall over. The Python/Rust fixtures each define a
+    single ``hello`` function whose presence at the inner level
+    is similarly load-bearing — a top-level ``name`` check would
+    not catch the regression because ``name`` echoes the input
+    path regardless of parser.
     """
     paths = [FIXTURES / "hello.py", FIXTURES / "Hello.java", FIXTURES / "hello.rs"]
     results = bca.analyze_batch(paths)
     assert all(isinstance(r, dict) for r in results)
-    names = [r["name"] for r in results if isinstance(r, dict)]
-    assert names == [str(p) for p in paths]
+    py_result, java_result, rs_result = results
+    assert isinstance(py_result, dict)
+    assert isinstance(java_result, dict)
+    assert isinstance(rs_result, dict)
+
+    # Top-level name still mirrors the input path; pin it as the
+    # cheap-to-check half of the contract.
+    assert py_result["name"] == str(paths[0])
+    assert java_result["name"] == str(paths[1])
+    assert rs_result["name"] == str(paths[2])
+
+    # Inner-shape discriminator. The exact (name, kind) tuple per
+    # fixture is enumerated below so a future fixture edit that
+    # changes the symbol shape forces a test edit rather than
+    # silently weakening the assertion.
+    assert {(s["name"], s["kind"]) for s in py_result["spaces"]} >= {
+        ("hello", "function"),
+    }, "Python parser must produce a `hello` function in hello.py"
+    assert {(s["name"], s["kind"]) for s in java_result["spaces"]} >= {
+        ("Hello", "class"),
+    }, "Java parser must produce a `Hello` class in Hello.java"
+    assert {(s["name"], s["kind"]) for s in rs_result["spaces"]} >= {
+        ("hello", "function"),
+    }, "Rust parser must produce a `hello` function in hello.rs"
 
 
 def test_ordering_preserved_with_interleaved_failures(tmp_path: Path) -> None:
@@ -156,7 +184,17 @@ def test_empty_iterable_returns_empty_list() -> None:
 
 
 def test_generator_input_works() -> None:
-    """Generators are consumed lazily without being materialised first."""
+    """Generators are accepted as the ``paths`` argument.
+
+    Pins the duck-typed-iterable contract: the only thing this
+    test verifies is that an arbitrary Python iterator (not just
+    a list / tuple) reaches the analysis loop and produces
+    matching-order results. Lazy consumption is an *implementation*
+    property of the Rust loop (`paths.try_iter()` followed by
+    per-item `next()`) that the per-file analysis observably
+    requires but the assertions below do not probe in isolation
+    — the dedicated bridge tests cover that.
+    """
 
     def gen() -> Iterator[Path]:
         yield FIXTURES / "hello.py"
@@ -284,18 +322,25 @@ def test_analysis_error_hash_matches_equality() -> None:
 
 
 def test_analysis_error_repr_includes_all_fields() -> None:
-    """``repr`` is debuggable — every field appears, labelled.
+    """``repr`` is debuggable — every field appears, labelled, and
+    each label sits next to its own value.
 
-    A bare ``repr`` defaulting to ``<AnalysisError at 0x...>``
-    would slip past a less specific assertion; pinning each field
-    by name keeps the repr useful for ``log.warning(r)`` output.
+    Adjacency matters: independent substring checks for the
+    labels and the values would still pass if a regression
+    swapped two field values (e.g. ``path="missing", error="p.py"``)
+    because both labels and both values would still appear in
+    the output. Pin the label-value pair so a swap is caught.
+
+    The Rust impl uses ``{:?}`` formatting on each ``String``
+    field, which surrounds each value with double quotes — so
+    the expected fragment is ``path="p.py"``.
     """
     err = bca.AnalysisError("p.py", "missing", "IoError")
     r = repr(err)
-    assert "AnalysisError" in r
-    assert "path=" in r and "p.py" in r
-    assert "error=" in r and "missing" in r
-    assert "error_kind=" in r and "IoError" in r
+    assert r.startswith("AnalysisError(")
+    assert 'path="p.py"' in r
+    assert 'error="missing"' in r
+    assert 'error_kind="IoError"' in r
 
 
 def test_analysis_error_rejects_unknown_kind() -> None:
