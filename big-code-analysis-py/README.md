@@ -80,11 +80,27 @@ can `zip(inputs, results)` without losing the pairing.
 import big_code_analysis as bca
 
 paths = ["src/a.py", "src/missing.py", "src/b.rs"]
-for path, result in zip(paths, bca.analyze_batch(paths)):
+results = bca.analyze_batch(paths)
+for path, result in zip(paths, results):
     if isinstance(result, bca.AnalysisError):
         print(f"skipped {path}: ({result.error_kind}) {result.error}")
     else:
         process(result)
+```
+
+The pattern above keeps `paths` and `results` as separate
+materialised sequences. If you want to drive `analyze_batch` from
+a generator (e.g. `glob.iglob('**/*.py')`) for memory efficiency,
+materialise it into a list first — otherwise
+`zip(generator, analyze_batch(generator))` yields nothing because
+`analyze_batch` exhausts the generator before `zip` re-iterates it:
+
+```python
+import glob
+
+paths = list(glob.iglob("src/**/*.py", recursive=True))
+results = bca.analyze_batch(paths)
+# now zip(paths, results) works
 ```
 
 `bca.AnalysisError` is a frozen value type with `path: str`,
