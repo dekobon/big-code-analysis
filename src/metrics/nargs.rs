@@ -419,9 +419,33 @@ implement_metric_trait!(
     PhpCode,
     CsharpCode,
     ElixirCode,
-    RubyCode,
-    GroovyCode
+    RubyCode
 );
+
+// Groovy closures use `closure_parameters` as an unnamed child rather
+// than a `parameters` field, so the default NArgs walker (which looks
+// for a `parameters` field) misses them. Match the closure_parameters
+// child directly and count its `closure_parameter` grand-children.
+impl NArgs for GroovyCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        use crate::languages::language_groovy::Groovy;
+
+        if Self::is_func(node) {
+            compute_args::<Self>(node, &mut stats.fn_nargs);
+            return;
+        }
+
+        if Self::is_closure(node)
+            && let Some(params) = node.first_child(|id| id == Groovy::ClosureParameters)
+        {
+            params.act_on_child(&mut |n| {
+                if n.kind_id() == Groovy::ClosureParameter {
+                    stats.closure_nargs += 1;
+                }
+            });
+        }
+    }
+}
 
 #[cfg(test)]
 #[allow(
@@ -1851,7 +1875,7 @@ mod tests {
         check_metrics::<GroovyParser>(
             "class A {
                 void greet(String name, int times) {
-                    println name
+                    println(name)
                 }
             }",
             "foo.groovy",
@@ -1878,11 +1902,15 @@ mod tests {
 
     #[test]
     fn groovy_lambda_args() {
-        // Two-parameter lambda inside a method body.
+        // Two-parameter Groovy closure inside a method body. Groovy's
+        // primary lambda-shaped construct is the closure
+        // (`{ params -> body }`); the dekobon grammar does not model
+        // Java's `(params) -> body` arrow form because real-world
+        // Groovy code rarely uses it.
         check_metrics::<GroovyParser>(
             "class Foo {
                 void run() {
-                    def f = (int a, int b) -> a + b
+                    def f = { int a, int b -> a + b }
                 }
             }",
             "foo.groovy",
@@ -1900,7 +1928,7 @@ mod tests {
         check_metrics::<GroovyParser>(
             "class A {
                 void apply() {
-                    [1, 2, 3].each { println it }
+                    [1, 2, 3].each { println(it) }
                 }
             }",
             "foo.groovy",

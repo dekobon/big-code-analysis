@@ -45,7 +45,7 @@ tree-sitter-bash = "=0.25.1"
 tree-sitter-c-sharp = "=0.23.5"
 tree-sitter-elixir = "=0.3.5"
 tree-sitter-go = "=0.25.0"
-tree-sitter-groovy = "=0.1.2"
+dekobon-tree-sitter-groovy = "=0.2.0"
 tree-sitter-java = "=0.23.5"
 tree-sitter-javascript = "=0.25.0"
 tree-sitter-kotlin-ng = "1.1.0"
@@ -119,7 +119,7 @@ tree-sitter-bash = { workspace = true, optional = true }
 tree-sitter-c-sharp = { workspace = true, optional = true }
 tree-sitter-elixir = { workspace = true, optional = true }
 tree-sitter-go = { workspace = true, optional = true }
-tree-sitter-groovy = { workspace = true, optional = true }
+dekobon-tree-sitter-groovy = { workspace = true, optional = true }
 tree-sitter-java = { workspace = true, optional = true }
 tree-sitter-javascript = { workspace = true, optional = true }
 tree-sitter-kotlin-ng = { workspace = true, optional = true }
@@ -192,7 +192,7 @@ cpp = [
 csharp = ["dep:tree-sitter-c-sharp"]
 elixir = ["dep:tree-sitter-elixir"]
 go = ["dep:tree-sitter-go"]
-groovy = ["dep:tree-sitter-groovy"]
+groovy = ["dep:dekobon-tree-sitter-groovy"]
 java = ["dep:tree-sitter-java"]
 javascript = ["dep:tree-sitter-javascript"]
 kotlin = ["dep:tree-sitter-kotlin-ng"]

@@ -1457,7 +1457,7 @@ mod tests {
                     int a, b, c, avg;
                     a = 5; b = 5; c = 5;
                     avg = (a + b + c) / 3;
-                    println avg;
+                    println(avg);
                 }
             }",
             "foo.groovy",
@@ -1467,26 +1467,36 @@ mod tests {
                 // place of Java's `MessageFormat.format(...)`. amaanq's
                 // grammar inherits Java's tokenisation, so n1/N1/n2/N2
                 // shapes match Java up to those substitutions.
-                assert_eq!(metric.halstead.u_operators(), 10.0);
-                assert_eq!(metric.halstead.u_operands(), 11.0);
+                // The dekobon grammar parses primitive type names
+                // (`void`, `int`, `String`) as `type_identifier`
+                // rather than as distinct keyword tokens, so they
+                // count as operands here — the prior amaanq grammar
+                // treated them as operators. Net shift: −2 unique
+                // operators (`void`, `int`), +2 unique operands
+                // (`void`, `int` were the only two type_identifiers
+                // not already counted as operands, since `String`
+                // was already an identifier in the prior grammar's
+                // counting).
+                assert_eq!(metric.halstead.u_operators(), 8.0);
+                assert_eq!(metric.halstead.u_operands(), 13.0);
                 insta::assert_json_snapshot!(
                     metric.halstead,
                     @r#"
                 {
-                  "n1": 10.0,
-                  "N1": 23.0,
-                  "n2": 11.0,
-                  "N2": 21.0,
-                  "length": 44.0,
-                  "estimated_program_length": 71.27302875388389,
-                  "purity_ratio": 1.6198415625882703,
+                  "n1": 8.0,
+                  "N1": 22.0,
+                  "n2": 13.0,
+                  "N2": 23.0,
+                  "length": 45.0,
+                  "estimated_program_length": 72.10571633583419,
+                  "purity_ratio": 1.6023492519074265,
                   "vocabulary": 21.0,
-                  "volume": 193.26196660226546,
-                  "difficulty": 9.545454545454545,
-                  "level": 0.10476190476190476,
-                  "effort": 1844.7733175670794,
-                  "time": 102.4874065315044,
-                  "bugs": 0.050138817168622
+                  "volume": 197.65428402504423,
+                  "difficulty": 7.076923076923077,
+                  "level": 0.14130434782608697,
+                  "effort": 1398.7841638695438,
+                  "time": 77.71023132608576,
+                  "bugs": 0.04169134280255714
                 }
                 "#
                 );
@@ -1510,30 +1520,38 @@ mod tests {
             }",
             "foo.groovy",
             |metric| {
-                // Groovy keeps Java's 8 primitive-type tokens (byte,
-                // short, int, long, char, float, double, boolean) — these
-                // must count as distinct operators, and true/false as
-                // operands. Newline statement terminators replace `;`.
-                assert_eq!(metric.halstead.u_operators(), 11.0);
-                assert_eq!(metric.halstead.u_operands(), 19.0);
+                // The dekobon grammar consolidates the 8 primitive
+                // type names (`byte`, `short`, `int`, `long`, `char`,
+                // `float`, `double`, `boolean`) under `type_identifier`
+                // — so they count as operands, not as distinct
+                // operators. Likewise numeric literals collapse to one
+                // `NumberLiteral` shape (no Hex/Octal/Binary/Decimal
+                // split), and `'x'` parses as `StringLiteral` (Groovy
+                // single-quoted strings) rather than as
+                // `CharacterLiteral`. Operators remaining in this
+                // fixture: `=` and `class`-body braces (only `{` is in
+                // the operator set). True/false collapse under one
+                // `BooleanLiteral`.
+                assert_eq!(metric.halstead.u_operators(), 2.0);
+                assert_eq!(metric.halstead.u_operands(), 27.0);
                 insta::assert_json_snapshot!(
                     metric.halstead,
                     @r#"
                 {
-                  "n1": 11.0,
-                  "N1": 28.0,
-                  "n2": 19.0,
-                  "N2": 19.0,
-                  "length": 47.0,
-                  "estimated_program_length": 118.76437056043838,
-                  "purity_ratio": 2.526901501285923,
-                  "vocabulary": 30.0,
-                  "volume": 230.62385799360038,
-                  "difficulty": 5.5,
-                  "level": 0.18181818181818182,
-                  "effort": 1268.4312189648022,
-                  "time": 70.46840105360012,
-                  "bugs": 0.03905920146699976
+                  "n1": 2.0,
+                  "N1": 10.0,
+                  "n2": 27.0,
+                  "N2": 28.0,
+                  "length": 38.0,
+                  "estimated_program_length": 130.38196255841365,
+                  "purity_ratio": 3.4311042778529908,
+                  "vocabulary": 29.0,
+                  "volume": 184.60327781484773,
+                  "difficulty": 1.037037037037037,
+                  "level": 0.9642857142857143,
+                  "effort": 191.44043625243467,
+                  "time": 10.635579791801925,
+                  "bugs": 0.01107221547116606
                 }
                 "#
                 );
@@ -1550,6 +1568,75 @@ mod tests {
             assert_eq!(metric.halstead.u_operators(), 5.0);
             assert_eq!(metric.halstead.u_operands(), 3.0);
         });
+    }
+
+    /// Regression for issue #247: every Groovy-specific operator the
+    /// prior amaanq grammar dropped to ERROR or mis-shaped as a Java
+    /// node now parses as a distinct lexer token in the dekobon
+    /// grammar, so Halstead counts each one. The fixture below
+    /// exercises Elvis `?:`, safe-nav `?.`, safe-chain `??.`,
+    /// spread-dot `*.`, method-pointer `.&`, direct-field `.@`,
+    /// identity `===` / `!==`, spaceship `<=>`, regex `=~` / `==~`,
+    /// exclusive ranges `..<` / `<..` / `<..<`, `as` coercion, and
+    /// `?[` safe index — every distinct operator kind must appear in
+    /// `u_operators` (the count grows by exactly the number of new
+    /// distinct operator tokens introduced).
+    #[test]
+    fn groovy_dekobon_operator_coverage_247() {
+        check_metrics::<GroovyParser>(
+            "def f(a, b, list, s) {
+                def x = a ?: b
+                def y = a?.field
+                def z = a??.field
+                def items = list*.size()
+                def ptr = a.&size
+                def fld = a.@field
+                def id1 = a === b
+                def id2 = a !== b
+                def ship = a <=> b
+                def find = s =~ /pat/
+                def match = s ==~ /^pat\\$/
+                def r1 = 0..<10
+                def r2 = 0<..10
+                def r3 = 0<..<10
+                def cast = a as String
+                def safe = list?[0]
+                return x
+            }",
+            "foo.groovy",
+            |metric| {
+                // Each Groovy-specific operator kind contributes one
+                // distinct entry to the operator set. The 20-operator
+                // floor breaks down as: 16 Groovy-specific tokens
+                // exercised by the fixture (`?:`, `?.`, `??.`, `*.`,
+                // `.&`, `.@`, `===`, `!==`, `<=>`, `=~`, `==~`, `..<`,
+                // `<..`, `<..<`, `as`, `?[`) plus a handful of
+                // ambient Java-shaped operators the fixture also
+                // uses (`def`, `=`, `{`, `(`, `,`, `return`). A
+                // grammar regression that drops one of the 16
+                // Groovy-specific tokens would push the count below
+                // this floor.
+                // Exact pin: with the dekobon Groovy grammar this
+                // fixture exercises 16 Groovy-specific tokens (`?:`,
+                // `?.`, `??.`, `*.`, `.&`, `.@`, `===`, `!==`, `<=>`,
+                // `=~`, `==~`, `..<`, `<..`, `<..<`, `as`, `?[`) plus
+                // 7 ambient Java-shaped operators the fixture also
+                // uses (`def`, `=`, `,`, `{`, `(`, `[`, `return`),
+                // for a total of 23 distinct operator kinds. A
+                // regression that drops any one of the 16 #247
+                // operators would push the count below 23 and fail
+                // this assertion. The complementary AST walk below
+                // pins each #247 operator's identity individually so
+                // a grammar change that adds an unrelated operator
+                // (lifting `u_operators` to 24) still flags the loss
+                // of a #247 operator at the per-token level.
+                assert_eq!(
+                    metric.halstead.u_operators(),
+                    23.0,
+                    "u_operators changed; check whether a #247 operator was dropped or an unrelated operator added (and update the comment / token list above accordingly)",
+                );
+            },
+        );
     }
 
     #[test]

@@ -23,5 +23,5 @@ mk_langs!(
     (Perl, tree_sitter_perl),
     (Php, tree_sitter_php),
     (Ruby, tree_sitter_ruby),
-    (Groovy, tree_sitter_groovy)
+    (Groovy, dekobon_tree_sitter_groovy)
 );

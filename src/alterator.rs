@@ -430,16 +430,18 @@ impl Alterator for GroovyCode {
         children: Vec<AstNode>,
     ) -> AstNode {
         // Preserve string and GString fragment text verbatim so report
-        // output never trims their bodies. `StringLiteral2` and
-        // `MultilineStringFragment2` are the aliased lexer variants of
-        // the same rule.
+        // output never trims their bodies. The dekobon Groovy grammar
+        // ships several `StringFragment*` aliases for the same rule
+        // applied inside different string contexts (single/double-quoted,
+        // triple-quoted, slashy, dollar-slashy); each one carries body
+        // text we must not collapse.
         match Groovy::from(node.kind_id()) {
             Groovy::StringLiteral
-            | Groovy::StringLiteral2
-            | Groovy::CharacterLiteral
             | Groovy::StringFragment
-            | Groovy::MultilineStringFragment
-            | Groovy::MultilineStringFragment2 => {
+            | Groovy::StringFragment2
+            | Groovy::StringFragment3
+            | Groovy::StringFragment4
+            | Groovy::StringFragment5 => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
                 AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
             }
@@ -624,8 +626,9 @@ mod tests {
     #[test]
     fn groovy_string_literal_preserved_verbatim() {
         // Regression for the `impl Alterator for GroovyCode` arms:
-        // single-line `StringLiteral`/`StringLiteral2` and the
-        // `CharacterLiteral` arm must keep the literal's text intact.
+        // the `StringLiteral` arm (and its `StringFragment*` aliases
+        // for interpolated / slashy / dollar-slashy contexts) must
+        // keep the literal's text intact.
         let code = br#"
             class A {
                 String single = 'hello'
@@ -634,9 +637,14 @@ mod tests {
             }
         "#;
         let root = build_ast::<crate::GroovyParser>(code, "test.groovy");
-        // tree-sitter-groovy reports string_literal / character_literal
-        // as the kind names; both should be flattened to a non-empty
-        // value with no children.
+        // The dekobon Groovy grammar consolidates every string shape
+        // under one `string_literal` kind name (single-quoted,
+        // double-quoted, triple-quoted, slashy `/.../`, dollar-slashy
+        // `$/.../$`, GString-interpolated); there is no separate
+        // `character_literal` kind. The defensive collect-by-name for
+        // `character_literal` below is a drift marker — it is expected
+        // to find nothing today but would surface a future grammar
+        // bump that promoted character literals to a distinct kind.
         let mut strings = Vec::new();
         collect_nodes_by_kind(&root, "string_literal", &mut strings);
         collect_nodes_by_kind(&root, "character_literal", &mut strings);

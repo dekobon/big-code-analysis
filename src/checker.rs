@@ -1649,8 +1649,9 @@ impl Checker for GroovyCode {
     fn is_func_space(node: &Node) -> bool {
         matches!(
             node.kind_id().into(),
-            Groovy::Program
+            Groovy::SourceFile
                 | Groovy::ClassDeclaration
+                | Groovy::TraitDeclaration
                 | Groovy::InterfaceDeclaration
                 | Groovy::EnumDeclaration
                 | Groovy::RecordDeclaration
@@ -1661,24 +1662,21 @@ impl Checker for GroovyCode {
     fn is_func(node: &Node) -> bool {
         matches!(
             node.kind_id().into(),
-            Groovy::MethodDeclaration | Groovy::ConstructorDeclaration | Groovy::FunctionDefinition
+            Groovy::MethodDeclaration | Groovy::ConstructorDeclaration
         )
     }
 
     fn is_closure(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Groovy::Closure | Groovy::LambdaExpression
-        )
+        matches!(node.kind_id().into(), Groovy::Closure)
     }
 
+    // `command_chain` is the new grammar's distinct node for Groovy's
+    // command-style juxtaposed calls (`foo bar baz`) which the prior
+    // amaanq grammar mis-modelled as `juxt_function_call`.
     fn is_call(node: &Node) -> bool {
         matches!(
             node.kind_id().into(),
-            Groovy::MethodInvocation
-                | Groovy::JuxtFunctionCall
-                | Groovy::ObjectCreationExpression
-                | Groovy::ExplicitConstructorInvocation
+            Groovy::MethodInvocation | Groovy::CommandChain | Groovy::ObjectCreationExpression
         )
     }
 
@@ -1689,11 +1687,11 @@ impl Checker for GroovyCode {
         )
     }
 
-    impl_simple_is_string!(Groovy, StringLiteral, StringLiteral2, CharacterLiteral);
+    impl_simple_is_string!(Groovy, StringLiteral);
 
-    // tree-sitter-groovy inherits Java's `if_statement` shape: the `else`
-    // keyword token is emitted inline inside the outer if_statement and
-    // the inner `if_statement` follows it as a sibling.
+    // The dekobon Groovy grammar models `if_statement` with the `else`
+    // keyword token emitted inline followed by the inner `if_statement`
+    // sibling — same shape as the prior amaanq grammar and Java.
     #[inline]
     fn is_else_if(node: &Node) -> bool {
         node.kind_id() == Groovy::IfStatement
@@ -2055,7 +2053,7 @@ mod tests {
     fn groovy_is_else_if_false_for_standalone_if() {
         // A bare `if` (no `else` preceding it) must NOT register as
         // an else-if.
-        let src = "if (x) { println x }";
+        let src = "if (x) { println(x) }";
         let parser =
             GroovyParser::new(src.as_bytes().to_vec(), &PathBuf::from("test.groovy"), None);
         let node = find_first_kind(&parser, Groovy::IfStatement as u16).expect("if_statement");
@@ -2469,26 +2467,16 @@ mod tests {
             ]
         );
 
-        // ---- Groovy (3 variants): StringLiteral, StringLiteral2,
-        // CharacterLiteral ----
-        // `Groovy::StringLiteral2` maps to `_string_literal` (hidden
-        // supertype) and does NOT surface as a concrete kind_id in
-        // observed parses; the macro lists it defensively so a future
-        // grammar revision that promotes the alias can't bypass
-        // `is_string`. Presence is asserted-absent below to flag drift.
+        // ---- Groovy (1 variant): StringLiteral ----
+        // The dekobon Groovy grammar consolidates every string shape
+        // (single / double / triple-quoted, slashy `/.../`, dollar-
+        // slashy `$/.../$`, GString-interpolated) under one
+        // `string_literal` rule, so a single variant suffices —
+        // unlike Java, character literals are not a separate node.
         let src =
-            b"def m() { def a = \"hi\"; def b = \"\"\"multi\"\"\"; def c = (char)'x' }\n".to_vec();
+            b"def m() { def a = \"hi\"; def b = \"\"\"multi\"\"\"; def c = /pat/ }\n".to_vec();
         let parser = GroovyParser::new(src, &path, None);
-        assert_variants_is_string!(
-            &parser,
-            Groovy,
-            GroovyCode,
-            [StringLiteral, CharacterLiteral]
-        );
-        assert!(
-            !ast_has_kind_id(&parser, Groovy::StringLiteral2 as u16),
-            "Groovy::StringLiteral2 is documented as the hidden _string_literal supertype; if it now appears in parses, replace this with a positive variant assertion",
-        );
+        assert_variants_is_string!(&parser, Groovy, GroovyCode, [StringLiteral]);
     }
 
     #[test]

@@ -1241,13 +1241,14 @@ mod tests {
             }",
             "foo.groovy",
             |metric| {
-                // Two methods declared. amaanq's grammar parses both
-                // method bodies as `closure` nodes in addition to the
-                // explicit `doubler` closure literal — so the closure
-                // count is the method-body count, not just the literal
-                // count. The total is stable on this fixture.
+                // Two methods declared. The dekobon grammar parses
+                // method bodies as `block`, distinct from `closure`, so
+                // the explicit `doubler = { x -> x * 2 }` literal is the
+                // only closure here (unlike the prior amaanq grammar
+                // which mis-parsed each method body as a `closure`
+                // node too).
                 assert_eq!(metric.nom.functions_sum(), 2.0);
-                assert_eq!(metric.nom.closures_sum(), 2.0);
+                assert_eq!(metric.nom.closures_sum(), 1.0);
             },
         );
     }
@@ -1258,7 +1259,7 @@ mod tests {
         // `method_declaration`. Nom must count it as a function.
         check_metrics::<GroovyParser>(
             "def greet(name) {
-                println name
+                println(name)
             }
             greet('world')",
             "foo.groovy",

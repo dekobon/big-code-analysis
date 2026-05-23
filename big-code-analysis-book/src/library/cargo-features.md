@@ -44,7 +44,7 @@ per-language pipeline depends on).
 | `csharp`     | `tree-sitter-c-sharp`                                                          |
 | `elixir`     | `tree-sitter-elixir`                                                           |
 | `go`         | `tree-sitter-go`                                                               |
-| `groovy`     | `tree-sitter-groovy`                                                           |
+| `groovy`     | `dekobon-tree-sitter-groovy`                                                   |
 | `java`       | `tree-sitter-java`                                                             |
 | `javascript` | `tree-sitter-javascript`                                                       |
 | `kotlin`     | `tree-sitter-kotlin-ng`                                                        |

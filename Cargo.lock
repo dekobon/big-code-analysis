@@ -360,6 +360,7 @@ dependencies = [
  "aho-corasick",
  "crossbeam",
  "csv",
+ "dekobon-tree-sitter-groovy",
  "globset",
  "insta",
  "jsonschema",
@@ -381,7 +382,6 @@ dependencies = [
  "tree-sitter-ccomment",
  "tree-sitter-elixir",
  "tree-sitter-go",
- "tree-sitter-groovy",
  "tree-sitter-java",
  "tree-sitter-javascript",
  "tree-sitter-kotlin-ng",
@@ -839,6 +839,16 @@ name = "data-encoding"
 version = "2.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a4ae5f15dda3c708c0ade84bfee31ccab44a3da4f88015ed22f63732abe300c8"
+
+[[package]]
+name = "dekobon-tree-sitter-groovy"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "891a2367f48836c854e84bac87f17513707a65a20dce7cab5707ddde6ca23fe0"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
 
 [[package]]
 name = "deranged"
@@ -3074,16 +3084,6 @@ name = "tree-sitter-go"
 version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8560a4d2f835cc0d4d2c2e03cbd0dde2f6114b43bc491164238d333e28b16ea"
-dependencies = [
- "cc",
- "tree-sitter-language",
-]
-
-[[package]]
-name = "tree-sitter-groovy"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a20016017f0865ba902ca50354f92429de5de8df994e64ab7fae087a13c40ed"
 dependencies = [
  "cc",
  "tree-sitter-language",
