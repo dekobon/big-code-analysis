@@ -11,6 +11,7 @@ project book for the per-language metric semantics.
 
 from __future__ import annotations
 
+from ._flatten import flatten_spaces
 from ._native import (
     AnalysisError,
     ParseError,
@@ -32,6 +33,7 @@ __all__ = [
     "analyze",
     "analyze_batch",
     "analyze_source",
+    "flatten_spaces",
     "language_extensions",
     "language_for_file",
     "supported_languages",
