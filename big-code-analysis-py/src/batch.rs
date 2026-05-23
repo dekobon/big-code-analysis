@@ -28,6 +28,7 @@
 
 use std::hash::Hash;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 use pyo3::Bound;
 use pyo3::Py;
@@ -40,12 +41,47 @@ use pyo3::prelude::*;
 use crate::analysis::{self, AnalysisError, AnalyzeOptions};
 use crate::conversion;
 
-/// Permitted values for the `error_kind` discriminator.
+/// Closed taxonomy for [`PyAnalysisError::error_kind`].
 ///
-/// Kept as a typed constant rather than inlined into the constructor
-/// so the test suite and any future serializer can iterate it without
-/// re-stringifying.
-pub(crate) const ERROR_KINDS: [&str; 3] = ["UnsupportedLanguage", "ParseError", "IoError"];
+/// Kept as a private enum so the three permitted values live in one
+/// place — every internal construction site goes through the
+/// exhaustive `match` in [`PyAnalysisError::from_internal`] (a new
+/// upstream `AnalysisError` variant fails the match at compile
+/// time), and the public `py_new` constructor parses Python strings
+/// through [`FromStr`] so out-of-taxonomy values raise `ValueError`
+/// at the FFI boundary. The Python-facing `error_kind` attribute
+/// still surfaces as a `str` via the [`AsRef<str>`] / `as_str`
+/// projection — the enum is an internal validation device, not an
+/// API surface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum ErrorKind {
+    UnsupportedLanguage,
+    ParseError,
+    IoError,
+}
+
+impl ErrorKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::UnsupportedLanguage => "UnsupportedLanguage",
+            Self::ParseError => "ParseError",
+            Self::IoError => "IoError",
+        }
+    }
+}
+
+impl FromStr for ErrorKind {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "UnsupportedLanguage" => Ok(Self::UnsupportedLanguage),
+            "ParseError" => Ok(Self::ParseError),
+            "IoError" => Ok(Self::IoError),
+            _ => Err(()),
+        }
+    }
+}
 
 /// Structured per-file failure surfaced by [`analyze_batch`].
 ///
@@ -95,17 +131,14 @@ impl PyAnalysisError {
     /// drift is undesirable for the dedup key.
     #[new]
     #[pyo3(signature = (path, error, error_kind))]
-    fn py_new(path: String, error: String, error_kind: String) -> PyResult<Self> {
-        if !ERROR_KINDS.contains(&error_kind.as_str()) {
-            return Err(PyValueError::new_err(format!(
-                "error_kind must be one of {ERROR_KINDS:?}, got {error_kind:?}",
-            )));
-        }
-        Ok(Self {
-            path,
-            error,
-            error_kind,
-        })
+    fn py_new(path: String, error: String, error_kind: &str) -> PyResult<Self> {
+        let kind = error_kind.parse::<ErrorKind>().map_err(|()| {
+            PyValueError::new_err(format!(
+                "error_kind must be one of [UnsupportedLanguage, ParseError, IoError], \
+                 got {error_kind:?}",
+            ))
+        })?;
+        Ok(Self::new_internal(path, error, kind))
     }
 
     fn __repr__(&self) -> String {
@@ -138,62 +171,59 @@ impl PyAnalysisError {
             .to_str()
             .map_or_else(|| path.to_string_lossy().into_owned(), str::to_owned);
         let (error, kind) = match err {
-            AnalysisError::Io { source, .. } => (source.to_string(), "IoError"),
+            AnalysisError::Io { source, .. } => (source.to_string(), ErrorKind::IoError),
             AnalysisError::NonUtf8Path => (
                 "path is not valid UTF-8 and cannot be encoded as a FuncSpace \
                  name; analyze_batch surfaces this under error_kind='IoError' \
                  to keep the public taxonomy at three kinds — filter the \
                  batch input upstream if you need to distinguish the two"
                     .to_owned(),
-                "IoError",
+                ErrorKind::IoError,
             ),
-            AnalysisError::UnsupportedLanguage(msg) => (msg, "UnsupportedLanguage"),
-            AnalysisError::Parse(e) => (e.to_string(), "ParseError"),
+            AnalysisError::UnsupportedLanguage(msg) => (msg, ErrorKind::UnsupportedLanguage),
+            AnalysisError::Parse(e) => (e.to_string(), ErrorKind::ParseError),
             // `Serialization` is reachable only if a future upstream
             // `FuncSpace::Serialize` impl introduces a fallible path
             // — see `crate::analysis::AnalysisError::Serialization`.
             // Lump it into `ParseError` so the public taxonomy stays
             // at three kinds; the message preserves the JSON detail.
-            AnalysisError::Serialization(e) => {
-                (format!("internal serialization error: {e}"), "ParseError")
-            }
+            AnalysisError::Serialization(e) => (
+                format!("internal serialization error: {e}"),
+                ErrorKind::ParseError,
+            ),
         };
         Self::new_internal(path_str, error, kind)
     }
 
-    /// Centralised internal constructor that enforces the
-    /// [`ERROR_KINDS`] closed taxonomy in dev builds.
+    /// Internal constructor that owns the conversion from the typed
+    /// [`ErrorKind`] enum to the Python-facing `String` field.
     ///
-    /// Routes both `from_internal` and the defensive `Ok(None)` arm
-    /// through one path so a future maintainer adding a fourth
-    /// internal construction site cannot silently emit a kind value
-    /// outside the documented `Literal`. `debug_assert!` makes the
-    /// invariant break loud during `cargo test` without paying a
-    /// runtime cost in release builds — the public `py_new`
-    /// constructor still validates unconditionally for Python
-    /// callers.
-    fn new_internal(path: String, error: String, kind: &'static str) -> Self {
-        debug_assert!(
-            ERROR_KINDS.contains(&kind),
-            "kind {kind:?} not in ERROR_KINDS — taxonomy invariant broken",
-        );
+    /// Every Rust-side construction site flows through here, so the
+    /// exhaustive `match` in [`Self::from_internal`] is the single
+    /// place a future `AnalysisError` variant must be mapped — the
+    /// compiler enforces the taxonomy. `py_new` similarly parses
+    /// Python strings through [`ErrorKind::from_str`] before
+    /// arriving here, so the `error_kind` field is provably one of
+    /// the three documented values without runtime validation.
+    fn new_internal(path: String, error: String, kind: ErrorKind) -> Self {
         Self {
             path,
             error,
-            error_kind: kind.to_owned(),
+            error_kind: kind.as_str().to_owned(),
         }
     }
 }
 
-// `PartialEq` / `Hash` are derived, but pin the `Hash`-`Eq` contract
-// in an explicit test so a future field reorder cannot drift the two
-// impls apart. The derives already guarantee this, but the test
-// documents the invariant so a `#[derive(Hash)]` removal would
-// surface immediately rather than at runtime in a Python dict.
-fn _hash_eq_pin_compile_check() {
-    fn assert_hash<T: Hash + Eq>() {}
-    assert_hash::<PyAnalysisError>();
-}
+// Compile-time assertion that `PyAnalysisError` continues to satisfy
+// the `Hash + Eq` bounds the `#[pyclass(eq, hash)]` derives wire to
+// Python's `__eq__` / `__hash__`. Using a `const _:` evaluator (not
+// a free `fn`) so a future contributor reading the file does not
+// mistake it for dead code — the body type-checks at compile time
+// without participating in the runtime call graph.
+const _: fn() = || {
+    fn assert_hash_eq<T: Hash + Eq>() {}
+    assert_hash_eq::<PyAnalysisError>();
+};
 
 /// Run [`crate::analysis::analyze_path`] against every path in
 /// `paths` and fold per-file errors into [`PyAnalysisError`] values.
