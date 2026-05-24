@@ -50,7 +50,7 @@ FIND_EXCLUDE   := $(foreach dir,$(EXCLUDE_DIRS),! -path './$(dir)/*')
 # warnings on `$(2)`, e.g. $(call find-by-ext,md,).
 find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name "*.$(1)" -type f $(FIND_EXCLUDE))
 
-.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check snapshot-anchors enums-check lint clippy udeps insta-review insta-accept clean install install-cli install-web doc doc-open book book-serve all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local py-fmt py-fmt-check py-lint py-typecheck py-test _check-find _pc-fmt _pc-clippy _pc-test _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-snapshot-anchors _pc-enums-check _pc-py-fmt _pc-py-typecheck _pc-py-test _ci-fmt-check _ci-clippy _ci-test _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-snapshot-anchors _ci-enums-check _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test
+.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check snapshot-anchors enums-check lint clippy udeps insta-review insta-accept clean install install-cli install-web doc doc-open doc-check book book-serve all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local py-fmt py-fmt-check py-lint py-typecheck py-test _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-snapshot-anchors _pc-enums-check _pc-py-fmt _pc-py-typecheck _pc-py-test _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-snapshot-anchors _ci-enums-check _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test
 
 # Default target
 help:
@@ -105,8 +105,9 @@ help:
 	@echo "  install-web                          Install bca-web"
 	@echo ""
 	@echo "Documentation:"
-	@echo "  doc                                  Generate rustdoc"
-	@echo "  doc-open                             Generate and open rustdoc"
+	@echo "  doc                                  Generate rustdoc (warning-tolerant viewer)"
+	@echo "  doc-open                             Generate and open rustdoc (warning-tolerant viewer)"
+	@echo "  doc-check                            Strict rustdoc gate (RUSTDOCFLAGS appends -D warnings)"
 	@echo "  book                                 Build the mdBook"
 	@echo "  book-serve                           Serve the mdBook with live reload"
 	@echo ""
@@ -354,12 +355,25 @@ install-web:
 
 # ---------------------------------------------------------------------------
 # Documentation
+#
+# `doc` and `doc-open` are warning-tolerant interactive viewers — they build
+# whatever they can so a developer mid-refactor can still scroll the rendered
+# output even when an unrelated doc-comment has drifted. `doc-check` is the
+# strict gate invoked by the pre-commit and CI pipelines (`_pc-doc-check` /
+# `_ci-doc-check`); it appends `-D warnings` to any caller-set `RUSTDOCFLAGS`
+# so docs.rs-style invocations (e.g. `RUSTDOCFLAGS="--cfg docsrs"`) still
+# compose correctly instead of being clobbered.
 # ---------------------------------------------------------------------------
 doc:
 	cargo doc --no-deps --workspace --all-features
 
 doc-open:
 	cargo doc --no-deps --workspace --all-features --open
+
+doc-check:
+	@echo "Building rustdoc with -D warnings..."
+	@RUSTDOCFLAGS="$${RUSTDOCFLAGS:-} -D warnings" \
+	  cargo doc --no-deps --workspace --all-features
 
 book:
 	mdbook build big-code-analysis-book
@@ -406,7 +420,7 @@ ci:
 # Dependency graph:
 #
 #   _pc-fmt
-#    ├── _pc-clippy → _pc-test → _pc-udeps → _pc-py-test
+#    ├── _pc-clippy → _pc-test → _pc-doc-check → _pc-udeps → _pc-py-test
 #    ├── _pc-shellcheck
 #    ├── _pc-markdown-lint
 #    ├── _pc-toml-lint
@@ -444,7 +458,10 @@ _pc-test: _pc-clippy
 	cargo test --workspace --all-features --lib --bins --tests
 	cargo test --workspace --all-features --doc
 
-_pc-udeps: _pc-test
+_pc-doc-check: _pc-test
+	$(MAKE) doc-check
+
+_pc-udeps: _pc-doc-check
 	cargo +nightly udeps --workspace --all-targets
 
 _pc-shellcheck: _pc-fmt
@@ -493,7 +510,7 @@ _pc-py-test: _pc-udeps
 # Execution order (enforced by `ci` target + _ci-cargo-pipeline):
 #   1. _ci-fmt-check (sequential, must pass before anything else)
 #   2. parallel:
-#      _ci-cargo-pipeline: clippy → test → build → udeps
+#      _ci-cargo-pipeline: clippy → test → build → doc-check → udeps
 #      _ci-shellcheck, _ci-markdown-lint, _ci-toml-lint, _ci-makefile-check,
 #      _ci-snapshot-anchors, _ci-enums-check
 #
@@ -511,6 +528,9 @@ _ci-clippy:
 _ci-test:
 	cargo test --workspace --all-features --lib --bins --tests
 	cargo test --workspace --all-features --doc
+
+_ci-doc-check:
+	$(MAKE) doc-check
 
 _ci-build:
 	cargo build --workspace --all-targets
@@ -557,6 +577,7 @@ _ci-cargo-pipeline:
 	$(MAKE) _ci-clippy
 	$(MAKE) _ci-test
 	$(MAKE) _ci-build
+	$(MAKE) _ci-doc-check
 	$(MAKE) _ci-udeps
 
 # ---------------------------------------------------------------------------

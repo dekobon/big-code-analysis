@@ -71,6 +71,19 @@ repos:
         entry: make enums-check
         pass_filenames: false
 
+      # Strict rustdoc gate (broken intra-doc links, links into private
+      # items, etc.). Wired here in addition to `make pre-commit` /
+      # `make ci` so the `pre-commit run --all-files` invocation path
+      # honours the same gate — see lesson 21 in
+      # docs/development/lessons_learned.md on parity between the three
+      # call sites (local make aggregate, pre-commit framework, CI).
+      - id: doc-check
+        name: doc-check
+        language: system
+        files: '\.rs$'
+        entry: make doc-check
+        pass_filenames: false
+
       # mypy --strict against the bindings crate. Implemented as a
       # `language: system` hook (rather than `pre-commit/mirrors-mypy`)
       # because pre-commit's isolated venv cannot see the project's

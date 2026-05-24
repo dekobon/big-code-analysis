@@ -79,7 +79,7 @@ impl Sloc {
         sloc as f64
     }
 
-    /// The `Sloc` metric minimum value. See [`min_or_zero`] for the
+    /// The `Sloc` metric minimum value. See `min_or_zero` for the
     /// `usize::MAX` sentinel guard.
     #[inline]
     #[must_use]
@@ -138,7 +138,7 @@ impl Ploc {
         self.lines.len() as f64
     }
 
-    /// The `Ploc` metric minimum value. See [`min_or_zero`] for the
+    /// The `Ploc` metric minimum value. See `min_or_zero` for the
     /// `usize::MAX` sentinel guard.
     #[inline]
     #[must_use]
@@ -206,7 +206,7 @@ impl Cloc {
         (self.only_comment_lines + self.code_comment_lines) as f64
     }
 
-    /// The `Cloc` metric minimum value. See [`min_or_zero`] for the
+    /// The `Cloc` metric minimum value. See `min_or_zero` for the
     /// `usize::MAX` sentinel guard.
     #[inline]
     #[must_use]
@@ -269,7 +269,7 @@ impl Lloc {
         self.logical_lines as f64
     }
 
-    /// The `Lloc` metric minimum value. See [`min_or_zero`] for the
+    /// The `Lloc` metric minimum value. See `min_or_zero` for the
     /// `usize::MAX` sentinel guard.
     #[inline]
     #[must_use]
@@ -550,7 +550,7 @@ impl Stats {
         self.lloc.lloc_max()
     }
 
-    /// The `Blank` metric minimum value. See [`min_or_zero`] for the
+    /// The `Blank` metric minimum value. See `min_or_zero` for the
     /// `usize::MAX` sentinel guard.
     #[inline]
     #[must_use]

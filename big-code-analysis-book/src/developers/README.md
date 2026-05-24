@@ -165,9 +165,18 @@ and `cargo-udeps`.
 ## Code Documentation
 
 ```console
-make doc        # cargo doc --no-deps --workspace --all-features
+make doc        # cargo doc --no-deps --workspace --all-features  (warning-tolerant)
 make doc-open   # same, then open in a browser
+make doc-check  # strict gate: appends -D warnings to RUSTDOCFLAGS, fails on any rustdoc warning
 ```
+
+`make doc` and `make doc-open` are the interactive viewers — they
+build whatever they can so you can still inspect rendered output
+mid-refactor. `make doc-check` is the strict gate that runs as part
+of `make pre-commit` and CI (`cargo doc --no-deps --workspace
+--all-features` with `RUSTDOCFLAGS` extended by `-D warnings`); it
+catches broken intra-doc links, links into private items, and other
+rustdoc regressions.
 
 Remove the `--no-deps` option from the underlying cargo invocation if
 you also want to build the documentation of each dependency used by

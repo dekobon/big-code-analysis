@@ -7,6 +7,7 @@
 //! fields the caller did not select.
 
 use std::fmt;
+use std::str::FromStr;
 
 /// One metric computed by the analysis walker.
 ///
@@ -92,8 +93,7 @@ impl Metric {
     /// valid: …` error message, and any downstream Rust consumer
     /// that parses user input into a [`MetricSet`].
     ///
-    /// Each entry round-trips through [`<Metric as
-    /// std::str::FromStr>::from_str`]. The table uses the
+    /// Each entry round-trips through [`Metric::from_str`]. The table uses the
     /// JSON-output-key spelling for [`Metric::Exit`] (`"nexits"`,
     /// matching the `CodeMetrics::Serialize` impl in
     /// `src/spaces.rs`) rather than the [`fmt::Display`] spelling
@@ -145,7 +145,7 @@ impl fmt::Display for Metric {
     }
 }
 
-/// Error returned by [`<Metric as FromStr>::from_str`] when the input
+/// Error returned by [`Metric::from_str`] when the input
 /// is not a recognised metric name.
 ///
 /// Holds the offending input verbatim. Downstream consumers that own
@@ -166,7 +166,7 @@ impl fmt::Display for ParseMetricError {
 
 impl std::error::Error for ParseMetricError {}
 
-impl std::str::FromStr for Metric {
+impl FromStr for Metric {
     type Err = ParseMetricError;
 
     /// Parse a [`Metric`] from its [`fmt::Display`] spelling.

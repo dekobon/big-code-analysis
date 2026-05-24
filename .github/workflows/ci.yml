@@ -102,7 +102,41 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-      - run: cargo doc --no-deps --all-features --workspace
+      # Delegate to the Makefile so the strict-doc gate lives in one
+      # place. `make doc-check` appends `-D warnings` to the workflow-
+      # level RUSTDOCFLAGS rather than replacing it.
+      - run: make doc-check
+      # Gate-effectiveness test: inject a known broken intra-doc link
+      # on a `pub` item and assert `make doc-check` FAILS. Mirrors the
+      # `enums-check` sabotage step further down — catches regressions
+      # where `-D warnings` is silently dropped from the recipe, the
+      # `_pc-doc-check` / `_ci-doc-check` wiring breaks, or rustdoc's
+      # broken-intra-doc-links lint gets demoted. The trap restores
+      # the file even if the assertion fails. See lesson 21 in
+      # docs/development/lessons_learned.md on dedicated-gate parity.
+      - name: doc-check gate-effectiveness test
+        run: |
+          set -eu
+          test_file=src/lib.rs
+          cp "$test_file" "$test_file.bak"
+          trap 'mv "$test_file.bak" "$test_file"' EXIT
+          printf '\n/// Sabotage broken link: [`NonExistentDocCheckGateTarget`]\npub fn _doc_check_gate_sabotage() {}\n' >> "$test_file"
+          if make doc-check > /tmp/doc-sabotage.log 2>&1; then
+            echo "FAIL: doc-check did not reject the broken intra-doc link"
+            tail -40 /tmp/doc-sabotage.log
+            exit 1
+          fi
+          # Confirm the failure was caused by *this* sabotage (not some
+          # unrelated pre-existing rustdoc warning, a network glitch, or
+          # a cargo-side error). Without this check the gate could
+          # appear effective while silently skipping the injected
+          # payload.
+          if ! grep -q 'NonExistentDocCheckGateTarget' /tmp/doc-sabotage.log; then
+            echo "FAIL: doc-check exited non-zero but not because of the injected payload"
+            tail -40 /tmp/doc-sabotage.log
+            exit 1
+          fi
+          echo "PASS: doc-check correctly rejected the broken intra-doc link"
 
   test:
     name: test (${{ matrix.os }})

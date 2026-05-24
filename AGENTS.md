@@ -123,7 +123,9 @@ root. It is the canonical entry point for the full validation gate
 and runs, in one parallel pass: the cargo trio (`cargo fmt --check`,
 `cargo clippy --workspace --all-targets -- -D warnings` in both
 default-features and `--all-features` flavours, `cargo test
---workspace --all-features`), `cargo +nightly udeps`, the markdown /
+--workspace --all-features`), `cargo doc --no-deps --workspace
+--all-features` with `RUSTDOCFLAGS="-D warnings"`,
+`cargo +nightly udeps`, the markdown /
 TOML / shell / Makefile lint families, and the Python `ruff` lint /
 `ruff format` / `mypy --strict` + `pyright` / `maturin develop` +
 `pytest` stages for `big-code-analysis-py` (each Python stage is
@@ -139,6 +141,7 @@ If GNU Make 4 or any of the optional tools (`taplo`, `markdownlint-cli2`,
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --all-features
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --workspace --all-features
 ```
 
 If `pre-commit` is installed, also run `pre-commit run --all-files`. The

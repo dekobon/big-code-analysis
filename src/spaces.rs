@@ -319,13 +319,15 @@ pub struct FuncSpace {
     /// In-source suppression markers that apply to this space.
     ///
     /// Populated during the spaces pass from comment-embedded
-    /// directives (see [`crate::suppression`]). The top-level
-    /// (file-level) `FuncSpace` aggregates every file-scoped marker;
-    /// nested function spaces aggregate every function-scoped marker
-    /// whose comment lies inside their source range. Metric
-    /// computation itself is unaffected — this field is consumed by
-    /// downstream *threshold-check* code (e.g. `bca check`) to decide
-    /// whether to surface a violation.
+    /// directives. Each marker carries a [`SuppressionScope`] naming
+    /// the metrics it silences. The top-level (file-level) `FuncSpace`
+    /// aggregates every file-scoped marker; nested function spaces
+    /// aggregate every function-scoped marker whose comment lies
+    /// inside their source range. Metric computation itself is
+    /// unaffected — this field is consumed by downstream
+    /// *threshold-check* code (e.g. `bca check`), which consults a
+    /// [`crate::SuppressionPolicy`] to decide whether to honour the
+    /// markers or surface every violation regardless.
     ///
     /// Defaults to `SuppressionScope::default()` (an empty `Some`), so
     /// pre-existing code paths that do not honor suppressions see no
@@ -615,8 +617,9 @@ impl<'a> Source<'a> {
 /// across configuration changes in an analysis pipeline.
 ///
 /// Build one via [`Ast::parse`] (mirrors [`analyze`]) or
-/// [`Ast::from_tree_sitter`] (mirrors [`metrics_from_tree`] but with an
-/// explicit display name instead of a lossy path-to-string conversion).
+/// [`Ast::from_tree_sitter`] (mirrors [`crate::metrics_from_tree`] but
+/// with an explicit display name instead of a lossy path-to-string
+/// conversion).
 ///
 /// `Ast` is a snapshot — it does not pick up changes to the source after
 /// construction. Incremental reparse via [`tree_sitter::InputEdit`] is out
@@ -712,7 +715,7 @@ impl Ast {
     }
 
     /// Adopt a caller-built [`tree_sitter::Tree`]. The `Source`-flavored
-    /// counterpart of [`metrics_from_tree`]: same tree-reuse semantics, but
+    /// counterpart of [`crate::metrics_from_tree`]: same tree-reuse semantics, but
     /// with `name: Option<String>` carried end-to-end instead of derived
     /// from a path via lossy UTF-8 conversion.
     ///
