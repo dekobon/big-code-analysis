@@ -495,6 +495,46 @@ mod tests {
         );
     }
 
+    // `MetricsOptions::with_metric_set` consumes its argument
+    // verbatim — no closure resolution. Pinning the contrast with
+    // `with_only` (which DOES resolve deps) catches a future
+    // "helpful" refactor that adds auto-resolution to
+    // `with_metric_set`: such a change would silently fix some
+    // callers but invalidate the public-API contract documented
+    // on the builder, where "this set MUST be closed before it
+    // reaches this builder" is the load-bearing precondition.
+    //
+    // The test lives alongside `MetricSet` rather than in
+    // `spaces.rs` because the contrast is between two `MetricSet`
+    // operations: `from_slice_with_deps` (closure-resolving) vs.
+    // raw construction via `empty().with(...)` (no resolution).
+    #[test]
+    fn with_metric_set_does_not_resolve_dependencies() {
+        // `from_slice_with_deps(&[Mi])` includes Loc, Cyclomatic,
+        // Halstead alongside Mi…
+        let resolved = MetricSet::from_slice_with_deps(&[Metric::Mi]);
+        assert!(resolved.contains(Metric::Mi));
+        assert!(resolved.contains(Metric::Loc));
+        assert!(resolved.contains(Metric::Cyclomatic));
+        assert!(resolved.contains(Metric::Halstead));
+
+        // …whereas `empty().with(Mi)` does NOT auto-resolve, and
+        // the caller-owned closure precondition documented on
+        // `MetricsOptions::with_metric_set` is what guards
+        // against MI being computed against zero-valued inputs.
+        let bare = MetricSet::empty().with(Metric::Mi);
+        assert!(bare.contains(Metric::Mi));
+        assert!(!bare.contains(Metric::Loc), "with(Mi) must NOT pull Loc");
+        assert!(
+            !bare.contains(Metric::Cyclomatic),
+            "with(Mi) must NOT pull Cyclomatic",
+        );
+        assert!(
+            !bare.contains(Metric::Halstead),
+            "with(Mi) must NOT pull Halstead",
+        );
+    }
+
     #[test]
     fn from_str_rejects_unknown_name() {
         let err = "bogus".parse::<Metric>().unwrap_err();
