@@ -17,6 +17,19 @@ from typing import Any, Literal
 
 __version__: str
 
+#: Canonical metric names accepted by the ``metrics=`` kwarg on
+#: :func:`analyze`, :func:`analyze_source`, and :func:`analyze_batch`.
+#:
+#: Each entry corresponds to one variant of the upstream
+#: ``big_code_analysis::Metric`` enum and to the metric's JSON output
+#: key (``"nexits"`` for the exit-point metric, etc.); the parsing
+#: layer also accepts the alias ``"exit"`` for backwards-compatibility
+#: with the ``Metric`` Display spelling, but ``METRIC_NAMES`` itself
+#: advertises only the canonical JSON-key spelling. The tuple is
+#: immutable and alphabetically sorted; callers can ``assert name in
+#: bca.METRIC_NAMES`` to validate user input client-side.
+METRIC_NAMES: tuple[str, ...]
+
 class UnsupportedLanguageError(ValueError):
     """Raised when a file extension or explicit language is unknown."""
 
@@ -118,6 +131,7 @@ def analyze(
     exclude_tests: bool = False,
     allow_lossy_path: bool = False,
     skip_generated: bool = True,
+    metrics: Sequence[str] | None = None,
 ) -> dict[str, Any] | None:
     """Compute metrics for the file at ``path``.
 
@@ -175,6 +189,26 @@ def analyze(
     still returns ``None`` rather than raising
     :class:`UnsupportedLanguageError` (#317).
 
+    Pass ``metrics=`` to compute only a subset of the metric suite
+    (#268). ``None`` (the default) computes everything. Each
+    element is a canonical metric name from :data:`METRIC_NAMES`
+    (strict lowercase). The empty list raises ``ValueError``; an
+    unknown name raises ``ValueError`` with the valid list in the
+    message. Validation runs **before** the file is read, so a bad
+    selection raises without paying I/O cost. Unrequested metrics
+    are **absent** from the result dict (not present with ``None``
+    placeholders); selecting a derived metric (``"mi"``, ``"wmc"``)
+    pulls in its dependencies automatically:
+
+    * ``"mi"`` → also computes ``"loc"``, ``"cyclomatic"``,
+      ``"halstead"``.
+    * ``"wmc"`` → also computes ``"cyclomatic"``, ``"nom"``.
+
+    The ``"exit"`` Metric-Display spelling is accepted as an alias
+    for the canonical JSON key ``"nexits"``; both produce a
+    ``"nexits"`` key in the result. Duplicates are silently
+    collapsed.
+
     Parity with ``bca metrics --output-format json`` is now exact
     at the ``FuncSpace`` boundary in the default configuration:
 
@@ -226,6 +260,7 @@ def analyze_source(
     /,
     *,
     exclude_tests: bool = False,
+    metrics: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     """Compute metrics for an in-memory source buffer.
 
@@ -248,6 +283,12 @@ def analyze_source(
         If ``code`` is a ``str`` containing unpaired surrogates
         (legal in CPython, not valid UTF-8), or is not one of the
         accepted buffer types.
+
+    Pass ``metrics=`` to compute only a subset of the metric suite
+    (#268); see :func:`analyze` for the full contract. ``None``
+    (the default) computes everything. Validation runs before the
+    tree-sitter parse, so empty / unknown selections raise
+    ``ValueError`` immediately.
     """
 
 def analyze_batch(
@@ -276,7 +317,11 @@ def analyze_batch(
       element are discarded (the function does not return a
       partial list).
     * ``ValueError`` if ``metrics`` is an explicitly empty
-      sequence. ``None`` (the default) is fine and means "all".
+      sequence, or contains a name not in :data:`METRIC_NAMES`.
+      ``None`` (the default) means "compute the full suite".
+      Validation runs **before** ``iter(paths)`` — a generator's
+      ``__iter__`` is never invoked when ``metrics=`` is invalid,
+      so its side effects (and any partial yields) are preserved.
 
     There is a third raise path that is **not** a programmer
     error: any exception raised by the input iterator itself
@@ -290,11 +335,12 @@ def analyze_batch(
     results preserved on a yield-time exception.
 
     ``paths`` is consumed lazily, so generators work — only the
-    yielded paths are materialised on the Rust side. ``metrics``
-    accepts any ``Sequence[str]`` (list, tuple, …); the kwarg is
-    reserved for the per-metric selection work landing in a
-    follow-up phase, validated (empty rejected) but not yet
-    threaded through to the analysis.
+    yielded paths are materialised on the Rust side. ``metrics=``
+    selects which metrics to compute for every file in the batch
+    (#268); see :func:`analyze` for the full contract on canonical
+    names, dependency closure (``"mi"`` / ``"wmc"`` auto-pull
+    inputs), and the ``"exit"`` / ``"nexits"`` alias. Unrequested
+    metrics are absent from each result dict.
 
     Unlike :func:`analyze`, ``analyze_batch`` runs with the
     ``is_generated`` walker filter **off** so every input position

@@ -30,9 +30,85 @@
 
 use std::path::Path;
 
-use big_code_analysis::{LANG, MetricsOptions, Source, analyze, guess_language, is_generated};
+use big_code_analysis::{
+    LANG, Metric, MetricSet, MetricsOptions, Source, analyze, guess_language, is_generated,
+};
 
 use crate::language::parse_language_name;
+
+/// Canonical metric-name table.
+///
+/// The single source of truth for which strings the Python
+/// `metrics=` kwarg (and the `bca.METRIC_NAMES` module constant)
+/// accepts. Each entry parses through
+/// [`<Metric as std::str::FromStr>::from_str`] in the upstream
+/// crate; the only difference is that table omits the `"exit"`
+/// alias (the canonical JSON output key is `"nexits"`, so that is
+/// the name advertised to users — both parse to [`Metric::Exit`]).
+///
+/// Alphabetised so the order matches what callers see in
+/// `bca.METRIC_NAMES` and what the `unknown metric` error message
+/// suggests; never re-order on a whim.
+pub(crate) const METRIC_NAMES: &[&str] = &[
+    "abc",
+    "cognitive",
+    "cyclomatic",
+    "halstead",
+    "loc",
+    "mi",
+    "nargs",
+    "nexits",
+    "nom",
+    "npa",
+    "npm",
+    "tokens",
+    "wmc",
+];
+
+/// Resolve a Python-side `metrics=` list into a [`MetricSet`].
+///
+/// Returns `Err(message)` for the two programmer-error shapes
+/// described on the public Python entry points:
+///
+/// - Empty list → `"provide at least one metric, or omit the argument"`.
+/// - Unknown name → `"unknown metric: <bad>; valid: <comma list>"`,
+///   listing every entry in [`METRIC_NAMES`].
+///
+/// Returns `Ok` for any non-empty list of recognised names; duplicates
+/// are silently collapsed because [`MetricSet::from_slice_with_deps`]'s
+/// bitfield insert is idempotent. The resolved set carries each
+/// requested metric's transitive dependencies — `["mi"]` produces a
+/// set that also contains `Loc + Cyclomatic + Halstead`, so callers
+/// don't have to spell out the dependency closure.
+///
+/// The error type is `String` (not `AnalysisError`) because a bad
+/// `metrics=` is discovered *before* any file I/O and is therefore a
+/// caller bug — folding it into `AnalysisError` would falsely surface
+/// it as a per-file failure when `analyze_batch` routes per-file
+/// errors through `AnalysisError`. The Python entry points wrap the
+/// `String` with `PyValueError::new_err`.
+pub(crate) fn parse_metric_names(names: &[String]) -> Result<MetricSet, String> {
+    if names.is_empty() {
+        return Err("provide at least one metric, or omit the argument".to_owned());
+    }
+    // Pre-allocate against the input length: the worst case is one
+    // `Metric` per name (no duplicates); duplicates collapse later in
+    // the bitfield closure and the extra capacity is harmless.
+    let mut parsed: Vec<Metric> = Vec::with_capacity(names.len());
+    for name in names {
+        match name.parse::<Metric>() {
+            Ok(m) => parsed.push(m),
+            Err(_) => {
+                return Err(format!(
+                    "unknown metric: {bad}; valid: {valid}",
+                    bad = name,
+                    valid = METRIC_NAMES.join(", "),
+                ));
+            }
+        }
+    }
+    Ok(MetricSet::from_slice_with_deps(&parsed))
+}
 
 /// File-analysis policy knobs threaded through [`analyze_path`].
 ///
@@ -64,6 +140,12 @@ pub(crate) struct AnalyzeOptions {
     /// `DO NOT EDIT` / `GENERATED CODE` predicate. Default `true`
     /// matches the CLI walker (#317).
     pub skip_generated: bool,
+    /// Which metrics to compute. Default [`MetricSet::all`] matches
+    /// the pre-#268 "compute everything" behaviour. The Python
+    /// `metrics=` kwarg builds this via [`parse_metric_names`]; bypass
+    /// it (or pass `MetricSet::all()`) when the caller did not request
+    /// a subset (#268).
+    pub metrics: MetricSet,
 }
 
 // Manual `Default` impl — a `#[derive(Default)]` would set every bool
@@ -78,6 +160,13 @@ impl Default for AnalyzeOptions {
             exclude_tests: false,
             allow_lossy_path: false,
             skip_generated: true,
+            // `MetricSet::all()` (rather than `MetricSet::default()`)
+            // is named explicitly so the intent reads at the field
+            // site: full suite, every metric computed. They are
+            // currently identical, but a future change to
+            // `MetricSet::default` would silently shift this baseline
+            // — pin the literal.
+            metrics: MetricSet::all(),
         }
     }
 }
@@ -283,34 +372,35 @@ pub(crate) fn analyze_path(
             path.display()
         ))
     })?;
-    analyze_bytes(lang, &code, Some(name), opts.exclude_tests).map(Some)
+    analyze_bytes(lang, &code, Some(name), opts).map(Some)
 }
 
-/// Analyse an in-memory source buffer with an explicit language.
-///
-/// `name` is the optional display name attached to the top-level
-/// [`big_code_analysis::FuncSpace`]; for the Python `analyze_source`
-/// entry point this is `None` because the caller hands over raw bytes
-/// without a path.
 pub(crate) fn analyze_source(
     language: &str,
     code: &[u8],
     name: Option<String>,
-    exclude_tests: bool,
+    opts: AnalyzeOptions,
 ) -> Result<String, AnalysisError> {
     let lang = parse_language_name(language)
         .ok_or_else(|| AnalysisError::UnsupportedLanguage(language.to_owned()))?;
-    analyze_bytes(lang, code, name, exclude_tests)
+    analyze_bytes(lang, code, name, opts)
 }
 
 fn analyze_bytes(
     lang: LANG,
     code: &[u8],
     name: Option<String>,
-    exclude_tests: bool,
+    opts: AnalyzeOptions,
 ) -> Result<String, AnalysisError> {
     let source = Source::new(lang, code).with_name(name);
-    let options = MetricsOptions::default().with_exclude_tests(exclude_tests);
+    // Build `MetricsOptions` once from the bridge struct: `exclude_tests`
+    // flows through unchanged, and the already-resolved `MetricSet` is
+    // attached without re-running `with_only`'s slice→set conversion
+    // (the `parse_metric_names` helper above has already produced the
+    // closed-over set, so re-resolving here would duplicate that work).
+    let options = MetricsOptions::default()
+        .with_exclude_tests(opts.exclude_tests)
+        .with_metric_set(opts.metrics);
     let space = analyze(source, options)?;
     Ok(serde_json::to_string(&space)?)
 }
@@ -331,8 +421,13 @@ mod tests {
 
     #[test]
     fn analyze_source_returns_json_object_for_rust_snippet() {
-        let s = analyze_source("rust", b"fn main() {}", Some("x.rs".to_owned()), false)
-            .expect("rust snippet parses");
+        let s = analyze_source(
+            "rust",
+            b"fn main() {}",
+            Some("x.rs".to_owned()),
+            AnalyzeOptions::default(),
+        )
+        .expect("rust snippet parses");
         let value = parse_json(&s);
         let obj = value.as_object().expect("top-level is an object");
         assert_eq!(
@@ -366,8 +461,13 @@ mod tests {
         // trap that a positional check (`name_pos < start_line_pos`)
         // would re-introduce: alphabetical also satisfies that
         // particular inequality (`name@4 < start_line@6` after sort).
-        let s = analyze_source("rust", b"fn main() {}", Some("x.rs".to_owned()), false)
-            .expect("rust snippet parses");
+        let s = analyze_source(
+            "rust",
+            b"fn main() {}",
+            Some("x.rs".to_owned()),
+            AnalyzeOptions::default(),
+        )
+        .expect("rust snippet parses");
         assert!(
             s.starts_with(r#"{"name":"x.rs","start_line":"#),
             "expected `FuncSpace::Serialize` to emit `name` then `start_line` \
@@ -379,7 +479,7 @@ mod tests {
 
     #[test]
     fn analyze_source_rejects_unknown_language() {
-        let err = analyze_source("klingon", b"qaplah", None, false);
+        let err = analyze_source("klingon", b"qaplah", None, AnalyzeOptions::default());
         assert!(matches!(err, Err(AnalysisError::UnsupportedLanguage(_))));
     }
 
@@ -390,8 +490,13 @@ mod tests {
         // the bridge surfaces *something* (a JSON object) for
         // syntactically invalid Rust rather than propagating a
         // `MetricsError`.
-        let s = analyze_source("rust", b"fn missing_brace(", None, false)
-            .expect("tree-sitter recovers on malformed input");
+        let s = analyze_source(
+            "rust",
+            b"fn missing_brace(",
+            None,
+            AnalyzeOptions::default(),
+        )
+        .expect("tree-sitter recovers on malformed input");
         assert!(parse_json(&s).is_object());
     }
 
@@ -409,8 +514,18 @@ mod tests {
         // `baseline_functions` (both 2).
         let source = b"fn prod() -> i32 { 1 + 2 }\n\n#[test]\nfn t() { assert_eq!(1 + 1, 2); }\n";
 
-        let baseline = analyze_source("rust", source, None, false).expect("rust snippet parses");
-        let pruned = analyze_source("rust", source, None, true).expect("rust snippet parses");
+        let baseline = analyze_source("rust", source, None, AnalyzeOptions::default())
+            .expect("rust snippet parses");
+        let pruned = analyze_source(
+            "rust",
+            source,
+            None,
+            AnalyzeOptions {
+                exclude_tests: true,
+                ..AnalyzeOptions::default()
+            },
+        )
+        .expect("rust snippet parses");
 
         // The `nom` serializer emits the field as `"functions"` (see
         // `src/metrics/nom.rs::Serialize`), not `functions_sum`.

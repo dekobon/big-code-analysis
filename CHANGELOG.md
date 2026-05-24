@@ -20,6 +20,34 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Added
 
+- `bca.analyze(...)`, `bca.analyze_source(...)`, `bca.analyze_batch(...)`
+  all accept a `metrics=` keyword and the package exposes
+  `bca.METRIC_NAMES` — phase 4/9 of
+  [#103](https://github.com/dekobon/big-code-analysis/issues/103). Pass
+  `metrics=None` (the default) to compute the full suite, or a list of
+  canonical names from `bca.METRIC_NAMES` (`"cyclomatic"`, `"cognitive"`,
+  `"halstead"`, `"loc"`, `"mi"`, `"nom"`, `"nargs"`, `"npa"`, `"npm"`,
+  `"abc"`, `"nexits"`, `"tokens"`, `"wmc"`) to restrict computation.
+  Unrequested metrics are *absent* from the result dict, not present
+  with `None` placeholders, so consumers can treat key presence as
+  authoritative. Selecting a derived metric pulls its dependencies in
+  automatically — `metrics=["mi"]` also computes `loc`, `cyclomatic`,
+  and `halstead`; `metrics=["wmc"]` also computes `cyclomatic` and
+  `nom`. The `"exit"` Metric-Display spelling is accepted as an alias
+  for the canonical JSON-key spelling `"nexits"`; duplicates are
+  silently collapsed. Validation runs **before** any file I/O: an
+  empty list or unknown name raises `ValueError` immediately and
+  never returns an `AnalysisError` slot in `analyze_batch` for what
+  is really a caller bug. The upstream Rust crate now exposes
+  `impl FromStr for Metric` (with a `ParseMetricError` error type),
+  promotes `MetricSet::from_slice_with_deps` to a public function,
+  and adds a `MetricsOptions::with_metric_set(set)` builder — the
+  same dependency-closure logic is reachable from downstream Rust
+  consumers without re-implementing the worklist. The
+  `flatten_spaces` consumer continues to work unchanged: missing
+  metric subtrees elide their flat columns rather than emitting
+  `None`
+  ([#268](https://github.com/dekobon/big-code-analysis/issues/268)).
 - `bca.flatten_spaces(result)` — phase 3/9 of
   [#103](https://github.com/dekobon/big-code-analysis/issues/103).
   Pure-Python pre-order walker that yields one flat, scalar-only

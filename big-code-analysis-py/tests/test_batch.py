@@ -233,10 +233,13 @@ def test_non_path_element_raises_type_error() -> None:
 def test_empty_metrics_list_raises_value_error() -> None:
     """``metrics=[]`` is a programmer error.
 
-    ``metrics=None`` (the default) means "no selection"; an
-    explicit empty list is meaningless — the analysis would
-    silently compute nothing. Phase 4 (#268) will add the
-    selection plumbing; today the kwarg is only validated.
+    ``metrics=None`` (the default) means "compute the full suite";
+    an explicit empty list is meaningless — the analysis would
+    silently compute nothing. The full ``metrics=`` selection
+    contract lives in ``test_metrics_select.py``; this test
+    survives here because the empty-list rejection is the original
+    pre-#268 contract analyze_batch exposed and the regression cost
+    if it silently lapsed is high.
     """
     with pytest.raises(ValueError):
         bca.analyze_batch([FIXTURES / "hello.py"], metrics=[])
@@ -244,16 +247,6 @@ def test_empty_metrics_list_raises_value_error() -> None:
 
 def test_none_metrics_is_accepted() -> None:
     results = bca.analyze_batch([FIXTURES / "hello.py"], metrics=None)
-    assert isinstance(results[0], dict)
-
-
-def test_unknown_metric_name_accepted_today_but_reserved() -> None:
-    """Today the kwarg is validated only for emptiness.
-
-    Phase 4 (#268) will start rejecting unknown names; pinning the
-    current behaviour avoids a silent contract drift.
-    """
-    results = bca.analyze_batch([FIXTURES / "hello.py"], metrics=["bogus"])
     assert isinstance(results[0], dict)
 
 
