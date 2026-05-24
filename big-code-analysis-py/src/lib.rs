@@ -30,7 +30,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyByteArray, PyBytes, PyModule, PyModuleMethods, PyString, PyTuple};
 use pyo3::wrap_pyfunction;
 
-use big_code_analysis::MetricSet;
+use big_code_analysis::{Metric, MetricSet};
 
 use crate::analysis::{AnalysisError, AnalyzeOptions, PACKAGE_VERSION};
 use crate::batch::{PyAnalysisError, analyze_batch};
@@ -65,7 +65,13 @@ create_exception!(
 pub(crate) fn resolve_metric_set(metrics: Option<Vec<String>>) -> PyResult<MetricSet> {
     match metrics {
         None => Ok(MetricSet::all()),
-        Some(names) => analysis::parse_metric_names(&names).map_err(PyValueError::new_err),
+        // `ParseMetricNamesError::Display` produces the exact
+        // user-facing string the issue contract pins; converting
+        // via `.to_string()` keeps the formatting policy on the
+        // error type rather than smearing it into the Python glue.
+        Some(names) => {
+            analysis::parse_metric_names(&names).map_err(|e| PyValueError::new_err(e.to_string()))
+        }
     }
 }
 
@@ -330,12 +336,11 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", PACKAGE_VERSION)?;
     // `METRIC_NAMES` is a `tuple[str, ...]` (immutable) rather than a
     // list because it advertises a constant — callers should not be
-    // able to clear or extend it. The source of truth is
-    // [`analysis::METRIC_NAMES`]; both sides must remain in sync.
-    m.add(
-        "METRIC_NAMES",
-        PyTuple::new(m.py(), analysis::METRIC_NAMES)?,
-    )?;
+    // able to clear or extend it. Single source of truth lives on
+    // the upstream crate as [`Metric::NAMES`]; the bindings re-export
+    // it verbatim and the upstream test module pins both alphabetic
+    // ordering and FromStr round-trip coverage.
+    m.add("METRIC_NAMES", PyTuple::new(m.py(), Metric::NAMES)?)?;
     m.add(
         "UnsupportedLanguageError",
         m.py().get_type::<UnsupportedLanguageError>(),

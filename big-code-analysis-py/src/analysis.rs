@@ -28,6 +28,7 @@
 //! [`big_code_analysis::guess_language`]. See `_native.pyi`'s
 //! `analyze.__doc__` for the user-facing contract.
 
+use std::fmt;
 use std::path::Path;
 
 use big_code_analysis::{
@@ -36,75 +37,64 @@ use big_code_analysis::{
 
 use crate::language::parse_language_name;
 
-/// Canonical metric-name table.
+/// Reasons [`parse_metric_names`] can reject a `metrics=` value.
 ///
-/// The single source of truth for which strings the Python
-/// `metrics=` kwarg (and the `bca.METRIC_NAMES` module constant)
-/// accepts. Each entry parses through
-/// [`<Metric as std::str::FromStr>::from_str`] in the upstream
-/// crate; the only difference is that table omits the `"exit"`
-/// alias (the canonical JSON output key is `"nexits"`, so that is
-/// the name advertised to users — both parse to [`Metric::Exit`]).
-///
-/// Alphabetised so the order matches what callers see in
-/// `bca.METRIC_NAMES` and what the `unknown metric` error message
-/// suggests; never re-order on a whim.
-pub(crate) const METRIC_NAMES: &[&str] = &[
-    "abc",
-    "cognitive",
-    "cyclomatic",
-    "halstead",
-    "loc",
-    "mi",
-    "nargs",
-    "nexits",
-    "nom",
-    "npa",
-    "npm",
-    "tokens",
-    "wmc",
-];
+/// Both variants are *programmer* errors: the helper rejects them
+/// before any file I/O, so callers (the three `PyO3` entry points
+/// in [`crate::lib`]) surface them as `ValueError` rather than the
+/// per-file [`AnalysisError`] taxonomy. The [`fmt::Display`] impl
+/// produces the user-facing string the Python wrapper passes to
+/// `PyValueError::new_err` verbatim.
+#[derive(Debug)]
+pub(crate) enum ParseMetricNamesError {
+    /// `metrics=[]` — a missing selection (`None`, the default)
+    /// is the supported "compute the full suite" path; an
+    /// explicit empty list would silently compute nothing and is
+    /// therefore rejected.
+    Empty,
+    /// `metrics=["bogus"]` — the wrapped string is the offending
+    /// input verbatim, so the user-facing message can name the
+    /// exact spelling that failed.
+    Unknown(String),
+}
+
+impl fmt::Display for ParseMetricNamesError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Empty => f.write_str("provide at least one metric, or omit the argument"),
+            Self::Unknown(bad) => write!(
+                f,
+                "unknown metric: {bad}; valid: {valid}",
+                valid = Metric::NAMES.join(", "),
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ParseMetricNamesError {}
 
 /// Resolve a Python-side `metrics=` list into a [`MetricSet`].
 ///
-/// Returns `Err(message)` for the two programmer-error shapes
-/// described on the public Python entry points:
-///
-/// - Empty list → `"provide at least one metric, or omit the argument"`.
-/// - Unknown name → `"unknown metric: <bad>; valid: <comma list>"`,
-///   listing every entry in [`METRIC_NAMES`].
-///
-/// Returns `Ok` for any non-empty list of recognised names; duplicates
-/// are silently collapsed because [`MetricSet::from_slice_with_deps`]'s
-/// bitfield insert is idempotent. The resolved set carries each
-/// requested metric's transitive dependencies — `["mi"]` produces a
-/// set that also contains `Loc + Cyclomatic + Halstead`, so callers
-/// don't have to spell out the dependency closure.
-///
-/// The error type is `String` (not `AnalysisError`) because a bad
-/// `metrics=` is discovered *before* any file I/O and is therefore a
-/// caller bug — folding it into `AnalysisError` would falsely surface
-/// it as a per-file failure when `analyze_batch` routes per-file
-/// errors through `AnalysisError`. The Python entry points wrap the
-/// `String` with `PyValueError::new_err`.
-pub(crate) fn parse_metric_names(names: &[String]) -> Result<MetricSet, String> {
+/// Returns `Ok` for any non-empty list of recognised names;
+/// duplicates are silently collapsed because
+/// [`MetricSet::from_slice_with_deps`]'s bitfield insert is
+/// idempotent. The resolved set carries each requested metric's
+/// transitive dependencies — `["mi"]` produces a set that also
+/// contains `Loc + Cyclomatic + Halstead`, so callers don't have
+/// to spell out the dependency closure.
+pub(crate) fn parse_metric_names(names: &[String]) -> Result<MetricSet, ParseMetricNamesError> {
     if names.is_empty() {
-        return Err("provide at least one metric, or omit the argument".to_owned());
+        return Err(ParseMetricNamesError::Empty);
     }
-    // Pre-allocate against the input length: the worst case is one
-    // `Metric` per name (no duplicates); duplicates collapse later in
-    // the bitfield closure and the extra capacity is harmless.
+    // Pre-allocate against the input length: the worst case is
+    // one `Metric` per name (no duplicates); duplicates collapse
+    // later in the bitfield closure and the extra capacity is
+    // harmless.
     let mut parsed: Vec<Metric> = Vec::with_capacity(names.len());
     for name in names {
         match name.parse::<Metric>() {
             Ok(m) => parsed.push(m),
-            Err(_) => {
-                return Err(format!(
-                    "unknown metric: {bad}; valid: {valid}",
-                    bad = name,
-                    valid = METRIC_NAMES.join(", "),
-                ));
-            }
+            Err(_) => return Err(ParseMetricNamesError::Unknown(name.clone())),
         }
     }
     Ok(MetricSet::from_slice_with_deps(&parsed))
@@ -417,40 +407,6 @@ mod tests {
 
     fn parse_json(s: &str) -> serde_json::Value {
         serde_json::from_str(s).expect("analyze output is valid JSON")
-    }
-
-    // Drift guard: every entry in `METRIC_NAMES` must round-trip
-    // through `Metric::from_str`. If the slice grows out of sync
-    // with the upstream `FromStr` impl — by typo, by reordering,
-    // or by adding a name for a not-yet-implemented variant — this
-    // test fails on `cargo test` before any Python-side test runs.
-    #[test]
-    fn metric_names_all_parse_via_from_str() {
-        for name in METRIC_NAMES {
-            name.parse::<Metric>().unwrap_or_else(|_| {
-                panic!(
-                    "METRIC_NAMES contains {name:?} but \
-                     `Metric::from_str` rejects it; the bindings \
-                     advertise a name the upstream crate cannot \
-                     parse"
-                )
-            });
-        }
-    }
-
-    // Pin the alphabetised order. The user-facing
-    // `unknown metric: …; valid: <list>` error message lists names
-    // in slice order; a re-order would silently shift that list
-    // and the public `bca.METRIC_NAMES` tuple, surprising callers.
-    #[test]
-    fn metric_names_is_alphabetised() {
-        let mut sorted: Vec<&str> = METRIC_NAMES.to_vec();
-        sorted.sort_unstable();
-        assert_eq!(
-            METRIC_NAMES,
-            sorted.as_slice(),
-            "METRIC_NAMES must stay alphabetised",
-        );
     }
 
     #[test]
