@@ -397,7 +397,7 @@ jobs:
         working-directory: big-code-analysis-py
         run: |
           source .venv/bin/activate
-          mypy --strict python tests
+          mypy --strict python tests examples
       - name: pyright
         working-directory: big-code-analysis-py
         run: |

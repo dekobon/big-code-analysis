@@ -1,5 +1,5 @@
 {
-  "include": ["python", "tests"],
+  "include": ["python", "tests", "examples"],
   "exclude": ["**/__pycache__", "**/target", "**/.venv"],
   "pythonVersion": "3.12",
   "typeCheckingMode": "strict",

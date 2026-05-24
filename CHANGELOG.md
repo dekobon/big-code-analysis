@@ -20,6 +20,29 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Added
 
+- `big-code-analysis-book/src/python/` — phase 8/9 of
+  [#103](https://github.com/dekobon/big-code-analysis/issues/103).
+  Eight-page Python Bindings chapter (`installation`,
+  `quick-start`, `batch`, `flat-records`, `metrics`, `sarif`,
+  `errors`, `async`, plus a landing `README.md`) added as a peer
+  of the existing
+  *Using as a Library* section. The headline example on each
+  page is embedded verbatim from an importable file under
+  `big-code-analysis-py/examples/` via mdbook's `{{#include}}`
+  directive and exercised end-to-end by
+  `big-code-analysis-py/tests/test_book_examples.py`, so a
+  renamed kwarg or removed function on the canonical path fails
+  the existing `python-test` CI job before it can rot the docs.
+  Shorter illustrative snippets (logging recipes, the asyncio
+  anti-pattern, the pandas one-liner) are inline and
+  intentionally not test-pinned. The root
+  `README.md` and the book's landing page learn real links to
+  the chapter, replacing the previous "see the crate's
+  README.md" pointer. mypy / pyright / pre-commit configs gain
+  the new `examples/` directory so the example files stay under
+  `--strict` type checking. Refs
+  [#272](https://github.com/dekobon/big-code-analysis/issues/272).
+
 - `.github/workflows/python-wheels.yml` — phase 7/9 of
   [#103](https://github.com/dekobon/big-code-analysis/issues/103).
   CI workflow that builds, smoke-tests, and (on `v*` tags) publishes

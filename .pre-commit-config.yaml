@@ -100,6 +100,7 @@ repos:
           - --config-file=big-code-analysis-py/pyproject.toml
           - big-code-analysis-py/python
           - big-code-analysis-py/tests
+          - big-code-analysis-py/examples
         pass_filenames: false
 
 default_language_version:

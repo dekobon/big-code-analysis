@@ -6,6 +6,12 @@ Rust library — compute maintainability metrics for source code in
 ~20 languages using the same tree-sitter parsers the Rust crate
 ships with.
 
+**Full documentation:** the book's
+[Python Bindings chapter](https://dekobon.github.io/big-code-analysis/python/index.html)
+covers the install matrix, batch / async / SARIF recipes, and the
+full error taxonomy. The README below is the quick reference
+shown on PyPI.
+
 This is **phases 1–5** of the Python bindings work
 (issues #265, #266, #267, #268, #269; parent #103): single-file
 analysis, the never-raise batch entry point, the `flatten_spaces`
@@ -158,7 +164,8 @@ sarif = bca.to_sarif(batch, thresholds={"cognitive": 20})
 Accepted threshold names mirror the CLI's `EXTRACTORS` table in
 `big-code-analysis-cli/src/thresholds.rs` — e.g. `"cognitive"`,
 `"cyclomatic"`, `"cyclomatic.modified"`, `"halstead.volume"`,
-`"halstead.difficulty"`, `"halstead.effort"`, `"loc.sloc"`,
+`"halstead.difficulty"`, `"halstead.effort"`, `"halstead.time"`,
+`"halstead.bugs"`, `"loc.sloc"`,
 `"loc.ploc"`, `"loc.lloc"`, `"loc.cloc"`, `"loc.blank"`, `"nom"`,
 `"tokens"`, `"nexits"`, `"nargs"`, `"mi.original"`, `"mi.sei"`,
 `"mi.visual_studio"`, `"abc"`, `"wmc"`, `"npm"`, `"npa"`. An

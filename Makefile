@@ -288,7 +288,7 @@ py-lint:
 py-typecheck:
 	@if command -v mypy >/dev/null 2>&1; then \
 	  echo "Type-checking with mypy --strict..."; \
-	  (cd $(BCA_PY_DIR) && mypy --strict python tests) || \
+	  (cd $(BCA_PY_DIR) && mypy --strict python tests examples) || \
 	    { echo "mypy --strict found issues"; exit 1; }; \
 	else echo "mypy not found; skipping mypy stage of py-typecheck"; fi
 	@if command -v pyright >/dev/null 2>&1; then \

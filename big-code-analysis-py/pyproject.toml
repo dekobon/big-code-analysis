@@ -113,17 +113,25 @@ quote-style = "double"
 docstring-code-format = true
 
 # ---------------------------------------------------------------------------
-# mypy --strict. `files = ["python", "tests"]` is run *from the
-# big-code-analysis-py directory* (the Makefile cd's there), so paths
-# are relative to that crate root. `--strict` is set in the Makefile /
-# CI invocation rather than here so that ad-hoc `mypy` invocations
-# (e.g. from an editor extension) inherit the same baseline without
-# the implementer remembering the flag.
+# mypy --strict. `files = ["python", "tests", "examples"]` is run
+# *from the big-code-analysis-py directory* (the Makefile cd's
+# there), so paths are relative to that crate root. `--strict` is
+# set in the Makefile / CI invocation rather than here so that
+# ad-hoc `mypy` invocations (e.g. from an editor extension) inherit
+# the same baseline without the implementer remembering the flag.
+#
+# `examples/` is type-checked alongside `python/` and `tests/` so
+# the book's embedded snippets (`{{#include ../../big-code-analysis-py/examples/*.py}}`)
+# stay under `--strict`. The Makefile `py-typecheck` recipe and
+# the CI `python-lint` job both pass the same explicit path list
+# — keep them in lockstep when this list changes (mypy's explicit
+# CLI paths override the `files=` value below, so a drift between
+# pyproject and the invocation is silently wrong).
 # ---------------------------------------------------------------------------
 [tool.mypy]
 python_version = "3.12"
 strict = true
-files = ["python", "tests"]
+files = ["python", "tests", "examples"]
 # The compiled .so module lives at `big_code_analysis._native`; its
 # type information comes from `python/big_code_analysis/_native.pyi`
 # (a hand-written stub committed to the repo). `strict = true`

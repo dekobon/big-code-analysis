@@ -55,7 +55,10 @@ section of the book.
 
 Python bindings (PyO3) live in
 [`big-code-analysis-py/`](./big-code-analysis-py/README.md) and ship
-the same metric pipeline as a Python package.
+the same metric pipeline as a Python package. See the book's
+[**Python Bindings**](https://dekobon.github.io/big-code-analysis/python/index.html)
+section for the install matrix, batch / async / SARIF recipes, and
+the full error taxonomy.
 
 ### Per-language Cargo features
 
