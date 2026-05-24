@@ -419,6 +419,40 @@ mod tests {
         serde_json::from_str(s).expect("analyze output is valid JSON")
     }
 
+    // Drift guard: every entry in `METRIC_NAMES` must round-trip
+    // through `Metric::from_str`. If the slice grows out of sync
+    // with the upstream `FromStr` impl — by typo, by reordering,
+    // or by adding a name for a not-yet-implemented variant — this
+    // test fails on `cargo test` before any Python-side test runs.
+    #[test]
+    fn metric_names_all_parse_via_from_str() {
+        for name in METRIC_NAMES {
+            name.parse::<Metric>().unwrap_or_else(|_| {
+                panic!(
+                    "METRIC_NAMES contains {name:?} but \
+                     `Metric::from_str` rejects it; the bindings \
+                     advertise a name the upstream crate cannot \
+                     parse"
+                )
+            });
+        }
+    }
+
+    // Pin the alphabetised order. The user-facing
+    // `unknown metric: …; valid: <list>` error message lists names
+    // in slice order; a re-order would silently shift that list
+    // and the public `bca.METRIC_NAMES` tuple, surprising callers.
+    #[test]
+    fn metric_names_is_alphabetised() {
+        let mut sorted: Vec<&str> = METRIC_NAMES.to_vec();
+        sorted.sort_unstable();
+        assert_eq!(
+            METRIC_NAMES,
+            sorted.as_slice(),
+            "METRIC_NAMES must stay alphabetised",
+        );
+    }
+
     #[test]
     fn analyze_source_returns_json_object_for_rust_snippet() {
         let s = analyze_source(
