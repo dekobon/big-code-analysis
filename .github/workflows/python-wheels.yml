@@ -253,6 +253,11 @@ jobs:
       # records, to_sarif emits SARIF JSON, language_for_file resolves
       # extensions. If any of these regress the smoke fails before
       # the wheel can publish.
+      #
+      # Assertions are deliberately VALUE-bearing, not just shape-
+      # bearing — a binding regression that returned `{"spaces": []}`
+      # would satisfy a bare `isinstance(result, dict)` check but
+      # fail the `records[*]["name"] == "add"` check below.
       - name: Import + analyse smoke
         env:
           # Force unbuffered stdout so failure assertions show up
@@ -262,27 +267,63 @@ jobs:
         run: |
           python - <<'PY'
           import json
+          import tempfile
+          from pathlib import Path
+
           import big_code_analysis as bca
 
           # Sanity: package + extension loaded.
-          assert isinstance(bca.__version__, str) and bca.__version__
+          assert bca.__version__, repr(bca.__version__)
           assert "python" in bca.supported_languages()
-          assert ".py" in bca.language_extensions("python")
-          assert bca.language_for_file("foo.py") == "python"
+          # Extensions are bare names (no leading dot) — match the
+          # `language_extensions` contract in the stub. The CLI used
+          # to expose dotted forms; the binding does not.
+          assert "py" in bca.language_extensions("python"), bca.language_extensions("python")
 
-          # analyze_source returns the dict shape the SARIF / flatten
-          # helpers consume; a broken JSON conversion would surface
-          # here as a KeyError or AttributeError.
+          # `language_for_file` reads the file (parity with `analyze`,
+          # #318), so a stub path that does not exist raises
+          # FileNotFoundError. Materialise an empty fixture in a
+          # tempdir so the assertion exercises the extension table
+          # path rather than crashing on I/O.
+          with tempfile.TemporaryDirectory() as td:
+              fixture = Path(td) / "foo.py"
+              fixture.write_bytes(b"")
+              resolved = bca.language_for_file(fixture)
+              assert resolved == "python", resolved
+
+          # `language` is a positional-only parameter on
+          # `analyze_source`; passing it as a kwarg raises TypeError.
           src = "def add(a, b):\n    if a > b:\n        return a\n    return b\n"
-          result = bca.analyze_source(src, language="python")
+          result = bca.analyze_source(src, "python")
           assert isinstance(result, dict), type(result)
-          assert "spaces" in result, list(result.keys())
+          assert result.get("kind") == "unit", result.get("kind")
+          # The unit-level cyclomatic is 3 for this fixture (one
+          # function spanning the file + one `if` branch). A binding
+          # regression that produced null / zero metrics would slip
+          # past `isinstance(result, dict)` but trip this assertion.
+          cyclomatic_sum = result["metrics"]["cyclomatic"]["sum"]
+          assert cyclomatic_sum == 3.0, f"expected unit cyclomatic.sum == 3.0, got {cyclomatic_sum}"
 
-          # Flatten + SARIF round-trip.
+          # `flatten_spaces` yields one record per space; for this
+          # fixture that is the unit + the `add` function. The
+          # function record's cyclomatic.sum is 2 (1 entry + 1 if).
           records = list(bca.flatten_spaces(result))
           assert records, "flatten_spaces returned no records"
-          sarif = bca.to_sarif(result)
-          assert json.loads(sarif).get("version") == "2.1.0"
+          add_records = [r for r in records if r.get("name") == "add"]
+          assert add_records, f"no 'add' function in records: {[r.get('name') for r in records]}"
+          assert add_records[0].get("kind") == "function", add_records[0].get("kind")
+          assert add_records[0].get("cyclomatic.sum") == 2.0, add_records[0].get("cyclomatic.sum")
+
+          # SARIF must be a well-formed 2.1.0 document with at least
+          # one run carrying the bca tool driver. A stub
+          # `{"version": "2.1.0"}` (the most plausible regression of
+          # an empty-run SARIF writer) would fail the runs check.
+          sarif_obj = json.loads(bca.to_sarif(result))
+          assert sarif_obj.get("version") == "2.1.0", sarif_obj.get("version")
+          runs = sarif_obj.get("runs") or []
+          assert len(runs) == 1, f"expected 1 SARIF run, got {len(runs)}"
+          driver = runs[0].get("tool", {}).get("driver", {})
+          assert driver.get("name"), f"SARIF run missing tool.driver.name: {driver}"
 
           print("smoke OK:", bca.__version__)
           PY
