@@ -606,7 +606,13 @@ mod tests {
     // `OsStringExt::from_wide`) — out of scope for this test; the
     // `allow_lossy_path` policy applies on all platforms but
     // constructing a fixture for it differs per OS.
-    #[cfg(unix)]
+    //
+    // macOS APFS/HFS+ (and iOS, which shares the volume format)
+    // reject non-UTF-8 filenames at the syscall boundary with
+    // `EILSEQ`, so the fixture cannot be written there. Other
+    // unixes (Linux, the BSDs, Illumos/Solaris) treat filenames
+    // as opaque byte sequences and accept the write.
+    #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios"))))]
     #[test]
     fn analyze_path_rejects_non_utf8_path_by_default() {
         use std::ffi::OsStr;
@@ -626,7 +632,7 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios"))))]
     #[test]
     fn analyze_path_accepts_non_utf8_path_when_allow_lossy_path_is_true() {
         use std::ffi::OsStr;
