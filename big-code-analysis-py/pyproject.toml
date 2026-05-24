@@ -73,8 +73,7 @@ extend-exclude = ["target", "python/big_code_analysis/_native.pyi"]
 # defaults, deprecated syntax, redundant idioms). `RUF` covers
 # ruff's own rules (e.g. RUF013 implicit-Optional). `PERF` flags
 # unnecessary list/dict/set comprehensions. `PT` is flake8-pytest-
-# style; see per-file-ignores below for the test-suite overrides.
-# Full `PL` (Pylint) is deliberately omitted — its design rules
+# style. Full `PL` (Pylint) is deliberately omitted — its design rules
 # (PLR0913 too-many-arguments, PLR0915 too-many-statements) would
 # force test-suite refactors that belong in a follow-up issue.
 extend-select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "PERF", "PT"]
@@ -102,13 +101,9 @@ docstring-code-format = true
 python_version = "3.12"
 strict = true
 files = ["python", "tests"]
-
 # The compiled .so module lives at `big_code_analysis._native`; its
 # type information comes from `python/big_code_analysis/_native.pyi`
-# (a hand-written stub committed to the repo). Without this override,
-# mypy with `--strict` in a fresh checkout (no `maturin develop` run)
-# would treat the missing .so as `Any`-typed and silently disable
-# every annotation downstream.
-[[tool.mypy.overrides]]
-module = "big_code_analysis._native"
-ignore_missing_imports = false
+# (a hand-written stub committed to the repo). `strict = true`
+# already implies `ignore_missing_imports = false` workspace-wide,
+# so no per-module override is needed — mypy will refuse to silently
+# fall back to `Any` if the stub is ever deleted.

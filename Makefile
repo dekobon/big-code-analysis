@@ -96,6 +96,7 @@ help:
 	@echo "  py-lint                              Lint Python sources with ruff"
 	@echo "  py-typecheck                         Type-check with mypy --strict + pyright"
 	@echo "  py-test                              maturin develop + pytest (needs active venv)"
+	@echo "  (install: 'mise install' or 'pipx install ruff/mypy/pyright/maturin')"
 	@echo ""
 	@echo "Maintenance:"
 	@echo "  clean                                Remove build artifacts"
@@ -395,25 +396,40 @@ ci:
 # independent stages concurrently. The `pre-commit` target invokes them
 # with `-j --output-sync=target`.
 #
-# All cargo invocations (clippy, test, udeps) share the package cache and
-# target/ lock, so they are serialized into one chain. Non-cargo checks
-# run in parallel with the cargo pipeline, gated only on _pc-fmt.
+# All cargo invocations against the workspace `target/` (clippy, test,
+# udeps, py-test's maturin develop) share the package cache and the
+# target/.cargo-lock mutex, so they are serialized into one chain.
+# Non-cargo checks (lint families, py-fmt's ruff, py-typecheck's
+# mypy + pyright) run in parallel with the cargo pipeline, gated only
+# on _pc-fmt.
 #
 # Dependency graph:
 #
 #   _pc-fmt
-#    ├── _pc-clippy → _pc-test → _pc-udeps
+#    ├── _pc-clippy → _pc-test → _pc-udeps → _pc-py-test
 #    ├── _pc-shellcheck
 #    ├── _pc-markdown-lint
 #    ├── _pc-toml-lint
 #    ├── _pc-makefile-check
 #    ├── _pc-snapshot-anchors
-#    └── _pc-enums-check
+#    ├── _pc-enums-check
+#    ├── _pc-py-fmt
+#    └── _pc-py-typecheck
 #
 # _pc-enums-check runs cargo on `enums/Cargo.toml`, which has its own
 # `target/` (the crate is workspace-excluded), so it does NOT share the
 # `target/` lock with the workspace cargo chain and is safe to run in
 # parallel with _pc-clippy/_pc-test/_pc-udeps.
+#
+# _pc-py-fmt and _pc-py-typecheck do NOT touch cargo — they invoke
+# ruff and mypy/pyright respectively against pre-built sources/stubs
+# — so they run in parallel with the cargo pipeline.
+#
+# _pc-py-test runs `maturin develop` against the workspace target/, so
+# it MUST chain after _pc-udeps (the end of the cargo lock-holding
+# pipeline) rather than fanning out in parallel. Fanning out caused
+# implicit serialization via cargo's lock anyway and obscured the true
+# wall-clock cost.
 #
 # Do not invoke _pc-* targets directly; use `make pre-commit`.
 # ---------------------------------------------------------------------------
@@ -451,10 +467,11 @@ _pc-enums-check: _pc-fmt
 
 # Python pre-commit stages. _pc-py-fmt auto-fixes (ruff format +
 # ruff check --fix); the typecheck and test stages are check-only
-# (they cannot reasonably auto-fix). All three gate on _pc-fmt so
-# they run after the cargo fmt stage has stabilised the tree. None
-# share the cargo target/ lock, so they parallelise safely with the
-# clippy/test chain.
+# (they cannot reasonably auto-fix). _pc-py-fmt and _pc-py-typecheck
+# gate on _pc-fmt — they do not touch cargo so they parallelise
+# safely with the clippy/test chain. _pc-py-test runs `maturin
+# develop` against the workspace target/, so it must chain after
+# _pc-udeps to avoid lock contention with the cargo pipeline.
 _pc-py-fmt: _pc-fmt
 	@if command -v ruff >/dev/null 2>&1; then \
 	  ruff format $(BCA_PY_DIR) && ruff check --fix $(BCA_PY_DIR); \
@@ -463,7 +480,7 @@ _pc-py-fmt: _pc-fmt
 _pc-py-typecheck: _pc-fmt
 	$(MAKE) py-typecheck
 
-_pc-py-test: _pc-fmt
+_pc-py-test: _pc-udeps
 	$(MAKE) py-test
 
 # ---------------------------------------------------------------------------

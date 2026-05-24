@@ -87,7 +87,10 @@ repos:
       - id: py-mypy
         name: py-mypy
         language: system
-        files: '^big-code-analysis-py/.*\.py$'
+        # Match both `.py` source and `.pyi` stubs — editing
+        # `_native.pyi` must also re-run mypy so the stub stays in
+        # sync with the Rust-side ABI it describes.
+        files: '^big-code-analysis-py/.*\.pyi?$'
         # Use --config-file + absolute-ish paths so the invocation is
         # cross-platform — `bash -c "cd X && ..."` fails on native
         # Windows pre-commit (no bash on cmd/PowerShell PATH).
