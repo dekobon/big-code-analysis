@@ -480,6 +480,112 @@ turns into a foot-gun on the *next* release.
       is not actively harmful (nothing references it), but deleting
       it removes a tempting footgun for a future contributor.
 
+## Python wheels (PyPI)
+
+Python bindings ship via `.github/workflows/python-wheels.yml`, not
+`release.yml`. The two workflows trigger on the same `v*` tag push
+but run in parallel — a crates.io publish failure does not block the
+PyPI upload, and vice versa.
+
+What the python-wheels pipeline does:
+
+1. **build** — `PyO3/maturin-action@v1.51.0` builds a manylinux_2_28
+   abi3 wheel on `ubuntu-latest` (x86_64) and `ubuntu-24.04-arm`
+   (aarch64). `[tool.maturin].features` in
+   `big-code-analysis-py/pyproject.toml` pins
+   `pyo3/extension-module` + `pyo3/abi3-py312` so the wheel uses
+   the limited (stable) Python C API and targets CPython 3.12+
+   forward-compatibly. One wheel per architecture covers every
+   future 3.12+ minor release.
+2. **sdist** — `maturin sdist` produces a source distribution as
+   the PyPI fallback for niche architectures and a
+   reproducibility anchor for the wheels.
+3. **smoke-test** — pulls each wheel onto a clean runner of the
+   matching architecture, installs it with
+   `pip install --no-index --find-links=dist big-code-analysis`,
+   and asserts that the public API surface
+   (`analyze_source`, `flatten_spaces`, `to_sarif`,
+   `language_for_file`) loads and produces the documented dict
+   shape under both Python 3.12 and 3.13. An abi3 wheel that
+   loaded on 3.12 but failed on 3.13 (the most plausible silent
+   forward-compat regression) trips here.
+4. **publish** — gated on a `v*` tag and the `pypi` deployment
+   environment. Authentication is via PyPI Trusted Publishing
+   (OIDC); the workflow has no `PYPI_API_TOKEN` secret to leak.
+   PEP 740 Sigstore attestations are generated automatically by
+   `pypa/gh-action-pypi-publish@v1.14.0`.
+
+### One-time PyPI setup
+
+Before the first `v*` tag is cut after the cutover, complete these
+on PyPI as the maintainer:
+
+1. **Claim the project name.** Open
+   `https://pypi.org/project/big-code-analysis/`. If the name is
+   taken by another project, pick a different name and bump
+   `[project] name` in `big-code-analysis-py/pyproject.toml`
+   before tagging.
+
+2. **Register a Trusted Publisher.** Under
+   `https://pypi.org/manage/account/publishing/` (for a brand new
+   project, the *pending* publisher flow at the same URL works
+   the same way), add a GitHub publisher with:
+
+   - PyPI Project Name: `big-code-analysis`.
+   - Owner: `dekobon`.
+   - Repository name: `big-code-analysis`.
+   - Workflow filename: `python-wheels.yml` (basename only).
+   - Environment name: `pypi`.
+
+   The environment name is intentionally distinct from the
+   `release` environment used by the crates.io trusted publisher
+   in `release.yml` — keeping them separate prevents the OIDC
+   `environment` claim from accidentally satisfying the wrong
+   registry's TP entry.
+
+3. **Create the `pypi` GitHub Environment.** Settings →
+   Environments → New environment → `pypi`. The publish job
+   references this environment; protection rules (required
+   reviewers, branch / tag filters) attached here are the right
+   place to add a manual approval gate on every wheel publish.
+
+4. **First tagged release validates the path.** Trusted
+   Publishing cannot be rehearsed via `workflow_dispatch` (the
+   environment claim mismatches). The first non-prerelease `v*`
+   tag after registration is the canonical end-to-end test —
+   watch the `publish` job's log for the OIDC exchange and the
+   attestation upload.
+
+### Version coupling
+
+`big-code-analysis-py` inherits its version from
+`[workspace.package] version` via `version.workspace = true` in its
+`Cargo.toml`, and `pyproject.toml` reads the same value at build
+time (`dynamic = ["version"]`). The "Bumping the version" steps
+above are therefore sufficient — there is no separate
+`big-code-analysis-py/pyproject.toml` version field to keep in sync.
+
+### Testing a release candidate without uploading
+
+`workflow_dispatch` from the **Actions** tab runs the full build +
+smoke-test matrix without invoking the publish job (the `if:`
+guard requires a `v*` tag push). Use this to validate a
+release-prep branch before tagging.
+
+To exercise the PyPI side end-to-end against
+`https://test.pypi.org/`, temporarily change the
+`pypa/gh-action-pypi-publish` step's `repository-url` input to
+`https://test.pypi.org/legacy/` and register a matching TP entry
+on TestPyPI — keep this off `main` to avoid leaking a real upload
+into a production-shaped flow.
+
+### Out of scope
+
+The wheel pipeline ships Linux only (x86_64 + aarch64). macOS and
+Windows wheels are tracked separately under
+[#103](https://github.com/dekobon/big-code-analysis/issues/103)'s
+"Out of scope" section.
+
 ## Rotating the minisign key
 
 1. Generate a new keypair:

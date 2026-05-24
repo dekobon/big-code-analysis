@@ -1,0 +1,371 @@
+name: Python wheels
+
+# Build, smoke-test, and publish manylinux wheels for the
+# `big-code-analysis-py` PyO3 bindings. Phase 7/9 of the umbrella
+# Python-bindings effort (#103); see #271 for the rationale.
+#
+# Design notes captured from the 2026 best-practices research:
+#
+#   * **manylinux_2_28** is the floor. Rust 1.64+ requires glibc ≥ 2.17
+#     (so manylinux2014 is the absolute minimum), but the project's MSRV
+#     is 1.94 and the maturin-action default for both x86_64 and aarch64
+#     is `2_28`. RHEL/CentOS Stream 8 (glibc 2.28) is the oldest distro
+#     that any realistic deployment target still ships, and `2_28`
+#     containers carry the modern toolchain we need without forcing
+#     consumers off any current LTS.
+#
+#   * **abi3-py312** produces a single stable-ABI wheel per architecture
+#     that works on CPython 3.12, 3.13, 3.14+. PyO3 0.28.3 supports the
+#     limited-API flag and a local `cargo check -p big-code-analysis-py
+#     --features pyo3/extension-module,pyo3/abi3-py312` builds clean
+#     against the bindings' current surface (dict-returning functions,
+#     custom exceptions, no generators / no async — the features that
+#     would force the non-abi3 fallback). The flag is wired through
+#     pyproject.toml's `[tool.maturin].features` so `maturin develop`
+#     and the wheel build use the identical Cargo feature set; a future
+#     contributor cannot accidentally introduce a non-abi3 dependency
+#     without the local-dev build failing first.
+#
+#   * **Native ARM runners** (`ubuntu-24.04-arm`) replace QEMU emulation
+#     for the aarch64 build. ARM standard runners went GA for private
+#     repositories in January 2026 (this repo is private); the cross-
+#     build via QEMU was the only path before then but is now an order
+#     of magnitude slower with no upside. The maturin-action's
+#     `manylinux: 2_28` mode pulls the matching ARM-native manylinux
+#     container automatically when the workflow runs on an ARM host.
+#
+#   * **PyPI Trusted Publishing** (PEP 740) over a long-lived API
+#     token. The `publish` job mints a short-lived GitHub OIDC token
+#     and exchanges it inside pypa/gh-action-pypi-publish for a one-off
+#     PyPI upload credential. Attestations (Sigstore-signed) are
+#     generated and uploaded automatically by the action since v1.14.0,
+#     so the dedicated `sigstore/gh-action-sigstore-python` step the
+#     #271 issue proposed is redundant — keeping it out of this
+#     workflow avoids signing the same artefacts twice with conflicting
+#     identities. The PyPI side requires a Trusted Publisher entry
+#     pointing at this repository + this workflow + the `pypi`
+#     deployment environment; the `pypi` env is intentionally distinct
+#     from the `release` env used by crates.io publishes in
+#     `release.yml` so the two registries' OIDC claims do not overlap.
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    paths:
+      - 'big-code-analysis-py/**'
+      - '.github/workflows/python-wheels.yml'
+  workflow_dispatch:
+
+# Default to read-only; the publish job escalates to id-token: write.
+permissions:
+  contents: read
+
+# Mirror ci.yml: cancel in-progress runs for ad-hoc refs, but never
+# cancel a tag build (release artefacts must complete) or a main build
+# (the wheel matrix is the smoke surface for the bindings on push).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
+# Every `uses:` below is pinned to a commit SHA to neutralise tag-
+# rewriting supply-chain attacks. The trailing comment is the tag the
+# SHA points at; Dependabot bumps both in lockstep. The SHAs were
+# verified against `gh api repos/<owner>/<repo>/git/refs/tags/<tag>`
+# (or the action's annotated-tag object) at the time of writing.
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+  RUSTUP_MAX_RETRIES: 10
+  # Build host's Python — only used to invoke maturin's CLI; the
+  # in-container Python that compiles the abi3 wheel comes from the
+  # manylinux_2_28 image.
+  PYTHON_VERSION_HOST: "3.12"
+
+jobs:
+  # Build the wheel matrix. The PR-time gate keeps the cost off
+  # Rust-only PRs that happen to touch a path filter neighbour —
+  # contributors opt their PR in by applying the `python-wheels` label.
+  # Tag pushes and workflow_dispatch always run.
+  build:
+    name: build (${{ matrix.target }})
+    if: >-
+      github.event_name != 'pull_request'
+      || contains(github.event.pull_request.labels.*.name, 'python-wheels')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runs-on: ubuntu-latest
+            arch: x86_64
+          - target: aarch64-unknown-linux-gnu
+            runs-on: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 45
+    steps:
+      # No submodules — the bindings' fixtures are in-tree.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          submodules: false
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION_HOST }}
+
+      # maturin-action pulls the manylinux_2_28 container that matches
+      # ${{ matrix.target }}. `working-directory` keeps the cargo build
+      # scoped to the bindings crate; the action still picks up the
+      # parent workspace's Cargo.lock for reproducibility. `--strip`
+      # removes debug symbols (the SARIF / metric symbols are
+      # re-introduced by name in the .pyi stub, so consumers do not
+      # lose IDE support). `--compatibility manylinux_2_28` is implicit
+      # from the `manylinux` input but spelled out via the arg here
+      # too, matching maturin's hardening guidance for PyPI uploads.
+      - name: Build wheel (manylinux_2_28 / ${{ matrix.arch }} / abi3)
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          working-directory: big-code-analysis-py
+          target: ${{ matrix.target }}
+          manylinux: "2_28"
+          args: --release --strip --out dist --compatibility manylinux_2_28
+
+      # Inspect the produced filename pattern so a regression in the
+      # abi3 wiring (e.g. an accidental `cp312-cp312` per-version wheel
+      # instead of `cp312-abi3`) shows up in the workflow log instead
+      # of at PyPI upload time. The grep is intentionally strict.
+      - name: Verify wheel is abi3 + manylinux_2_28
+        working-directory: big-code-analysis-py
+        run: |
+          set -euo pipefail
+          ls -la dist/
+          # Filename schema: big_code_analysis-X.Y.Z-cp312-abi3-manylinux_2_28_<arch>.whl
+          shopt -s nullglob
+          matches=(dist/*cp312-abi3-manylinux_2_28_x86_64.whl dist/*cp312-abi3-manylinux_2_28_aarch64.whl)
+          if [[ ${#matches[@]} -eq 0 ]]; then
+            echo "::error::Built wheel does not match expected abi3 + manylinux_2_28 pattern"
+            ls dist/
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wheels-${{ matrix.arch }}
+          path: big-code-analysis-py/dist/*.whl
+          if-no-files-found: error
+
+  # Source distribution. Required by PyPI as a fallback for niche
+  # architectures and as a reproducibility anchor (the wheel is binary;
+  # the sdist captures the exact source tree the wheel was built from).
+  sdist:
+    name: sdist
+    if: >-
+      github.event_name != 'pull_request'
+      || contains(github.event.pull_request.labels.*.name, 'python-wheels')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          submodules: false
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION_HOST }}
+
+      - name: Build sdist
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          working-directory: big-code-analysis-py
+          command: sdist
+          args: --out dist
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sdist
+          path: big-code-analysis-py/dist/*.tar.gz
+          if-no-files-found: error
+
+  # Smoke test: pull the built wheel onto a clean runner of the same
+  # architecture, install it from the dist directory (no PyPI round-
+  # trip), and exercise enough of the API to catch dynamic-linker
+  # failures (`ImportError`, missing symbols) and trivial regressions
+  # in the JSON output shape. Both Python 3.12 and 3.13 are exercised
+  # so the abi3 forward-compatibility claim is verified end-to-end —
+  # an abi3 wheel that loads on the build's 3.12 but not the runner's
+  # 3.13 is the most plausible silent regression in this matrix.
+  smoke-test:
+    name: smoke-test (${{ matrix.arch }}, py${{ matrix.python }})
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runs-on: ubuntu-latest
+          - arch: aarch64
+            runs-on: ubuntu-24.04-arm
+        python: ["3.12", "3.13"]
+    runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          submodules: false
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ matrix.python }}
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: wheels-${{ matrix.arch }}
+          path: dist
+
+      - name: Install wheel
+        run: |
+          set -euo pipefail
+          ls -la dist/
+          python -m pip install --upgrade pip
+          # Install only from the local dist; --no-index makes accidental
+          # PyPI fallback (e.g. when the wheel name does not match the
+          # current interpreter) fail loudly rather than silently install
+          # a stale published version.
+          python -m pip install --no-index --find-links=dist big-code-analysis
+
+      # Exercise the public API surface that #103 enumerates:
+      # analyze_source returns a dict, flatten_spaces yields function
+      # records, to_sarif emits SARIF JSON, language_for_file resolves
+      # extensions. If any of these regress the smoke fails before
+      # the wheel can publish.
+      - name: Import + analyse smoke
+        env:
+          # Force unbuffered stdout so failure assertions show up
+          # immediately in the action log instead of after the python
+          # process has been torn down.
+          PYTHONUNBUFFERED: "1"
+        run: |
+          python - <<'PY'
+          import json
+          import big_code_analysis as bca
+
+          # Sanity: package + extension loaded.
+          assert isinstance(bca.__version__, str) and bca.__version__
+          assert "python" in bca.supported_languages()
+          assert ".py" in bca.language_extensions("python")
+          assert bca.language_for_file("foo.py") == "python"
+
+          # analyze_source returns the dict shape the SARIF / flatten
+          # helpers consume; a broken JSON conversion would surface
+          # here as a KeyError or AttributeError.
+          src = "def add(a, b):\n    if a > b:\n        return a\n    return b\n"
+          result = bca.analyze_source(src, language="python")
+          assert isinstance(result, dict), type(result)
+          assert "spaces" in result, list(result.keys())
+
+          # Flatten + SARIF round-trip.
+          records = list(bca.flatten_spaces(result))
+          assert records, "flatten_spaces returned no records"
+          sarif = bca.to_sarif(result)
+          assert json.loads(sarif).get("version") == "2.1.0"
+
+          print("smoke OK:", bca.__version__)
+          PY
+
+      # pip-audit on the installed wheel: there are no Python runtime
+      # deps today, but the audit also fingerprints the wheel's
+      # metadata for known-vulnerable hashes if the package ever
+      # acquires a (transitively-pulled) dep. Cheap to keep in the
+      # gate so the first such dep does not slip in unnoticed.
+      - name: pip-audit
+        run: |
+          python -m pip install pip-audit
+          python -m pip_audit --strict --progress-spinner off
+
+  # Aggregate gate so branch protection can require a single check
+  # name regardless of how the matrix expands. Mirrors the `ci` job in
+  # ci.yml.
+  wheels:
+    name: wheels
+    if: always()
+    needs:
+      - build
+      - sdist
+      - smoke-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fail if any dependency failed or was cancelled
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
+
+  # PyPI publish — only on a `v*` tag push. The `pypi` deployment
+  # environment binds the OIDC `environment` claim that the PyPI
+  # Trusted Publisher matches against; protection rules on the
+  # environment (required reviewers, allowed tag patterns) are the
+  # right place to add a manual approval gate, not the workflow.
+  #
+  # Trusted Publisher must be registered on PyPI before the first
+  # release — see RELEASING.md → "PyPI Trusted Publisher setup".
+  # The first tagged release after registration is the canonical
+  # end-to-end test of the OIDC handshake; there is no static token
+  # to fall back on.
+  publish:
+    name: publish to PyPI
+    needs: [build, sdist, smoke-test]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/big-code-analysis/
+    permissions:
+      # Trusted publishing exchanges this OIDC token for a one-off
+      # PyPI upload credential; the long-lived `PYPI_API_TOKEN`
+      # secret pattern this replaces is explicitly forbidden by #271.
+      id-token: write
+      # attestations: write is implied by id-token: write at the
+      # workflow level, but spelling it out keeps the PEP 740
+      # attestation pipeline obvious to a reviewer.
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: wheels-*
+          path: dist
+          merge-multiple: true
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: sdist
+          path: dist
+
+      - name: Inventory artefacts
+        run: |
+          set -euo pipefail
+          ls -la dist/
+          # Defensive: refuse to publish unless every architecture's
+          # wheel arrived (a download-artifact silently dropping one
+          # leg would otherwise publish a half-matrix release).
+          ls dist/*-cp312-abi3-manylinux_2_28_x86_64.whl >/dev/null
+          ls dist/*-cp312-abi3-manylinux_2_28_aarch64.whl >/dev/null
+          ls dist/*.tar.gz >/dev/null
+
+      # pypa/gh-action-pypi-publish v1.14.0 turns on PEP 740 Sigstore
+      # attestations by default when invoked with id-token: write. No
+      # username / password / api-token inputs — the trusted-publisher
+      # exchange is the only auth path, and a missing TP registration
+      # surfaces here as an obvious HTTP 403 rather than a silent
+      # fallback to a token that does not exist.
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
+        with:
+          packages-dir: dist
+          # Explicit even though it is the default; the assertion is
+          # that we never published from anywhere except a verified
+          # OIDC-authenticated job.
+          attestations: true

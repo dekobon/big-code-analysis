@@ -52,7 +52,19 @@ python-source = "python"
 # `extension-module` is gated behind a Cargo feature so a plain
 # `cargo test` from inside the workspace can use `pyo3/auto-initialize`
 # instead. maturin builds always need the wheel-side variant.
-features = ["pyo3/extension-module"]
+#
+# `pyo3/abi3-py312` switches the build to the limited (stable) Python
+# C API targeting CPython 3.12+, so a single wheel per architecture
+# covers 3.12, 3.13, 3.14, … without the wheel matrix doubling per
+# minor release. The bindings' public surface (PyDict / PyAny / custom
+# exceptions, no generators, no async) is entirely inside the abi3
+# subset, verified by `cargo check -p big-code-analysis-py
+# --no-default-features --features pyo3/extension-module,pyo3/abi3-py312`.
+# Keeping the abi3 flag here — not as a CI-only override — means
+# `maturin develop` exercises the same C-API surface as the released
+# wheel, so a future contributor introducing a non-abi3 dependency
+# trips the local build long before CI.
+features = ["pyo3/extension-module", "pyo3/abi3-py312"]
 no-default-features = true
 
 # ---------------------------------------------------------------------------

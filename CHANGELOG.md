@@ -20,6 +20,28 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Added
 
+- `.github/workflows/python-wheels.yml` — phase 7/9 of
+  [#103](https://github.com/dekobon/big-code-analysis/issues/103).
+  CI workflow that builds, smoke-tests, and (on `v*` tags) publishes
+  manylinux_2_28 wheels for `big_code_analysis` on Linux x86_64 and
+  aarch64. Wheels are abi3 stable-ABI targeted at CPython 3.12, so a
+  single wheel per architecture covers 3.12 / 3.13 / 3.14+ — the build
+  matrix does not grow with each Python minor release. aarch64 uses a
+  native `ubuntu-24.04-arm` runner (GA in private repos since Jan
+  2026) instead of QEMU emulation; build times drop from tens of
+  minutes to a few. The smoke-test stage exercises the wheel against
+  both Python 3.12 and 3.13 on the matching native architecture and
+  asserts the public API surface (`analyze_source`, `flatten_spaces`,
+  `to_sarif`, `language_for_file`) loads and produces the documented
+  dict shape — catches dynamic-linker regressions and abi3 forward-
+  compatibility regressions before publish. Publish authenticates to
+  PyPI via OIDC Trusted Publishing (PEP 740) with `pypa/gh-action-
+  pypi-publish@v1.14.0`, which generates Sigstore attestations
+  automatically; no long-lived `PYPI_API_TOKEN` is stored as a repo
+  secret. PR-time wheel builds are opt-in via the `python-wheels`
+  label so Rust-only changes do not pay the wheel-matrix cost. Closes
+  [#271](https://github.com/dekobon/big-code-analysis/issues/271).
+
 - `bca.to_sarif(result, *, thresholds=None)` — phase 5/9 of
   [#103](https://github.com/dekobon/big-code-analysis/issues/103).
   Renders an analysis result (a single dict from `bca.analyze` /
@@ -600,6 +622,14 @@ why no value stability is offered until `1.0`. Entries above the
   ([#170](https://github.com/dekobon/big-code-analysis/issues/170)).
 
 ### Changed
+
+- `big-code-analysis-py/pyproject.toml`: `[tool.maturin].features`
+  now includes `pyo3/abi3-py312` alongside `pyo3/extension-module`.
+  Both `maturin develop` and the CI wheel build go through the
+  limited (stable) Python ABI, so the local-dev binary matches the
+  released wheel byte-for-byte at the C-API surface. A future
+  contributor who introduces a non-abi3 PyO3 dependency now trips a
+  local build failure long before the change reaches CI.
 
 - Python bindings (`big-code-analysis-py`) are now lint-, format-,
   and type-checked under `ruff`, `mypy --strict`, and `pyright` in
