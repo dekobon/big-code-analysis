@@ -69,7 +69,31 @@ cargo test --workspace --all-features
 
 If `pre-commit` is installed, also run `pre-commit run --all-files` —
 the project's `.pre-commit-config.yaml` wires clippy, `cargo +nightly
-udeps`, and the test suite into the standard hook flow.
+udeps`, the test suite, `ruff-check` + `ruff-format`, and a local
+`mypy --strict` hook into the standard hook flow.
+
+### Python bindings (`big-code-analysis-py`)
+
+The Python bindings use `ruff` for lint + format and `mypy --strict`
+plus `pyright` for type checking. `make pre-commit` and `make ci`
+run these alongside the Rust gates when the tools are on `$PATH`. Install
+them via `mise install` (recommended — picks up the `pipx:ruff`,
+`pipx:mypy`, `pipx:pyright`, `pipx:maturin` entries in `mise.toml`)
+or `pipx install ruff mypy pyright maturin`.
+
+For local Python tests:
+
+```bash
+cd big-code-analysis-py
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+maturin develop
+python -m pytest
+```
+
+CI runs the same flow across Linux / macOS / Windows on Python 3.12
+and 3.13 (six matrix legs), gated by a `dorny/paths-filter` job so
+Rust-only PRs skip it entirely.
 
 ## Snapshot anchors
 

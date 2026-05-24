@@ -21,7 +21,7 @@ locally via [maturin](https://www.maturin.rs/):
 ```bash
 cd big-code-analysis-py
 uv venv .venv && source .venv/bin/activate
-uv pip install maturin pytest mypy
+uv pip install -e ".[dev]"  # pulls maturin, pytest, mypy, ruff, pyright
 maturin develop
 python -c "import big_code_analysis; print(big_code_analysis.__version__)"
 ```

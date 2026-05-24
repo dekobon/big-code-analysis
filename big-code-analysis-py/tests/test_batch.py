@@ -18,9 +18,8 @@ import sys
 from collections.abc import Iterator
 from pathlib import Path
 
-import pytest
-
 import big_code_analysis as bca
+import pytest
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -179,9 +178,10 @@ def test_syntactically_broken_source_yields_parse_error(tmp_path: Path) -> None:
 
 
 def test_empty_iterable_returns_empty_list() -> None:
+    empty: list[Path] = []
     assert bca.analyze_batch([]) == []
     assert bca.analyze_batch(iter([])) == []
-    assert bca.analyze_batch(p for p in ()) == []
+    assert bca.analyze_batch(p for p in empty) == []
 
 
 def test_generator_input_works() -> None:
@@ -241,7 +241,9 @@ def test_empty_metrics_list_raises_value_error() -> None:
     pre-#268 contract analyze_batch exposed and the regression cost
     if it silently lapsed is high.
     """
-    with pytest.raises(ValueError):
+    # The test pins the *type* (ValueError), not the wording — the
+    # message is verified by the dedicated test in test_metrics_select.
+    with pytest.raises(ValueError):  # noqa: PT011
         bca.analyze_batch([FIXTURES / "hello.py"], metrics=[])
 
 
@@ -377,10 +379,16 @@ def test_analysis_error_rejects_unknown_kind() -> None:
     would let callers ship code that compares against a value
     that batch will never actually emit.
     """
-    with pytest.raises(ValueError):
-        bca.AnalysisError("p.py", "msg", "NotARealKind")
-    with pytest.raises(ValueError):
-        bca.AnalysisError("p.py", "msg", "IOError")
+    # Both raises pin the *type* (ValueError) — the constructor's
+    # rejection message wording is not part of this test's contract.
+    # The type: ignore is load-bearing: the stub restricts ``kind`` to
+    # ``Literal['UnsupportedLanguage', 'ParseError', 'IoError']`` and
+    # the whole point of this test is to verify that the constructor
+    # rejects values outside that set at runtime.
+    with pytest.raises(ValueError):  # noqa: PT011
+        bca.AnalysisError("p.py", "msg", "NotARealKind")  # type: ignore[arg-type]
+    with pytest.raises(ValueError):  # noqa: PT011
+        bca.AnalysisError("p.py", "msg", "IOError")  # type: ignore[arg-type]
 
 
 def test_analysis_error_is_frozen() -> None:
@@ -488,7 +496,9 @@ def test_analysis_error_round_trips_through_pickle() -> None:
     # length prefix stays valid — the substitution mutates the
     # value but not the framing.
     tampered = pickle.dumps(original).replace(b"IoError", b"BadKind")
-    with pytest.raises(ValueError):
+    # Pin the *type* (ValueError) — the pickle-rejection wording is
+    # an implementation detail of __setstate__, not the contract.
+    with pytest.raises(ValueError):  # noqa: PT011
         pickle.loads(tampered)
 
 

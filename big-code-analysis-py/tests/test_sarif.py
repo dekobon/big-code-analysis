@@ -26,9 +26,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 import big_code_analysis as bca
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -62,9 +61,7 @@ def bca_binary() -> str:
     env_path = os.environ.get("BCA_BINARY")
     if env_path:
         if not Path(env_path).is_file():
-            pytest.fail(
-                f"$BCA_BINARY={env_path!r} does not point at a regular file"
-            )
+            pytest.fail(f"$BCA_BINARY={env_path!r} does not point at a regular file")
         return env_path
     cargo = shutil.which("cargo")
     if cargo is None:
@@ -77,18 +74,14 @@ def bca_binary() -> str:
         check=False,
     )
     if result.returncode != 0:
-        pytest.fail(
-            f"cargo build failed:\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
-        )
+        pytest.fail(f"cargo build failed:\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}")
     built = _locate_workspace_binary()
     if built is None:
         pytest.fail("cargo build succeeded but no bca binary was found")
     return built
 
 
-def _cli_check_sarif(
-    bca_path: str, path: Path, *, threshold: str
-) -> dict[str, Any]:
+def _cli_check_sarif(bca_path: str, path: Path, *, threshold: str) -> dict[str, Any]:
     """Run ``bca check --threshold X -O sarif --paths <path>``.
 
     The CLI writes a one-line offender summary to stderr and the
@@ -110,9 +103,7 @@ def _cli_check_sarif(
     ]
     result = subprocess.run(argv, capture_output=True, text=True, check=False)
     if result.returncode not in (0, 2):
-        pytest.fail(
-            f"bca check exited {result.returncode}; stderr:\n{result.stderr}"
-        )
+        pytest.fail(f"bca check exited {result.returncode}; stderr:\n{result.stderr}")
     parsed: dict[str, Any] = json.loads(result.stdout)
     return parsed
 
@@ -124,9 +115,7 @@ def _cli_check_sarif(
 
 def _parse(doc: str) -> dict[str, Any]:
     """Parse a SARIF string and pin the top-level invariants."""
-    assert isinstance(doc, str), (
-        f"to_sarif must return str, got {type(doc).__name__}"
-    )
+    assert isinstance(doc, str), f"to_sarif must return str, got {type(doc).__name__}"
     parsed: dict[str, Any] = json.loads(doc)
     assert parsed["$schema"] == SARIF_SCHEMA_URL
     assert parsed["version"] == SARIF_VERSION
@@ -196,9 +185,7 @@ def test_to_sarif_consumes_generator_exactly_once() -> None:
 # ─────────────────────────────────────────────────────────────────
 
 
-def test_to_sarif_single_function_exceeding_threshold_produces_one_result() -> (
-    None
-):
+def test_to_sarif_single_function_exceeding_threshold_produces_one_result() -> None:
     """A file with one above-threshold function produces exactly one
     SARIF ``result`` whose ``ruleId``, ``level``, ``startLine``,
     ``endLine`` and ``logicalLocations`` line up with the source."""
@@ -227,9 +214,7 @@ def test_to_sarif_single_function_exceeding_threshold_produces_one_result() -> (
     region = finding["locations"][0]["physicalLocation"]["region"]
     assert region["startLine"] == 1
     assert region["endLine"] == 6
-    assert finding["locations"][0]["logicalLocations"][0][
-        "fullyQualifiedName"
-    ] == "branchy"
+    assert finding["locations"][0]["logicalLocations"][0]["fullyQualifiedName"] == "branchy"
 
     rules = parsed["runs"][0]["tool"]["driver"]["rules"]
     assert [r["id"] for r in rules] == ["cyclomatic"]
@@ -304,10 +289,7 @@ def test_to_sarif_filters_analysis_errors_silently(tmp_path: Path) -> None:
         f"expected one finding from ok.py (errors skipped, dict kept), got {findings!r}"
     )
     assert findings[0]["ruleId"] == "cyclomatic"
-    assert (
-        findings[0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
-        == str(ok)
-    )
+    assert findings[0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] == str(ok)
 
 
 def test_to_sarif_does_not_raise_on_pure_analysis_error_input(
@@ -378,9 +360,7 @@ def test_to_sarif_rejects_str_input() -> None:
 # ─────────────────────────────────────────────────────────────────
 
 
-def test_to_sarif_matches_cli_check_for_single_function(
-    bca_binary: str, tmp_path: Path
-) -> None:
+def test_to_sarif_matches_cli_check_for_single_function(bca_binary: str, tmp_path: Path) -> None:
     """``to_sarif(bca.analyze(p), thresholds={...})`` matches
     ``bca check --threshold X -O sarif --paths p`` modulo documented
     differences (tool.driver.version is identical because both come
@@ -402,15 +382,12 @@ def test_to_sarif_matches_cli_check_for_single_function(
 
     analyzed = bca.analyze(src)
     assert analyzed is not None, "fixture must not be skipped"
-    py_doc = json.loads(
-        bca.to_sarif(analyzed, thresholds={"cyclomatic": 2})
-    )
+    py_doc = json.loads(bca.to_sarif(analyzed, thresholds={"cyclomatic": 2}))
     cli_doc = _cli_check_sarif(bca_binary, src, threshold="cyclomatic=2")
 
     # Tool descriptor parity: same name, version, rule set.
     assert (
-        py_doc["runs"][0]["tool"]["driver"]["name"]
-        == cli_doc["runs"][0]["tool"]["driver"]["name"]
+        py_doc["runs"][0]["tool"]["driver"]["name"] == cli_doc["runs"][0]["tool"]["driver"]["name"]
     )
     assert (
         py_doc["runs"][0]["tool"]["driver"]["version"]
@@ -425,9 +402,7 @@ def test_to_sarif_matches_cli_check_for_single_function(
     # logical location. ``artifactLocation.uri`` may differ in path
     # normalisation; both sides see the same tmpfile here so we can
     # compare directly.
-    assert len(py_doc["runs"][0]["results"]) == len(
-        cli_doc["runs"][0]["results"]
-    )
+    assert len(py_doc["runs"][0]["results"]) == len(cli_doc["runs"][0]["results"])
     for py_r, cli_r in zip(
         py_doc["runs"][0]["results"],
         cli_doc["runs"][0]["results"],
@@ -438,14 +413,8 @@ def test_to_sarif_matches_cli_check_for_single_function(
         assert py_r["message"]["text"] == cli_r["message"]["text"]
         py_loc = py_r["locations"][0]
         cli_loc = cli_r["locations"][0]
-        assert (
-            py_loc["logicalLocations"]
-            == cli_loc["logicalLocations"]
-        )
-        assert (
-            py_loc["physicalLocation"]["region"]
-            == cli_loc["physicalLocation"]["region"]
-        )
+        assert py_loc["logicalLocations"] == cli_loc["logicalLocations"]
+        assert py_loc["physicalLocation"]["region"] == cli_loc["physicalLocation"]["region"]
         assert (
             py_loc["physicalLocation"]["artifactLocation"]["uri"]
             == cli_loc["physicalLocation"]["artifactLocation"]["uri"]
@@ -498,17 +467,13 @@ def test_to_sarif_matches_cli_check_for_wmc_with_unit_emission(
     cli_results.sort(key=_sort_key)
 
     assert len(py_results) == len(cli_results) == 3, (
-        f"expected 3 findings (file + 2 classes), got py={len(py_results)} "
-        f"cli={len(cli_results)}"
+        f"expected 3 findings (file + 2 classes), got py={len(py_results)} cli={len(cli_results)}"
     )
     for py_r, cli_r in zip(py_results, cli_results, strict=True):
         assert py_r["ruleId"] == cli_r["ruleId"] == "wmc"
         assert py_r["level"] == cli_r["level"]
         assert py_r["message"]["text"] == cli_r["message"]["text"]
-        assert (
-            py_r["locations"][0]["logicalLocations"]
-            == cli_r["locations"][0]["logicalLocations"]
-        )
+        assert py_r["locations"][0]["logicalLocations"] == cli_r["locations"][0]["logicalLocations"]
         assert (
             py_r["locations"][0]["physicalLocation"]["region"]
             == cli_r["locations"][0]["physicalLocation"]["region"]
@@ -553,7 +518,7 @@ def _fake_function_dict(
 
 
 @pytest.mark.parametrize(
-    "metric_name, json_path",
+    ("metric_name", "json_path"),
     [
         ("cyclomatic", ("cyclomatic", "sum")),
         ("cyclomatic.modified", ("cyclomatic", "modified", "sum")),
@@ -561,9 +526,7 @@ def _fake_function_dict(
         ("loc.lloc", ("loc", "lloc")),
     ],
 )
-def test_to_sarif_rejects_bool_metric_value(
-    metric_name: str, json_path: tuple[str, ...]
-) -> None:
+def test_to_sarif_rejects_bool_metric_value(metric_name: str, json_path: tuple[str, ...]) -> None:
     """Python ``True`` extracts as ``1.0`` via PyO3's ``f64`` extractor
     because ``bool`` inherits from ``int``. Without an explicit guard,
     a user-crafted dict with any metric headline set to ``True`` would
@@ -599,9 +562,7 @@ def test_to_sarif_rejects_bool_line_number() -> None:
     fake["start_line"] = True
     fake["end_line"] = True
     parsed = _parse(bca.to_sarif(fake, thresholds={"cyclomatic": 1}))
-    region = parsed["runs"][0]["results"][0]["locations"][0]["physicalLocation"][
-        "region"
-    ]
+    region = parsed["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["region"]
     # bool rejected → falls back to 0 → writer clamps to 1.
     assert region["startLine"] == 1
     assert region["endLine"] == 1
@@ -657,13 +618,13 @@ def test_to_sarif_emits_unit_level_finding_for_non_sum_metrics() -> None:
     findings = parsed["runs"][0]["results"]
     # Expect: 1 finding per class (A, B) + 1 file-level (unit) finding.
     fully_qualified = [
-        f["locations"][0]["logicalLocations"][0]["fullyQualifiedName"]
-        for f in findings
+        f["locations"][0]["logicalLocations"][0]["fullyQualifiedName"] for f in findings
     ]
     assert "<file>" in fully_qualified, (
         f"unit finding missing; logicalLocations seen: {fully_qualified!r}"
     )
-    assert "A" in fully_qualified and "B" in fully_qualified
+    assert "A" in fully_qualified
+    assert "B" in fully_qualified
 
 
 @pytest.mark.parametrize(
@@ -697,9 +658,7 @@ def test_to_sarif_still_skips_unit_for_cyclomatic_family(metric_name: str) -> No
         f"expected single per-function finding for {metric_name!r}, got {findings!r}"
     )
     fq = findings[0]["locations"][0]["logicalLocations"][0]["fullyQualifiedName"]
-    assert fq == "branchy", (
-        f"expected per-function finding for {metric_name!r}, got fq={fq!r}"
-    )
+    assert fq == "branchy", f"expected per-function finding for {metric_name!r}, got fq={fq!r}"
 
 
 def test_to_sarif_nameless_space_emits_unnamed_placeholder() -> None:
@@ -716,9 +675,7 @@ def test_to_sarif_nameless_space_emits_unnamed_placeholder() -> None:
     parsed = _parse(bca.to_sarif(fake, thresholds={"cyclomatic": 1}))
     findings = parsed["runs"][0]["results"]
     assert len(findings) == 1
-    assert findings[0]["locations"][0]["logicalLocations"] == [
-        {"fullyQualifiedName": "<unnamed>"}
-    ]
+    assert findings[0]["locations"][0]["logicalLocations"] == [{"fullyQualifiedName": "<unnamed>"}]
 
 
 def test_to_sarif_unit_space_emits_file_placeholder() -> None:
@@ -731,10 +688,7 @@ def test_to_sarif_unit_space_emits_file_placeholder() -> None:
     result = bca.analyze_source(code, "python")
     parsed = _parse(bca.to_sarif(result, thresholds={"wmc": 0}))
     findings = parsed["runs"][0]["results"]
-    fq_names = [
-        f["locations"][0]["logicalLocations"][0]["fullyQualifiedName"]
-        for f in findings
-    ]
+    fq_names = [f["locations"][0]["logicalLocations"][0]["fullyQualifiedName"] for f in findings]
     assert "<file>" in fq_names, (
         f"unit-level finding must carry '<file>' placeholder, got {fq_names!r}"
     )
@@ -763,9 +717,7 @@ def test_to_sarif_clamps_oversized_line_numbers_to_u32_max() -> None:
         cyclomatic_sum=5.0,
     )
     parsed = _parse(bca.to_sarif(fake, thresholds={"cyclomatic": 1}))
-    region = parsed["runs"][0]["results"][0]["locations"][0]["physicalLocation"][
-        "region"
-    ]
+    region = parsed["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["region"]
     # u32::MAX = 4_294_967_295
     assert region["startLine"] == 4_294_967_295
     assert region["endLine"] == 4_294_967_295
@@ -778,9 +730,7 @@ def test_to_sarif_negative_line_numbers_fall_back_to_zero() -> None:
     """
     fake = _fake_function_dict(start_line=-5, end_line=-3, cyclomatic_sum=5.0)
     parsed = _parse(bca.to_sarif(fake, thresholds={"cyclomatic": 1}))
-    region = parsed["runs"][0]["results"][0]["locations"][0]["physicalLocation"][
-        "region"
-    ]
+    region = parsed["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["region"]
     # Binding: start_line = 0 (i64 was negative, fell back).
     # Writer:  startLine = max(0, 1) = 1.
     assert region["startLine"] == 1

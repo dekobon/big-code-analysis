@@ -12,6 +12,17 @@ repos:
     rev: v0.0.12
     hooks:
       - id: taskcluster_yml
+-   repo: https://github.com/astral-sh/ruff-pre-commit
+    # Bump in lockstep with the big-code-analysis-py/pyproject.toml
+    # `ruff>=0.6,<0.16` floor. `ruff-check` and `ruff-format` are the
+    # current hook IDs (the legacy `ruff` alias is deprecated).
+    rev: v0.15.14
+    hooks:
+    -   id: ruff-check
+        args: [--fix]
+        files: ^big-code-analysis-py/.*\.py$
+    -   id: ruff-format
+        files: ^big-code-analysis-py/.*\.py$
 -   repo: local
     hooks:
       # FIXME: Uncomment when fmt is fixed
@@ -58,6 +69,26 @@ repos:
         language: system
         files: '^enums/.*\.(rs|toml|lock)$'
         entry: make enums-check
+        pass_filenames: false
+
+      # mypy --strict against the bindings crate. Implemented as a
+      # `language: system` hook (rather than `pre-commit/mirrors-mypy`)
+      # because pre-commit's isolated venv cannot see the project's
+      # `maturin develop`'d `_native` extension or the rest of the
+      # dev environment — under that isolation, `--strict`'s whole-
+      # program analysis is silently meaningless. The system hook runs
+      # against the contributor's PATH-resolved `mypy`, same pattern
+      # as the clippy/udeps/test hooks above.
+      #
+      # pyright is intentionally NOT a pre-commit hook: it bundles a
+      # Node runtime that pre-commit cannot hermetically isolate and
+      # suffers the same isolated-venv problem mypy does. The CI
+      # `python-lint` job covers it.
+      - id: py-mypy
+        name: py-mypy
+        language: system
+        files: '^big-code-analysis-py/.*\.py$'
+        entry: bash -c 'cd big-code-analysis-py && mypy --strict python tests'
         pass_filenames: false
 
 default_language_version:

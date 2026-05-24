@@ -31,9 +31,17 @@ dynamic = ["version"]
 Repository = "https://github.com/dekobon/big-code-analysis"
 
 [project.optional-dependencies]
-# Test/lint dependencies. Hermetic — `uv pip install -e .[dev]`
-# is the supported development install.
-dev = ["pytest>=8.0", "mypy>=1.10"]
+# Test/lint dependencies. Hermetic — `uv pip install -e .[dev]` is
+# the supported development install. Pinned floors track the
+# versions exercised by CI; the upper bound on maturin stays open
+# within the 1.x series.
+dev = [
+  "pytest>=8.0",
+  "mypy>=1.10",
+  "ruff>=0.6,<0.16",
+  "pyright>=1.1.380",
+  "maturin>=1.7,<2.0",
+]
 
 [tool.maturin]
 # Compiled extension lands at `big_code_analysis._native` so the
@@ -46,3 +54,67 @@ python-source = "python"
 # instead. maturin builds always need the wheel-side variant.
 features = ["pyo3/extension-module"]
 no-default-features = true
+
+# ---------------------------------------------------------------------------
+# Linting and formatting (ruff). Config is intentionally nested under
+# [tool.ruff.lint] — ruff 0.2+ requires the nested form and emits a
+# deprecation warning on top-level `extend-select` / `ignore` (gone
+# entirely in 0.6+).
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = ["target", "python/big_code_analysis/_native.pyi"]
+
+[tool.ruff.lint]
+# Conservative starting set. `E`/`F`/`W` are pyflakes + pycodestyle
+# (always-on for any well-typed Python). `I` enforces isort-style
+# import grouping. `B`/`UP`/`SIM` catch real bug-bait (mutable
+# defaults, deprecated syntax, redundant idioms). `RUF` covers
+# ruff's own rules (e.g. RUF013 implicit-Optional). `PERF` flags
+# unnecessary list/dict/set comprehensions. `PT` is flake8-pytest-
+# style; see per-file-ignores below for the test-suite overrides.
+# Full `PL` (Pylint) is deliberately omitted — its design rules
+# (PLR0913 too-many-arguments, PLR0915 too-many-statements) would
+# force test-suite refactors that belong in a follow-up issue.
+extend-select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "PERF", "PT"]
+
+[tool.ruff.lint.flake8-pytest-style]
+# Existing tests use the tuple form for parametrize names
+# (`("fixture", "language")`); honour that style. PT006 default is
+# `tuple`, kept explicit so this is self-documenting.
+parametrize-names-type = "tuple"
+parametrize-values-type = "list"
+
+[tool.ruff.lint.per-file-ignores]
+# Tests legitimately assert against magic numbers
+# (`assert len(records) == 7`). Production code must not need this
+# ignore.
+"tests/**/*.py" = ["PLR2004"]
+
+[tool.ruff.format]
+quote-style = "double"
+docstring-code-format = true
+
+# ---------------------------------------------------------------------------
+# mypy --strict. `files = ["python", "tests"]` is run *from the
+# big-code-analysis-py directory* (the Makefile cd's there), so paths
+# are relative to that crate root. `--strict` is set in the Makefile /
+# CI invocation rather than here so that ad-hoc `mypy` invocations
+# (e.g. from an editor extension) inherit the same baseline without
+# the implementer remembering the flag.
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["python", "tests"]
+
+# The compiled .so module lives at `big_code_analysis._native`; its
+# type information comes from `python/big_code_analysis/_native.pyi`
+# (a hand-written stub committed to the repo). Without this override,
+# mypy with `--strict` in a fresh checkout (no `maturin develop` run)
+# would treat the missing .so as `Any`-typed and silently disable
+# every annotation downstream.
+[[tool.mypy.overrides]]
+module = "big_code_analysis._native"
+ignore_missing_imports = false

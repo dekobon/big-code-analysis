@@ -15,6 +15,12 @@ MAKEFLAGS      += --no-builtin-rules
 # Directory path of Makefile
 BASE_DIR       := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
+# Path to the Python bindings crate. Targets under "Python tooling"
+# below reference this; the trailing slash from BASE_DIR survives, so
+# ruff / mypy / pyright / maturin see the same directory whether
+# invoked from the repo root or from a nested working directory.
+BCA_PY_DIR     := $(BASE_DIR)big-code-analysis-py
+
 # Directories excluded from linting and file-search operations.
 # `tests/repositories` holds vendored fixtures (incl. the
 # big-code-analysis-output submodule); `tree-sitter-*` are vendored
@@ -42,7 +48,7 @@ FIND_EXCLUDE   := $(foreach dir,$(EXCLUDE_DIRS),! -path './$(dir)/*')
 # warnings on `$(2)`, e.g. $(call find-by-ext,md,).
 find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name "*.$(1)" -type f $(FIND_EXCLUDE))
 
-.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check snapshot-anchors enums-check lint clippy udeps insta-review insta-accept clean install install-cli install-web doc doc-open book book-serve all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local _check-find _pc-fmt _pc-clippy _pc-test _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-snapshot-anchors _pc-enums-check _ci-fmt-check _ci-clippy _ci-test _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-snapshot-anchors _ci-enums-check _ci-cargo-pipeline
+.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check snapshot-anchors enums-check lint clippy udeps insta-review insta-accept clean install install-cli install-web doc doc-open book book-serve all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local py-fmt py-fmt-check py-lint py-typecheck py-test _check-find _pc-fmt _pc-clippy _pc-test _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-snapshot-anchors _pc-enums-check _pc-py-fmt _pc-py-typecheck _pc-py-test _ci-fmt-check _ci-clippy _ci-test _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-snapshot-anchors _ci-enums-check _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test
 
 # Default target
 help:
@@ -81,6 +87,13 @@ help:
 	@echo "  snapshot-anchors                     Block new bare insta snapshots"
 	@echo "  enums-check                          cargo clippy on workspace-excluded enums crate"
 	@echo "  lint                                 Run all linters"
+	@echo ""
+	@echo "Python bindings (big-code-analysis-py):"
+	@echo "  py-fmt                               Format Python sources with ruff"
+	@echo "  py-fmt-check                         Verify Python formatting"
+	@echo "  py-lint                              Lint Python sources with ruff"
+	@echo "  py-typecheck                         Type-check with mypy --strict + pyright"
+	@echo "  py-test                              maturin develop + pytest (needs active venv)"
 	@echo ""
 	@echo "Maintenance:"
 	@echo "  clean                                Remove build artifacts"
@@ -230,6 +243,74 @@ enums-check:
 	  --all-targets --locked -- -D warnings
 
 # ---------------------------------------------------------------------------
+# Python tooling (big-code-analysis-py)
+#
+# Targets gracefully no-op when the corresponding tool is absent —
+# matching how the markdown / TOML lint families behave on a
+# barebones host. CI installs all tools, so the skip path never fires
+# there.
+#
+# Tools used:
+#   ruff     — lint + format
+#   mypy     — type check (strict mode, invoked from the bindings dir)
+#   pyright  — type check (strict mode, second opinion)
+#   maturin  — build the compiled extension into the active venv
+#
+# `py-test` requires an active venv that maturin can write the .so
+# into. The recipe does NOT create one — if `VIRTUAL_ENV` is not set,
+# maturin will fail with a clear error. CI explicitly creates one per
+# matrix leg (see `.github/workflows/ci.yml`). Locally,
+# `cd big-code-analysis-py && python -m venv .venv && source .venv/bin/activate`
+# once.
+# ---------------------------------------------------------------------------
+py-fmt:
+	@if command -v ruff >/dev/null 2>&1; then \
+	  echo "Formatting Python sources..."; \
+	  ruff format $(BCA_PY_DIR); \
+	else echo "ruff not found; skipping py-fmt"; fi
+
+py-fmt-check:
+	@if command -v ruff >/dev/null 2>&1; then \
+	  echo "Checking Python formatting..."; \
+	  ruff format --check $(BCA_PY_DIR) || \
+	    { echo "Python files not formatted (run 'make py-fmt')"; exit 1; }; \
+	else echo "ruff not found; skipping py-fmt-check"; fi
+
+py-lint:
+	@if command -v ruff >/dev/null 2>&1; then \
+	  echo "Linting Python sources..."; \
+	  ruff check $(BCA_PY_DIR) || { echo "ruff lint found issues"; exit 1; }; \
+	else echo "ruff not found; skipping py-lint"; fi
+
+py-typecheck:
+	@if command -v mypy >/dev/null 2>&1; then \
+	  echo "Type-checking with mypy --strict..."; \
+	  (cd $(BCA_PY_DIR) && mypy --strict python tests) || \
+	    { echo "mypy --strict found issues"; exit 1; }; \
+	else echo "mypy not found; skipping mypy stage of py-typecheck"; fi
+	@if command -v pyright >/dev/null 2>&1; then \
+	  echo "Type-checking with pyright (strict)..."; \
+	  (cd $(BCA_PY_DIR) && pyright) || \
+	    { echo "pyright found issues"; exit 1; }; \
+	else echo "pyright not found; skipping pyright stage of py-typecheck"; fi
+
+# Why the pre-build cleanup: maturin 1.13's `develop` plus cargo's
+# incremental cache reliably emit a 0-byte .so on the second
+# back-to-back invocation when neither sources nor deps changed (the
+# wheel-build step truncates target/maturin/libbig_code_analysis_py.so
+# before cargo decides "no rebuild needed" and skips the relink). The
+# defensive `find ... -delete` forces cargo to relink each time. This
+# is roughly free (~50ms) and prevents the failure mode entirely. Same
+# guard appears in CI's python-test job for the same reason.
+py-test:
+	@if command -v maturin >/dev/null 2>&1; then \
+	  echo "Building extension + running pytest..."; \
+	  find $(BASE_DIR)target -name 'libbig_code_analysis_py*' -delete 2>/dev/null || true; \
+	  (cd $(BCA_PY_DIR) && maturin develop --quiet && python -m pytest) || \
+	    { echo "py-test failed"; exit 1; }; \
+	else echo "maturin not found; skipping py-test"; fi
+
+# ---------------------------------------------------------------------------
 # Lint aggregate
 # ---------------------------------------------------------------------------
 clippy:
@@ -290,7 +371,8 @@ pre-commit:
 	$(MAKE) -j --output-sync=target \
 	  _pc-test \
 	  _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check \
-	  _pc-snapshot-anchors _pc-enums-check
+	  _pc-snapshot-anchors _pc-enums-check \
+	  _pc-py-fmt _pc-py-typecheck _pc-py-test
 	@echo "Pre-commit checks passed"
 
 ci:
@@ -298,7 +380,8 @@ ci:
 	$(MAKE) -j --output-sync=target \
 	  _ci-cargo-pipeline \
 	  _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check \
-	  _ci-snapshot-anchors _ci-enums-check
+	  _ci-snapshot-anchors _ci-enums-check \
+	  _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test
 	@echo "CI checks passed"
 
 # ---------------------------------------------------------------------------
@@ -362,6 +445,23 @@ _pc-snapshot-anchors: _pc-fmt
 _pc-enums-check: _pc-fmt
 	$(MAKE) enums-check
 
+# Python pre-commit stages. _pc-py-fmt auto-fixes (ruff format +
+# ruff check --fix); the typecheck and test stages are check-only
+# (they cannot reasonably auto-fix). All three gate on _pc-fmt so
+# they run after the cargo fmt stage has stabilised the tree. None
+# share the cargo target/ lock, so they parallelise safely with the
+# clippy/test chain.
+_pc-py-fmt: _pc-fmt
+	@if command -v ruff >/dev/null 2>&1; then \
+	  ruff format $(BCA_PY_DIR) && ruff check --fix $(BCA_PY_DIR); \
+	else echo "ruff not found; skipping _pc-py-fmt"; fi
+
+_pc-py-typecheck: _pc-fmt
+	$(MAKE) py-typecheck
+
+_pc-py-test: _pc-fmt
+	$(MAKE) py-test
+
 # ---------------------------------------------------------------------------
 # CI validation targets (no auto-formatting)
 #
@@ -414,6 +514,20 @@ _ci-snapshot-anchors:
 
 _ci-enums-check:
 	$(MAKE) enums-check
+
+# Python CI stages — check-only versions of the py-* targets.
+# Mirror the _pc-py-* shape but without the auto-fix path.
+_ci-py-fmt-check:
+	$(MAKE) py-fmt-check
+
+_ci-py-lint:
+	$(MAKE) py-lint
+
+_ci-py-typecheck:
+	$(MAKE) py-typecheck
+
+_ci-py-test:
+	$(MAKE) py-test
 
 # Sequential cargo pipeline for local `make ci`. udeps shares the cargo
 # target/ lock with the rest of the pipeline, so it is serialized here

@@ -4,3 +4,20 @@ node = "25.9.0"
 # (PyO3 + maturin). Pinned to a 3.12 series — bindings declare
 # `requires-python = ">=3.12"` in `big-code-analysis-py/pyproject.toml`.
 python = "3.12"
+
+# Python tooling for the big-code-analysis-py bindings (#270). These
+# install into mise's pipx-managed environment under
+# ~/.local/share/mise/installs/pipx-*/. `mise install` from a fresh
+# checkout therefore provisions the full Python lint / type-check /
+# test stack alongside the Rust toolchain. CI does NOT consume these
+# (each job pip-installs its own copy) — they exist so contributors
+# who run `mise install` get a working local gate.
+#
+# Ordering note: mise resolves the `python` tool *before* any pipx:
+# entries, because pipx itself needs a Python interpreter on PATH.
+# Listing python = "3.12" above is therefore load-bearing — do not
+# reorder.
+"pipx:ruff" = "latest"
+"pipx:mypy" = "latest"
+"pipx:pyright" = "latest"
+"pipx:maturin" = "latest"

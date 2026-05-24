@@ -31,7 +31,7 @@ The returned iterator is a genuine generator: lazy and single-use.
 from __future__ import annotations
 
 from collections.abc import Generator, Mapping
-from typing import Any
+from typing import Any, cast
 
 __all__ = ["flatten_spaces"]
 
@@ -116,7 +116,11 @@ def flatten_spaces(
             ``skip_generated=True`` matched a generated file);
             callers must filter ``None`` before flattening.
     """
-    if not isinstance(result, Mapping):
+    # Annotation says ``Mapping[str, Any]``; the runtime check is
+    # defensive (a caller can pass ``analyze()``'s ``None`` return
+    # when ``skip_generated=True`` filters a file, and the error then
+    # surfaces here rather than as an attribute error mid-walk).
+    if not isinstance(result, Mapping):  # pyright: ignore[reportUnnecessaryIsInstance]
         raise TypeError(
             "flatten_spaces requires the dict returned by analyze() / "
             f"analyze_source(); got {type(result).__name__}"
@@ -140,7 +144,7 @@ def _walk(result: Mapping[str, Any]) -> Generator[dict[str, Any], None, None]:
 
         metrics = space.get("metrics")
         if isinstance(metrics, Mapping):
-            _flatten_metrics(metrics, record)
+            _flatten_metrics(cast("Mapping[str, Any]", metrics), record)
         yield record
 
         children = space.get("spaces")
@@ -151,9 +155,11 @@ def _walk(result: Mapping[str, Any]) -> Generator[dict[str, Any], None, None]:
         # hand-built dict that supplied an iterable but not a
         # sequence (set, dict_values) fails at the slicing line with
         # a clearer error rather than mid-iteration.
-        for child in children[::-1]:
-            if isinstance(child, Mapping):
-                stack.append((child, own_name, depth + 1))
+        stack.extend(
+            (cast("Mapping[str, Any]", child), own_name, depth + 1)
+            for child in children[::-1]
+            if isinstance(child, Mapping)
+        )
 
 
 def _flatten_metrics(metrics: Mapping[str, Any], out: dict[str, Any]) -> None:
@@ -193,7 +199,7 @@ def _flatten_metrics(metrics: Mapping[str, Any], out: dict[str, Any]) -> None:
                 continue
             full = f"{prefix}.{key}" if prefix else key
             if isinstance(value, Mapping):
-                children.append(("walk", value, full))
+                children.append(("walk", cast("Mapping[str, Any]", value), full))
             else:
                 children.append(("set", full, value))
         stack.extend(reversed(children))

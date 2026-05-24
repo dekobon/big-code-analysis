@@ -28,9 +28,8 @@ import concurrent.futures
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 import big_code_analysis as bca
+import pytest
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -183,7 +182,7 @@ def test_unknown_metric_raises_with_valid_list_in_message() -> None:
     The error message wording is part of the public contract —
     callers grep it for the valid set when troubleshooting.
     """
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(ValueError, match=r"unknown metric: nope") as exc_info:
         bca.analyze(FIXTURES / "hello.py", metrics=["nope"])
     msg = str(exc_info.value)
     assert "unknown metric: nope" in msg
@@ -312,9 +311,7 @@ def test_batch_validates_metrics_before_iteration() -> None:
 
 def test_batch_threads_selection_to_every_file() -> None:
     """``metrics=`` applies uniformly to every file in the batch."""
-    results = bca.analyze_batch(
-        [FIXTURES / "hello.py", FIXTURES / "hello.rs"], metrics=["loc"]
-    )
+    results = bca.analyze_batch([FIXTURES / "hello.py", FIXTURES / "hello.rs"], metrics=["loc"])
     assert len(results) == 2
     for r in results:
         assert isinstance(r, dict), f"expected dict, got {type(r).__name__}: {r}"
@@ -392,7 +389,7 @@ def test_metrics_kwarg_is_keyword_only() -> None:
     """``analyze(path, metrics)`` (positional) must raise ``TypeError``."""
     with pytest.raises(TypeError):
         # PyO3 enforces the ``/, *`` boundary in the signature.
-        bca.analyze(FIXTURES / "hello.py", ["loc"])  # type: ignore[misc]
+        bca.analyze(FIXTURES / "hello.py", ["loc"])  # type: ignore[misc, arg-type]
 
 
 def test_metrics_tuple_is_accepted() -> None:
@@ -419,7 +416,10 @@ def test_metrics_generator_is_rejected() -> None:
     contract change that should be reflected in the stubs.
     """
     with pytest.raises(TypeError, match=r"Sequence"):
-        bca.analyze(FIXTURES / "hello.py", metrics=(n for n in ["loc"]))
+        # Intentionally passes a generator to verify runtime rejection
+        # of non-Sequence iterables — the stub disallows it at type-
+        # check time, which is exactly what this test depends on.
+        bca.analyze(FIXTURES / "hello.py", metrics=(n for n in ["loc"]))  # type: ignore[arg-type]
 
 
 # ─────────────────────────────────────────────────────────────────

@@ -601,6 +601,16 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Changed
 
+- Python bindings (`big-code-analysis-py`) are now lint-, format-,
+  and type-checked under `ruff`, `mypy --strict`, and `pyright` in
+  `make pre-commit` / `make ci`. Phase 6/9 of
+  [#103](https://github.com/dekobon/big-code-analysis/issues/103);
+  fixes [#270](https://github.com/dekobon/big-code-analysis/issues/270).
+  Linux / macOS / Windows × Python 3.12 / 3.13 CI matrix gated by a
+  `dorny/paths-filter` job so Rust-only PRs are unaffected. Pre-commit
+  hooks pin `ruff-check` + `ruff-format` externally and run `mypy
+  --strict` via a `local` `language: system` hook (pre-commit's
+  isolated venv cannot see the `maturin develop`'d extension).
 - **(breaking, bindings-py)** `bca.language_for_file(path)` now reads
   the file and resolves through `big_code_analysis::guess_language`
   — the same detection pipeline `bca.analyze` uses — so an

@@ -17,11 +17,10 @@ import shutil
 import subprocess
 import tomllib
 from pathlib import Path
-from typing import Any
-
-import pytest
+from typing import Any, cast
 
 import big_code_analysis as bca
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -39,7 +38,9 @@ def _workspace_version() -> str:
     cargo_toml = REPO_ROOT / "Cargo.toml"
     with cargo_toml.open("rb") as fh:
         data = tomllib.load(fh)
-    return data["workspace"]["package"]["version"]
+    version = data["workspace"]["package"]["version"]
+    assert isinstance(version, str)
+    return version
 
 
 def _workspace_target_dir() -> Path:
@@ -246,10 +247,10 @@ def test_analyze_key_order_matches_cli(fixture: str, bca_binary: str) -> None:
     """
     path = FIXTURES / fixture
     py_result = bca.analyze(path)
+    assert py_result is not None
     cli_result = _cli_metrics(bca_binary, path)
     assert list(py_result.keys()) == list(cli_result.keys()), (
-        f"top-level key order diverged: py={list(py_result.keys())} "
-        f"cli={list(cli_result.keys())}"
+        f"top-level key order diverged: py={list(py_result.keys())} cli={list(cli_result.keys())}"
     )
 
 
@@ -271,6 +272,7 @@ def test_analyze_exclude_tests_matches_cli_for_rust_fixture(bca_binary: str) -> 
     """
     path = FIXTURES / "rust_with_tests.rs"
     py_pruned = bca.analyze(path, exclude_tests=True)
+    assert py_pruned is not None
     cli_pruned = _cli_metrics(bca_binary, path, exclude_tests=True)
     assert py_pruned == cli_pruned
 
@@ -284,6 +286,7 @@ def test_analyze_exclude_tests_matches_cli_for_rust_fixture(bca_binary: str) -> 
     # fixture exercises the pruning path rather than a degenerate
     # both-sides-empty agreement.
     py_baseline = bca.analyze(path)
+    assert py_baseline is not None
     assert py_baseline["metrics"]["nom"]["functions"] == 4.0, (
         f"baseline should count prod + helper + 2 tests = 4, got "
         f"functions={py_baseline['metrics']['nom']['functions']!r}"
@@ -323,8 +326,14 @@ def test_analyze_skip_generated_false_parses_generated_file() -> None:
     assert result["kind"] == "unit"
     # The fixture defines `pub fn generated()`; with the marker check
     # bypassed, the parser sees it and emits a child FuncSpace.
-    inner_names = {
-        space.get("name") for space in result["spaces"] if isinstance(space, dict)
+    spaces: list[Any] = result["spaces"]
+    # pyright loses the [str, Any] type parameters when narrowing via
+    # isinstance(s, dict); the ignore acknowledges that the PyO3-
+    # returned dict's value type is genuinely Any.
+    inner_names: set[Any] = {
+        s.get("name")  # pyright: ignore[reportUnknownMemberType]
+        for s in spaces
+        if isinstance(s, dict)
     }
     assert "generated" in inner_names, (
         f"expected `generated` fn in spaces, got names {inner_names!r}"
@@ -399,7 +408,8 @@ def test_analyze_combines_skip_generated_false_with_exclude_tests() -> None:
     # tests` subtree.
     baseline = bca.analyze(path, skip_generated=False, exclude_tests=False)
     pruned = bca.analyze(path, skip_generated=False, exclude_tests=True)
-    assert baseline is not None and pruned is not None
+    assert baseline is not None
+    assert pruned is not None
     # `nom.functions` counts: `prod`, `helper`, `checks_positive`.
     # Pruning the `#[cfg(test)]` mod removes `helper` + `checks_positive`,
     # leaving only `prod`.
@@ -422,12 +432,7 @@ def test_analyze_source_exclude_tests_prunes_rust_tests() -> None:
     stdin form for ``analyze_source`` — but the int counts pin
     the load-bearing behaviour.
     """
-    source = (
-        "fn prod() -> i32 { 1 + 2 }\n"
-        "\n"
-        "#[test]\n"
-        "fn t() { assert_eq!(1 + 1, 2); }\n"
-    )
+    source = "fn prod() -> i32 { 1 + 2 }\n\n#[test]\nfn t() { assert_eq!(1 + 1, 2); }\n"
     baseline = bca.analyze_source(source, "rust")
     pruned = bca.analyze_source(source, "rust", exclude_tests=True)
     assert baseline["metrics"]["nom"]["functions"] == 2.0
@@ -479,7 +484,8 @@ def test_supported_languages_is_non_empty_list_of_strings() -> None:
     assert isinstance(langs, list)
     assert langs, "supported_languages() must return at least one language"
     for lang in langs:
-        assert isinstance(lang, str) and lang
+        assert isinstance(lang, str)
+        assert lang
 
 
 def test_language_extensions_round_trips_to_language_for_file(
@@ -506,9 +512,7 @@ def test_language_extensions_round_trips_to_language_for_file(
             fixture = tmp_path / f"foo.{ext}"
             fixture.write_bytes(b"")
             resolved = bca.language_for_file(fixture)
-            assert resolved == lang, (
-                f".{ext} resolved to {resolved}, expected {lang}"
-            )
+            assert resolved == lang, f".{ext} resolved to {resolved}, expected {lang}"
 
 
 def test_language_for_file_returns_none_for_unknown_extension(
@@ -661,9 +665,8 @@ def test_analyze_allow_lossy_path_mirrors_cli_substitution(
     bogus = tmp_path / str_name
     bogus.write_bytes(b"fn main() {}\n")
     result = bca.analyze(bogus, allow_lossy_path=True)
-    assert "�" in result["name"], (
-        f"expected U+FFFD substitution in name, got {result['name']!r}"
-    )
+    assert result is not None
+    assert "�" in result["name"], f"expected U+FFFD substitution in name, got {result['name']!r}"
     # Sanity: the file still analysed; lossy mode is a name-rendering
     # toggle, not a parser flag.
     assert result["kind"] == "unit"
@@ -674,9 +677,7 @@ def test_analyze_source_rejects_non_text_non_bytes_code() -> None:
     # input falls through to the language resolver (and raises
     # UnsupportedLanguageError, which is also a ValueError subclass)
     # is caught — G7 from the post-#265 code review.
-    with pytest.raises(
-        ValueError, match=r"code must be str, bytes, or bytearray"
-    ):
+    with pytest.raises(ValueError, match=r"code must be str, bytes, or bytearray"):
         bca.analyze_source(12345, "rust")  # type: ignore[arg-type]
 
 
@@ -695,14 +696,24 @@ def test_analyze_source_returns_dict_with_expected_keys() -> None:
     # must carry the populated metric table — checking only the container
     # type would let a regression that returned `spaces: [], metrics: {}`
     # pass silently.
-    assert isinstance(result["spaces"], list) and result["spaces"], (
+    assert isinstance(result["spaces"], list), (
+        f"expected list for spaces, got {type(result['spaces']).__name__}: {result['spaces']!r}"
+    )
+    assert result["spaces"], (
         f"expected at least one child FuncSpace for `fn main`, got {result['spaces']!r}"
     )
-    assert isinstance(result["metrics"], dict) and result["metrics"], (
-        f"expected populated metric table, got {result['metrics']!r}"
+    assert isinstance(result["metrics"], dict), (
+        f"expected dict for metrics, got {type(result['metrics']).__name__}: {result['metrics']!r}"
     )
+    assert result["metrics"], f"expected populated metric table, got {result['metrics']!r}"
+    # ``result["metrics"]`` is ``dict[str, Any]`` from the bindings;
+    # pyright sees it as ``dict[Unknown, Unknown]`` after the index
+    # access. The cast acknowledges the same erasure the previous
+    # block flagged.
+    metrics_dict = cast("dict[str, Any]", result["metrics"])
+    metric_keys: list[str] = list(metrics_dict)
     # Spot-check one canonical metric that every language emits — guards
     # against a future regression where `metrics` carries unrelated keys.
-    assert "cyclomatic" in result["metrics"], (
-        f"expected `cyclomatic` in metrics, got keys {list(result['metrics'])!r}"
+    assert "cyclomatic" in metrics_dict, (
+        f"expected `cyclomatic` in metrics, got keys {metric_keys!r}"
     )

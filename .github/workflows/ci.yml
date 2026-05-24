@@ -27,6 +27,35 @@ env:
   RUSTDOCFLAGS: "-D warnings"
 
 jobs:
+  # Path-filter detection. Outputs `py: true` when the change set
+  # touches the bindings crate, the workflow file itself, mise.toml
+  # (toolchain pins), or the root Cargo.toml / Cargo.lock (PyO3 /
+  # workspace dep bumps must re-run the python-test matrix even on a
+  # Rust-only PR title). On Rust-only PRs the python jobs below are
+  # `skipped`, which satisfies the `ci` aggregator's `needs:` without
+  # being `failure` or `cancelled`.
+  changes:
+    name: detect path changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      py: ${{ steps.filter.outputs.py }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          submodules: false
+      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4
+        id: filter
+        with:
+          filters: |
+            py:
+              - 'big-code-analysis-py/**'
+              - '.github/workflows/ci.yml'
+              - 'mise.toml'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+
   fmt:
     name: rustfmt
     runs-on: ubuntu-latest
@@ -287,6 +316,145 @@ jobs:
           fi
           echo "PASS: enums-check correctly rejected the injected warning"
 
+  # Python bindings — lint + type-check. Single Linux job; the heavier
+  # cross-platform matrix lives in `python-test` below. Both jobs are
+  # gated by `needs.changes.outputs.py == 'true'` so Rust-only PRs skip
+  # them entirely (verified by the `ci` aggregator job's tolerance for
+  # `skipped` results).
+  python-lint:
+    name: python-lint
+    needs: changes
+    if: needs.changes.outputs.py == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          # Keep the python jobs on their own cache key so they don't
+          # blow out the Rust matrix's cache budget.
+          shared-key: "python-bindings"
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Create venv + install Python toolchain
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install --upgrade pip
+          pip install "ruff>=0.6,<0.16" "mypy>=1.10" "pyright>=1.1.380" \
+                      "maturin>=1.7,<2.0" "pytest>=8.0"
+      # maturin develop must precede mypy / pyright so the _native
+      # extension is resolvable from the venv. Both type checkers
+      # treat the .pyi stub as authoritative, but they still need to
+      # import the package without ModuleNotFoundError.
+      - name: maturin develop
+        working-directory: big-code-analysis-py
+        run: |
+          source ../.venv/bin/activate
+          maturin develop --release
+      - name: ruff format --check
+        run: |
+          source .venv/bin/activate
+          ruff format --check big-code-analysis-py
+      - name: ruff check
+        run: |
+          source .venv/bin/activate
+          ruff check big-code-analysis-py
+      - name: mypy --strict
+        working-directory: big-code-analysis-py
+        run: |
+          source ../.venv/bin/activate
+          mypy --strict python tests
+      - name: pyright
+        working-directory: big-code-analysis-py
+        run: |
+          source ../.venv/bin/activate
+          pyright
+
+  # Python bindings — wheel build + pytest, Linux/macOS/Windows
+  # × Python 3.12/3.13. The cargo `test` job already builds the
+  # bindings crate's Rust side; this job is *additive*, verifying that
+  # the maturin-produced wheel actually loads under CPython on each
+  # platform (which cargo cannot do).
+  python-test:
+    name: python-test (${{ matrix.os }}, py${{ matrix.python }})
+    needs: changes
+    if: needs.changes.outputs.py == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          # Per-matrix-leg cache key so Linux / macOS / Windows do not
+          # trample each other's target/ directories.
+          shared-key: "python-bindings-${{ matrix.os }}-${{ matrix.python }}"
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ matrix.python }}
+          cache: "pip"
+      # Cross-platform venv: bash on Linux/macOS, PowerShell on Windows.
+      # `python -m venv` keeps the dep surface at zero outside
+      # setup-python.
+      - name: Create venv + install deps (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install "maturin>=1.7,<2.0" "pytest>=8.0"
+      - name: Create venv + install deps (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          .venv\Scripts\python.exe -m pip install --upgrade pip
+          .venv\Scripts\python.exe -m pip install "maturin>=1.7,<2.0" "pytest>=8.0"
+      - name: maturin develop (Unix)
+        if: runner.os != 'Windows'
+        working-directory: big-code-analysis-py
+        run: |
+          source ../.venv/bin/activate
+          maturin develop --release
+      - name: maturin develop (Windows)
+        if: runner.os == 'Windows'
+        working-directory: big-code-analysis-py
+        shell: pwsh
+        run: |
+          ..\.venv\Scripts\Activate.ps1
+          maturin develop --release
+      - name: pytest (Unix)
+        if: runner.os != 'Windows'
+        working-directory: big-code-analysis-py
+        run: |
+          source ../.venv/bin/activate
+          python -m pytest
+      - name: pytest (Windows)
+        if: runner.os == 'Windows'
+        working-directory: big-code-analysis-py
+        shell: pwsh
+        run: |
+          ..\.venv\Scripts\Activate.ps1
+          python -m pytest
+
   manpage:
     name: man pages up to date
     runs-on: ubuntu-latest
@@ -326,6 +494,8 @@ jobs:
       - license-audit
       - lint
       - manpage
+      - python-lint
+      - python-test
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

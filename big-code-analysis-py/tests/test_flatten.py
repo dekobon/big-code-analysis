@@ -19,9 +19,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 import big_code_analysis as bca
+import pytest
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -149,8 +148,7 @@ def test_record_values_are_scalars() -> None:
         for record in bca.flatten_spaces(result):
             for key, value in record.items():
                 assert isinstance(value, scalar_types), (
-                    f"non-scalar value at {fixture}::{key} → "
-                    f"{type(value).__name__}"
+                    f"non-scalar value at {fixture}::{key} → {type(value).__name__}"
                 )
 
 
@@ -217,7 +215,7 @@ def test_iterator_is_actually_lazy_not_pre_materialized() -> None:
     assert first["kind"] == "unit"
     # Lazy: only the root's fields are visited before the first
     # yield. A pre-materialising walker would have visited every
-    # child by now (≈ width × 7 lookups).
+    # child by now (~ width x 7 lookups).
     assert after_first < 100, (
         f"first yield touched {after_first} dict lookups — generator "
         "appears to pre-materialize children"
@@ -254,9 +252,7 @@ def test_round_trip_kind_name_lines_java() -> None:
     assert actual == expected
 
 
-@pytest.mark.parametrize(
-    "fixture", ["hello.py", "hello.rs", "Hello.java", "hello.cpp"]
-)
+@pytest.mark.parametrize("fixture", ["hello.py", "hello.rs", "Hello.java", "hello.cpp"])
 def test_record_count_matches_total_descendants(fixture: str) -> None:
     """Every node in the input tree is yielded exactly once."""
     result = bca.analyze(FIXTURES / fixture)
@@ -265,9 +261,7 @@ def test_record_count_matches_total_descendants(fixture: str) -> None:
     assert len(records) == _count_descendants(result)
 
 
-@pytest.mark.parametrize(
-    "fixture", ["hello.py", "hello.rs", "Hello.java", "hello.cpp"]
-)
+@pytest.mark.parametrize("fixture", ["hello.py", "hello.rs", "Hello.java", "hello.cpp"])
 def test_path_field_propagated_to_every_record(fixture: str) -> None:
     """For file-based ``analyze``, every flat record carries the
     same ``path`` (= the analyzed file)."""
@@ -294,7 +288,7 @@ def test_deep_nesting_does_not_blow_recursion_limit() -> None:
         "spaces": [],
         "metrics": {},
     }
-    node = leaf
+    node: dict[str, Any] = leaf
     for i in range(depth - 1):
         node = {
             "name": f"n{i}",
@@ -372,9 +366,7 @@ def test_deep_metric_nesting_does_not_blow_recursion_limit() -> None:
         sys.setrecursionlimit(original_limit)
 
     # The single deep-nested leaf flattens to one dotted key.
-    expected_key = ".".join(
-        [f"m{i}" for i in range(metric_depth - 1, -1, -1)] + ["leaf"]
-    )
+    expected_key = ".".join([f"m{i}" for i in range(metric_depth - 1, -1, -1)] + ["leaf"])
     assert record[expected_key] == 1.0
 
 
@@ -450,8 +442,7 @@ def test_non_mapping_metrics_value_is_silently_skipped() -> None:
         assert record["kind"] == "unit"
         metric_keys = [k for k in record if "." in k]
         assert metric_keys == [], (
-            f"expected no metric keys for metrics={bad_metrics!r}, "
-            f"got {metric_keys}"
+            f"expected no metric keys for metrics={bad_metrics!r}, got {metric_keys}"
         )
 
 
