@@ -88,7 +88,15 @@ repos:
         name: py-mypy
         language: system
         files: '^big-code-analysis-py/.*\.py$'
-        entry: bash -c 'cd big-code-analysis-py && mypy --strict python tests'
+        # Use --config-file + absolute-ish paths so the invocation is
+        # cross-platform — `bash -c "cd X && ..."` fails on native
+        # Windows pre-commit (no bash on cmd/PowerShell PATH).
+        entry: mypy
+        args:
+          - --strict
+          - --config-file=big-code-analysis-py/pyproject.toml
+          - big-code-analysis-py/python
+          - big-code-analysis-py/tests
         pass_filenames: false
 
 default_language_version:

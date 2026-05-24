@@ -16,6 +16,7 @@ import os
 import shutil
 import subprocess
 import tomllib
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, cast
 
@@ -327,13 +328,16 @@ def test_analyze_skip_generated_false_parses_generated_file() -> None:
     # The fixture defines `pub fn generated()`; with the marker check
     # bypassed, the parser sees it and emits a child FuncSpace.
     spaces: list[Any] = result["spaces"]
-    # pyright loses the [str, Any] type parameters when narrowing via
-    # isinstance(s, dict); the ignore acknowledges that the PyO3-
-    # returned dict's value type is genuinely Any.
+    # Match _flatten.py's defensive `isinstance(child, Mapping)` guard
+    # rather than a tighter `isinstance(s, dict)` — if a future PyO3
+    # change emits e.g. MappingProxyType instead of dict, the test
+    # should still observe the children rather than silently dropping
+    # them. The pyright ignore acknowledges that the PyO3-returned
+    # mapping's value type is genuinely Any.
     inner_names: set[Any] = {
         s.get("name")  # pyright: ignore[reportUnknownMemberType]
         for s in spaces
-        if isinstance(s, dict)
+        if isinstance(s, Mapping)
     }
     assert "generated" in inner_names, (
         f"expected `generated` fn in spaces, got names {inner_names!r}"

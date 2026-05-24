@@ -79,7 +79,16 @@ plus `pyright` for type checking. `make pre-commit` and `make ci`
 run these alongside the Rust gates when the tools are on `$PATH`. Install
 them via `mise install` (recommended — picks up the `pipx:ruff`,
 `pipx:mypy`, `pipx:pyright`, `pipx:maturin` entries in `mise.toml`)
-or `pipx install ruff mypy pyright maturin`.
+or via individual `pipx` invocations:
+
+```bash
+pipx install ruff
+pipx install mypy
+pipx install pyright
+pipx install maturin
+```
+
+(`pipx install` accepts one package per call — chain them as shown.)
 
 For local Python tests:
 

@@ -86,12 +86,6 @@ extend-select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "PERF", "PT"]
 parametrize-names-type = "tuple"
 parametrize-values-type = "list"
 
-[tool.ruff.lint.per-file-ignores]
-# Tests legitimately assert against magic numbers
-# (`assert len(records) == 7`). Production code must not need this
-# ignore.
-"tests/**/*.py" = ["PLR2004"]
-
 [tool.ruff.format]
 quote-style = "double"
 docstring-code-format = true

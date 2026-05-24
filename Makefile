@@ -15,10 +15,12 @@ MAKEFLAGS      += --no-builtin-rules
 # Directory path of Makefile
 BASE_DIR       := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
-# Path to the Python bindings crate. Targets under "Python tooling"
-# below reference this; the trailing slash from BASE_DIR survives, so
-# ruff / mypy / pyright / maturin see the same directory whether
-# invoked from the repo root or from a nested working directory.
+# Path to the Python bindings crate. Absolute path so the recipes
+# below resolve correctly even when Make is invoked from a nested
+# directory. BASE_DIR ends in a trailing slash (from $(dir ...))
+# which absorbs into the concatenation; BCA_PY_DIR has no trailing
+# slash and that's intended (matches how cargo / maturin invocations
+# read it).
 BCA_PY_DIR     := $(BASE_DIR)big-code-analysis-py
 
 # Directories excluded from linting and file-search operations.
@@ -300,8 +302,10 @@ py-typecheck:
 # wheel-build step truncates target/maturin/libbig_code_analysis_py.so
 # before cargo decides "no rebuild needed" and skips the relink). The
 # defensive `find ... -delete` forces cargo to relink each time. This
-# is roughly free (~50ms) and prevents the failure mode entirely. Same
-# guard appears in CI's python-test job for the same reason.
+# is roughly free (~50ms) and prevents the failure mode entirely. CI
+# does NOT need this guard because each CI job starts from a fresh
+# checkout (target/ is restored from cache but the .so is rebuilt on
+# every job invocation, not repeated within a single job).
 py-test:
 	@if command -v maturin >/dev/null 2>&1; then \
 	  echo "Building extension + running pytest..."; \

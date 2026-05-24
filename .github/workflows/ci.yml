@@ -52,6 +52,8 @@ jobs:
             py:
               - 'big-code-analysis-py/**'
               - '.github/workflows/ci.yml'
+              - '.pre-commit-config.yaml'
+              - 'Makefile'
               - 'mise.toml'
               - 'Cargo.toml'
               - 'Cargo.lock'
@@ -328,23 +330,41 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      # The bindings tests use the local fixtures under
+      # big-code-analysis-py/tests/fixtures/, not the
+      # big-code-analysis-output submodule (that's the Rust integration
+      # snapshot store). Skip recursive submodules to avoid pulling
+      # ~hundreds of MB of unused fixtures and to avoid blocking on a
+      # missing/force-pushed submodule SHA.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 1
-          submodules: recursive
+          submodules: false
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
-          # Keep the python jobs on their own cache key so they don't
-          # blow out the Rust matrix's cache budget.
-          shared-key: "python-bindings"
+          # Share the cache key with the ubuntu-latest/py3.12 leg of
+          # the python-test matrix below — both jobs build the same
+          # bindings crate against the same toolchain on the same OS,
+          # so a populated target/ from one job warms the other.
+          shared-key: "python-bindings-ubuntu-latest-3.12"
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.12"
           cache: "pip"
+      # Create the venv inside big-code-analysis-py/ to match
+      # pyrightconfig.json's venvPath="." + venv=".venv" pair (relative
+      # to pyrightconfig.json's location). A repo-root venv would leave
+      # pyright unable to resolve the maturin-built _native module.
+      # Tool versions: keep these bounds in lockstep with
+      # big-code-analysis-py/pyproject.toml's [project.optional-dependencies].dev
+      # and with the ruff-pre-commit `rev:` in .pre-commit-config.yaml.
+      # Drift between the three is silent and breaks the local-CI parity
+      # guarantee of `make pre-commit` vs this job.
       - name: Create venv + install Python toolchain
+        working-directory: big-code-analysis-py
         run: |
           python -m venv .venv
           source .venv/bin/activate
@@ -354,29 +374,34 @@ jobs:
       # maturin develop must precede mypy / pyright so the _native
       # extension is resolvable from the venv. Both type checkers
       # treat the .pyi stub as authoritative, but they still need to
-      # import the package without ModuleNotFoundError.
+      # import the package without ModuleNotFoundError. Use the
+      # default (debug) profile to match the local `make py-typecheck`
+      # / `make py-test` invocations — local-CI parity matters more
+      # than build speed at the lint job (debug is faster anyway).
       - name: maturin develop
         working-directory: big-code-analysis-py
         run: |
-          source ../.venv/bin/activate
-          maturin develop --release
+          source .venv/bin/activate
+          maturin develop
       - name: ruff format --check
+        working-directory: big-code-analysis-py
         run: |
           source .venv/bin/activate
-          ruff format --check big-code-analysis-py
+          ruff format --check .
       - name: ruff check
+        working-directory: big-code-analysis-py
         run: |
           source .venv/bin/activate
-          ruff check big-code-analysis-py
+          ruff check .
       - name: mypy --strict
         working-directory: big-code-analysis-py
         run: |
-          source ../.venv/bin/activate
+          source .venv/bin/activate
           mypy --strict python tests
       - name: pyright
         working-directory: big-code-analysis-py
         run: |
-          source ../.venv/bin/activate
+          source .venv/bin/activate
           pyright
 
   # Python bindings — wheel build + pytest, Linux/macOS/Windows
@@ -396,63 +421,76 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
         python: ["3.12", "3.13"]
     steps:
+      # Submodules unnecessary — bindings tests use the local fixtures
+      # at big-code-analysis-py/tests/fixtures/. The
+      # big-code-analysis-output submodule is for Rust integration
+      # snapshots and would otherwise gate this matrix on its
+      # availability.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 1
-          submodules: recursive
+          submodules: false
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           # Per-matrix-leg cache key so Linux / macOS / Windows do not
-          # trample each other's target/ directories.
+          # trample each other's target/ directories. The
+          # ubuntu-latest+3.12 leg shares its key with python-lint so
+          # they reuse each other's build artifacts.
           shared-key: "python-bindings-${{ matrix.os }}-${{ matrix.python }}"
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: ${{ matrix.python }}
           cache: "pip"
-      # Cross-platform venv: bash on Linux/macOS, PowerShell on Windows.
-      # `python -m venv` keeps the dep surface at zero outside
-      # setup-python.
+      # Cross-platform venv inside big-code-analysis-py/ (matches
+      # pyrightconfig.json + the python-lint job + the local Makefile
+      # convention). bash on Linux/macOS, PowerShell on Windows.
       - name: Create venv + install deps (Unix)
         if: runner.os != 'Windows'
+        working-directory: big-code-analysis-py
         run: |
           python -m venv .venv
           .venv/bin/pip install --upgrade pip
           .venv/bin/pip install "maturin>=1.7,<2.0" "pytest>=8.0"
       - name: Create venv + install deps (Windows)
         if: runner.os == 'Windows'
+        working-directory: big-code-analysis-py
         shell: pwsh
         run: |
           python -m venv .venv
           .venv\Scripts\python.exe -m pip install --upgrade pip
           .venv\Scripts\python.exe -m pip install "maturin>=1.7,<2.0" "pytest>=8.0"
+      # maturin develop uses the default (debug) profile to match the
+      # local `make py-test` recipe — same .so layout end-to-end, so
+      # local-CI parity issues surface in CI rather than only on a
+      # contributor's machine.
       - name: maturin develop (Unix)
         if: runner.os != 'Windows'
         working-directory: big-code-analysis-py
         run: |
-          source ../.venv/bin/activate
-          maturin develop --release
+          source .venv/bin/activate
+          maturin develop
       - name: maturin develop (Windows)
         if: runner.os == 'Windows'
         working-directory: big-code-analysis-py
         shell: pwsh
         run: |
-          ..\.venv\Scripts\Activate.ps1
-          maturin develop --release
+          .venv\Scripts\Activate.ps1
+          maturin develop
       - name: pytest (Unix)
         if: runner.os != 'Windows'
         working-directory: big-code-analysis-py
         run: |
-          source ../.venv/bin/activate
+          source .venv/bin/activate
           python -m pytest
       - name: pytest (Windows)
         if: runner.os == 'Windows'
         working-directory: big-code-analysis-py
         shell: pwsh
         run: |
-          ..\.venv\Scripts\Activate.ps1
+          .venv\Scripts\Activate.ps1
           python -m pytest
 
   manpage:
@@ -484,6 +522,7 @@ jobs:
     name: ci
     if: always()
     needs:
+      - changes
       - fmt
       - clippy
       - docs
