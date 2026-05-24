@@ -85,6 +85,43 @@ impl Metric {
             _ => &[],
         }
     }
+
+    /// Canonical user-facing name for each metric — the single
+    /// source of truth shared by the Python bindings'
+    /// `bca.METRIC_NAMES` constant, the `unknown metric: <bad>;
+    /// valid: …` error message, and any downstream Rust consumer
+    /// that parses user input into a [`MetricSet`].
+    ///
+    /// Each entry round-trips through [`<Metric as
+    /// std::str::FromStr>::from_str`]. The table uses the
+    /// JSON-output-key spelling for [`Metric::Exit`] (`"nexits"`,
+    /// matching the `CodeMetrics::Serialize` impl in
+    /// `src/spaces.rs`) rather than the [`fmt::Display`] spelling
+    /// (`"exit"`); both parse to [`Metric::Exit`] via the alias
+    /// arm in `FromStr`, but the canonical spelling exposed here
+    /// is the JSON one so callers see the same name in
+    /// `Metric::NAMES`, in the output dict, and in error
+    /// messages.
+    ///
+    /// Alphabetised. The drift between this table and the
+    /// `FromStr` arms (or the `Metric` enum itself) is guarded by
+    /// `names_table_parses_to_every_variant` and
+    /// `names_table_is_alphabetised` in the test module below.
+    pub const NAMES: &'static [&'static str] = &[
+        "abc",
+        "cognitive",
+        "cyclomatic",
+        "halstead",
+        "loc",
+        "mi",
+        "nargs",
+        "nexits",
+        "nom",
+        "npa",
+        "npm",
+        "tokens",
+        "wmc",
+    ];
 }
 
 impl fmt::Display for Metric {
@@ -120,14 +157,6 @@ impl fmt::Display for Metric {
 /// message however it wants.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseMetricError(String);
-
-impl ParseMetricError {
-    /// Returns the offending input string.
-    #[must_use]
-    pub fn input(&self) -> &str {
-        &self.0
-    }
-}
 
 impl fmt::Display for ParseMetricError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -422,15 +451,54 @@ mod tests {
     #[test]
     fn from_str_rejects_uppercase() {
         let err = "Loc".parse::<Metric>().unwrap_err();
-        assert_eq!(err.input(), "Loc");
-        assert!(err.to_string().contains("Loc"));
+        assert_eq!(err.to_string(), "unknown metric: Loc");
+    }
+
+    // Drift guard: every entry in `Metric::NAMES` must parse via
+    // `FromStr`, and every variant must have at least one entry
+    // in the table that parses to it (the `"exit"`/`"nexits"`
+    // alias means `Exit` is reached via the canonical `"nexits"`
+    // spelling, not via the Display arm). Adding a `Metric`
+    // variant without a `NAMES` entry — or vice versa — fails
+    // here before any pytest run.
+    #[test]
+    fn names_table_parses_to_every_variant() {
+        use std::collections::HashSet;
+        let mut seen: HashSet<Metric> = HashSet::new();
+        for name in Metric::NAMES {
+            let parsed = name.parse::<Metric>().unwrap_or_else(|_| {
+                panic!("Metric::NAMES contains {name:?} but FromStr rejects it")
+            });
+            seen.insert(parsed);
+        }
+        for &m in ALL_VARIANTS {
+            assert!(
+                seen.contains(&m),
+                "Metric::{m:?} is not represented in Metric::NAMES; \
+                 add the canonical spelling to the table",
+            );
+        }
+    }
+
+    // The error-message `valid: <list>` and the public
+    // `bca.METRIC_NAMES` tuple both surface this slice verbatim;
+    // pinning the alphabetised invariant catches accidental
+    // re-orderings on `cargo test`.
+    #[test]
+    fn names_table_is_alphabetised() {
+        let mut sorted: Vec<&str> = Metric::NAMES.to_vec();
+        sorted.sort_unstable();
+        assert_eq!(
+            Metric::NAMES,
+            sorted.as_slice(),
+            "Metric::NAMES must stay alphabetised",
+        );
     }
 
     #[test]
     fn from_str_rejects_unknown_name() {
         let err = "bogus".parse::<Metric>().unwrap_err();
-        assert_eq!(err.input(), "bogus");
-        assert!(err.to_string().contains("bogus"));
+        assert_eq!(err.to_string(), "unknown metric: bogus");
     }
 
     #[test]
