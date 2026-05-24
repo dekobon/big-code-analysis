@@ -187,7 +187,7 @@ pub use crate::error::MetricsError;
 
 // --- Metric selection ---
 mod metric_set;
-pub use crate::metric_set::{Metric, MetricSet};
+pub use crate::metric_set::{Metric, MetricSet, ParseMetricError};
 
 // --- Suppression markers ---
 mod suppression;

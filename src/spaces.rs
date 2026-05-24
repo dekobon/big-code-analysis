@@ -1258,6 +1258,29 @@ impl MetricsOptions {
         self.metrics = MetricSet::from_slice_with_deps(metrics);
         self
     }
+
+    /// Restrict computation to an already-resolved [`MetricSet`].
+    ///
+    /// Equivalent to [`MetricsOptions::with_only`] but consumes a
+    /// pre-built set, skipping the slice→set conversion. Useful when
+    /// the caller has already run [`MetricSet::from_slice_with_deps`]
+    /// (e.g. when parsing user input through `FromStr for Metric` in
+    /// the Python bindings) and just wants to attach the result.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use big_code_analysis::{Metric, MetricSet, MetricsOptions};
+    ///
+    /// let set = MetricSet::from_slice_with_deps(&[Metric::Loc, Metric::Cyclomatic]);
+    /// let _opts = MetricsOptions::default().with_metric_set(set);
+    /// ```
+    #[inline]
+    #[must_use]
+    pub fn with_metric_set(mut self, metrics: MetricSet) -> Self {
+        self.metrics = metrics;
+        self
+    }
 }
 
 /// Configuration options for computing the metrics of a code.

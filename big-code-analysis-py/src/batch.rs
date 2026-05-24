@@ -319,12 +319,16 @@ const _: fn() = || {
 /// preserves order one-to-one, so callers can `zip(inputs, results)`
 /// without losing the pairing.
 ///
-/// `metrics=` is reserved for the metric-selection work in issue
-/// #268 — it is validated here (an empty list raises `ValueError`
-/// because that is a programmer error, not a per-file failure) but
-/// the value is not yet forwarded into the analysis. The kwarg lives
-/// on the Python signature today so adding `MetricSet` plumbing in
-/// the follow-up phase does not change the function's call shape.
+/// `metrics=` selects which metrics to compute (#268). `None` (the
+/// default) preserves the full suite; an empty list raises
+/// `ValueError("provide at least one metric, or omit the argument")`
+/// and an unknown name raises `ValueError("unknown metric: <bad>;
+/// valid: …")` listing every entry in `bca.METRIC_NAMES`. The
+/// validation runs **before** `paths.try_iter()`, so a bad selection
+/// aborts without inspecting any input path — a generator's stateful
+/// `__iter__` is never invoked. Metrics outside the selected set are
+/// absent (not `None`) from the resulting dicts; selecting a derived
+/// metric (`"mi"`, `"wmc"`) implicitly pulls in its dependencies.
 ///
 /// Batch always runs with `skip_generated=false` so that every input
 /// position produces either a `dict` or an `AnalysisError`. The
@@ -344,19 +348,11 @@ pub(crate) fn analyze_batch<'py>(
     paths: &Bound<'py, PyAny>,
     metrics: Option<Vec<String>>,
 ) -> PyResult<Vec<Py<PyAny>>> {
-    if let Some(ref m) = metrics
-        && m.is_empty()
-    {
-        // Reject the empty-list case up front so the error surface
-        // matches the issue contract: a *missing* selection (`None`,
-        // the default) is fine; an *explicit but empty* selection is
-        // a programmer error. The wording mentions the eventual
-        // `metrics=` semantics so callers chasing the message find
-        // their way to phase 4 (#268) once it lands.
-        return Err(PyValueError::new_err(
-            "metrics= must be None or a non-empty list of metric names",
-        ));
-    }
+    // Resolve `metrics=` *before* `paths.try_iter()` so a bad name
+    // (empty list, unknown metric) aborts before any iteration side
+    // effects — generators with stateful `__iter__` would otherwise
+    // observe a half-step. Issue #268 pins this ordering.
+    let metric_set = crate::resolve_metric_set(metrics)?;
 
     let iter = paths.try_iter()?;
     let opts = AnalyzeOptions {
@@ -365,6 +361,7 @@ pub(crate) fn analyze_batch<'py>(
         // Batch processes every readable file: see the module-level
         // discussion above.
         skip_generated: false,
+        metrics: metric_set,
     };
 
     // Use `__len__` (Python's `len()` builtin, which is what PyO3's

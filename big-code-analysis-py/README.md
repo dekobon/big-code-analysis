@@ -81,6 +81,52 @@ assert "python" in bca.supported_languages()
 assert "py" in bca.language_extensions("python")
 ```
 
+## Selecting metrics
+
+Pass `metrics=[…]` to compute only a subset of the metric suite.
+`metrics=None` (the default) preserves today's "compute everything"
+behaviour. Unrequested metrics are **absent** from the result dict
+(not present with `None` placeholders).
+
+```python
+import big_code_analysis as bca
+
+# Compute only LoC and cyclomatic complexity.
+result = bca.analyze("src/main.rs", metrics=["loc", "cyclomatic"])
+assert result is not None
+assert set(result["metrics"]) == {"loc", "cyclomatic"}
+
+# Selecting a derived metric pulls its dependencies in automatically:
+# `metrics=["mi"]` also computes loc, cyclomatic, and halstead.
+mi_result = bca.analyze("src/main.rs", metrics=["mi"])
+assert mi_result is not None
+assert {"loc", "cyclomatic", "halstead", "mi"}.issubset(mi_result["metrics"])
+
+# `bca.METRIC_NAMES` is a `tuple[str, ...]` enumerating every
+# canonical name accepted by `metrics=` (alphabetised, lowercase).
+assert "halstead" in bca.METRIC_NAMES
+```
+
+The same kwarg is honoured by `bca.analyze_source` and
+`bca.analyze_batch` — the latter applies the selection uniformly to
+every file in the batch. Validation runs *before* any file I/O: an
+empty list or unknown name raises `ValueError` immediately and never
+returns an `AnalysisError` slot for what is really a caller bug.
+
+```python
+# Compute only `cyclomatic` and `cognitive` across a batch.
+results = bca.analyze_batch(
+    ["src/a.py", "src/b.rs"],
+    metrics=["cyclomatic", "cognitive"],
+)
+```
+
+Names are case-sensitive lowercase; passing an unknown name raises
+`ValueError` with the canonical list in the error message. The
+`"exit"` Metric-Display spelling is accepted as an alias for the
+canonical JSON-key spelling `"nexits"`; both produce a `"nexits"`
+key in the output. Duplicates are silently collapsed.
+
 ## Batch processing
 
 `bca.analyze_batch(paths)` runs the same analysis as `bca.analyze`
@@ -126,10 +172,12 @@ subclass — `analyze_batch` returns it, never raises it.
 
 `analyze_batch` only raises on **programmer** errors: `TypeError`
 for a non-iterable `paths` argument (or a non-path element
-inside), `ValueError` for an explicitly empty `metrics=` list.
-The `metrics=` kwarg is accepted today (and validated) but the
-selection itself lands in a later phase; passing `None` (the
-default) is the supported choice for now.
+inside), and `ValueError` for an empty `metrics=` list or an
+unknown metric name. The `metrics=` selection (see
+[Selecting metrics](#selecting-metrics) above) applies uniformly
+to every file in the batch; validation runs **before** the input
+iterable's `__iter__` so a bad selection aborts without invoking
+any side effects.
 
 Generators work — paths are consumed lazily. There is no
 built-in parallelism; the recommended pattern is

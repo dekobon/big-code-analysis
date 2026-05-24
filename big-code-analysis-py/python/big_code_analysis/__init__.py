@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from ._flatten import flatten_spaces
 from ._native import (
+    METRIC_NAMES,
     AnalysisError,
     ParseError,
     UnsupportedLanguageError,
@@ -26,6 +27,7 @@ from ._native import (
 )
 
 __all__ = [
+    "METRIC_NAMES",
     "AnalysisError",
     "ParseError",
     "UnsupportedLanguageError",

@@ -108,6 +108,65 @@ impl fmt::Display for Metric {
     }
 }
 
+/// Error returned by [`<Metric as FromStr>::from_str`] when the input
+/// is not a recognised metric name.
+///
+/// Holds the offending input verbatim. Downstream consumers that own
+/// the canonical name table (e.g. the `bca` Python bindings'
+/// `METRIC_NAMES` constant) typically compose this with a
+/// `valid: <list>` suffix from their own source of truth; this type
+/// deliberately stays out of that policy and only carries the
+/// rejected input so the wrapper layer can format the user-facing
+/// message however it wants.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseMetricError(String);
+
+impl ParseMetricError {
+    /// Returns the offending input string.
+    #[must_use]
+    pub fn input(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for ParseMetricError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "unknown metric: {}", self.0)
+    }
+}
+
+impl std::error::Error for ParseMetricError {}
+
+impl std::str::FromStr for Metric {
+    type Err = ParseMetricError;
+
+    /// Parse a [`Metric`] from its [`fmt::Display`] spelling.
+    ///
+    /// Strict lowercase: `"Loc"` is rejected. The single alias is
+    /// `"nexits"`, which parses to [`Metric::Exit`] — this matches
+    /// the JSON output key the metric's `Stats` serialises under,
+    /// so downstream consumers can use either the enum-Display
+    /// spelling or the JSON-key spelling interchangeably.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "cognitive" => Ok(Self::Cognitive),
+            "cyclomatic" => Ok(Self::Cyclomatic),
+            "halstead" => Ok(Self::Halstead),
+            "loc" => Ok(Self::Loc),
+            "nom" => Ok(Self::Nom),
+            "tokens" => Ok(Self::Tokens),
+            "nargs" => Ok(Self::NArgs),
+            "exit" | "nexits" => Ok(Self::Exit),
+            "abc" => Ok(Self::Abc),
+            "npm" => Ok(Self::Npm),
+            "npa" => Ok(Self::Npa),
+            "mi" => Ok(Self::Mi),
+            "wmc" => Ok(Self::Wmc),
+            _ => Err(ParseMetricError(s.to_owned())),
+        }
+    }
+}
+
 /// Bitfield of selected metrics.
 ///
 /// Stored on [`MetricsOptions`](crate::MetricsOptions) (controls
@@ -181,17 +240,27 @@ impl MetricSet {
         self.0 |= metric.bit();
     }
 
-    // Build a `MetricSet` from a slice, auto-adding the transitive
-    // dependencies of each selected metric. This is the workhorse
-    // behind `MetricsOptions::with_only` — the caller-facing builder
-    // enforces the full dependency closure so a request for `Mi`
-    // alone still computes `Loc + Cyclomatic + Halstead`. We use a
-    // worklist (rather than a single pass) so a future derived metric
-    // whose dependency is itself derived still resolves the complete
-    // closure. The loop terminates because each iteration either
-    // inserts a new bit or the worklist drains; the bitfield is
-    // bounded at `Metric` variant count.
-    pub(crate) fn from_slice_with_deps(metrics: &[Metric]) -> Self {
+    /// Build a `MetricSet` from a slice, auto-adding the transitive
+    /// dependencies of each selected metric.
+    ///
+    /// This is the workhorse behind
+    /// [`MetricsOptions::with_only`](crate::MetricsOptions::with_only):
+    /// the caller-facing builder enforces the full dependency closure
+    /// so a request for `Mi` alone still computes
+    /// `Loc + Cyclomatic + Halstead`. Exposed `pub` because
+    /// downstream consumers (notably the `bca` Python bindings'
+    /// `parse_metric_names` helper) parse user input into a
+    /// `Vec<Metric>` and need the same closure-resolution semantics
+    /// without re-implementing the worklist.
+    ///
+    /// Implementation note: uses a worklist rather than a single pass
+    /// so a future derived metric whose dependency is itself derived
+    /// still resolves the complete closure. The loop terminates
+    /// because each iteration either inserts a new bit or the
+    /// worklist drains; the bitfield is bounded at `Metric` variant
+    /// count.
+    #[must_use]
+    pub fn from_slice_with_deps(metrics: &[Metric]) -> Self {
         let mut set = Self::empty();
         let mut worklist: Vec<Metric> = metrics.to_vec();
         while let Some(m) = worklist.pop() {
@@ -304,6 +373,64 @@ mod tests {
     #[test]
     fn empty_slice_yields_empty_set() {
         assert_eq!(MetricSet::from_slice_with_deps(&[]), MetricSet::empty());
+    }
+
+    /// Every `Metric` variant. Tests that need to walk the enum
+    /// exhaustively reach for this constant so a newly-added variant
+    /// surfaces as a compile error here (the wildcard in the
+    /// initialiser would not catch a missed `match` arm in
+    /// [`fmt::Display`] or [`std::str::FromStr`]).
+    const ALL_VARIANTS: &[Metric] = &[
+        Metric::Cognitive,
+        Metric::Cyclomatic,
+        Metric::Halstead,
+        Metric::Loc,
+        Metric::Nom,
+        Metric::Tokens,
+        Metric::NArgs,
+        Metric::Exit,
+        Metric::Abc,
+        Metric::Npm,
+        Metric::Npa,
+        Metric::Mi,
+        Metric::Wmc,
+    ];
+
+    #[test]
+    fn from_str_round_trips_every_variant_display_name() {
+        // Reverting any single arm in `impl FromStr for Metric`
+        // makes this fail on exactly that variant — the test is
+        // load-bearing per `.claude/rules/testing.md`.
+        for &m in ALL_VARIANTS {
+            let parsed: Metric = m
+                .to_string()
+                .parse()
+                .unwrap_or_else(|e| panic!("Display->FromStr round-trip failed for {m}: {e}"));
+            assert_eq!(parsed, m, "round-trip mismatch for {m}");
+        }
+    }
+
+    #[test]
+    fn from_str_accepts_nexits_alias_for_exit() {
+        // `Metric::Exit` serialises as JSON key "nexits"; we accept
+        // both spellings so consumers can name the metric by either
+        // its enum-Display spelling or its JSON output key.
+        assert_eq!("exit".parse::<Metric>().unwrap(), Metric::Exit);
+        assert_eq!("nexits".parse::<Metric>().unwrap(), Metric::Exit);
+    }
+
+    #[test]
+    fn from_str_rejects_uppercase() {
+        let err = "Loc".parse::<Metric>().unwrap_err();
+        assert_eq!(err.input(), "Loc");
+        assert!(err.to_string().contains("Loc"));
+    }
+
+    #[test]
+    fn from_str_rejects_unknown_name() {
+        let err = "bogus".parse::<Metric>().unwrap_err();
+        assert_eq!(err.input(), "bogus");
+        assert!(err.to_string().contains("bogus"));
     }
 
     #[test]

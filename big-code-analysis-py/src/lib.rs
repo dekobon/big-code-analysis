@@ -27,8 +27,10 @@ use pyo3::Python;
 use pyo3::create_exception;
 use pyo3::exceptions::{PyOSError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyByteArray, PyBytes, PyModule, PyModuleMethods, PyString};
+use pyo3::types::{PyAny, PyByteArray, PyBytes, PyModule, PyModuleMethods, PyString, PyTuple};
 use pyo3::wrap_pyfunction;
+
+use big_code_analysis::MetricSet;
 
 use crate::analysis::{AnalysisError, AnalyzeOptions, PACKAGE_VERSION};
 use crate::batch::{PyAnalysisError, analyze_batch};
@@ -50,6 +52,22 @@ create_exception!(
     PyValueError,
     "Raised when the tree-sitter parser fails on the supplied source."
 );
+
+/// Convert a Python-side `metrics=` value into a [`MetricSet`].
+///
+/// Shared between the three `PyO3` entry points (`analyze`,
+/// `analyze_source`, `analyze_batch`) so the rejection-message
+/// formatting and the dependency-closure resolution live in exactly
+/// one place. `None` is the documented "no selection — compute the
+/// full suite" path; otherwise the list is parsed through
+/// [`analysis::parse_metric_names`] and any resulting `String` error
+/// is wrapped as a `ValueError` to match the issue contract (#268).
+pub(crate) fn resolve_metric_set(metrics: Option<Vec<String>>) -> PyResult<MetricSet> {
+    match metrics {
+        None => Ok(MetricSet::all()),
+        Some(names) => analysis::parse_metric_names(&names).map_err(PyValueError::new_err),
+    }
+}
 
 /// Convert an internal `AnalysisError` to a concrete Python exception.
 ///
@@ -133,8 +151,17 @@ fn analysis_error_to_py(err: AnalysisError) -> PyErr {
 /// files are skipped on both sides when `skip_generated=True` (the
 /// default), so the parity claim is now exact across all four
 /// CLI-walker behaviours.
+///
+/// Pass `metrics=[<names>]` (keyword-only) to compute only a subset
+/// of the metric suite (#268). Each name is a canonical entry in
+/// `bca.METRIC_NAMES` (strict lowercase); the empty list raises
+/// `ValueError`, an unknown name raises `ValueError` with the valid
+/// list in the message. Validation runs *before* the file read, so
+/// a bad selection raises without paying I/O cost. Unrequested
+/// metrics are absent (not `None`) from the result dict; derived
+/// metrics (`mi`, `wmc`) pull their dependencies in automatically.
 #[pyfunction]
-#[pyo3(signature = (path, /, *, exclude_tests = false, allow_lossy_path = false, skip_generated = true))]
+#[pyo3(signature = (path, /, *, exclude_tests = false, allow_lossy_path = false, skip_generated = true, metrics = None))]
 #[allow(clippy::needless_pass_by_value)]
 // `path: PathBuf` (rather than `&Path`) is mandated by PyO3's
 // path conversion: `FromPyObject` materializes a fresh `PathBuf`
@@ -146,11 +173,18 @@ fn analyze(
     exclude_tests: bool,
     allow_lossy_path: bool,
     skip_generated: bool,
+    metrics: Option<Vec<String>>,
 ) -> PyResult<Option<Bound<'_, PyAny>>> {
+    // Resolve `metrics=` *before* `py.detach` so a bad name aborts
+    // before any file I/O (issue #268 requires the validation to
+    // precede the file read; otherwise an unknown name would
+    // pointlessly stat the path first).
+    let metric_set = resolve_metric_set(metrics)?;
     let opts = AnalyzeOptions {
         exclude_tests,
         allow_lossy_path,
         skip_generated,
+        metrics: metric_set,
     };
     // Release the GIL across the file read + tree-sitter parse so
     // other Python threads (e.g. `concurrent.futures.ThreadPoolExecutor.map`
@@ -177,13 +211,17 @@ fn analyze(
 /// language name from [`supported_languages`] (case-insensitive).
 /// Output shape matches [`analyze`]. `exclude_tests` mirrors the
 /// CLI's `--exclude-tests` flag — see [`analyze`] for the details.
+///
+/// `metrics=` selects which metrics to compute (#268); see
+/// [`analyze`] for the full contract.
 #[pyfunction]
-#[pyo3(signature = (code, language, /, *, exclude_tests = false))]
+#[pyo3(signature = (code, language, /, *, exclude_tests = false, metrics = None))]
 fn analyze_source<'py>(
     py: Python<'py>,
     code: &Bound<'py, PyAny>,
     language: &str,
     exclude_tests: bool,
+    metrics: Option<Vec<String>>,
 ) -> PyResult<Bound<'py, PyAny>> {
     let bytes = extract_source_bytes(code)?;
     // Same GIL-release pattern as `analyze`: parsing is the heavy
@@ -192,8 +230,23 @@ fn analyze_source<'py>(
     // input borrow ties to `'py` which the detached closure
     // outlives via PyO3's guard.
     let language = language.to_owned();
+    // `metrics=` is resolved up front (before `py.detach`) so the
+    // unknown-name path raises `ValueError` without paying the
+    // parse cost — matches the `analyze` entry point's contract
+    // (#268).
+    let metric_set = resolve_metric_set(metrics)?;
+    let opts = AnalyzeOptions {
+        // `analyze_source` has no path / no walker, so the lossy-path
+        // and generated-file fields are dead weight here, but
+        // threading the whole struct keeps the bridge layer's
+        // signature uniform across the three entry points.
+        exclude_tests,
+        allow_lossy_path: false,
+        skip_generated: false,
+        metrics: metric_set,
+    };
     let json = py
-        .detach(|| analysis::analyze_source(&language, &bytes, None, exclude_tests))
+        .detach(|| analysis::analyze_source(&language, &bytes, None, opts))
         .map_err(analysis_error_to_py)?;
     conversion::json_string_to_py(py, &json)
 }
@@ -275,6 +328,14 @@ fn language_extensions(language: &str) -> PyResult<Vec<&'static str>> {
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", PACKAGE_VERSION)?;
+    // `METRIC_NAMES` is a `tuple[str, ...]` (immutable) rather than a
+    // list because it advertises a constant — callers should not be
+    // able to clear or extend it. The source of truth is
+    // [`analysis::METRIC_NAMES`]; both sides must remain in sync.
+    m.add(
+        "METRIC_NAMES",
+        PyTuple::new(m.py(), analysis::METRIC_NAMES)?,
+    )?;
     m.add(
         "UnsupportedLanguageError",
         m.py().get_type::<UnsupportedLanguageError>(),
