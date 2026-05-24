@@ -270,6 +270,7 @@ fn encode_non_utf8_path(p: &Path) -> String {
 /// printable ASCII path characters. The unreserved set mirrors the
 /// "safe for use in a filename" subset of RFC 3986 unreserved with
 /// `/` added (path separator) and `%` excluded (escape introducer).
+#[cfg(unix)]
 fn percent_encode_path_bytes(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len());
     for &b in bytes {
