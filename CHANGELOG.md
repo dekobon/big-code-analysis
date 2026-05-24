@@ -39,8 +39,10 @@ why no value stability is offered until `1.0`. Entries above the
   pypi-publish@v1.14.0`, which generates Sigstore attestations
   automatically; no long-lived `PYPI_API_TOKEN` is stored as a repo
   secret. PR-time wheel builds are opt-in via the `python-wheels`
-  label so Rust-only changes do not pay the wheel-matrix cost. Closes
-  [#271](https://github.com/dekobon/big-code-analysis/issues/271).
+  label so Rust-only changes do not pay the wheel-matrix cost. Refs
+  [#271](https://github.com/dekobon/big-code-analysis/issues/271)
+  (issue stays open until the first `v*` tag validates the OIDC
+  publish path end-to-end).
 
 - `bca.to_sarif(result, *, thresholds=None)` — phase 5/9 of
   [#103](https://github.com/dekobon/big-code-analysis/issues/103).

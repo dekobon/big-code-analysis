@@ -16,15 +16,21 @@ name: Python wheels
 #
 #   * **abi3-py312** produces a single stable-ABI wheel per architecture
 #     that works on CPython 3.12, 3.13, 3.14+. PyO3 0.28.3 supports the
-#     limited-API flag and a local `cargo check -p big-code-analysis-py
-#     --features pyo3/extension-module,pyo3/abi3-py312` builds clean
-#     against the bindings' current surface (dict-returning functions,
-#     custom exceptions, no generators / no async — the features that
-#     would force the non-abi3 fallback). The flag is wired through
-#     pyproject.toml's `[tool.maturin].features` so `maturin develop`
-#     and the wheel build use the identical Cargo feature set; a future
-#     contributor cannot accidentally introduce a non-abi3 dependency
-#     without the local-dev build failing first.
+#     limited-API flag and a local
+#     `cargo check -p big-code-analysis-py --no-default-features
+#      --features pyo3/extension-module,pyo3/abi3-py312`
+#     builds clean against the bindings' current surface (dict-
+#     returning functions, custom exceptions, no generators / no
+#     async — the features that would force the non-abi3 fallback).
+#     `--no-default-features` is mandatory: the crate's `default =
+#     ["pyo3/auto-initialize"]` is documented-incompatible with abi3.
+#     The flag is wired through pyproject.toml's
+#     `[tool.maturin].features` so `maturin develop` and the wheel
+#     build use the identical Cargo feature set — but note that
+#     `cargo test --workspace --all-features` continues to use
+#     `pyo3/auto-initialize` (not abi3), so the enforcement gate is
+#     the `python-test` job in ci.yml + `make pre-commit`, not
+#     `cargo test`.
 #
 #   * **Native ARM runners** (`ubuntu-24.04-arm`) replace QEMU emulation
 #     for the aarch64 build. ARM standard runners went GA for private
@@ -134,29 +140,49 @@ jobs:
       # would double-append the value and either error or emit a
       # multi-tag wheel filename that the verification step rejects.
       # `--strip` removes debug symbols (the .pyi stub carries the
-      # public name table, so IDE support is unaffected).
+      # public name table, so IDE support is unaffected). `--locked`
+      # forces cargo to honour the workspace Cargo.lock byte-for-byte
+      # so the wheel's transitive-dep versions are reproducible from
+      # the tagged commit — matching the `cargo publish --locked`
+      # contract `release.yml` uses for the crates.io publishes.
       - name: Build wheel (manylinux_2_28 / ${{ matrix.arch }} / abi3)
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           working-directory: big-code-analysis-py
           target: ${{ matrix.target }}
           manylinux: "2_28"
-          args: --release --strip --out dist
+          args: --release --strip --locked --out dist
 
-      # Inspect the produced filename pattern so a regression in the
-      # abi3 wiring (e.g. an accidental `cp312-cp312` per-version wheel
-      # instead of `cp312-abi3`) shows up in the workflow log instead
-      # of at PyPI upload time. The grep is intentionally strict.
-      - name: Verify wheel is abi3 + manylinux_2_28
+      # Inspect the produced filename so an abi3 / manylinux /
+      # architecture regression shows up here instead of at PyPI
+      # upload time. The glob is scoped to `${{ matrix.arch }}` so a
+      # wrong-arch wheel (e.g. maturin-action silently ignoring
+      # `target:`) produced on this runner does NOT pass: the
+      # aarch64 leg refuses an x86_64 wheel and vice versa. The
+      # `cp312-abi3` segment catches per-version wheels emitted when
+      # the abi3 feature drops out of pyproject.toml.
+      - name: Verify wheel is abi3 + manylinux_2_28 / ${{ matrix.arch }}
         working-directory: big-code-analysis-py
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
           ls -la dist/
-          # Filename schema: big_code_analysis-X.Y.Z-cp312-abi3-manylinux_2_28_<arch>.whl
           shopt -s nullglob
-          matches=(dist/*cp312-abi3-manylinux_2_28_x86_64.whl dist/*cp312-abi3-manylinux_2_28_aarch64.whl)
+          matches=(dist/*cp312-abi3-manylinux_2_28_"${EXPECTED_ARCH}".whl)
           if [[ ${#matches[@]} -eq 0 ]]; then
-            echo "::error::Built wheel does not match expected abi3 + manylinux_2_28 pattern"
+            echo "::error::No wheel matches cp312-abi3-manylinux_2_28_${EXPECTED_ARCH}.whl in dist/"
+            ls dist/
+            exit 1
+          fi
+          # Defensive: refuse to upload if the directory holds an
+          # extra wheel for the *other* arch — that would mean the
+          # cross-build accidentally produced two wheels and the
+          # artifact upload would carry both, polluting the publish
+          # job's `pattern: wheels-*` merge.
+          extras=(dist/*.whl)
+          if [[ ${#extras[@]} -ne ${#matches[@]} ]]; then
+            echo "::error::dist/ contains wheels other than ${EXPECTED_ARCH}; refusing to upload"
             ls dist/
             exit 1
           fi
@@ -187,6 +213,13 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION_HOST }}
 
+      # `maturin sdist` only bundles the source tree (it does not
+      # compile, so `--locked` is rejected by the subcommand). The
+      # workspace `Cargo.lock` is included in the tarball anyway, so a
+      # downstream `pip install --no-binary :all:` rebuild from the
+      # sdist resolves to the same transitive-dep versions the
+      # published wheel was built against — the lockfile travels with
+      # the source.
       - name: Build sdist
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
@@ -223,11 +256,12 @@ jobs:
     runs-on: ${{ matrix.runs-on }}
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          fetch-depth: 1
-          submodules: false
-
+      # No `actions/checkout` — the smoke step reads only the
+      # downloaded wheel artefact and runs an inline Python heredoc;
+      # no repo file (fixture, helper, doc) is touched. Skipping the
+      # checkout saves ~10-20 s per matrix leg on aarch64 (the
+      # native-ARM runner's clone over LFS-adjacent submodules takes
+      # the wall-clock penalty even when we skip submodules).
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: ${{ matrix.python }}
@@ -325,6 +359,27 @@ jobs:
           driver = runs[0].get("tool", {}).get("driver", {})
           assert driver.get("name"), f"SARIF run missing tool.driver.name: {driver}"
 
+          # analyze_batch's never-raise contract: a missing path in
+          # the batch must be returned as an AnalysisError instance
+          # interleaved with the successful dicts, never as an
+          # exception. A binding regression that switched batch back
+          # to raising would crash here; one that dropped error
+          # records entirely would shrink `len(batch)` below the
+          # input count and trip the assertion.
+          with tempfile.TemporaryDirectory() as td:
+              good = Path(td) / "good.py"
+              good.write_text("def f():\n    pass\n")
+              missing = Path(td) / "does-not-exist.py"
+              batch = bca.analyze_batch([good, missing])
+              assert len(batch) == 2, f"expected 2 batch results, got {len(batch)}"
+              # Good path → dict.
+              assert isinstance(batch[0], dict), type(batch[0])
+              # Missing path → AnalysisError with `error_kind == "IoError"`.
+              err = batch[1]
+              assert isinstance(err, bca.AnalysisError), type(err)
+              assert err.error_kind == "IoError", err.error_kind
+              assert str(missing) in err.path, (err.path, str(missing))
+
           print("smoke OK:", bca.__version__)
           PY
 
@@ -399,9 +454,22 @@ jobs:
     # constraint inside the `if:` would require an unwieldy
     # ten-clause disjunction — the `on:` filter is the source of
     # truth.
+    #
+    # Prerelease tags (`v0.1.0-rc1`, `-beta2`, `-alpha3`, …) are
+    # explicitly NOT published — matching the policy `release.yml`
+    # establishes for crates.io publishes (its "Cutting a pre-
+    # release" section). The two registries' publishing posture must
+    # stay aligned so a single tag does not simultaneously land a
+    # prerelease on PyPI and skip crates.io. The `contains` checks
+    # below cover the three suffixes the wider release pipeline
+    # recognises; any tag containing one of them in its ref name
+    # skips publish and only exercises the build + smoke matrix.
     if: >-
       github.event_name == 'push'
       && startsWith(github.ref, 'refs/tags/v')
+      && !contains(github.ref, '-rc')
+      && !contains(github.ref, '-beta')
+      && !contains(github.ref, '-alpha')
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -441,10 +509,22 @@ jobs:
           ls -la dist/
           # Defensive: refuse to publish unless every architecture's
           # wheel arrived (a download-artifact silently dropping one
-          # leg would otherwise publish a half-matrix release).
-          ls dist/*-cp312-abi3-manylinux_2_28_x86_64.whl >/dev/null
-          ls dist/*-cp312-abi3-manylinux_2_28_aarch64.whl >/dev/null
-          ls dist/*.tar.gz >/dev/null
+          # leg would otherwise publish a half-matrix release). The
+          # `::error::` annotations surface the failure in the GH
+          # Actions UI summary instead of being buried in stderr.
+          shopt -s nullglob
+          require() {
+            local label=$1
+            shift
+            local matches=("$@")
+            if [[ ${#matches[@]} -eq 0 ]]; then
+              echo "::error::Missing expected artefact: ${label}"
+              exit 1
+            fi
+          }
+          require "cp312-abi3 / x86_64 wheel" dist/*-cp312-abi3-manylinux_2_28_x86_64.whl
+          require "cp312-abi3 / aarch64 wheel" dist/*-cp312-abi3-manylinux_2_28_aarch64.whl
+          require "sdist tarball" dist/*.tar.gz
 
       # pypa/gh-action-pypi-publish v1.14.0 turns on PEP 740 Sigstore
       # attestations by default when invoked with id-token: write. No
