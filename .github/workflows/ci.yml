@@ -195,7 +195,7 @@ jobs:
         with:
           fetch-depth: 1
           submodules: false
-      - uses: EmbarkStudios/cargo-deny-action@6c8f9facfa5047ec02d8485b6bf52b587b7777d1 # v2.0.18
+      - uses: EmbarkStudios/cargo-deny-action@a531616d8ce3b9177443e48a1159bc945a099823 # v2.0.19
         with:
           command: check advisories bans licenses sources
 
@@ -212,7 +212,7 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-      - uses: taiki-e/install-action@3771e22aa892e03fd35585fae288baad1755695c # v2.78.2
+      - uses: taiki-e/install-action@f48d2f8ba2b452934c948b7be1a768079c3632ff # v2.79.6
         with:
           tool: cargo-about@0.8.4
       # Fails if any dep in either binary crate's transitive closure
@@ -260,7 +260,7 @@ jobs:
           node-version: "20"
       - name: Install markdownlint-cli2
         run: npm install -g markdownlint-cli2@0.18.1
-      - uses: taiki-e/install-action@3771e22aa892e03fd35585fae288baad1755695c # v2.78.2
+      - uses: taiki-e/install-action@f48d2f8ba2b452934c948b7be1a768079c3632ff # v2.79.6
         with:
           tool: taplo-cli@0.10.0,shellcheck@0.10.0,shfmt@3.12.0
       # checkmake is not in taiki-e/install-action's manifest; fetch the
