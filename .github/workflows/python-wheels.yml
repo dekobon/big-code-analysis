@@ -50,7 +50,16 @@ name: Python wheels
 
 on:
   push:
-    tags: ['v*']
+    # Narrowed from `v*` to `v[0-9]*` — the original glob matches any
+    # tag starting with `v` (e.g. a debugging tag like `verify-grammar-
+    # sync` would trigger the publish job and irrevocably push a wheel
+    # to PyPI under whatever workspace version the tagged commit
+    # carries). `v[0-9]*` requires a digit after the leading `v`, which
+    # rules out word-prefixed tags while still accepting `v0.1.0`,
+    # `v10.0.0-rc1`, etc. The publish job's `if:` below redundantly
+    # checks the same shape so a manual `workflow_dispatch` on a
+    # `v[0-9]…` ref still cannot publish.
+    tags: ['v[0-9]*']
   pull_request:
     paths:
       - 'big-code-analysis-py/**'
@@ -117,21 +126,22 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION_HOST }}
 
       # maturin-action pulls the manylinux_2_28 container that matches
-      # ${{ matrix.target }}. `working-directory` keeps the cargo build
-      # scoped to the bindings crate; the action still picks up the
-      # parent workspace's Cargo.lock for reproducibility. `--strip`
-      # removes debug symbols (the SARIF / metric symbols are
-      # re-introduced by name in the .pyi stub, so consumers do not
-      # lose IDE support). `--compatibility manylinux_2_28` is implicit
-      # from the `manylinux` input but spelled out via the arg here
-      # too, matching maturin's hardening guidance for PyPI uploads.
+      # ${{ matrix.target }} and prepends `--manylinux 2_28` to the
+      # maturin invocation (maturin's `--manylinux` is an alias of
+      # `--compatibility` with `ArgAction::Append`). The action's
+      # `manylinux:` input is the only place we set the platform tag;
+      # adding a redundant `--compatibility manylinux_2_28` to `args:`
+      # would double-append the value and either error or emit a
+      # multi-tag wheel filename that the verification step rejects.
+      # `--strip` removes debug symbols (the .pyi stub carries the
+      # public name table, so IDE support is unaffected).
       - name: Build wheel (manylinux_2_28 / ${{ matrix.arch }} / abi3)
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           working-directory: big-code-analysis-py
           target: ${{ matrix.target }}
           manylinux: "2_28"
-          args: --release --strip --out dist --compatibility manylinux_2_28
+          args: --release --strip --out dist
 
       # Inspect the produced filename pattern so a regression in the
       # abi3 wiring (e.g. an accidental `cp312-cp312` per-version wheel
@@ -277,19 +287,34 @@ jobs:
           print("smoke OK:", bca.__version__)
           PY
 
-      # pip-audit on the installed wheel: there are no Python runtime
-      # deps today, but the audit also fingerprints the wheel's
-      # metadata for known-vulnerable hashes if the package ever
-      # acquires a (transitively-pulled) dep. Cheap to keep in the
-      # gate so the first such dep does not slip in unnoticed.
-      - name: pip-audit
-        run: |
-          python -m pip install pip-audit
-          python -m pip_audit --strict --progress-spinner off
+      # pip-audit deliberately NOT run here. The pre-publish wheel
+      # has zero Python runtime deps (the binary surface is the
+      # PyO3 extension only) and pip-audit's only useful pre-publish
+      # target — "is the just-built version vulnerable?" — cannot
+      # be answered because that version is not yet on PyPI. A
+      # naive `python -m pip install pip-audit && pip-audit` would
+      # also pollute the smoke venv with pip-audit's transitive
+      # deps (requests, packaging, cyclonedx-python-lib, …) and
+      # red the gate on every CVE filed against any of them. The
+      # right place for a dependency audit is a post-publish job
+      # against the actual PyPI listing once the wheel acquires
+      # runtime deps; opening that as a follow-up.
 
   # Aggregate gate so branch protection can require a single check
   # name regardless of how the matrix expands. Mirrors the `ci` job in
-  # ci.yml.
+  # ci.yml — with one wrinkle. Unlike ci.yml's `ci` job, every
+  # dependency here is gated on the `python-wheels` PR label, so on a
+  # PR without the label all needs resolve to `skipped`. The naive
+  # `contains(needs.*.result, 'failure') || ... 'cancelled')` from
+  # ci.yml's pattern would then return false and the aggregate would
+  # report success despite zero wheels having been built — defeating
+  # the gate. The predicate is widened to also fail on `skipped` so
+  # an unlabelled PR-time run does not silently green-tick the
+  # required check.
+  #
+  # Tag pushes and `workflow_dispatch` runs always exercise every
+  # leg (no `if:` gating on those events), so widening the predicate
+  # does not over-flag those paths.
   wheels:
     name: wheels
     if: always()
@@ -300,8 +325,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Fail if any dependency failed or was cancelled
-        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+      - name: Fail if any dependency did not succeed
+        if: >-
+          contains(needs.*.result, 'failure')
+          || contains(needs.*.result, 'cancelled')
+          || contains(needs.*.result, 'skipped')
         run: exit 1
 
   # PyPI publish — only on a `v*` tag push. The `pypi` deployment
@@ -318,12 +346,34 @@ jobs:
   publish:
     name: publish to PyPI
     needs: [build, sdist, smoke-test]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    # The `on.push.tags: ['v[0-9]*']` filter above is the primary
+    # gate: GitHub only fires this workflow on tag pushes that match
+    # the numeric-prefix glob, so word-prefixed tags like
+    # `verify-grammar-sync` cannot reach the publish job. The
+    # `event_name == 'push'` belt-and-braces excludes
+    # `workflow_dispatch` runs (which can be triggered against any
+    # ref, including a `v[0-9]…` tag, and would otherwise satisfy
+    # the `startsWith` check). GHA expressions do not have a
+    # substring/regex operator, so re-validating the digit-after-v
+    # constraint inside the `if:` would require an unwieldy
+    # ten-clause disjunction — the `on:` filter is the source of
+    # truth.
+    if: >-
+      github.event_name == 'push'
+      && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     environment:
       name: pypi
       url: https://pypi.org/project/big-code-analysis/
     permissions:
+      # Workflow-level `contents: read` does NOT cascade into a job
+      # that declares its own `permissions:` block — the block
+      # replaces the default rather than augmenting it. Restate
+      # `contents: read` so any future step here (e.g. an
+      # `actions/checkout` to read CHANGELOG.md for release notes)
+      # has the access the workflow-level default would have
+      # otherwise granted.
+      contents: read
       # Trusted publishing exchanges this OIDC token for a one-off
       # PyPI upload credential; the long-lived `PYPI_API_TOKEN`
       # secret pattern this replaces is explicitly forbidden by #271.

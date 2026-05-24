@@ -549,7 +549,31 @@ on PyPI as the maintainer:
    reviewers, branch / tag filters) attached here are the right
    place to add a manual approval gate on every wheel publish.
 
-4. **First tagged release validates the path.** Trusted
+   ⚠️ GitHub will auto-create a referenced-but-undefined
+   environment with **no protection rules** the first time the
+   workflow runs. Create the environment manually *before* the
+   first `v*` tag if you want the approval gate to apply on the
+   first publish — otherwise the cutover release goes through
+   immediately with no manual checkpoint.
+
+4. **Create the `python-wheels` PR label.** The wheel build /
+   sdist / smoke-test jobs are gated by a `python-wheels` label
+   on PRs so Rust-only PRs that happen to share a path-filter
+   neighbour (e.g. `Cargo.lock`) do not pay the wheel-matrix
+   cost. GitHub does not auto-create custom labels — until the
+   label exists, contributors cannot opt PRs into wheel
+   verification. One-off via the `gh` CLI:
+
+   ```bash
+   gh label create python-wheels \
+     --color 1d76db \
+     --description "PR opts in to the manylinux wheel CI matrix"
+   ```
+
+   Tag pushes and `workflow_dispatch` runs ignore the label —
+   they always build the full matrix.
+
+5. **First tagged release validates the path.** Trusted
    Publishing cannot be rehearsed via `workflow_dispatch` (the
    environment claim mismatches). The first non-prerelease `v*`
    tag after registration is the canonical end-to-end test —

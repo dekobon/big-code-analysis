@@ -58,12 +58,23 @@ python-source = "python"
 # covers 3.12, 3.13, 3.14, … without the wheel matrix doubling per
 # minor release. The bindings' public surface (PyDict / PyAny / custom
 # exceptions, no generators, no async) is entirely inside the abi3
-# subset, verified by `cargo check -p big-code-analysis-py
-# --no-default-features --features pyo3/extension-module,pyo3/abi3-py312`.
-# Keeping the abi3 flag here — not as a CI-only override — means
-# `maturin develop` exercises the same C-API surface as the released
-# wheel, so a future contributor introducing a non-abi3 dependency
-# trips the local build long before CI.
+# subset.
+#
+# This feature is wired through `[tool.maturin].features`, NOT through
+# the crate's own `[features]` table — by design. `cargo test
+# --workspace --all-features` therefore continues to activate the
+# crate's `default = ["pyo3/auto-initialize"]` feature (the cargo-side
+# test path needs an embedded interpreter), and only *maturin-driven*
+# builds (the released wheel, the `python-test` CI job, and any local
+# `make py-test` / `maturin develop`) exercise the abi3 surface.
+#
+# A contributor who only runs `cargo test` locally will NOT trip a
+# non-abi3 violation introduced in their PR; the `python-test` job in
+# `.github/workflows/ci.yml` is the gate that catches it because that
+# job runs `maturin develop` on every PR touching
+# `big-code-analysis-py/`. `make pre-commit` invokes the same
+# `maturin develop` path, so a contributor who runs the documented
+# pre-commit gate locally also catches the regression before push.
 features = ["pyo3/extension-module", "pyo3/abi3-py312"]
 no-default-features = true
 
