@@ -20,6 +20,46 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Added
 
+- `bca.to_sarif(result, *, thresholds=None)` — phase 5/9 of
+  [#103](https://github.com/dekobon/big-code-analysis/issues/103).
+  Renders an analysis result (a single dict from `bca.analyze` /
+  `bca.analyze_source`, or any iterable of them, including the
+  return of `bca.analyze_batch`) into a SARIF 2.1.0 JSON `str`
+  suitable for upload to GitHub Code Scanning. The output is
+  produced by the upstream `big_code_analysis::write_sarif` writer
+  — the same one driving `bca check -O sarif` — so the schema URL,
+  tool driver name / version, and rule descriptions match the CLI
+  byte-for-byte. Per-function findings round-trip against the CLI
+  exactly for the metrics the JSON dict exposes. Accepted
+  threshold names mirror the CLI's `EXTRACTORS` table in
+  `big-code-analysis-cli/src/thresholds.rs` (`"cyclomatic"`,
+  `"cognitive"`, `"halstead.volume"`, `"loc.lloc"`, `"abc"`,
+  `"nom"`, `"wmc"`, `"mi.original"`, etc.); an unknown name
+  raises `ValueError` listing the accepted set. `thresholds=None`
+  (the default) and `thresholds={}` both produce a well-formed
+  empty run — the CLI itself ships no built-in defaults and the
+  bindings adopt the same posture. `AnalysisError` entries in an
+  iterable input are silently skipped — they represent files the
+  pipeline could not analyse, not findings. Unit-level (file-scope)
+  findings are emitted for every metric whose JSON headline matches
+  the CLI's per-space accessor (loc.*, halstead.*, mi.*, nom,
+  nargs, nexits, tokens, abc, wmc, npm, npa); the three sum-shaped
+  metrics whose CLI per-space accessor diverges from the JSON's
+  aggregate sum (`cyclomatic`, `cyclomatic.modified`, `cognitive`)
+  are skipped at the unit level so binding output cannot drift from
+  the CLI for parent spaces. Unit findings carry `<file>` in their
+  `logicalLocations`; nameless non-unit spaces (rare parse-failure
+  case) carry `<unnamed>` — both matching the CLI's `function_token`
+  placeholders. Python `bool` metric values are rejected explicitly
+  (without the guard, PyO3 silently coerces `True` to `1.0`); kind
+  comparison is ASCII-case-insensitive defensively; line numbers
+  exceeding `u32::MAX` clamp to `u32::MAX` matching the CLI's
+  `u32::try_from(usize).unwrap_or(u32::MAX)` fallback; empty
+  threshold metric names are rejected with the same "empty metric
+  name" message the CLI uses; `MappingProxyType` (or any non-dict
+  Mapping) is rejected with a dedicated error rather than falling
+  through to a confusing "got str" error from the iterable path
+  ([#269](https://github.com/dekobon/big-code-analysis/issues/269)).
 - `bca.analyze(...)`, `bca.analyze_source(...)`, `bca.analyze_batch(...)`
   all accept a `metrics=` keyword and the package exposes
   `bca.METRIC_NAMES` — phase 4/9 of

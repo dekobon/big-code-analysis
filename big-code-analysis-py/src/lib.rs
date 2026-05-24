@@ -18,6 +18,7 @@ mod analysis;
 mod batch;
 mod conversion;
 mod language;
+mod sarif;
 
 use std::path::PathBuf;
 
@@ -34,6 +35,7 @@ use big_code_analysis::{Metric, MetricSet};
 
 use crate::analysis::{AnalysisError, AnalyzeOptions, PACKAGE_VERSION};
 use crate::batch::{PyAnalysisError, analyze_batch};
+use crate::sarif::to_sarif;
 
 // Python exception types. Both subclass `ValueError` per the API
 // contract in #265 — `UnsupportedLanguageError` covers unknown
@@ -353,5 +355,6 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(language_for_file, m)?)?;
     m.add_function(wrap_pyfunction!(supported_languages, m)?)?;
     m.add_function(wrap_pyfunction!(language_extensions, m)?)?;
+    m.add_function(wrap_pyfunction!(to_sarif, m)?)?;
     Ok(())
 }

@@ -6,11 +6,12 @@ Rust library — compute maintainability metrics for source code in
 ~20 languages using the same tree-sitter parsers the Rust crate
 ships with.
 
-This is **phases 1–3** of the Python bindings work
-(issues #265, #266, #267; parent #103): single-file analysis, the
-never-raise batch entry point, and the `flatten_spaces` flat-record
-iterator. SARIF rendering and explicit metric selection land in
-follow-up phases.
+This is **phases 1–5** of the Python bindings work
+(issues #265, #266, #267, #268, #269; parent #103): single-file
+analysis, the never-raise batch entry point, the `flatten_spaces`
+flat-record iterator, explicit metric selection (`metrics=`), and
+SARIF 2.1.0 rendering (`to_sarif`). Remaining phases land in
+follow-up issues.
 
 ## Installation
 
@@ -126,6 +127,81 @@ Names are case-sensitive lowercase; passing an unknown name raises
 `"exit"` Metric-Display spelling is accepted as an alias for the
 canonical JSON-key spelling `"nexits"`; both produce a `"nexits"`
 key in the output. Duplicates are silently collapsed.
+
+## SARIF 2.1.0 output
+
+`bca.to_sarif(result, *, thresholds=None)` renders an analysis
+result (or an iterable of them) into a SARIF 2.1.0 JSON document
+suitable for upload to GitHub Code Scanning or any other SARIF
+consumer. The output is produced by the same Rust writer that
+backs `bca check -O sarif`, so the schema URL, tool driver name /
+version, and rule descriptions match the CLI byte-for-byte.
+
+```python
+import big_code_analysis as bca
+
+# Single file → SARIF with a finding for every function whose
+# cyclomatic complexity strictly exceeds 15.
+sarif = bca.to_sarif(
+    bca.analyze("src/main.py"),
+    thresholds={"cyclomatic": 15, "loc.lloc": 200},
+)
+with open("metrics.sarif", "w", encoding="utf-8") as fh:
+    fh.write(sarif)
+
+# Batch input — AnalysisError entries are skipped silently because
+# they represent files we couldn't analyse, not findings.
+batch = bca.analyze_batch(["src/a.py", "src/b.rs", "src/c.cpp"])
+sarif = bca.to_sarif(batch, thresholds={"cognitive": 20})
+```
+
+Accepted threshold names mirror the CLI's `EXTRACTORS` table in
+`big-code-analysis-cli/src/thresholds.rs` — e.g. `"cognitive"`,
+`"cyclomatic"`, `"cyclomatic.modified"`, `"halstead.volume"`,
+`"halstead.difficulty"`, `"halstead.effort"`, `"loc.sloc"`,
+`"loc.ploc"`, `"loc.lloc"`, `"loc.cloc"`, `"loc.blank"`, `"nom"`,
+`"tokens"`, `"nexits"`, `"nargs"`, `"mi.original"`, `"mi.sei"`,
+`"mi.visual_studio"`, `"abc"`, `"wmc"`, `"npm"`, `"npa"`. An
+unknown name raises `ValueError` listing the accepted set, so a
+typo fails fast instead of silently producing an empty SARIF run.
+
+`thresholds=None` (the default) and `thresholds={}` both produce
+a well-formed SARIF document with empty `results` and `rules`
+arrays. This matches the CLI's posture: there are **no built-in
+default thresholds**; every check run supplies its own limits.
+
+**Unit-level findings.** `to_sarif` emits file-scope (unit-space)
+findings for every metric whose JSON headline at the unit space
+matches the CLI's per-space accessor (`loc.*`, `halstead.*`,
+`mi.*`, `nom`, `nargs`, `nexits`, `tokens`, `abc`, `wmc`, `npm`,
+`npa`). The three exceptions — `cyclomatic`, `cyclomatic.modified`,
+`cognitive` — are skipped at the unit level because the JSON only
+exposes the aggregate `sum` across children while the CLI's
+per-space accessor returns just the unit's own scalar; emitting
+findings from the aggregate would diverge from the CLI for parent
+spaces. Unit findings carry `logicalLocations: [{"fullyQualifiedName":
+"<file>"}]`; nameless non-unit spaces (rare parse-failure case)
+carry `"<unnamed>"` — both matching the CLI's `function_token`
+placeholders.
+
+### Upload to GitHub Code Scanning
+
+```yaml
+# .github/workflows/code-scanning.yml (excerpt)
+- name: Compute metric SARIF
+  run: |
+    python - <<'PY'
+    import big_code_analysis as bca
+    with open("paths.txt", encoding="utf-8") as paths_fh:
+        results = bca.analyze_batch(paths_fh.read().splitlines())
+    with open("metrics.sarif", "w", encoding="utf-8") as fh:
+        fh.write(bca.to_sarif(results, thresholds={"cyclomatic": 15}))
+    PY
+- name: Upload to Code Scanning
+  uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: metrics.sarif
+```
 
 ## Batch processing
 
