@@ -92,12 +92,15 @@ def test_metric_names_round_trip_through_analyze() -> None:
         # at the unit root after the Java class merge). Their
         # dependencies must be present either way.
         if name == "mi":
-            assert {"loc", "cyclomatic", "halstead"}.issubset(keys), (
-                f"mi did not pull dependencies; got {keys}"
+            # Derived: also asserts `mi` itself was selected (not
+            # silently dropped to deps-only) — both `mi` and its
+            # closure must appear.
+            assert {"loc", "cyclomatic", "halstead", "mi"}.issubset(keys), (
+                f"mi or its dependencies missing; got {keys}"
             )
         elif name == "wmc":
-            assert {"cyclomatic", "nom"}.issubset(keys), (
-                f"wmc did not pull dependencies; got {keys}"
+            assert {"cyclomatic", "nom", "wmc"}.issubset(keys), (
+                f"wmc or its dependencies missing; got {keys}"
             )
         else:
             assert name in keys, f"{name!r} missing from {keys} on {fixture.name}"
@@ -229,14 +232,20 @@ def test_mi_transitively_pulls_dependencies() -> None:
 
 
 def test_wmc_transitively_pulls_dependencies() -> None:
-    """``metrics=["wmc"]`` auto-includes cyclomatic+nom on a class-bearing fixture."""
+    """``metrics=["wmc"]`` auto-includes cyclomatic+nom on a class-bearing fixture.
+
+    The Java fixture carries a class so ``wmc`` itself is emitted at
+    the unit root (not just its deps); asserting all three pins both
+    the dependency closure AND the selection-honour contract — a
+    regression that silently dropped ``wmc`` from the JSON output
+    while keeping deps populated would otherwise pass.
+    """
     result = bca.analyze(FIXTURES / "Hello.java", metrics=["wmc"])
     assert result is not None
     keys = _metrics_keys(result)
-    # Note: ``wmc`` may serialize as 0/absent on a unit-level space
-    # where there are no classes; the dependency expansion still
-    # ensures ``cyclomatic`` and ``nom`` are emitted.
-    assert {"cyclomatic", "nom"}.issubset(keys)
+    assert {"cyclomatic", "nom", "wmc"}.issubset(keys), (
+        f"wmc or its dependencies missing; got {keys}"
+    )
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -327,18 +336,28 @@ def test_batch_none_metrics_is_full_suite() -> None:
 def test_flatten_compatible_with_metric_selection() -> None:
     """``flatten_spaces`` honours absent metric keys.
 
-    With ``metrics=["loc"]``, no ``cyclomatic.*`` columns appear in
-    the flat records — the flattener walks whichever metric keys
-    are present and does not synthesise missing ones.
+    With ``metrics=["loc"]``, the only metric-family prefix in the
+    flat records is ``loc``; every other family in
+    :data:`bca.METRIC_NAMES` is absent. Checking the whole set (not
+    just ``cyclomatic.*``) means a gating regression that broke any
+    single family — halstead, nom, abc, etc — still fails this
+    test.
     """
     result = bca.analyze(FIXTURES / "hello.py", metrics=["loc"])
     assert result is not None
     records = list(bca.flatten_spaces(result))
     assert records, "expected at least one flat record"
+    # The non-metric flat keys (identity columns: `path`, `name`,
+    # `kind`, `start_line`, `end_line`, `parent_name`, `depth`) carry
+    # no dot, so split on `.` and inspect prefixes only — anything
+    # before a dot is a metric family.
+    forbidden = set(bca.METRIC_NAMES) - {"loc"}
     for r in records:
-        assert not any(k.startswith("cyclomatic") for k in r), (
-            f"unexpected cyclomatic.* keys in flat record: {list(r)}"
-        )
+        for k in r:
+            family = k.split(".", 1)[0]
+            assert family not in forbidden, (
+                f"unexpected {family!r} flat column when metrics=['loc']: {k!r}"
+            )
     # At least one record should have a ``loc.*`` column (the unit
     # root carries metric values).
     assert any(any(k.startswith("loc.") for k in r) for r in records), (
@@ -377,10 +396,30 @@ def test_metrics_kwarg_is_keyword_only() -> None:
 
 
 def test_metrics_tuple_is_accepted() -> None:
-    """Any ``Sequence[str]`` works — list, tuple, generator."""
+    """Any ``Sequence[str]`` works — list and tuple.
+
+    PyO3's argument extractor requires a ``Sequence``; a bare
+    generator is rejected with ``TypeError`` (matching the
+    ``_native.pyi`` annotation). Materialise via ``list(gen)`` if
+    you need to drive ``metrics=`` from a generator.
+    """
     result = bca.analyze(FIXTURES / "hello.py", metrics=("loc",))
     assert result is not None
     assert _metrics_keys(result) == {"loc"}
+
+
+def test_metrics_generator_is_rejected() -> None:
+    """A bare generator passed to ``metrics=`` raises ``TypeError``.
+
+    Pins the runtime contract advertised in ``_native.pyi``
+    (``Sequence[str]``, not ``Iterable[str]``): downstream type
+    checkers and the runtime agree that generators are not accepted
+    without materialisation. A regression that silently widened
+    extraction to any iterable would break this test, signalling a
+    contract change that should be reflected in the stubs.
+    """
+    with pytest.raises(TypeError, match=r"Sequence"):
+        bca.analyze(FIXTURES / "hello.py", metrics=(n for n in ["loc"]))
 
 
 # ─────────────────────────────────────────────────────────────────
