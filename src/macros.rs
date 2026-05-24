@@ -353,10 +353,26 @@ macro_rules! mk_action {
         /// Language-dispatched bundle of a parsed tree plus its
         /// source bytes, one variant per Cargo-feature-enabled
         /// language. The public seam is [`crate::Ast`]; this enum is
-        /// the macro-generated internal carrier it wraps. With every
-        /// per-language feature disabled it becomes an uninhabited
-        /// 0-variant enum and every method below collapses to an
-        /// empty `match self {}`.
+        /// the macro-generated internal carrier it wraps.
+        ///
+        /// With every per-language feature disabled this enum is a
+        /// 0-variant uninhabited type. Each method below therefore
+        /// terminates its `match self` with a
+        /// `#[cfg(not(any(feature = …)))] _ => match *self {}` arm:
+        /// stable Rust treats `&UninhabitedType` as inhabited (E0004),
+        /// so the outer match needs a wildcard, and `match *self {}`
+        /// is exhaustive over the uninhabited dereferenced value —
+        /// divergent, no panic, no `unsafe`, statically unreachable in
+        /// safe code because the public seam `crate::Ast` has only
+        /// fallible constructors that return `Err(LanguageDisabled)`
+        /// for every `LANG` variant under that build.
+        ///
+        /// When a method takes by-value parameters (see
+        /// [`Self::run_metrics`]), prefix the divergent arm with
+        /// `let _ = (param1, param2, …);` to silence
+        /// `unused_variables` under `RUSTFLAGS=-D warnings` — the
+        /// `match *self {}` body is `!`, so the consumed values are
+        /// never actually dropped at runtime.
         pub(crate) enum AstInner {
             $(
                 #[cfg(feature = $feature)]
@@ -379,6 +395,11 @@ macro_rules! mk_action {
                         #[cfg(feature = $feature)]
                         AstInner::$camel(parser) => metrics_inner(parser, name, options),
                     )*
+                    #[cfg(not(any( $( feature = $feature ),* )))]
+                    _ => {
+                        let _ = (name, options);
+                        match *self {}
+                    },
                 }
             }
 
@@ -388,6 +409,8 @@ macro_rules! mk_action {
                         #[cfg(feature = $feature)]
                         AstInner::$camel(_) => LANG::$camel,
                     )*
+                    #[cfg(not(any( $( feature = $feature ),* )))]
+                    _ => match *self {},
                 }
             }
 
@@ -397,6 +420,8 @@ macro_rules! mk_action {
                         #[cfg(feature = $feature)]
                         AstInner::$camel(parser) => parser.get_code(),
                     )*
+                    #[cfg(not(any( $( feature = $feature ),* )))]
+                    _ => match *self {},
                 }
             }
 
@@ -406,6 +431,8 @@ macro_rules! mk_action {
                         #[cfg(feature = $feature)]
                         AstInner::$camel(parser) => parser.get_ts_tree(),
                     )*
+                    #[cfg(not(any( $( feature = $feature ),* )))]
+                    _ => match *self {},
                 }
             }
         }

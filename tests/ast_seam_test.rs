@@ -22,11 +22,25 @@
 
 #![allow(clippy::float_cmp)]
 
+#[cfg(any(feature = "rust", feature = "cpp"))]
 use std::path::PathBuf;
 
+use big_code_analysis::Ast;
+#[cfg(feature = "rust")]
+use big_code_analysis::Metric;
 #[cfg(not(feature = "javascript"))]
 use big_code_analysis::MetricsError;
-use big_code_analysis::{Ast, LANG, Metric, MetricsOptions, Source, SpaceKind};
+#[cfg(any(feature = "rust", feature = "python", feature = "cpp"))]
+use big_code_analysis::MetricsOptions;
+#[cfg(feature = "rust")]
+use big_code_analysis::SpaceKind;
+#[cfg(any(
+    feature = "rust",
+    feature = "python",
+    feature = "cpp",
+    not(feature = "javascript")
+))]
+use big_code_analysis::{LANG, Source};
 
 // ----- End-to-end smoke tests, per language ------------------------------
 //
