@@ -493,6 +493,79 @@ jobs:
           .venv\Scripts\Activate.ps1
           python -m pytest
 
+  # Execute examples/jupyter_quickstart.ipynb end-to-end so a notebook
+  # cell that drifts away from the bindings API (renamed kwarg, removed
+  # function) breaks CI before it can rot in the documentation. The
+  # job stays single-OS / single-Python because the notebook exercises
+  # the public Python surface and pandas / matplotlib — both of which
+  # the `python-test` matrix already covers across OS / Python combos.
+  # A second matrix axis would only re-prove pandas works on Windows.
+  #
+  # Gated by `needs.changes.outputs.py == 'true'` same as the other
+  # python-* jobs; Rust-only PRs see `skipped` (not `failure`) so the
+  # aggregator's tolerance for skipped dependents continues to hold.
+  python-examples-nbconvert:
+    name: python-examples-nbconvert
+    needs: changes
+    if: needs.changes.outputs.py == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          submodules: false
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          # Share with the python-lint / ubuntu-latest+3.12 python-test
+          # legs so the maturin develop step warms from a populated
+          # target/ rather than rebuilding from scratch.
+          shared-key: "python-bindings-ubuntu-latest-3.12"
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Create venv + install notebook + maturin deps
+        working-directory: big-code-analysis-py
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install --upgrade pip
+          # Install the [examples] extra contents directly (no `pip
+          # install -e .`) so we don't pay for a maturin PEP 517
+          # build on top of the explicit `maturin develop` below.
+          # The version floors mirror the [examples] table in
+          # pyproject.toml — keep them in lockstep.
+          pip install \
+            "jupyter>=1.0" \
+            "nbconvert>=7.0" \
+            "pandas>=2.0" \
+            "matplotlib>=3.7" \
+            "maturin>=1.7,<2.0"
+      - name: maturin develop
+        working-directory: big-code-analysis-py
+        run: |
+          source .venv/bin/activate
+          maturin develop
+      - name: Execute jupyter_quickstart.ipynb
+        working-directory: big-code-analysis-py
+        run: |
+          source .venv/bin/activate
+          # `--inplace` writes the executed outputs back to the file,
+          # but we deliberately do not commit them — CI just needs the
+          # exit code. Using `--to notebook` keeps the format stable;
+          # `--ExecutePreprocessor.timeout=120` caps a hung kernel.
+          # `MPLBACKEND=Agg` keeps matplotlib headless on the runner.
+          MPLBACKEND=Agg jupyter nbconvert \
+            --to notebook \
+            --execute \
+            --inplace \
+            --ExecutePreprocessor.timeout=120 \
+            examples/jupyter_quickstart.ipynb
+
   manpage:
     name: man pages up to date
     runs-on: ubuntu-latest
@@ -535,6 +608,7 @@ jobs:
       - manpage
       - python-lint
       - python-test
+      - python-examples-nbconvert
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

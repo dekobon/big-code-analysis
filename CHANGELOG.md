@@ -20,208 +20,40 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Added
 
-- `big-code-analysis-book/src/python/` — phase 8/9 of
-  [#103](https://github.com/dekobon/big-code-analysis/issues/103).
-  Eight-page Python Bindings chapter (`installation`,
-  `quick-start`, `batch`, `flat-records`, `metrics`, `sarif`,
-  `errors`, `async`, plus a landing `README.md`) added as a peer
-  of the existing
-  *Using as a Library* section. The headline example on each
-  page is embedded verbatim from an importable file under
-  `big-code-analysis-py/examples/` via mdbook's `{{#include}}`
-  directive and exercised end-to-end by
-  `big-code-analysis-py/tests/test_book_examples.py`, so a
-  renamed kwarg or removed function on the canonical path fails
-  the existing `python-test` CI job before it can rot the docs.
-  Shorter illustrative snippets (logging recipes, the asyncio
-  anti-pattern, the pandas one-liner) are inline and
-  intentionally not test-pinned. The root
-  `README.md` and the book's landing page learn real links to
-  the chapter, replacing the previous "see the crate's
-  README.md" pointer. mypy / pyright / pre-commit configs gain
-  the new `examples/` directory so the example files stay under
-  `--strict` type checking. Refs
-  [#272](https://github.com/dekobon/big-code-analysis/issues/272).
+- **Python bindings shipped** — close-out of
+  [#103](https://github.com/dekobon/big-code-analysis/issues/103)
+  (umbrella) via phase 9/9 in
+  [#273](https://github.com/dekobon/big-code-analysis/issues/273).
+  `big_code_analysis` is now installable from PyPI via
+  `pip install big-code-analysis`, exposes the same metric pipeline
+  as the `bca` CLI, and ships abi3 manylinux wheels for Linux
+  x86_64 and aarch64 on CPython 3.12+. The public surface is:
+  `analyze` / `analyze_source` / `analyze_batch` (never-raise
+  per-file errors via `AnalysisError`), `flatten_spaces` (scalar
+  rows for DataFrames / sqlite), `to_sarif` (SARIF 2.1.0 ready for
+  GitHub Code Scanning), `language_for_file`,
+  `supported_languages`, `language_extensions`, and the `metrics=`
+  kwarg threading through every entry point with `METRIC_NAMES` as
+  the validated list. Output dicts match `bca metrics
+  --output-format json` byte-for-byte (verified by the
+  `cli_parity.py` example and the parametrized parity tests in
+  `tests/test_smoke.py`). The `examples/` directory ships
+  `cli_parity.py` (CLI parity smoke test, wired into
+  `make py-test`), `pipeline_db.py` (directory walk →
+  `analyze_batch` → `flatten_spaces` → sqlite top-N, with a
+  deliberately broken file to demonstrate the never-raise
+  contract), `sarif_upload.py` (SARIF emission ready for
+  `github/codeql-action/upload-sarif@v3`), and
+  `jupyter_quickstart.ipynb` (pandas DataFrame + matplotlib
+  cyclomatic-per-function plot, executed end-to-end in CI via a
+  new `python-examples-nbconvert` job). Type-checked under
+  `mypy --strict` and `pyright`; PEP 561 `py.typed` ships in the
+  built wheel. The granular per-phase implementation history lives
+  in the sub-issues
+  ([#265](https://github.com/dekobon/big-code-analysis/issues/265)–[#272](https://github.com/dekobon/big-code-analysis/issues/272))
+  and on the commits referenced from them; this umbrella entry is
+  the single end-user-facing announcement.
 
-- `.github/workflows/python-wheels.yml` — phase 7/9 of
-  [#103](https://github.com/dekobon/big-code-analysis/issues/103).
-  CI workflow that builds, smoke-tests, and (on `v*` tags) publishes
-  manylinux_2_28 wheels for `big_code_analysis` on Linux x86_64 and
-  aarch64. Wheels are abi3 stable-ABI targeted at CPython 3.12, so a
-  single wheel per architecture covers 3.12 / 3.13 / 3.14+ — the build
-  matrix does not grow with each Python minor release. aarch64 uses a
-  native `ubuntu-24.04-arm` runner (GA in private repos since Jan
-  2026) instead of QEMU emulation; build times drop from tens of
-  minutes to a few. The smoke-test stage exercises the wheel against
-  both Python 3.12 and 3.13 on the matching native architecture and
-  asserts the public API surface (`analyze_source`, `flatten_spaces`,
-  `to_sarif`, `language_for_file`) loads and produces the documented
-  dict shape — catches dynamic-linker regressions and abi3 forward-
-  compatibility regressions before publish. Publish authenticates to
-  PyPI via OIDC Trusted Publishing (PEP 740) with `pypa/gh-action-
-  pypi-publish@v1.14.0`, which generates Sigstore attestations
-  automatically; no long-lived `PYPI_API_TOKEN` is stored as a repo
-  secret. PR-time wheel builds are opt-in via the `python-wheels`
-  label so Rust-only changes do not pay the wheel-matrix cost. Refs
-  [#271](https://github.com/dekobon/big-code-analysis/issues/271)
-  (issue stays open until the first `v*` tag validates the OIDC
-  publish path end-to-end).
-
-- `bca.to_sarif(result, *, thresholds=None)` — phase 5/9 of
-  [#103](https://github.com/dekobon/big-code-analysis/issues/103).
-  Renders an analysis result (a single dict from `bca.analyze` /
-  `bca.analyze_source`, or any iterable of them, including the
-  return of `bca.analyze_batch`) into a SARIF 2.1.0 JSON `str`
-  suitable for upload to GitHub Code Scanning. The output is
-  produced by the upstream `big_code_analysis::write_sarif` writer
-  — the same one driving `bca check -O sarif` — so the schema URL,
-  tool driver name / version, and rule descriptions match the CLI
-  byte-for-byte. Per-function findings round-trip against the CLI
-  exactly for the metrics the JSON dict exposes. Accepted
-  threshold names mirror the CLI's `EXTRACTORS` table in
-  `big-code-analysis-cli/src/thresholds.rs` (`"cyclomatic"`,
-  `"cognitive"`, `"halstead.volume"`, `"loc.lloc"`, `"abc"`,
-  `"nom"`, `"wmc"`, `"mi.original"`, etc.); an unknown name
-  raises `ValueError` listing the accepted set. `thresholds=None`
-  (the default) and `thresholds={}` both produce a well-formed
-  empty run — the CLI itself ships no built-in defaults and the
-  bindings adopt the same posture. `AnalysisError` entries in an
-  iterable input are silently skipped — they represent files the
-  pipeline could not analyse, not findings. Unit-level (file-scope)
-  findings are emitted for every metric whose JSON headline matches
-  the CLI's per-space accessor (loc.*, halstead.*, mi.*, nom,
-  nargs, nexits, tokens, abc, wmc, npm, npa); the three sum-shaped
-  metrics whose CLI per-space accessor diverges from the JSON's
-  aggregate sum (`cyclomatic`, `cyclomatic.modified`, `cognitive`)
-  are skipped at the unit level so binding output cannot drift from
-  the CLI for parent spaces. Unit findings carry `<file>` in their
-  `logicalLocations`; nameless non-unit spaces (rare parse-failure
-  case) carry `<unnamed>` — both matching the CLI's `function_token`
-  placeholders. Python `bool` metric values are rejected explicitly
-  (without the guard, PyO3 silently coerces `True` to `1.0`); kind
-  comparison is ASCII-case-insensitive defensively; line numbers
-  exceeding `u32::MAX` clamp to `u32::MAX` matching the CLI's
-  `u32::try_from(usize).unwrap_or(u32::MAX)` fallback; empty
-  threshold metric names are rejected with the same "empty metric
-  name" message the CLI uses; `MappingProxyType` (or any non-dict
-  Mapping) is rejected with a dedicated error rather than falling
-  through to a confusing "got str" error from the iterable path
-  ([#269](https://github.com/dekobon/big-code-analysis/issues/269)).
-- `bca.analyze(...)`, `bca.analyze_source(...)`, `bca.analyze_batch(...)`
-  all accept a `metrics=` keyword and the package exposes
-  `bca.METRIC_NAMES` — phase 4/9 of
-  [#103](https://github.com/dekobon/big-code-analysis/issues/103). Pass
-  `metrics=None` (the default) to compute the full suite, or a list of
-  canonical names from `bca.METRIC_NAMES` (`"cyclomatic"`, `"cognitive"`,
-  `"halstead"`, `"loc"`, `"mi"`, `"nom"`, `"nargs"`, `"npa"`, `"npm"`,
-  `"abc"`, `"nexits"`, `"tokens"`, `"wmc"`) to restrict computation.
-  Unrequested metrics are *absent* from the result dict, not present
-  with `None` placeholders, so consumers can treat key presence as
-  authoritative. Selecting a derived metric pulls its dependencies in
-  automatically — `metrics=["mi"]` also computes `loc`, `cyclomatic`,
-  and `halstead`; `metrics=["wmc"]` also computes `cyclomatic` and
-  `nom`. The `"exit"` Metric-Display spelling is accepted as an alias
-  for the canonical JSON-key spelling `"nexits"`; duplicates are
-  silently collapsed. Validation runs **before** any file I/O: an
-  empty list or unknown name raises `ValueError` immediately and
-  never returns an `AnalysisError` slot in `analyze_batch` for what
-  is really a caller bug. The upstream Rust crate now exposes
-  `impl FromStr for Metric` (with a `ParseMetricError` error type),
-  promotes `MetricSet::from_slice_with_deps` to a public function,
-  and adds a `MetricsOptions::with_metric_set(set)` builder — the
-  same dependency-closure logic is reachable from downstream Rust
-  consumers without re-implementing the worklist. The
-  `flatten_spaces` consumer continues to work unchanged: missing
-  metric subtrees elide their flat columns rather than emitting
-  `None`
-  ([#268](https://github.com/dekobon/big-code-analysis/issues/268)).
-- `bca.flatten_spaces(result)` — phase 3/9 of
-  [#103](https://github.com/dekobon/big-code-analysis/issues/103).
-  Pure-Python pre-order walker that yields one flat, scalar-only
-  `dict` per `FuncSpace` node — ready for `sqlite3.executemany`,
-  `pandas.DataFrame.from_records`, or any other tabular consumer.
-  Metric keys use the same dotted convention as the CLI's
-  `CSV_HEADER` (`cyclomatic.modified.sum`, `halstead.volume`,
-  `loc.lloc_average`, …); the metric *column names* match
-  `CSV_HEADER`'s metric columns. Identity columns differ — CSV uses
-  `space_name` / `space_kind` and has no `parent_name` / `depth`;
-  flat records use `name` / `kind` and add the parent / depth pair.
-  One metric also diverges: `tokens.*` flattens to the JSON shape
-  (`tokens.tokens` / `tokens_average` / `tokens_min` /
-  `tokens_max`), while `CSV_HEADER` renames those columns to
-  `tokens.sum` / `.average` / `.min` / `.max`. Both walkers (the
-  space tree and each space's metrics subtree) use explicit stacks
-  rather than recursion, so deeply-nested closures, class
-  hierarchies, or future deeply-nested metric subtrees cannot
-  exhaust CPython's recursion limit. The returned iterator is a
-  genuine lazy generator (single-use). Missing metric subtrees
-  (e.g. `wmc` on a function-level space, or a metric the caller
-  excluded) elide their keys rather than emitting `None`.
-  Anonymous spaces (Rust closures, JS function expressions /
-  arrows) keep their `name == "<anonymous>"` marker verbatim.
-  Passing a non-mapping (including `None` from a generated-file
-  skip) raises `TypeError` eagerly at the call site
-  ([#267](https://github.com/dekobon/big-code-analysis/issues/267)).
-- `bca.analyze_batch(paths)` and `bca.AnalysisError` — phase 2/9 of
-  [#103](https://github.com/dekobon/big-code-analysis/issues/103).
-  Batch entry point with never-raise semantics: every per-file
-  failure becomes an `AnalysisError` in the matching result slot
-  (1:1 ordering preserved, generators supported) so pipeline /
-  workflow callers can keep going past missing files, unknown
-  extensions, or parser failures without a `try` / `except` per
-  path. `AnalysisError` is a frozen `@dataclass`-shaped PyO3 class
-  with `path`, `error`, and `error_kind ∈ {UnsupportedLanguage,
-  ParseError, IoError}`; implements `__eq__` / `__hash__` /
-  `__repr__` so callers can deduplicate via `set` / `dict`. The
-  `metrics=` kwarg is accepted (and validated for the empty-list
-  case) today — selection itself lands in phase 4
-  ([#266](https://github.com/dekobon/big-code-analysis/issues/266)).
-- `bca.analyze(path)` now resolves an extension-less script's language
-  from its `#!` shebang or emacs `-*- mode: … -*-` declaration via the
-  same `guess_language` helper the CLI uses, closing the phase-1
-  parity caveat. The file is read before language inference, so a
-  missing path now surfaces as `OSError` regardless of extension
-  ([#314](https://github.com/dekobon/big-code-analysis/issues/314)).
-- New `exclude_tests: bool = False` keyword-only kwarg on `bca.analyze`
-  and `bca.analyze_source` mirroring the CLI's `--exclude-tests` flag.
-  The flag flows into `MetricsOptions::with_exclude_tests`, which
-  prunes Rust `#[test]` / `#[cfg(test)]` subtrees before metric
-  computation; default `False` preserves prior behaviour
-  ([#315](https://github.com/dekobon/big-code-analysis/issues/315)).
-- New `allow_lossy_path: bool = False` keyword-only kwarg on
-  `bca.analyze`. Default `False` keeps the strict ValueError contract
-  for non-UTF-8 paths; setting `True` mirrors the CLI's
-  `Path::to_string_lossy` substitution of U+FFFD into the
-  `FuncSpace.name` field. `to_string_lossy()` is reached only on the
-  opt-in branch, preserving the project's identifier-path discipline
-  ([#316](https://github.com/dekobon/big-code-analysis/issues/316)).
-- New `skip_generated: bool = True` keyword-only kwarg on `bca.analyze`
-  honours the CLI walker's `is_generated` filter. When the flag is on
-  (default) and the file's leading window matches `@generated`,
-  `DO NOT EDIT`, or `GENERATED CODE`, `analyze` returns `None` without
-  paying parse cost — matching the CLI, which emits no record for the
-  same file. Pass `skip_generated=False` to opt out symmetrically; the
-  stub return type widens to `dict[str, Any] | None`
-  ([#317](https://github.com/dekobon/big-code-analysis/issues/317)).
-- Python bindings via PyO3 / maturin (new `big-code-analysis-py`
-  crate, excluded from `default-members` because it needs Python
-  headers). Phase 1/9 of [#103](https://github.com/dekobon/big-code-analysis/issues/103):
-  ships `analyze`, `analyze_source`, `language_for_file`,
-  `supported_languages`, `language_extensions`, plus
-  `UnsupportedLanguageError` and `ParseError` (both `ValueError`
-  subclasses). `analyze()` output is byte-for-byte equal to
-  `bca metrics --output-format json` for the same input (modulo
-  CLI-only behaviours tracked as phase-1 follow-ups: shebang
-  detection #314, `--exclude-tests` kwarg #315, non-UTF-8 path
-  policy #316, `is_generated` filter #317) — the bindings
-  serialize `FuncSpace` through `serde_json::to_string` and rebuild
-  the Python `dict` via `json.loads`, so CPython's insertion-order
-  semantics carry the field order through. PEP 561 type stubs ship
-  alongside (`py.typed` + `_native.pyi`); `mypy --strict` clean. A
-  new `LANG::get_extensions()` accessor on the Rust side pairs with
-  the existing `get_from_ext` reverse map. Build via
-  `maturin develop` from `big-code-analysis-py/`
-  ([#265](https://github.com/dekobon/big-code-analysis/issues/265)).
 - Public `Ast` type for parse-once, compute-many-times analysis. Build
   one with `Ast::parse(Source)` (re-parses bytes, mirrors `analyze`)
   or `Ast::from_tree_sitter(lang, tree, code, name)` (adopts a

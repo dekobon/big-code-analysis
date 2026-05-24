@@ -20,8 +20,6 @@ The contract under test:
 from __future__ import annotations
 
 import json
-import os
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -29,56 +27,17 @@ from typing import Any
 import big_code_analysis as bca
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = Path(__file__).parent / "fixtures"
 
 SARIF_SCHEMA_URL = "https://json.schemastore.org/sarif-2.1.0.json"
 SARIF_VERSION = "2.1.0"
 TOOL_NAME = "big-code-analysis"
 
-
-# ─────────────────────────────────────────────────────────────────
-# CLI fixture (shared shape with test_smoke.py — kept local here so
-# this file remains stand-alone runnable).
-# ─────────────────────────────────────────────────────────────────
-
-
-def _workspace_target_dir() -> Path:
-    env_dir = os.environ.get("CARGO_TARGET_DIR")
-    return Path(env_dir) if env_dir else REPO_ROOT / "target"
-
-
-def _locate_workspace_binary() -> str | None:
-    target = _workspace_target_dir()
-    for candidate in (target / "debug" / "bca", target / "release" / "bca"):
-        if candidate.is_file():
-            return str(candidate)
-    return None
-
-
-@pytest.fixture(scope="session")
-def bca_binary() -> str:
-    env_path = os.environ.get("BCA_BINARY")
-    if env_path:
-        if not Path(env_path).is_file():
-            pytest.fail(f"$BCA_BINARY={env_path!r} does not point at a regular file")
-        return env_path
-    cargo = shutil.which("cargo")
-    if cargo is None:
-        pytest.fail("cargo not on PATH; install Rust to run CLI parity tests")
-    result = subprocess.run(
-        [cargo, "build", "-p", "big-code-analysis-cli", "--quiet"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        pytest.fail(f"cargo build failed:\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}")
-    built = _locate_workspace_binary()
-    if built is None:
-        pytest.fail("cargo build succeeded but no bca binary was found")
-    return built
+# The `bca_binary` fixture used below is defined once in
+# `tests/conftest.py` and shared across every parity-aware test
+# file. Removing the local copy here (and from `test_smoke.py`)
+# means cargo build runs once per pytest session, not three times —
+# the actual deduplication the conftest hoist was meant to deliver.
 
 
 def _cli_check_sarif(bca_path: str, path: Path, *, threshold: str) -> dict[str, Any]:

@@ -42,6 +42,15 @@ dev = [
   "pyright>=1.1.380",
   "maturin>=1.7,<2.0",
 ]
+# Optional extras required to execute examples/jupyter_quickstart.ipynb
+# end-to-end via `jupyter nbconvert --execute`. Kept out of `dev` so a
+# plain bindings contributor does not pay the matplotlib install cost
+# on `pip install -e .[dev]`; the CI `python-examples-nbconvert` job
+# installs `.[examples]` explicitly. Pandas / matplotlib / jupyter
+# floors track the earliest versions that the notebook exercises;
+# nbconvert is pinned to >=7 so the API used in the CI step
+# (`jupyter nbconvert --execute --to notebook --inplace`) is stable.
+examples = ["jupyter>=1.0", "nbconvert>=7.0", "pandas>=2.0", "matplotlib>=3.7"]
 
 [tool.maturin]
 # Compiled extension lands at `big_code_analysis._native` so the

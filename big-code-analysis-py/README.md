@@ -12,12 +12,38 @@ covers the install matrix, batch / async / SARIF recipes, and the
 full error taxonomy. The README below is the quick reference
 shown on PyPI.
 
-This is **phases 1–5** of the Python bindings work
-(issues #265, #266, #267, #268, #269; parent #103): single-file
+All nine phases of the Python bindings work (issues #265–#273;
+parent #103) have landed. The crate now ships single-file
 analysis, the never-raise batch entry point, the `flatten_spaces`
-flat-record iterator, explicit metric selection (`metrics=`), and
-SARIF 2.1.0 rendering (`to_sarif`). Remaining phases land in
-follow-up issues.
+flat-record iterator, explicit metric selection (`metrics=`),
+SARIF 2.1.0 rendering (`to_sarif`), the strict ruff / mypy /
+pyright tooling gate, manylinux wheel CI on Linux x86_64 +
+aarch64, the book's "Python Bindings" chapter, and the end-user
+example set covered below. See the
+[CHANGELOG](../CHANGELOG.md) for the per-phase changes.
+
+## Runnable examples
+
+`big-code-analysis-py/examples/` is the canonical collection of
+copy-paste recipes. Every file is executed under CI either via
+`tests/test_book_examples.py` (the `.py` examples) or via
+`jupyter nbconvert --execute` (the notebook), so a renamed kwarg
+or removed function fails CI before the example can rot in the
+docs.
+
+| File | What it shows |
+|------|---------------|
+| `quick_start.py` | Single-file analysis + headline metric. Embedded by the book's *Quick start*. |
+| `batch_processing.py` | `analyze_batch` + the `AnalysisError` discriminator. Embedded by *Batch processing*. |
+| `flat_records.py` | `flatten_spaces` → sqlite for one file. Embedded by *Flat-record iteration*. |
+| `metric_selection.py` | `metrics=` kwarg + dependency-pull behaviour. Embedded by *Metric selection*. |
+| `sarif_output.py` | Minimal SARIF rendering. Embedded by *SARIF output*. |
+| `errors_taxonomy.py` | The full exception map across the entry points. Embedded by *Error handling*. |
+| `async_patterns.py` | `asyncio.to_thread` (canonical) vs the in-loop anti-pattern. Embedded by *Async patterns*. |
+| `cli_parity.py` | Byte-for-byte parity smoke test vs `bca metrics --output-format json`. Wired into `make py-test`. |
+| `pipeline_db.py` | Directory walk → `analyze_batch` → `flatten_spaces` → sqlite top-N, with a deliberately broken file to exercise the never-raise contract. |
+| `sarif_upload.py` | SARIF emission tuned for GitHub Code Scanning (`github/codeql-action/upload-sarif@v3`). |
+| `jupyter_quickstart.ipynb` | Pandas DataFrame + matplotlib `cyclomatic.sum` per function + top-N. Executed in CI via `python-examples-nbconvert`. |
 
 ## Installation
 
