@@ -407,3 +407,66 @@ def language_extensions(language: str, /) -> list[str]:
     UnsupportedLanguageError
         If ``language`` is not a known language name.
     """
+
+def to_sarif(
+    result: dict[str, Any] | Iterable[dict[str, Any] | AnalysisError],
+    /,
+    *,
+    thresholds: dict[str, float] | None = None,
+) -> str:
+    """Render a SARIF 2.1.0 JSON document from analysis results.
+
+    ``result`` accepts either a single ``dict`` returned by
+    :func:`analyze` / :func:`analyze_source`, or any iterable
+    yielding such dicts and/or :class:`AnalysisError` instances
+    (the natural shape of :func:`analyze_batch`'s return value).
+    ``AnalysisError`` entries are skipped silently — they represent
+    files that could not be analysed, not findings.
+
+    Pass ``thresholds={"cyclomatic": 15, "loc.lloc": 200, …}`` to
+    drive finding emission. ``thresholds=None`` (the default) is
+    equivalent to an empty dict and produces a well-formed SARIF
+    document with empty ``results`` and ``rules``. This mirrors the
+    CLI's posture (see ``big-code-analysis-cli/src/thresholds.rs``):
+    the CLI ships **no built-in defaults**, every check run must
+    supply its own thresholds, and the bindings adopt the same
+    contract. Accepted threshold names mirror the CLI's
+    ``EXTRACTORS`` table — e.g. ``"cognitive"``, ``"cyclomatic"``,
+    ``"cyclomatic.modified"``, ``"halstead.volume"``,
+    ``"halstead.difficulty"``, ``"halstead.effort"``, ``"loc.sloc"``,
+    ``"loc.ploc"``, ``"loc.lloc"``, ``"loc.cloc"``, ``"loc.blank"``,
+    ``"nom"``, ``"tokens"``, ``"nexits"``, ``"nargs"``,
+    ``"mi.original"``, ``"mi.sei"``, ``"mi.visual_studio"``,
+    ``"abc"``, ``"wmc"``, ``"npm"``, ``"npa"``. An unknown name
+    raises :class:`ValueError` listing the accepted set, so a
+    typo fails fast instead of silently producing an empty run.
+
+    Returns a ``str`` (UTF-8 SARIF JSON). The output is produced by
+    the upstream ``big_code_analysis::write_sarif`` writer — the
+    same one driving ``bca check -O sarif`` — so the schema URL,
+    tool driver name / version, and rule descriptions match the
+    CLI byte-for-byte.
+
+    Unit-level (file-scope) findings are emitted for every metric
+    whose JSON headline at the file-level ``unit`` space matches
+    the CLI's per-space accessor (``loc.*``, ``halstead.*``,
+    ``mi.*``, ``nom``, ``nargs``, ``nexits``, ``tokens``, ``abc``,
+    ``wmc``, ``npm``, ``npa``). For the three metrics whose CLI
+    per-space accessor returns just the unit's own scalar while
+    the JSON exposes the aggregate ``sum`` across children —
+    ``cyclomatic``, ``cyclomatic.modified``, ``cognitive`` — the
+    unit space is skipped (those metrics emit per-function only).
+    Unit-level findings carry ``logicalLocations: [{"fullyQualifiedName":
+    "<file>"}]``; nameless non-unit spaces carry ``"<unnamed>"`` —
+    matching the CLI's ``function_token`` placeholder.
+
+    Raises
+    ------
+    TypeError
+        If ``result`` is not a dict / iterable of dicts, or a
+        threshold value is not a number, or a threshold key is not
+        a string.
+    ValueError
+        If a threshold limit is negative or non-finite, or names a
+        metric outside the accepted set.
+    """

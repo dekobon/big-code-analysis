@@ -1,0 +1,596 @@
+//! SARIF 2.1.0 rendering for the Python bindings (phase 5/9, #269).
+//!
+//! `bca.to_sarif(result_or_iter, *, thresholds=None) -> str` walks the
+//! `FuncSpace` JSON dict(s) returned by [`analyze`] /
+//! [`analyze_source`] / [`analyze_batch`], compares each space's
+//! headline metric values against the supplied `thresholds`, and hands
+//! the resulting `Vec<OffenderRecord>` to the upstream
+//! [`big_code_analysis::write_sarif`] writer so the output shape is
+//! byte-equivalent to the CLI's `bca check -O sarif` for the metrics
+//! the JSON exposes.
+//!
+//! # Why this lives in Rust
+//!
+//! Issue #269 lists two implementation paths: re-serialise the dict
+//! back to internal types (option 1) or capture offender records at
+//! analyse-time (option 2). The upstream `FuncSpace` type is
+//! `Serialize`-only — there is no `Deserialize` impl — so option 1
+//! as literally described is not possible without a behaviour-changing
+//! API addition on the library. The compromise this module ships is:
+//! walk the JSON shape directly from Rust (via `PyDict` navigation),
+//! emit [`OffenderRecord`]s from the values present in the dict, and
+//! delegate to the existing `write_sarif` writer. That keeps SARIF
+//! schema concerns on the Rust side (one source of truth) while
+//! avoiding both the API change and the duplicate offender cache that
+//! option 2 would require.
+//!
+//! # Threshold semantics
+//!
+//! Each entry in the `thresholds` dict maps a CLI-style metric name to
+//! a finite, non-negative limit. The mapping table below pins which
+//! JSON field is compared against the limit — mirroring the CLI's
+//! `EXTRACTORS` table in `big-code-analysis-cli/src/thresholds.rs`.
+//!
+//! # Unit-level emission
+//!
+//! For most metrics the JSON's headline field at the file-level `unit`
+//! space IS the file-wide value (e.g. `loc.sloc`, `wmc.total`,
+//! `mi.original`, `halstead.volume`), so emitting unit findings matches
+//! the CLI. For three metrics — `cyclomatic`, `cyclomatic.modified`,
+//! `cognitive` — the JSON exposes the aggregate `sum` across child
+//! spaces while the CLI's per-space accessor returns just the unit's
+//! own scalar (typically 1). For those three the binding skips the
+//! unit space; for everything else it does not. The per-metric
+//! `skip_at_unit` flag in [`METRIC_FIELDS`] encodes this.
+//!
+//! Defaults: `thresholds=None` is equivalent to `thresholds={}` — the
+//! CLI itself has no built-in defaults (every check run must supply
+//! its own limits), so this binding adopts the same posture. An empty
+//! `thresholds` produces a well-formed SARIF run with `results: []`
+//! and `rules: []`, matching the CLI's empty case.
+
+use std::path::PathBuf;
+
+use pyo3::Bound;
+use pyo3::PyResult;
+use pyo3::Python;
+use pyo3::exceptions::{PyTypeError, PyValueError};
+use pyo3::intern;
+use pyo3::prelude::*;
+use pyo3::types::{PyAny, PyAnyMethods, PyBool, PyDict, PyDictMethods, PyMapping, PyString};
+
+use big_code_analysis::{OffenderRecord, Severity, write_sarif};
+
+use crate::batch::PyAnalysisError;
+
+/// Placeholder emitted when a non-unit space has no parsed name. Matches
+/// the CLI's `function_token` in `big-code-analysis-cli/src/thresholds.rs`
+/// so SARIF `logicalLocations` is identical on both sides for the
+/// rare parse-failure case.
+const UNNAMED_FUNCTION_PLACEHOLDER: &str = "<unnamed>";
+
+/// One metric entry in the threshold-name → JSON-path table.
+///
+/// `skip_at_unit` is true for the three metrics whose CLI accessor
+/// returns the per-space scalar while the JSON exposes only the
+/// aggregate sum across children. For these, emitting at the unit
+/// level would produce findings the CLI never emits with metric
+/// values that look per-space but are actually file-wide. For every
+/// other metric the JSON field IS the per-space value (or matches the
+/// CLI's aggregate accessor at unit), so unit-level findings are
+/// emitted faithfully.
+#[derive(Clone, Copy)]
+struct MetricField {
+    name: &'static str,
+    path: &'static [&'static str],
+    skip_at_unit: bool,
+}
+
+/// Mapping from CLI threshold name → JSON `metrics.<…>` path segments.
+///
+/// Mirrors the CLI's `EXTRACTORS` table in
+/// `big-code-analysis-cli/src/thresholds.rs` so the threshold-name
+/// surface is identical across the two front-ends. Each entry is the
+/// sequence of dict keys to walk on the space's `metrics` sub-dict to
+/// reach the comparison scalar.
+///
+/// **Sync requirement:** every entry must have a counterpart in the
+/// CLI's `EXTRACTORS` table (same name, same upstream accessor in
+/// shape). When the upstream library adds a new metric, both tables
+/// must be updated — there is no shared registry today. Drift here
+/// silently changes which thresholds the Python `to_sarif` accepts
+/// without affecting the CLI.
+const METRIC_FIELDS: &[MetricField] = &[
+    // Per-space accessor differs from JSON sum at the unit level.
+    MetricField {
+        name: "cognitive",
+        path: &["cognitive", "sum"],
+        skip_at_unit: true,
+    },
+    MetricField {
+        name: "cyclomatic",
+        path: &["cyclomatic", "sum"],
+        skip_at_unit: true,
+    },
+    MetricField {
+        name: "cyclomatic.modified",
+        path: &["cyclomatic", "modified", "sum"],
+        skip_at_unit: true,
+    },
+    // Everything below: JSON field == CLI per-space accessor at unit.
+    MetricField {
+        name: "halstead.volume",
+        path: &["halstead", "volume"],
+        skip_at_unit: false,
+    },
+    MetricField {
+        name: "halstead.difficulty",
+        path: &["halstead", "difficulty"],
+        skip_at_unit: false,
+    },
+    MetricField {
+        name: "halstead.effort",
+        path: &["halstead", "effort"],
+        skip_at_unit: false,
+    },
+    MetricField {
+        name: "halstead.time",
+        path: &["halstead", "time"],
+        skip_at_unit: false,
+    },
+    MetricField {
+        name: "halstead.bugs",
+        path: &["halstead", "bugs"],
+        skip_at_unit: false,
+    },
+    MetricField {
+        name: "loc.sloc",
+        path: &["loc", "sloc"],
+        skip_at_unit: false,
+    },
+    MetricField {
+        name: "loc.ploc",
+        path: &["loc", "ploc"],
+        skip_at_unit: false,
+    },
+    MetricField {
+        name: "loc.lloc",
+        path: &["loc", "lloc"],
+        skip_at_unit: false,
+    },
+    MetricField {
+        name: "loc.cloc",
+        path: &["loc", "cloc"],
+        skip_at_unit: false,
+    },
+    MetricField {
+        name: "loc.blank",
+        path: &["loc", "blank"],
+        skip_at_unit: false,
+    },
+    MetricField {
+        name: "nom",
+        path: &["nom", "total"],
+        skip_at_unit: false,
+    },
+    MetricField {
+        name: "tokens",
+        path: &["tokens", "tokens"],
+        skip_at_unit: false,
+    },
+    MetricField {
+        name: "nexits",
+        path: &["nexits", "sum"],
+        skip_at_unit: false,
+    },
+    MetricField {
+        name: "nargs",
+        path: &["nargs", "total"],
+        skip_at_unit: false,
+    },
+    MetricField {
+        name: "mi.original",
+        path: &["mi", "mi_original"],
+        skip_at_unit: false,
+    },
+    MetricField {
+        name: "mi.sei",
+        path: &["mi", "mi_sei"],
+        skip_at_unit: false,
+    },
+    MetricField {
+        name: "mi.visual_studio",
+        path: &["mi", "mi_visual_studio"],
+        skip_at_unit: false,
+    },
+    MetricField {
+        name: "abc",
+        path: &["abc", "magnitude"],
+        skip_at_unit: false,
+    },
+    MetricField {
+        name: "wmc",
+        path: &["wmc", "total"],
+        skip_at_unit: false,
+    },
+    MetricField {
+        name: "npm",
+        path: &["npm", "total"],
+        skip_at_unit: false,
+    },
+    MetricField {
+        name: "npa",
+        path: &["npa", "total"],
+        skip_at_unit: false,
+    },
+];
+
+/// Pre-validated `(JSON-path, limit)` triple.
+struct Threshold {
+    /// CLI-style metric name (e.g. `"cyclomatic"`, `"loc.lloc"`); used
+    /// as the SARIF `ruleId` so the rule descriptions the upstream
+    /// writer attaches resolve correctly.
+    name: &'static str,
+    /// Sequence of dict keys to walk to reach the scalar value on a
+    /// space's `metrics` sub-dict.
+    path: &'static [&'static str],
+    /// True for the metrics whose unit-level emission must be skipped
+    /// (see [`MetricField::skip_at_unit`]).
+    skip_at_unit: bool,
+    /// Threshold the metric value must strictly exceed to emit a
+    /// finding. Mirrors the CLI's `value > limit` (not `>=`).
+    limit: f64,
+}
+
+fn resolve_thresholds(thresholds: Option<&Bound<'_, PyDict>>) -> PyResult<Vec<Threshold>> {
+    let Some(dict) = thresholds else {
+        return Ok(Vec::new());
+    };
+    let mut out = Vec::with_capacity(dict.len());
+    for (key, value) in dict {
+        let name: String = key
+            .extract()
+            .map_err(|_| PyTypeError::new_err("thresholds keys must be strings (metric names)"))?;
+        // Match the CLI's `parse_cli_threshold` rejection (empty
+        // metric name with the same dedicated message — not the
+        // generic "unknown threshold metric" path).
+        if name.is_empty() {
+            return Err(PyValueError::new_err(
+                "empty metric name in thresholds; metric names must be non-empty",
+            ));
+        }
+        let limit: f64 = value.extract().map_err(|_| {
+            PyTypeError::new_err(format!("threshold for {name:?} must be a number"))
+        })?;
+        if !limit.is_finite() || limit < 0.0 {
+            return Err(PyValueError::new_err(format!(
+                "threshold for {name:?} must be a finite non-negative number; got {limit}"
+            )));
+        }
+        let entry = METRIC_FIELDS
+            .iter()
+            .copied()
+            .find(|m| m.name == name)
+            .ok_or_else(|| {
+                let known = METRIC_FIELDS
+                    .iter()
+                    .map(|m| m.name)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                PyValueError::new_err(format!(
+                    "unknown threshold metric {name:?}; known metrics: {known}"
+                ))
+            })?;
+        out.push(Threshold {
+            name: entry.name,
+            path: entry.path,
+            skip_at_unit: entry.skip_at_unit,
+            limit,
+        });
+    }
+    Ok(out)
+}
+
+/// Walk one `metrics.<…>` JSON path and return the final scalar, if
+/// every step lands on a dict that contains the next key and the leaf
+/// is a finite `f64`.
+///
+/// Returns `None` rather than raising for any missing-key /
+/// wrong-type case: the result dict may legitimately omit metric
+/// families (when `analyze(metrics=[…])` was called with a subset),
+/// and an absent metric must not synthesise a finding. NaN and
+/// non-finite values also return `None` — comparing NaN against the
+/// limit would suppress the finding anyway (NaN > x is false), but
+/// rejecting it explicitly keeps the contract self-documenting.
+///
+/// Python `bool` is rejected explicitly: `bool` inherits from `int`
+/// in Python, so `PyO3`'s `extract::<f64>()` would silently coerce
+/// `True` → `1.0` / `False` → `0.0`. That coercion is never what the
+/// upstream library serialises (metric values are always JSON numbers),
+/// and accepting it would mean an adversarial / hand-crafted dict
+/// could smuggle a finding through.
+fn extract_metric(metrics: &Bound<'_, PyAny>, path: &[&str]) -> Option<f64> {
+    let mut current: Bound<'_, PyAny> = metrics.clone();
+    for key in path {
+        let dict = current.cast::<PyDict>().ok()?;
+        current = dict.get_item(key).ok().flatten()?;
+    }
+    if current.is_instance_of::<PyBool>() {
+        return None;
+    }
+    let value: f64 = current.extract().ok()?;
+    value.is_finite().then_some(value)
+}
+
+/// Extract a `u32` line number, tolerating values that exceed `u32::MAX`
+/// by clamping to `u32::MAX` (matching the CLI's
+/// `u32::try_from(usize).unwrap_or(u32::MAX)` in
+/// `check_format::violation_to_offender`). Returns `None` for missing
+/// keys, non-integer values, negatives, and Python `bool`.
+///
+/// Python `bool` is rejected for the same reason [`extract_metric`]
+/// rejects it: `bool` inherits from `int`, so `PyO3`'s
+/// `extract::<i64>()` would silently coerce `True` → 1 / `False` → 0.
+/// A hand-crafted dict with `start_line: True` should not produce a
+/// finding at line 1 by accident.
+fn extract_line_number(
+    space: &Bound<'_, PyDict>,
+    key: &Bound<'_, PyString>,
+) -> PyResult<Option<u32>> {
+    let Some(value) = space.get_item(key)? else {
+        return Ok(None);
+    };
+    if value.is_instance_of::<PyBool>() {
+        return Ok(None);
+    }
+    // `i64` covers Python's typical int range; reject negatives and
+    // clamp positive overflow to `u32::MAX` to match the CLI fallback.
+    let Ok(raw) = value.extract::<i64>() else {
+        return Ok(None);
+    };
+    if raw < 0 {
+        return Ok(None);
+    }
+    Ok(Some(u32::try_from(raw).unwrap_or(u32::MAX)))
+}
+
+fn collect_offenders(
+    result: &Bound<'_, PyDict>,
+    thresholds: &[Threshold],
+    out: &mut Vec<OffenderRecord>,
+) -> PyResult<()> {
+    if thresholds.is_empty() {
+        return Ok(());
+    }
+    let py = result.py();
+    let path: PathBuf = match result.get_item(intern!(py, "name"))? {
+        Some(v) if !v.is_none() => PathBuf::from(v.extract::<String>()?),
+        _ => PathBuf::from("<source>"),
+    };
+
+    let mut stack: Vec<Bound<'_, PyDict>> = vec![result.clone()];
+    while let Some(space) = stack.pop() {
+        let Some(metrics) = space.get_item(intern!(py, "metrics"))? else {
+            continue;
+        };
+
+        let kind: Option<String> = space
+            .get_item(intern!(py, "kind"))?
+            .and_then(|k| k.extract::<String>().ok())
+            // Normalise case so an upstream rename or a hand-crafted
+            // dict using "Unit" instead of "unit" still hits the
+            // skip-at-unit logic. Upstream serialises with
+            // `#[serde(rename_all = "lowercase")]` today; this is a
+            // defensive lowercase guard against future drift.
+            .map(|s| s.to_ascii_lowercase());
+        let is_unit = kind.as_deref() == Some("unit");
+
+        let space_name: Option<String> = space
+            .get_item(intern!(py, "name"))?
+            .and_then(|n| n.extract().ok());
+        let start_line: u32 = extract_line_number(&space, intern!(py, "start_line"))?.unwrap_or(0);
+        let end_line: u32 =
+            extract_line_number(&space, intern!(py, "end_line"))?.unwrap_or(start_line);
+
+        // `function` field for SARIF `logicalLocations`. Mirrors the
+        // CLI's `function_token` in
+        // `big-code-analysis-cli/src/thresholds.rs`: unit spaces emit
+        // `<file>` (the path itself is on `artifactLocation.uri`, so
+        // duplicating it in the function slot would be redundant);
+        // non-unit spaces emit the space's `name`, falling back to
+        // `<unnamed>` for the rare parse-failure case where the name
+        // couldn't be recovered.
+        let function: Option<String> = Some(if is_unit {
+            "<file>".to_string()
+        } else {
+            // `as_deref()` avoids cloning when `space_name` is `Some` —
+            // `to_string()` allocates exactly once for the placeholder
+            // branch and exactly once for the named branch.
+            space_name
+                .as_deref()
+                .unwrap_or(UNNAMED_FUNCTION_PLACEHOLDER)
+                .to_string()
+        });
+
+        for threshold in thresholds {
+            if is_unit && threshold.skip_at_unit {
+                continue;
+            }
+            let Some(value) = extract_metric(&metrics, threshold.path) else {
+                continue;
+            };
+            if value <= threshold.limit {
+                continue;
+            }
+            out.push(OffenderRecord {
+                path: path.clone(),
+                function: function.clone(),
+                start_line,
+                end_line,
+                start_col: None,
+                metric: threshold.name.to_string(),
+                value,
+                limit: threshold.limit,
+                severity: Severity::default(),
+            });
+        }
+
+        if let Some(spaces) = space.get_item(intern!(py, "spaces"))?
+            && let Ok(seq) = spaces.try_iter()
+        {
+            for child in seq {
+                let child = child?;
+                if let Ok(child_dict) = child.cast_into::<PyDict>() {
+                    stack.push(child_dict);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Render SARIF 2.1.0 JSON for a single result dict or an iterable of
+/// them.
+///
+/// `result` accepts:
+/// * a single ``dict`` matching :func:`analyze` / :func:`analyze_source`
+///   output, or
+/// * any iterable yielding such dicts and/or
+///   :class:`AnalysisError` instances (e.g. the return of
+///   :func:`analyze_batch`). `AnalysisError` entries are skipped
+///   silently — they represent files the pipeline could not analyse,
+///   not findings.
+///
+/// Pass ``thresholds={"cyclomatic": 15, "loc.lloc": 200, …}`` to drive
+/// finding emission. ``thresholds=None`` (the default) is equivalent
+/// to an empty dict and produces a well-formed SARIF run with no
+/// results, matching the CLI's no-threshold posture.
+///
+/// Returns a ``str`` containing SARIF 2.1.0 JSON; the bytes are UTF-8
+/// because Python ``str`` is the documented return type. Generated by
+/// the upstream :func:`big_code_analysis::write_sarif` writer, so the
+/// rule descriptions, tool driver name / version, and schema URL
+/// match the CLI's `bca check -O sarif` byte-for-byte.
+#[pyfunction]
+#[pyo3(signature = (result, /, *, thresholds = None))]
+pub(crate) fn to_sarif(
+    py: Python<'_>,
+    result: &Bound<'_, PyAny>,
+    thresholds: Option<&Bound<'_, PyDict>>,
+) -> PyResult<String> {
+    let thresholds = resolve_thresholds(thresholds)?;
+    let mut offenders: Vec<OffenderRecord> = Vec::new();
+
+    // Single dict — accept as a result without forcing the caller to
+    // wrap it in a list.
+    if let Ok(dict) = result.clone().cast_into::<PyDict>() {
+        collect_offenders(&dict, &thresholds, &mut offenders)?;
+        return render(py, &offenders);
+    }
+
+    // Reject Mapping-but-not-dict (e.g. `types.MappingProxyType`) with
+    // a clear error. Without this branch the value would fall through
+    // to the iterable path, iterate dict keys as strings, and fail the
+    // per-item dict cast with a confusing "got str" — see Phase-3
+    // review.
+    if result.cast::<PyMapping>().is_ok() {
+        return Err(PyTypeError::new_err(concat!(
+            "to_sarif: result must be a plain dict ",
+            "(got a Mapping that is not a dict — pass `dict(mapping)` ",
+            "if you need to wrap a MappingProxyType or similar)",
+        )));
+    }
+
+    // Reject `str` / `bytes` explicitly: they ARE iterable in Python
+    // and would otherwise yield one-character/byte items that fail
+    // the dict downcast with a confusing message.
+    if result.is_instance_of::<PyString>() {
+        return Err(PyTypeError::new_err(
+            "to_sarif: result must be a dict or an iterable of dicts, not str",
+        ));
+    }
+
+    // Iterable path. `try_iter()` errors if the value is not iterable
+    // — let that propagate to the caller as a `TypeError`. Per the
+    // documented contract, `AnalysisError` entries are skipped
+    // silently (they represent files we couldn't analyse); anything
+    // else that isn't a dict is a programmer error.
+    for item in result.try_iter()? {
+        let item = item?;
+        if item.is_instance_of::<PyAnalysisError>() {
+            continue;
+        }
+        let Ok(dict) = item.clone().cast_into::<PyDict>() else {
+            // `get_type().name()` can itself fail on objects with a
+            // broken `__class__` — fall back to a literal placeholder
+            // so the caller still sees a clear "wrong type" error
+            // instead of the masked introspection error.
+            let type_name = item
+                .get_type()
+                .name()
+                .map_or_else(|_| "<unknown type>".to_string(), |n| n.to_string());
+            return Err(PyTypeError::new_err(format!(
+                "to_sarif expected a result dict or AnalysisError, got {type_name}"
+            )));
+        };
+        collect_offenders(&dict, &thresholds, &mut offenders)?;
+    }
+    render(py, &offenders)
+}
+
+fn render(py: Python<'_>, offenders: &[OffenderRecord]) -> PyResult<String> {
+    py.detach(|| {
+        let mut buf: Vec<u8> = Vec::new();
+        write_sarif(offenders, &mut buf).map_err(|e| {
+            PyValueError::new_err(format!("internal error: SARIF serialisation failed: {e}"))
+        })?;
+        // The upstream writer goes through `serde_json::to_writer_pretty`,
+        // which is documented to emit valid UTF-8. This branch is
+        // effectively unreachable; surface the violation explicitly
+        // rather than papering over it with a lossy conversion.
+        String::from_utf8(buf).map_err(|e| {
+            PyValueError::new_err(format!(
+                "internal error: write_sarif violated its UTF-8 output contract: {e}"
+            ))
+        })
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn metric_fields_table_is_unique_and_non_empty() {
+        let mut names: Vec<&str> = METRIC_FIELDS.iter().map(|m| m.name).collect();
+        names.sort_unstable();
+        let len = names.len();
+        names.dedup();
+        assert_eq!(names.len(), len, "metric fields table has duplicates");
+        assert!(!names.is_empty());
+        for entry in METRIC_FIELDS {
+            assert!(
+                !entry.path.is_empty(),
+                "metric field path must be non-empty"
+            );
+            assert!(
+                !entry.name.is_empty(),
+                "metric field name must be non-empty"
+            );
+        }
+    }
+
+    #[test]
+    fn skip_at_unit_is_true_only_for_per_space_accessor_metrics() {
+        // Exactly the three CLI metrics whose `MetricExtractor.extract`
+        // returns the per-space scalar (not the aggregate sum) — see
+        // `big-code-analysis-cli/src/thresholds.rs::EXTRACTORS`. Any
+        // change here must be reviewed against the CLI table.
+        let skip: Vec<&str> = METRIC_FIELDS
+            .iter()
+            .filter(|m| m.skip_at_unit)
+            .map(|m| m.name)
+            .collect();
+        assert_eq!(skip, ["cognitive", "cyclomatic", "cyclomatic.modified"]);
+    }
+}

@@ -24,6 +24,7 @@ from ._native import (
     language_extensions,
     language_for_file,
     supported_languages,
+    to_sarif,
 )
 
 __all__ = [
@@ -39,4 +40,5 @@ __all__ = [
     "language_extensions",
     "language_for_file",
     "supported_languages",
+    "to_sarif",
 ]
