@@ -40,7 +40,7 @@ authors = [
 # entries via `.workspace = true`, so any grammar bump here MUST be
 # applied to enums/Cargo.toml in lockstep (see recreate-grammars.sh).
 [workspace.dependencies]
-tree-sitter = "=0.26.8"
+tree-sitter = "=0.26.9"
 tree-sitter-bash = "=0.25.1"
 tree-sitter-c-sharp = "=0.23.5"
 tree-sitter-elixir = "=0.3.5"
