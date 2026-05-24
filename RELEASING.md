@@ -331,6 +331,23 @@ fails late in the release pipeline if `Cargo.lock` drifts from what
 the workspace resolves to. Commit the refreshed lockfile alongside
 the `Cargo.toml` edits.
 
+Regenerate the committed man pages in the same release-prep commit:
+
+```bash
+cargo xtask
+```
+
+`man/*.1` embeds both the binary version (`big-code-analysis x.y.z`
+in the `.TH` line and `vX.Y.Z` in `.SH VERSION`) and the live clap
+schema, so any version bump — workspace-wide or CLI-only (e.g. the
+`big-code-analysis-cli` version override at #235) — leaves the
+committed pages stale. The per-PR `man pages up to date` CI job
+gates against drift; `release.yml` regenerates the pages again per
+build leg so the shipped artefacts cannot ship with a stale schema,
+but committing the regenerated pages keeps the gate green between
+release-prep and tag push. Same rule applies any time a CLI flag is
+added or renamed — not just at release time.
+
 Pick the version using semver. While the workspace is in `0.x`, the
 public Rust API surface (`big-code-analysis` library re-exports, the
 `bca` CLI argument grammar, and the `bca-web` REST schema) may change
@@ -352,6 +369,9 @@ Before tagging, on `main`:
 - [ ] Workspace version is bumped per
       [Bumping the version](#bumping-the-version) — all
       `Cargo.toml` sites, plus a refreshed `Cargo.lock`.
+- [ ] `cargo xtask` has been run and the resulting `man/*.1` edits
+      are committed in the release-prep commit. `git diff man/`
+      after a fresh `cargo xtask` must be empty.
 - [ ] `CHANGELOG.md` has a `## [x.y.z]` section with the release
       notes. The header must match the tag exactly, minus the
       leading `v`. Move entries out of `## [Unreleased]` into the

@@ -1,10 +1,10 @@
 .ie \n(.g .ds Aq \(aq
 .el .ds Aq '
-.TH BCA-CHECK 1  "big-code-analysis 0.0.25" "big-code-analysis Manual"
+.TH BCA-CHECK 1  "big-code-analysis 0.1.0" "big-code-analysis Manual"
 .SH NAME
 bca\-check \- Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed"
 .SH SYNOPSIS
-\fBbca\-check\fR [\fB\-\-threshold\fR] [\fB\-\-config\fR] [\fB\-\-no\-fail\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+\fBbca\-check\fR [\fB\-\-threshold\fR] [\fB\-\-config\fR] [\fB\-\-no\-fail\fR] [\fB\-\-no\-suppress\fR] [\fB\-O\fR|\fB\-\-output\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-baseline\fR] [\fB\-\-write\-baseline\fR] [\fB\-h\fR|\fB\-\-help\fR] 
 .SH DESCRIPTION
 Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed"
 .SH OPTIONS
@@ -19,6 +19,35 @@ Path to a TOML config with a `[thresholds]` table:
 .TP
 \fB\-\-no\-fail\fR
 Print offenders to stderr but exit 0 even when thresholds are exceeded. Useful while adopting baselines without flipping CI red. Default: exit 2 when any threshold is exceeded
+.TP
+\fB\-\-no\-suppress\fR
+Ignore in\-source suppression markers (`bca: suppress`, `#lizard forgives`, etc.). Every threshold violation is reported regardless of comment\-based silencers. CI auditors pass this to see the raw, un\-silenced offender list
+.TP
+\fB\-O\fR, \fB\-\-output\-format\fR \fI<OUTPUT_FORMAT>\fR
+CI/IDE document format for offender records (Checkstyle 4.3 XML, SARIF 2.1.0 JSON, clang/GCC warning lines, MSVC warning lines). When omitted, only the human\-readable stderr stream is emitted; the exit\-code contract is unaffected
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+checkstyle
+.IP \(bu 2
+clang\-warning
+.IP \(bu 2
+msvc\-warning
+.IP \(bu 2
+sarif
+.RE
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fI<OUTPUT>\fR
+File path for the aggregated offender document. Stdout if omitted. Only meaningful together with `\-\-output\-format`. Parent directories are created on demand
+.TP
+\fB\-\-baseline\fR \fI<BASELINE>\fR
+Filter known offenders listed in this TOML baseline. A baselined function whose metric value has not worsened is suppressed; a worsened value (or any new offender) still fails. See the "Baselines" recipe in the book for the full adoption flow
+.TP
+\fB\-\-write\-baseline\fR \fI<WRITE_BASELINE>\fR
+Walk the tree and write the current offender set to this path instead of failing. The resulting file pins today\*(Aqs metric values as the baseline; subsequent `\-\-baseline <path>` runs ratchet down from there. Conflicts with `\-\-baseline`, `\-\-output\-format`, and `\-\-output` — the baseline file is the output
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help (see a summary with \*(Aq\-h\*(Aq)
