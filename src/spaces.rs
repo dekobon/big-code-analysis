@@ -1261,20 +1261,47 @@ impl MetricsOptions {
 
     /// Restrict computation to an already-resolved [`MetricSet`].
     ///
-    /// Equivalent to [`MetricsOptions::with_only`] but consumes a
-    /// pre-built set, skipping the slice→set conversion. Useful when
-    /// the caller has already run [`MetricSet::from_slice_with_deps`]
-    /// (e.g. when parsing user input through `FromStr for Metric` in
-    /// the Python bindings) and just wants to attach the result.
+    /// # Caller responsibility
     ///
-    /// # Examples
+    /// The input set MUST be closed under
+    /// [`Metric::dependencies`] before it reaches this builder.
+    /// Use [`MetricSet::from_slice_with_deps`] to construct a
+    /// dependency-closed set from a slice of metric names, or call
+    /// [`MetricsOptions::with_only`] (which performs the closure
+    /// internally) when you have a `&[Metric]` rather than a
+    /// pre-built set.
+    ///
+    /// This builder is NOT equivalent to
+    /// [`MetricsOptions::with_only`]: `with_only` runs the closure
+    /// resolver; `with_metric_set` consumes the set verbatim and
+    /// trusts the caller. The two methods are interchangeable only
+    /// when the input is already closed.
+    ///
+    /// # Pitfall
+    ///
+    /// Passing an unresolved set silently corrupts derived metrics
+    /// — the walker computes [`Metric::Mi`] or [`Metric::Wmc`]
+    /// using zero-valued dependency inputs and emits a number with
+    /// no error. For example:
     ///
     /// ```
     /// use big_code_analysis::{Metric, MetricSet, MetricsOptions};
     ///
-    /// let set = MetricSet::from_slice_with_deps(&[Metric::Loc, Metric::Cyclomatic]);
-    /// let _opts = MetricsOptions::default().with_metric_set(set);
+    /// // WRONG: `Mi` selected without its dependencies — the
+    /// // resulting MI value is garbage (formula divides by a
+    /// // zero-valued Loc / Halstead).
+    /// let bad = MetricSet::empty().with(Metric::Mi);
+    /// let _opts = MetricsOptions::default().with_metric_set(bad);
+    ///
+    /// // RIGHT: closure resolved upstream; `with_metric_set`
+    /// // attaches the already-closed set.
+    /// let good = MetricSet::from_slice_with_deps(&[Metric::Mi]);
+    /// let _opts = MetricsOptions::default().with_metric_set(good);
     /// ```
+    ///
+    /// The closure-resolved form above is equivalent to
+    /// `MetricsOptions::with_only(&[Metric::Mi])` — prefer that
+    /// builder if you don't already have a `MetricSet`.
     #[inline]
     #[must_use]
     pub fn with_metric_set(mut self, metrics: MetricSet) -> Self {
