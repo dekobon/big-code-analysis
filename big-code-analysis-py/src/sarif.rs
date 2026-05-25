@@ -455,6 +455,8 @@ fn collect_offenders(
 /// `result` accepts:
 /// * a single ``dict`` matching :func:`analyze` / :func:`analyze_source`
 ///   output, or
+/// * a scalar ``None`` (the documented return of :func:`analyze` for
+///   generated files); produces a well-formed empty SARIF run, or
 /// * any iterable yielding such dicts, :class:`AnalysisError`
 ///   instances, and/or ``None`` (e.g. the return of
 ///   :func:`analyze_batch`, or a list comprehension over
@@ -483,6 +485,17 @@ pub(crate) fn to_sarif(
 ) -> PyResult<String> {
     let thresholds = resolve_thresholds(thresholds)?;
     let mut offenders: Vec<OffenderRecord> = Vec::new();
+
+    // Scalar `None` — symmetric with the iterable arm's silent-skip
+    // contract below. `analyze()` returns `None` for generated files
+    // (the documented default), so the natural single-call pattern
+    // `bca.to_sarif(bca.analyze(generated_file))` must yield an empty
+    // SARIF run rather than raise `TypeError: 'NoneType' is not
+    // iterable`. Issue #341 closed the list-comprehension form; this
+    // closes the scalar form so both compose with `analyze()`.
+    if result.is_none() {
+        return render(py, &offenders);
+    }
 
     // Single dict — accept as a result without forcing the caller to
     // wrap it in a list.

@@ -339,6 +339,28 @@ def test_to_sarif_does_not_raise_on_pure_none_input() -> None:
     assert parsed["runs"][0]["results"] == []
 
 
+def test_to_sarif_accepts_scalar_none() -> None:
+    """A scalar ``None`` (the documented return of :func:`analyze`
+    for a single generated file) must produce a well-formed empty
+    SARIF run, mirroring the iterable arm's silent-skip contract.
+
+    Without this, the natural per-file pattern
+    ``bca.to_sarif(bca.analyze(generated_file))`` raised
+    ``TypeError: 'NoneType' is not iterable`` — asymmetric with the
+    list-comprehension form ``bca.to_sarif([bca.analyze(p) for p in
+    paths])`` that the #341 fix already accepted. Closes the
+    follow-up gap surfaced by code review on branch
+    fix/batch-2026-05-25.
+    """
+    parsed = _parse(bca.to_sarif(None, thresholds={"cyclomatic": 1}))
+    assert parsed["runs"][0]["results"] == []
+    # The empty run is still SARIF-shaped — tool driver and schema
+    # URL must be present so SARIF consumers don't trip on missing
+    # metadata.
+    assert parsed["runs"][0]["tool"]["driver"]["name"]
+    assert parsed["$schema"]
+
+
 # ─────────────────────────────────────────────────────────────────
 # Input validation
 # ─────────────────────────────────────────────────────────────────

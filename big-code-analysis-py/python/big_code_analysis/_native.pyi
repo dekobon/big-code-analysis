@@ -409,7 +409,7 @@ def language_extensions(language: str, /) -> list[str]:
     """
 
 def to_sarif(
-    result: dict[str, Any] | Iterable[dict[str, Any] | AnalysisError | None],
+    result: dict[str, Any] | None | Iterable[dict[str, Any] | AnalysisError | None],
     /,
     *,
     thresholds: dict[str, float] | None = None,
@@ -417,14 +417,16 @@ def to_sarif(
     """Render a SARIF 2.1.0 JSON document from analysis results.
 
     ``result`` accepts either a single ``dict`` returned by
-    :func:`analyze` / :func:`analyze_source`, or any iterable
-    yielding such dicts, :class:`AnalysisError` instances, and/or
-    ``None`` (the natural shape of :func:`analyze_batch`'s return
-    value, or a list comprehension over :func:`analyze` which
-    returns ``None`` for generated files). ``AnalysisError`` and
-    ``None`` entries are skipped silently — they represent files for
-    which no record was emitted (either the pipeline could not
-    analyse them, or they were classified as generated), not findings.
+    :func:`analyze` / :func:`analyze_source`, a scalar ``None`` (the
+    documented return of :func:`analyze` for generated files; yields
+    an empty SARIF run), or any iterable yielding such dicts,
+    :class:`AnalysisError` instances, and/or ``None`` (the natural
+    shape of :func:`analyze_batch`'s return value, or a list
+    comprehension over :func:`analyze` which returns ``None`` for
+    generated files). ``AnalysisError`` and ``None`` entries are
+    skipped silently — they represent files for which no record was
+    emitted (either the pipeline could not analyse them, or they
+    were classified as generated), not findings.
 
     Pass ``thresholds={"cyclomatic": 15, "loc.lloc": 200, …}`` to
     drive finding emission. ``thresholds=None`` (the default) is
