@@ -410,13 +410,11 @@ pub async fn run_with_timeout(
             .service(
                 web::resource("/ast")
                     .guard(guard::Header("content-type", "application/json"))
-                    .app_data(web::Json::<AstPayload>)
                     .route(web::post().to(ast_parser)),
             )
             .service(
                 web::resource("/comment")
                     .guard(guard::Header("content-type", "application/json"))
-                    .app_data(web::Json::<WebCommentPayload>)
                     .route(web::post().to(comment_removal_json)),
             )
             .service(
@@ -428,7 +426,6 @@ pub async fn run_with_timeout(
             .service(
                 web::resource("/metrics")
                     .guard(guard::Header("content-type", "application/json"))
-                    .app_data(web::Json::<WebMetricsPayload>)
                     .route(web::post().to(metrics_json)),
             )
             .service(
@@ -440,7 +437,6 @@ pub async fn run_with_timeout(
             .service(
                 web::resource("/function")
                     .guard(guard::Header("content-type", "application/json"))
-                    .app_data(web::Json::<WebFunctionPayload>)
                     .route(web::post().to(function_json)),
             )
             .service(
@@ -1435,5 +1431,44 @@ mod tests {
 
         // The dropped permit must be returned to the pool for subsequent requests.
         assert_eq!(config.semaphore.available_permits(), 1);
+    }
+
+    // Regression test for #336: the global `JsonConfig` registered on the
+    // `App` is what bounds JSON payload size. The four per-route
+    // `.app_data(web::Json::<T>)` calls removed in this change were
+    // function-item values, not `JsonConfig` instances, and the
+    // `Json<T>` extractor only honors `JsonConfig::from_req`. Build a
+    // service with a small global limit and assert that a body
+    // exceeding it is rejected with 413.
+    #[actix_rt::test]
+    async fn test_web_json_payload_too_large() {
+        // Use a tiny limit so the test does not allocate megabytes.
+        const TEST_JSON_LIMIT: usize = 256;
+
+        let app = test::init_service(
+            App::new()
+                .app_data(test_config())
+                .app_data(web::JsonConfig::default().limit(TEST_JSON_LIMIT))
+                .service(web::resource("/ast").route(web::post().to(ast_parser))),
+        )
+        .await;
+
+        // Construct a JSON body whose serialized form exceeds the limit
+        // by padding the `code` field. The full payload (including
+        // surrounding JSON structure) is well over TEST_JSON_LIMIT bytes.
+        let oversized_code = "a".repeat(TEST_JSON_LIMIT * 2);
+        let req = test::TestRequest::post()
+            .uri("/ast")
+            .set_json(AstPayload {
+                id: "1234".to_string(),
+                file_name: "foo.c".to_string(),
+                code: oversized_code,
+                comment: false,
+                span: true,
+            })
+            .to_request();
+
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
     }
 }
