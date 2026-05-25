@@ -95,6 +95,19 @@ and `cargo run -p big-code-analysis-web --`.
   `replace_symbol_body`).
 - **External docs**: prefer Context7 / `cargo doc` over web search for
   library / crate documentation.
+- **GitHub Actions linting**: any edit under `.github/workflows/`
+  must be validated with `make actionlint` before commit. The
+  Makefile target invokes `actionlint` at the repo root, which
+  discovers workflows automatically and shells out to `shellcheck`
+  for embedded `run:` scripts. `make actionlint` is wired into `make
+  lint`, `make pre-commit`, and `make ci`, and into the `actionlint`
+  hook in `.pre-commit-config.yaml`. Suppress shellcheck false
+  positives inside a `run:` block with a scoped `# shellcheck
+  disable=SCxxxx` directive (and a short why-comment), not by
+  loosening actionlint configuration. If composite actions are ever
+  introduced under `.github/actions/*/action.yml`, extend the
+  Makefile recipe and the pre-commit hook to pass those files to
+  actionlint explicitly — bare `actionlint` does not discover them.
 
 ## Rust conventions
 
@@ -126,7 +139,7 @@ default-features and `--all-features` flavours, `cargo test
 --workspace --all-features`), `cargo doc --no-deps --workspace
 --all-features` with `RUSTDOCFLAGS="-D warnings"`,
 `cargo +nightly udeps`, the markdown /
-TOML / shell / Makefile lint families, and the Python `ruff` lint /
+TOML / shell / Makefile / GitHub Actions lint families, and the Python `ruff` lint /
 `ruff format` / `mypy --strict` + `pyright` / `maturin develop` +
 `pytest` stages for `big-code-analysis-py` (each Python stage is
 skipped with a clear "X not found" message when the corresponding
@@ -134,7 +147,7 @@ tool is absent). `make ci` runs the same checks without auto-fix,
 mirroring CI behaviour.
 
 If GNU Make 4 or any of the optional tools (`taplo`, `markdownlint-cli2`,
-`shellcheck`, `shfmt`, `checkmake`, `ruff`, `mypy`, `pyright`,
+`shellcheck`, `shfmt`, `checkmake`, `actionlint`, `ruff`, `mypy`, `pyright`,
 `maturin`) are unavailable, fall back to the raw cargo commands:
 
 ```bash

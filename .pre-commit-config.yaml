@@ -54,6 +54,25 @@ repos:
         entry: cargo test
         pass_filenames: false
 
+      # actionlint validates GitHub Actions workflow syntax and shells
+      # out to shellcheck for `run:` blocks. `language: system` so the
+      # contributor's PATH-resolved `actionlint` is used (the binary is
+      # a single Go executable — see utils/check-tools.sh for install
+      # hints). The hook only fires on workflow files under
+      # `.github/workflows/` and on the actionlint config itself,
+      # because `actionlint` with no args (matching the `make
+      # actionlint` recipe) discovers exactly those — composite
+      # actions in `.github/actions/*/action.yml` would be matched but
+      # not actually checked, so listing them here would be misleading.
+      # When composite actions are added, pass them to actionlint
+      # explicitly rather than just widening this regex.
+      - id: actionlint
+        name: actionlint
+        language: system
+        files: '^\.github/(workflows/.*\.ya?ml|actionlint\.ya?ml)$'
+        entry: actionlint -no-color
+        pass_filenames: false
+
       - id: snapshot-anchors
         name: snapshot-anchors
         language: system

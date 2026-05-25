@@ -114,6 +114,19 @@ else
 fi
 
 echo ""
+echo "Optional Tools (GitHub Actions linting):"
+
+actionlint_missing=0
+if command -v actionlint >/dev/null 2>&1; then
+	actionlint_version=$(actionlint -version 2>/dev/null | awk 'NR==1{print $1; exit}' || true)
+	actionlint_version=${actionlint_version:-unknown}
+	echo "  ✓ actionlint (version: $actionlint_version)"
+else
+	echo "  ✗ actionlint (not found)"
+	actionlint_missing=1
+fi
+
+echo ""
 echo "Optional Tools (Documentation):"
 
 mdbook_missing=0
@@ -162,7 +175,7 @@ fi
 echo ""
 
 core_missing=$((cargo_missing + nightly_missing + udeps_missing + insta_missing + checkmake_missing))
-optional_missing=$((markdownlint_missing + fd_missing + taplo_missing + shellcheck_missing + shfmt_missing + mdbook_missing + ruff_missing + mypy_missing + pyright_missing + maturin_py_missing))
+optional_missing=$((markdownlint_missing + fd_missing + taplo_missing + shellcheck_missing + shfmt_missing + actionlint_missing + mdbook_missing + ruff_missing + mypy_missing + pyright_missing + maturin_py_missing))
 
 if [ "$core_missing" -gt 0 ]; then
 	echo "Missing core tools:"
@@ -202,6 +215,9 @@ if [ "$optional_missing" -gt 0 ]; then
 	fi
 	if [ "$shfmt_missing" -eq 1 ]; then
 		echo "  - shfmt: Install from https://github.com/mvdan/sh/releases"
+	fi
+	if [ "$actionlint_missing" -eq 1 ]; then
+		echo "  - actionlint: Download from https://github.com/rhysd/actionlint/releases or run 'go install github.com/rhysd/actionlint/cmd/actionlint@latest'"
 	fi
 	if [ "$mdbook_missing" -eq 1 ]; then
 		echo "  - mdbook: Install with: cargo install --locked mdbook (needed for 'make book')"

@@ -50,7 +50,7 @@ FIND_EXCLUDE   := $(foreach dir,$(EXCLUDE_DIRS),! -path './$(dir)/*')
 # warnings on `$(2)`, e.g. $(call find-by-ext,md,).
 find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name "*.$(1)" -type f $(FIND_EXCLUDE))
 
-.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check snapshot-anchors enums-check lint clippy udeps insta-review insta-accept clean install install-cli install-web doc doc-open doc-check book book-serve book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local py-fmt py-fmt-check py-lint py-typecheck py-test _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-snapshot-anchors _pc-enums-check _pc-py-fmt _pc-py-typecheck _pc-py-test _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-snapshot-anchors _ci-enums-check _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test
+.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors enums-check lint clippy udeps insta-review insta-accept clean install install-cli install-web doc doc-open doc-check book book-serve book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local py-fmt py-fmt-check py-lint py-typecheck py-test _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-enums-check _pc-py-fmt _pc-py-typecheck _pc-py-test _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-enums-check _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test
 
 # Default target
 help:
@@ -86,6 +86,7 @@ help:
 	@echo "  toml-fmt-check                       Check TOML formatting without modifying"
 	@echo "  toml-lint                            Lint TOML files with taplo"
 	@echo "  makefile-check                       Lint Makefile with checkmake"
+	@echo "  actionlint                           Lint GitHub Actions workflows with actionlint"
 	@echo "  snapshot-anchors                     Block new bare insta snapshots"
 	@echo "  enums-check                          cargo clippy on workspace-excluded enums crate"
 	@echo "  lint                                 Run all linters"
@@ -221,6 +222,16 @@ makefile-check:
 	@echo "Linting Makefile with checkmake..."
 	@checkmake --config $(BASE_DIR).checkmake.ini $(BASE_DIR)Makefile || { echo "checkmake found issues"; exit 1; }
 
+# actionlint scans every workflow under .github/workflows/ and shells
+# out to shellcheck (when present on PATH) for the `run:` blocks. It
+# takes no file arguments here: invoked at the repo root it discovers
+# .github/workflows/ automatically, which matches the canonical
+# upstream invocation and keeps the recipe robust against new
+# workflows being added.
+actionlint:
+	@echo "Linting GitHub Actions workflows with actionlint..."
+	@(cd $(BASE_DIR) && actionlint -no-color) || { echo "actionlint found issues"; exit 1; }
+
 snapshot-anchors:
 	@echo "Checking insta snapshot anchors..."
 	@python3 $(BASE_DIR)check-snapshot-anchors.py
@@ -338,7 +349,7 @@ lint:
 	$(MAKE) -j --output-sync=target \
 	  _ci-clippy \
 	  _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check \
-	  _ci-snapshot-anchors _ci-enums-check
+	  _ci-actionlint _ci-snapshot-anchors _ci-enums-check
 
 # ---------------------------------------------------------------------------
 # Maintenance
@@ -398,7 +409,7 @@ pre-commit:
 	$(MAKE) -j --output-sync=target \
 	  _pc-test \
 	  _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check \
-	  _pc-snapshot-anchors _pc-enums-check \
+	  _pc-actionlint _pc-snapshot-anchors _pc-enums-check \
 	  _pc-py-fmt _pc-py-typecheck _pc-py-test
 	@echo "Pre-commit checks passed"
 
@@ -407,7 +418,7 @@ ci:
 	$(MAKE) -j --output-sync=target \
 	  _ci-cargo-pipeline \
 	  _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check \
-	  _ci-snapshot-anchors _ci-enums-check \
+	  _ci-actionlint _ci-snapshot-anchors _ci-enums-check \
 	  _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test
 	@echo "CI checks passed"
 
@@ -433,6 +444,7 @@ ci:
 #    ├── _pc-markdown-lint
 #    ├── _pc-toml-lint
 #    ├── _pc-makefile-check
+#    ├── _pc-actionlint
 #    ├── _pc-snapshot-anchors
 #    ├── _pc-enums-check
 #    ├── _pc-py-fmt
@@ -484,6 +496,9 @@ _pc-toml-lint: _pc-fmt
 _pc-makefile-check: _pc-fmt
 	$(MAKE) makefile-check
 
+_pc-actionlint: _pc-fmt
+	$(MAKE) actionlint
+
 _pc-snapshot-anchors: _pc-fmt
 	$(MAKE) snapshot-anchors
 
@@ -520,7 +535,7 @@ _pc-py-test: _pc-udeps
 #   2. parallel:
 #      _ci-cargo-pipeline: clippy → test → build → doc-check → udeps
 #      _ci-shellcheck, _ci-markdown-lint, _ci-toml-lint, _ci-makefile-check,
-#      _ci-snapshot-anchors, _ci-enums-check
+#      _ci-actionlint, _ci-snapshot-anchors, _ci-enums-check
 #
 # _ci-enums-check runs on `enums/Cargo.toml`, which has its own `target/`
 # (workspace-excluded), so it does NOT share the workspace cargo lock and
@@ -557,6 +572,9 @@ _ci-toml-lint:
 
 _ci-makefile-check:
 	$(MAKE) makefile-check
+
+_ci-actionlint:
+	$(MAKE) actionlint
 
 _ci-snapshot-anchors:
 	$(MAKE) snapshot-anchors
