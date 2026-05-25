@@ -1,5 +1,5 @@
-use std::collections::hash_map::{Entry, HashMap};
 use std::collections::BTreeMap;
+use std::collections::hash_map::{Entry, HashMap};
 use tree_sitter::Language;
 
 pub fn capitalize(s: &str) -> String {
@@ -11,7 +11,12 @@ pub fn capitalize(s: &str) -> String {
 }
 
 pub fn sanitize_identifier(name: &str) -> String {
-    if name == "ï»¿" {
+    // Match both the canonical U+FEFF (a UTF-8-decoded BOM token, the
+    // shape tree-sitter actually produces from `node_kind_for_id`) and
+    // the three-codepoint mojibake form (U+00EF U+00BB U+00BF) the
+    // original literal `"ï»¿"` decoded to — covers whichever the
+    // backing grammar happens to expose. See issue #345.
+    if name == "\u{FEFF}" || name == "\u{00EF}\u{00BB}\u{00BF}" {
         return "BOM".to_string();
     }
     if name == "_" {
@@ -166,4 +171,46 @@ pub fn get_token_names(language: &Language, escape: bool) -> Vec<(String, bool, 
     names.push((error_name, false, "ERROR".to_string()));
 
     names
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Issue #345: the previous `"ï»¿"` literal was the three-codepoint
+    // mojibake form (U+00EF U+00BB U+00BF) — the three UTF-8 BOM bytes
+    // reinterpreted as Latin-1 chars. A tree-sitter grammar that
+    // exposes a BOM token returns the *canonical* one-char U+FEFF
+    // form; pin both shapes to a stable "BOM" identifier so future
+    // grammar bumps cannot introduce an `Anon<N>` variant.
+    #[test]
+    fn sanitize_identifier_canonical_bom() {
+        assert_eq!(sanitize_identifier("\u{FEFF}"), "BOM");
+    }
+
+    #[test]
+    fn sanitize_identifier_mojibake_bom() {
+        assert_eq!(sanitize_identifier("\u{00EF}\u{00BB}\u{00BF}"), "BOM");
+    }
+
+    #[test]
+    fn sanitize_identifier_passes_through_simple_ascii() {
+        assert_eq!(sanitize_identifier("foo_bar"), "foo_bar");
+    }
+
+    // Internal punctuation is replaced by its symbolic name with a
+    // leading `_` so the result remains a valid Rust identifier; the
+    // following alphanumeric runs directly into the replacement
+    // without a trailing separator.
+    #[test]
+    fn sanitize_identifier_translates_punctuation() {
+        assert_eq!(sanitize_identifier("a+b"), "a_PLUSb");
+    }
+
+    #[test]
+    fn sanitize_identifier_handles_reserved_keywords() {
+        assert_eq!(sanitize_identifier("_"), "UNDERSCORE");
+        assert_eq!(sanitize_identifier("self"), "Zelf");
+        assert_eq!(sanitize_identifier("Self"), "SELF");
+    }
 }
