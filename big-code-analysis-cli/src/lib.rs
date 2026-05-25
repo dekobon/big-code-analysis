@@ -805,9 +805,10 @@ fn load_preproc_data(path: &Path) -> Arc<PreprocResults> {
 
 /// Read newline-separated paths from `src` (a path on disk or `-`
 /// for stdin). Skips blank/whitespace-only lines; `#` is treated as a
-/// path character, not a comment. `die`s on I/O failure with the
-/// failing line number.
-fn read_paths_from(src: &Path) -> Vec<PathBuf> {
+/// path character, not a comment. Returns `Err(message)` on I/O
+/// failure with the failing line number; the CLI caller translates
+/// this into a `die` exit.
+fn read_paths_from(src: &Path) -> Result<Vec<PathBuf>, String> {
     read_lines_from(src, "--paths-from", |trimmed| {
         (!trimmed.is_empty()).then(|| PathBuf::from(trimmed))
     })
@@ -816,9 +817,11 @@ fn read_paths_from(src: &Path) -> Vec<PathBuf> {
 /// Read newline-separated `--exclude` glob patterns from `src` (a
 /// path on disk or `-` for stdin). Blank lines and lines whose first
 /// non-whitespace character is `#` (`.gitignore`-style comments) are
-/// skipped; surrounding whitespace on retained lines is trimmed.
-/// `die`s on I/O failure with the path / failing line.
-fn read_exclude_patterns_from(src: &Path) -> Vec<String> {
+/// skipped; surrounding whitespace and any UTF-8 BOM on retained
+/// lines are trimmed. Returns `Err(message)` on I/O failure with
+/// the path / failing line; the CLI caller translates this into a
+/// `die` exit.
+fn read_exclude_patterns_from(src: &Path) -> Result<Vec<String>, String> {
     read_lines_from(src, "--exclude-from", exclude_pattern_filter)
 }
 
@@ -836,25 +839,30 @@ fn exclude_pattern_filter(trimmed: &str) -> Option<String> {
 /// is the user-facing CLI flag name (e.g. `--paths-from`), included
 /// in error messages so users can tell which input failed.
 ///
-/// `die`s (process exit 1) on file-open or per-line I/O failure.
-/// Unit tests should call [`collect_lines`] directly with a
-/// `Cursor` or `&[u8]` reader instead — invoking this function with
-/// a missing path would kill the test process.
-fn read_lines_from<T>(src: &Path, flag: &str, map: impl Fn(&str) -> Option<T>) -> Vec<T> {
+/// Returns `Err(message)` on file-open failure or per-line I/O
+/// failure rather than calling `die` itself, so unit tests and
+/// future non-CLI callers can recover. The CLI wrappers above
+/// translate the `Err` into a `die` exit at their layer.
+fn read_lines_from<T>(
+    src: &Path,
+    flag: &str,
+    map: impl Fn(&str) -> Option<T>,
+) -> Result<Vec<T>, String> {
     if src.as_os_str() == "-" {
         let label = format!("{flag} -");
         collect_lines(std::io::stdin().lock(), &label, map)
     } else {
         let label = format!("{flag} {}", src.display());
-        let f = std::fs::File::open(src).unwrap_or_else(|e| die(format_args!("{label}: {e}")));
+        let f = std::fs::File::open(src).map_err(|e| format!("{label}: {e}"))?;
         collect_lines(std::io::BufReader::new(f), &label, map)
     }
 }
 
 /// Drain `reader` line-by-line, trimming surrounding whitespace and
-/// any leading UTF-8 BOM, then feeding each result to `map`. `die`s
-/// on I/O failure, prefixing the message with `label` and the
-/// failing line number so the caller can identify the source.
+/// any leading UTF-8 BOM, then feeding each result to `map`.
+/// Returns `Err(message)` on the first I/O failure, with `label`
+/// and the failing line number embedded so the caller can surface
+/// which input failed without further context.
 ///
 /// BOM stripping is per-line rather than first-line-only: most
 /// lines won't carry a BOM, and `\u{feff}` is not whitespace per
@@ -862,18 +870,20 @@ fn read_lines_from<T>(src: &Path, flag: &str, map: impl Fn(&str) -> Option<T>) -
 /// that saved `.bcaignore` as UTF-8-with-BOM) would otherwise
 /// become a literal glob starting with U+FEFF that matches no real
 /// path — silently disabling the first exclude.
-fn collect_lines<R, T>(reader: R, label: &str, map: impl Fn(&str) -> Option<T>) -> Vec<T>
+fn collect_lines<R, T>(
+    reader: R,
+    label: &str,
+    map: impl Fn(&str) -> Option<T>,
+) -> Result<Vec<T>, String>
 where
     R: std::io::BufRead,
 {
     reader
         .lines()
         .enumerate()
-        .filter_map(|(i, r)| {
-            let line = r.unwrap_or_else(|e| {
-                die(format_args!("{label}: read error on line {}: {e}", i + 1))
-            });
-            map(line.trim().trim_start_matches('\u{feff}'))
+        .filter_map(|(i, r)| match r {
+            Ok(line) => map(line.trim().trim_start_matches('\u{feff}')).map(Ok),
+            Err(e) => Some(Err(format!("{label}: read error on line {}: {e}", i + 1))),
         })
         .collect()
 }
@@ -894,7 +904,7 @@ fn expand_seed_paths(
     use ignore::WalkBuilder;
     let mut seeds = paths;
     if let Some(src) = paths_from {
-        seeds.extend(read_paths_from(&src));
+        seeds.extend(read_paths_from(&src).unwrap_or_else(|e| die(e)));
     }
     let mut out: Vec<PathBuf> = Vec::new();
     for seed in seeds {
@@ -931,7 +941,7 @@ fn run_walk(globals: GlobalOpts, cfg: Config) -> HashMap<String, Vec<PathBuf>> {
     let include = mk_globset(globals.include).unwrap_or_else(|e| die(e));
     let mut exclude_patterns = globals.exclude;
     if let Some(src) = globals.exclude_from {
-        exclude_patterns.extend(read_exclude_patterns_from(&src));
+        exclude_patterns.extend(read_exclude_patterns_from(&src).unwrap_or_else(|e| die(e)));
     }
     let exclude = mk_globset(exclude_patterns).unwrap_or_else(|e| die(e));
     let num_jobs = resolve_num_jobs(globals.num_jobs);
@@ -1917,7 +1927,8 @@ mod tests {
             "**/*.snap\n",
             "   tests/repositories/**   \n",
         );
-        let got = collect_lines(std::io::Cursor::new(input), "test", exclude_pattern_filter);
+        let got = collect_lines(std::io::Cursor::new(input), "test", exclude_pattern_filter)
+            .expect("Cursor reads never fail");
         assert_eq!(
             got,
             vec![
@@ -1936,7 +1947,8 @@ mod tests {
 a/#weird/path
 #full-line-comment
 ";
-        let got = collect_lines(std::io::Cursor::new(input), "test", exclude_pattern_filter);
+        let got = collect_lines(std::io::Cursor::new(input), "test", exclude_pattern_filter)
+            .expect("Cursor reads never fail");
         assert_eq!(
             got,
             vec!["a/#weird/path"],
@@ -1947,7 +1959,8 @@ a/#weird/path
     #[test]
     fn collect_lines_returns_empty_for_only_blanks_and_comments() {
         let input = "\n# only comments\n\t  \n# another\n";
-        let got = collect_lines(std::io::Cursor::new(input), "test", exclude_pattern_filter);
+        let got = collect_lines(std::io::Cursor::new(input), "test", exclude_pattern_filter)
+            .expect("Cursor reads never fail");
         assert!(got.is_empty(), "expected empty Vec, got {got:?}");
     }
 }

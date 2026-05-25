@@ -293,3 +293,43 @@ fn paths_from_missing_file_dies() {
                 .and(predicate::str::contains("does-not-exist.txt")),
         );
 }
+
+#[test]
+fn paths_from_strips_utf8_bom_on_first_line() {
+    let dir = TempDir::new().unwrap();
+    let (keep, _skip) = make_tree(dir.path());
+    let listfile = dir.path().join("paths.txt");
+    // UTF-8 BOM (`\u{feff}`, three bytes: EF BB BF) followed by an
+    // otherwise valid path. Without BOM stripping, the first line
+    // would be `\u{feff}<keep_path>` — a literal path the
+    // walker would warn about (file doesn't exist) and skip,
+    // turning a green output assertion into an empty directory.
+    // The fix lives in the shared `collect_lines` helper, so this
+    // mirrors `exclude_from_strips_utf8_bom_on_first_line` to keep
+    // both flag families covered.
+    let mut bytes: Vec<u8> = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend_from_slice(format!("{}\n", keep.display()).as_bytes());
+    std::fs::write(&listfile, bytes).unwrap();
+    let out = dir.path().join("out");
+    std::fs::create_dir(&out).unwrap();
+
+    cli(dir.path())
+        .args([
+            "--paths-from",
+            listfile.to_str().unwrap(),
+            "metrics",
+            "-O",
+            "json",
+            "-o",
+            out.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let names = json_files(&out);
+    assert_eq!(
+        names,
+        vec!["keep.py.json".to_string()],
+        "BOM must be stripped so the first path is recognized as a real file"
+    );
+}
