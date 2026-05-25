@@ -809,9 +809,16 @@ fn load_preproc_data(path: &Path) -> Arc<PreprocResults> {
 /// failure with the failing line number; the CLI caller translates
 /// this into a `die` exit.
 fn read_paths_from(src: &Path) -> Result<Vec<PathBuf>, String> {
-    read_lines_from(src, "--paths-from", |trimmed| {
-        (!trimmed.is_empty()).then(|| PathBuf::from(trimmed))
-    })
+    read_lines_from(src, "--paths-from", path_pattern_filter)
+}
+
+/// Retention policy for `--paths-from` lines: keep the trimmed
+/// non-blank text as a literal path. `#` is a path character, not
+/// a comment — paired with [`exclude_pattern_filter`] (the inverse
+/// policy) by the unit tests so the two `read_*_from` wrappers
+/// cannot accidentally swap predicates.
+fn path_pattern_filter(trimmed: &str) -> Option<PathBuf> {
+    (!trimmed.is_empty()).then(|| PathBuf::from(trimmed))
 }
 
 /// Read newline-separated `--exclude` glob patterns from `src` (a
@@ -2017,23 +2024,16 @@ a/#weird/path
         );
     }
 
-    /// Filter that mirrors the closure passed by `read_paths_from`
-    /// — kept verbose so the test pins the production policy
-    /// rather than its own copy. Update both call sites in lockstep.
-    fn keep_path_pattern(trimmed: &str) -> Option<PathBuf> {
-        (!trimmed.is_empty()).then(|| PathBuf::from(trimmed))
-    }
-
     #[test]
-    fn paths_closure_keeps_hash_prefixed_lines_as_literal_paths() {
+    fn path_pattern_filter_keeps_hash_prefixed_lines_as_literal_paths() {
         // Pins the doc claim on `read_paths_from`: `#` is a path
-        // character, not a comment. A refactor that accidentally
-        // swapped in `exclude_pattern_filter` for the paths reader
-        // (the two are now adjacent and have the same signature)
-        // would silently filter `#`-prefixed paths; this test
-        // would fail.
+        // character, not a comment. The test calls
+        // `path_pattern_filter` directly so a refactor that
+        // accidentally swapped in `exclude_pattern_filter` (the two
+        // are adjacent and share the signature) would silently
+        // filter `#`-prefixed paths AND fail this test.
         let input = "/tmp/normal/path\n#weird-but-valid-path\n";
-        let got = collect_lines(std::io::Cursor::new(input), "test", keep_path_pattern)
+        let got = collect_lines(std::io::Cursor::new(input), "test", path_pattern_filter)
             .expect("ASCII fixture decodes cleanly");
         assert_eq!(
             got,
@@ -2042,6 +2042,24 @@ a/#weird/path
                 PathBuf::from("#weird-but-valid-path"),
             ],
             "`#`-prefixed lines are literal paths for `--paths-from`, NOT comments",
+        );
+    }
+
+    #[test]
+    fn path_pattern_filter_direct_policy_check() {
+        // Symmetric to `exclude_pattern_filter_direct_policy_check`
+        // — exercises the helper in isolation, outside the
+        // `collect_lines` integration path.
+        assert_eq!(path_pattern_filter(""), None, "blank line skipped");
+        assert_eq!(
+            path_pattern_filter("# foo"),
+            Some(PathBuf::from("# foo")),
+            "`#`-prefix retained as path char (inverse of exclude_pattern_filter)",
+        );
+        assert_eq!(
+            path_pattern_filter("/tmp/x"),
+            Some(PathBuf::from("/tmp/x")),
+            "absolute path retained",
         );
     }
 
