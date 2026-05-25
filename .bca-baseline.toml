@@ -170,124 +170,124 @@ path = "./big-code-analysis-cli/src/lib.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 5293694.944455639
+value = 5969504.865565565
 
 [[entry]]
 path = "./big-code-analysis-cli/src/lib.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1844.0
+value = 2088.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/lib.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 83.0
+value = 92.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/lib.rs"
 function = "<file>"
 start_line = 1
 metric = "nexits"
-value = 23.0
+value = 24.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/lib.rs"
 function = "<file>"
 start_line = 1
 metric = "nom"
-value = 119.0
+value = 135.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/lib.rs"
 function = "act_on_file"
-start_line = 496
+start_line = 505
 metric = "abc"
 value = 85.492689745966
 
 [[entry]]
 path = "./big-code-analysis-cli/src/lib.rs"
 function = "act_on_file"
-start_line = 496
+start_line = 505
 metric = "cognitive"
 value = 63.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/lib.rs"
 function = "act_on_file"
-start_line = 496
+start_line = 505
 metric = "cyclomatic"
 value = 47.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/lib.rs"
 function = "act_on_file"
-start_line = 496
+start_line = 505
 metric = "halstead.effort"
 value = 335590.03836969764
 
 [[entry]]
 path = "./big-code-analysis-cli/src/lib.rs"
 function = "act_on_file"
-start_line = 496
+start_line = 505
 metric = "loc.sloc"
 value = 242.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/lib.rs"
 function = "act_on_file"
-start_line = 496
+start_line = 505
 metric = "nexits"
 value = 10.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/lib.rs"
 function = "run_check"
-start_line = 943
+start_line = 1024
 metric = "abc"
 value = 53.600373133029585
 
 [[entry]]
 path = "./big-code-analysis-cli/src/lib.rs"
 function = "run_check"
-start_line = 943
+start_line = 1024
 metric = "halstead.effort"
 value = 92719.6590004316
 
 [[entry]]
 path = "./big-code-analysis-cli/src/lib.rs"
 function = "run_check"
-start_line = 943
+start_line = 1024
 metric = "nargs"
 value = 10.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/lib.rs"
 function = "run"
-start_line = 1085
+start_line = 1166
 metric = "abc"
 value = 93.40770846134703
 
 [[entry]]
 path = "./big-code-analysis-cli/src/lib.rs"
 function = "run"
-start_line = 1085
+start_line = 1166
 metric = "cognitive"
 value = 33.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/lib.rs"
 function = "run"
-start_line = 1085
+start_line = 1166
 metric = "cyclomatic"
 value = 39.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/lib.rs"
 function = "run"
-start_line = 1085
+start_line = 1166
 metric = "halstead.effort"
 value = 212785.4408653776
 
@@ -296,105 +296,63 @@ path = "./big-code-analysis-cli/src/markdown_report.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 6860541.348054058
+value = 4797654.969821163
 
 [[entry]]
 path = "./big-code-analysis-cli/src/markdown_report.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1698.0
+value = 1331.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/markdown_report.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 99.0
+value = 75.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/markdown_report.rs"
 function = "<file>"
 start_line = 1
 metric = "nom"
-value = 110.0
+value = 87.0
 
 [[entry]]
-path = "./big-code-analysis-cli/src/markdown_report.rs"
-function = "write_table"
-start_line = 228
+path = "./big-code-analysis-cli/src/markdown_report/sections.rs"
+function = "<file>"
+start_line = 1
 metric = "halstead.effort"
-value = 89688.16035581256
+value = 1602161.0760360244
 
 [[entry]]
-path = "./big-code-analysis-cli/src/markdown_report.rs"
-function = "write_table"
-start_line = 228
+path = "./big-code-analysis-cli/src/markdown_report/sections.rs"
+function = "<file>"
+start_line = 1
+metric = "loc.sloc"
+value = 573.0
+
+[[entry]]
+path = "./big-code-analysis-cli/src/markdown_report/sections.rs"
+function = "<file>"
+start_line = 1
 metric = "nargs"
+value = 67.0
+
+[[entry]]
+path = "./big-code-analysis-cli/src/markdown_report/sections.rs"
+function = "<file>"
+start_line = 1
+metric = "nexits"
 value = 10.0
 
 [[entry]]
-path = "./big-code-analysis-cli/src/markdown_report.rs"
-function = "generate_report"
-start_line = 292
-metric = "halstead.effort"
-value = 178390.46837088565
-
-[[entry]]
-path = "./big-code-analysis-cli/src/markdown_report.rs"
-function = "generate_report"
-start_line = 292
-metric = "nargs"
-value = 11.0
-
-[[entry]]
-path = "./big-code-analysis-cli/src/markdown_report.rs"
-function = "write_language_section"
-start_line = 427
-metric = "abc"
-value = 125.15989773086265
-
-[[entry]]
-path = "./big-code-analysis-cli/src/markdown_report.rs"
-function = "write_language_section"
-start_line = 427
-metric = "cognitive"
-value = 29.0
-
-[[entry]]
-path = "./big-code-analysis-cli/src/markdown_report.rs"
-function = "write_language_section"
-start_line = 427
-metric = "cyclomatic"
-value = 23.0
-
-[[entry]]
-path = "./big-code-analysis-cli/src/markdown_report.rs"
-function = "write_language_section"
-start_line = 427
-metric = "halstead.effort"
-value = 1222946.9145994987
-
-[[entry]]
-path = "./big-code-analysis-cli/src/markdown_report.rs"
-function = "write_language_section"
-start_line = 427
-metric = "loc.sloc"
-value = 526.0
-
-[[entry]]
-path = "./big-code-analysis-cli/src/markdown_report.rs"
-function = "write_language_section"
-start_line = 427
-metric = "nargs"
-value = 39.0
-
-[[entry]]
-path = "./big-code-analysis-cli/src/markdown_report.rs"
-function = "write_language_section"
-start_line = 427
+path = "./big-code-analysis-cli/src/markdown_report/sections.rs"
+function = "<file>"
+start_line = 1
 metric = "nom"
-value = 33.0
+value = 45.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/metric_catalog.rs"
@@ -625,28 +583,28 @@ path = "./big-code-analysis-py/src/sarif.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 652000.4280438706
+value = 760635.6236342953
 
 [[entry]]
 path = "./big-code-analysis-py/src/sarif.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 596.0
+value = 645.0
 
 [[entry]]
 path = "./big-code-analysis-py/src/sarif.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 27.0
+value = 38.0
 
 [[entry]]
 path = "./big-code-analysis-py/src/sarif.rs"
 function = "<file>"
 start_line = 1
 metric = "nexits"
-value = 35.0
+value = 38.0
 
 [[entry]]
 path = "./big-code-analysis-py/src/sarif.rs"
@@ -684,13 +642,6 @@ metric = "nexits"
 value = 10.0
 
 [[entry]]
-path = "./big-code-analysis-py/src/sarif.rs"
-function = "to_sarif"
-start_line = 476
-metric = "nexits"
-value = 9.0
-
-[[entry]]
 path = "./big-code-analysis-web/src/lib.rs"
 function = "<file>"
 start_line = 1
@@ -709,21 +660,21 @@ path = "./big-code-analysis-web/src/web/server.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 8218686.477194243
+value = 1099895.6658813353
 
 [[entry]]
 path = "./big-code-analysis-web/src/web/server.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1439.0
+value = 470.0
 
 [[entry]]
 path = "./big-code-analysis-web/src/web/server.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 35.0
+value = 33.0
 
 [[entry]]
 path = "./big-code-analysis-web/src/web/server.rs"
@@ -734,38 +685,17 @@ value = 15.0
 
 [[entry]]
 path = "./big-code-analysis-web/src/web/server.rs"
-function = "<file>"
-start_line = 1
-metric = "nom"
-value = 62.0
-
-[[entry]]
-path = "./big-code-analysis-web/src/web/server.rs"
 function = "run_with_timeout"
 start_line = 382
 metric = "halstead.effort"
-value = 83953.14726098301
+value = 75817.81333806844
 
 [[entry]]
 path = "./big-code-analysis-web/src/web/server.rs"
 function = "<anonymous>"
 start_line = 406
 metric = "abc"
-value = 73.0
-
-[[entry]]
-path = "./big-code-analysis-web/src/web/server.rs"
-function = "test_web_metrics_json"
-start_line = 925
-metric = "halstead.effort"
-value = 110349.43567536156
-
-[[entry]]
-path = "./big-code-analysis-web/src/web/server.rs"
-function = "test_web_metrics_plain"
-start_line = 1070
-metric = "halstead.effort"
-value = 108542.55842165816
+value = 69.0
 
 [[entry]]
 path = "./src/alterator.rs"
@@ -1178,21 +1108,21 @@ path = "./src/concurrent_files.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 599510.321751543
+value = 823110.0524753943
 
 [[entry]]
 path = "./src/concurrent_files.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 349.0
+value = 438.0
 
 [[entry]]
 path = "./src/concurrent_files.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 31.0
+value = 40.0
 
 [[entry]]
 path = "./src/concurrent_files.rs"
@@ -1203,29 +1133,15 @@ value = 8.0
 
 [[entry]]
 path = "./src/concurrent_files.rs"
-function = "explore"
-start_line = 70
-metric = "cyclomatic"
-value = 19.0
-
-[[entry]]
-path = "./src/concurrent_files.rs"
-function = "explore"
-start_line = 70
-metric = "halstead.effort"
-value = 57323.6532083594
-
-[[entry]]
-path = "./src/concurrent_files.rs"
 function = "ConcurrentRunner<Config>"
-start_line = 164
+start_line = 184
 metric = "halstead.effort"
 value = 90611.09946788894
 
 [[entry]]
 path = "./src/concurrent_files.rs"
 function = "ConcurrentRunner<Config>"
-start_line = 164
+start_line = 184
 metric = "nargs"
 value = 9.0
 
@@ -1241,7 +1157,7 @@ path = "./src/function.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 109780.5764566762
+value = 107347.02175608174
 
 [[entry]]
 path = "./src/function.rs"
@@ -1255,7 +1171,7 @@ path = "./src/function.rs"
 function = "<file>"
 start_line = 1
 metric = "nexits"
-value = 18.0
+value = 17.0
 
 [[entry]]
 path = "./src/function.rs"
@@ -1402,33 +1318,33 @@ path = "./src/metric_set.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 899497.1840037197
+value = 267708.36412749364
 
 [[entry]]
 path = "./src/metric_set.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 571.0
+value = 326.0
 
 [[entry]]
 path = "./src/metric_set.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 18.0
+value = 16.0
 
 [[entry]]
 path = "./src/metric_set.rs"
 function = "MetricSet"
-start_line = 211
+start_line = 216
 metric = "halstead.effort"
 value = 50103.08987346512
 
 [[entry]]
 path = "./src/metric_set.rs"
 function = "MetricSet"
-start_line = 211
+start_line = 216
 metric = "nargs"
 value = 9.0
 
@@ -2466,14 +2382,14 @@ path = "./src/output/checkstyle.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 238116.04387109797
+value = 426579.90479467943
 
 [[entry]]
 path = "./src/output/checkstyle.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 267.0
+value = 372.0
 
 [[entry]]
 path = "./src/output/checkstyle.rs"
@@ -2487,7 +2403,7 @@ path = "./src/output/checkstyle.rs"
 function = "<file>"
 start_line = 1
 metric = "nexits"
-value = 17.0
+value = 10.0
 
 [[entry]]
 path = "./src/output/checkstyle.rs"
@@ -2495,27 +2411,6 @@ function = "write_checkstyle"
 start_line = 45
 metric = "nexits"
 value = 7.0
-
-[[entry]]
-path = "./src/output/checkstyle.rs"
-function = "XmlAttr<'_>"
-start_line = 98
-metric = "nexits"
-value = 8.0
-
-[[entry]]
-path = "./src/output/checkstyle.rs"
-function = "fmt"
-start_line = 99
-metric = "cyclomatic"
-value = 19.0
-
-[[entry]]
-path = "./src/output/checkstyle.rs"
-function = "fmt"
-start_line = 99
-metric = "nexits"
-value = 8.0
 
 [[entry]]
 path = "./src/output/csv.rs"
@@ -3075,67 +2970,32 @@ path = "./src/tools.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 3183306.9002361125
+value = 3141047.906865977
 
 [[entry]]
 path = "./src/tools.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1211.0
+value = 1213.0
 
 [[entry]]
 path = "./src/tools.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 56.0
+value = 66.0
 
 [[entry]]
 path = "./src/tools.rs"
 function = "<file>"
 start_line = 1
 metric = "nexits"
-value = 30.0
+value = 27.0
 
 [[entry]]
 path = "./src/tools.rs"
 function = "<file>"
 start_line = 1
 metric = "nom"
-value = 98.0
-
-[[entry]]
-path = "./src/tools.rs"
-function = "guess_file"
-start_line = 527
-metric = "cognitive"
-value = 46.0
-
-[[entry]]
-path = "./src/tools.rs"
-function = "guess_file"
-start_line = 527
-metric = "cyclomatic"
-value = 21.0
-
-[[entry]]
-path = "./src/tools.rs"
-function = "guess_file"
-start_line = 527
-metric = "halstead.effort"
-value = 148216.76470588235
-
-[[entry]]
-path = "./src/tools.rs"
-function = "guess_file"
-start_line = 527
-metric = "nargs"
-value = 10.0
-
-[[entry]]
-path = "./src/tools.rs"
-function = "guess_file"
-start_line = 527
-metric = "nexits"
-value = 8.0
+value = 108.0
