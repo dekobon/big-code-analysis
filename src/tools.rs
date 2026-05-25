@@ -553,95 +553,96 @@ pub(crate) fn guess_file<S: ::std::hash::BuildHasher>(
         .map(|parent| normalize_path(parent.join(include_path)));
 
     let include_path = normalize_path(include_path);
-    let Some(file_name) = include_path.file_name() else {
+    let Some(file_name) = include_path.file_name().and_then(|n| n.to_str()) else {
         return vec![];
     };
-    let Some(file_name) = file_name.to_str() else {
+    let Some(possibilities) = all_files.get(file_name) else {
         return vec![];
     };
-    if let Some(possibilities) = all_files.get(file_name) {
-        if possibilities.len() == 1 {
-            // Only one file with this name
-            return possibilities.clone();
-        }
-
-        // Strongest signal: a candidate matches the fully resolved
-        // relative target. Prefer exact equality, then suffix match
-        // (so absolute `all_files` entries still match a relative
-        // resolved target like `src/foo.h`).
-        if let Some(resolved) = resolved_path.as_ref() {
-            fn unique_match<F: Fn(&PathBuf) -> bool>(
-                possibilities: &[PathBuf],
-                current_path: &Path,
-                pred: F,
-            ) -> Option<Vec<PathBuf>> {
-                let matched: Vec<PathBuf> = possibilities
-                    .iter()
-                    .filter(|p| current_path != p.as_path() && pred(p))
-                    .cloned()
-                    .collect();
-                (matched.len() == 1).then_some(matched)
-            }
-            if let Some(hit) = unique_match(possibilities, current_path, |p| p == resolved) {
-                return hit;
-            }
-            if let Some(hit) = unique_match(possibilities, current_path, |p| p.ends_with(resolved))
-            {
-                return hit;
-            }
-        }
-
-        let mut new_possibilities = Vec::new();
-        for p in possibilities {
-            if p.ends_with(&include_path) && current_path != p {
-                new_possibilities.push(p.clone());
-            }
-        }
-        if new_possibilities.len() == 1 {
-            // Only one path is finishing with "foo/Bar.h"
-            return new_possibilities;
-        }
-        new_possibilities.clear();
-
-        if let Some(parent) = current_path.parent() {
-            for p in possibilities {
-                if p.starts_with(parent) && current_path != p {
-                    new_possibilities.push(p.clone());
-                }
-            }
-            if new_possibilities.len() == 1 {
-                // Only one path in the current working directory (current_path)
-                return new_possibilities;
-            }
-            new_possibilities.clear();
-        }
-
-        let mut dist_min = usize::MAX;
-        let mut path_min = Vec::new();
-        for p in possibilities {
-            if current_path == p {
-                continue;
-            }
-            if let Some(dist) = get_paths_dist(current_path, p) {
-                match dist.cmp(&dist_min) {
-                    Ordering::Less => {
-                        dist_min = dist;
-                        path_min.clear();
-                        path_min.push(p);
-                    }
-                    Ordering::Equal => {
-                        path_min.push(p);
-                    }
-                    Ordering::Greater => {}
-                }
-            }
-        }
-
-        let path_min: Vec<_> = path_min.drain(..).cloned().collect();
-        return path_min;
+    if possibilities.len() == 1 {
+        return possibilities.clone();
     }
 
-    vec![]
+    // Strategy chain: each step looks for a UNIQUE candidate that
+    // matches a progressively weaker signal (full resolved target →
+    // suffix on the normalized include → siblings of the including
+    // file). When no step yields a unique match, fall back to the
+    // closest by path distance, which may return zero or many.
+    resolve_against_resolved(possibilities, current_path, resolved_path.as_deref())
+        .or_else(|| unique_filter(possibilities, current_path, |p| p.ends_with(&include_path)))
+        .or_else(|| resolve_against_parent(possibilities, current_path))
+        .unwrap_or_else(|| min_distance_candidates(possibilities, current_path))
+}
+
+/// Filter `possibilities` to those satisfying `pred` and distinct
+/// from `current_path`, returning `Some(matched)` only when exactly
+/// one survives. The cascading caller treats `None` as "this strategy
+/// did not yield a unique resolution — try the next one."
+fn unique_filter<F>(
+    possibilities: &[PathBuf],
+    current_path: &Path,
+    pred: F,
+) -> Option<Vec<PathBuf>>
+where
+    F: Fn(&PathBuf) -> bool,
+{
+    let matched: Vec<PathBuf> = possibilities
+        .iter()
+        .filter(|p| current_path != p.as_path() && pred(p))
+        .cloned()
+        .collect();
+    (matched.len() == 1).then_some(matched)
+}
+
+/// Strongest signal: a candidate matches the fully resolved relative
+/// target. Prefer exact equality, then suffix match (so absolute
+/// `all_files` entries still match a relative resolved target like
+/// `src/foo.h`).
+fn resolve_against_resolved(
+    possibilities: &[PathBuf],
+    current_path: &Path,
+    resolved: Option<&Path>,
+) -> Option<Vec<PathBuf>> {
+    let resolved = resolved?;
+    unique_filter(possibilities, current_path, |p| p == resolved)
+        .or_else(|| unique_filter(possibilities, current_path, |p| p.ends_with(resolved)))
+}
+
+/// Candidate-in-same-directory heuristic: keep entries whose path
+/// starts with the including file's parent directory.
+fn resolve_against_parent(
+    possibilities: &[PathBuf],
+    current_path: &Path,
+) -> Option<Vec<PathBuf>> {
+    let parent = current_path.parent()?;
+    unique_filter(possibilities, current_path, |p| p.starts_with(parent))
+}
+
+/// Last-chance fallback: candidates with minimal `get_paths_dist`
+/// from `current_path`. Unlike the unique-match strategies, this one
+/// may return zero or many candidates — its result is the function's
+/// final answer.
+fn min_distance_candidates(possibilities: &[PathBuf], current_path: &Path) -> Vec<PathBuf> {
+    let mut dist_min = usize::MAX;
+    let mut path_min: Vec<&PathBuf> = Vec::new();
+    for p in possibilities {
+        if current_path == p {
+            continue;
+        }
+        let Some(dist) = get_paths_dist(current_path, p) else {
+            continue;
+        };
+        match dist.cmp(&dist_min) {
+            Ordering::Less => {
+                dist_min = dist;
+                path_min.clear();
+                path_min.push(p);
+            }
+            Ordering::Equal => path_min.push(p),
+            Ordering::Greater => {}
+        }
+    }
+    path_min.into_iter().cloned().collect()
 }
 
 #[inline]

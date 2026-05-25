@@ -77,9 +77,13 @@ where
 {
     let FilesData {
         mut paths,
-        ref include,
-        ref exclude,
+        include,
+        exclude,
     } = files_data;
+    let filters = Filters {
+        include: &include,
+        exclude: &exclude,
+    };
 
     let mut all_files: HashMap<String, Vec<PathBuf>> = HashMap::new();
 
@@ -89,33 +93,52 @@ where
             continue;
         }
         if path.is_dir() {
-            for entry in WalkDir::new(path)
-                .into_iter()
-                .filter_entry(|e| !is_hidden(e))
-            {
-                let entry = match entry {
-                    Ok(entry) => entry,
-                    Err(e) => return Err(ConcurrentErrors::Sender(e.to_string())),
-                };
-                let path = entry.path().to_path_buf();
-                if (include.is_empty() || include.is_match(&path))
-                    && (exclude.is_empty() || !exclude.is_match(&path))
-                    && path.is_file()
-                {
-                    proc_dir_paths(&mut all_files, &path, cfg);
-                    send_file(path, cfg, sender)?;
-                }
+            for entry_path in walk_dir_files(&path, &filters) {
+                let entry_path = entry_path?;
+                proc_dir_paths(&mut all_files, &entry_path, cfg);
+                send_file(entry_path, cfg, sender)?;
             }
-        } else if (include.is_empty() || include.is_match(&path))
-            && (exclude.is_empty() || !exclude.is_match(&path))
-            && path.is_file()
-        {
+        } else if filters.matches(&path) && path.is_file() {
             proc_path(&path, cfg);
             send_file(path, cfg, sender)?;
         }
     }
 
     Ok(all_files)
+}
+
+/// Borrowed include/exclude pair, factored out so `explore` and the
+/// directory walker can share one filter predicate instead of
+/// re-evaluating two near-identical `&&`-chains side-by-side.
+struct Filters<'a> {
+    include: &'a GlobSet,
+    exclude: &'a GlobSet,
+}
+
+impl Filters<'_> {
+    fn matches(&self, path: &Path) -> bool {
+        (self.include.is_empty() || self.include.is_match(path))
+            && (self.exclude.is_empty() || !self.exclude.is_match(path))
+    }
+}
+
+/// Walk `root` recursively, yielding only regular files that match
+/// `filters` and aren't hidden. `WalkDir` errors are surfaced as
+/// `ConcurrentErrors::Sender` so the caller can `?`-propagate them.
+fn walk_dir_files<'a>(
+    root: &Path,
+    filters: &'a Filters<'_>,
+) -> impl Iterator<Item = Result<PathBuf, ConcurrentErrors>> + 'a {
+    WalkDir::new(root)
+        .into_iter()
+        .filter_entry(|e| !is_hidden(e))
+        .filter_map(move |entry| match entry {
+            Ok(entry) => {
+                let path = entry.path().to_path_buf();
+                (filters.matches(&path) && path.is_file()).then_some(Ok(path))
+            }
+            Err(e) => Some(Err(ConcurrentErrors::Sender(e.to_string()))),
+        })
 }
 
 /// Series of errors that might happen when processing files concurrently.
