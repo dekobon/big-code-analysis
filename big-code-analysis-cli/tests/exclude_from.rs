@@ -223,3 +223,116 @@ fn exclude_from_invalid_glob_in_file_dies_like_exclude_flag() {
         .code(1)
         .stderr(predicate::str::contains("invalid glob pattern"));
 }
+
+#[test]
+fn exclude_from_stdin_reads_patterns() {
+    let dir = TempDir::new().unwrap();
+    let _ = make_tree(dir.path());
+    let out = dir.path().join("out");
+    std::fs::create_dir(&out).unwrap();
+    // Stdin payload mirrors the .gitignore-style file contents: blank
+    // and `#`-comment lines must still be tolerated when patterns
+    // arrive via `-` rather than from disk.
+    let stdin = "# piped via stdin\n**/drop_a.py\n\n**/drop_b.py\n";
+
+    cli(dir.path())
+        .args([
+            "--paths",
+            dir.path().join("src").to_str().unwrap(),
+            "--exclude-from",
+            "-",
+            "metrics",
+            "-O",
+            "json",
+            "-o",
+            out.to_str().unwrap(),
+        ])
+        .write_stdin(stdin)
+        .assert()
+        .success();
+
+    let names = json_files(&out);
+    assert_eq!(
+        names,
+        vec!["keep.py.json".to_string()],
+        "--exclude-from - should consume patterns from stdin the same way it consumes them from a file"
+    );
+}
+
+#[test]
+fn exclude_from_empty_file_is_noop() {
+    let dir = TempDir::new().unwrap();
+    let _ = make_tree(dir.path());
+    let bcaignore = dir.path().join(".bcaignore");
+    std::fs::write(&bcaignore, "").unwrap();
+    let out = dir.path().join("out");
+    std::fs::create_dir(&out).unwrap();
+
+    cli(dir.path())
+        .args([
+            "--paths",
+            dir.path().join("src").to_str().unwrap(),
+            "--exclude-from",
+            bcaignore.to_str().unwrap(),
+            "metrics",
+            "-O",
+            "json",
+            "-o",
+            out.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let names = json_files(&out);
+    // No patterns, no excludes — all three fixture files survive.
+    assert_eq!(
+        names,
+        vec![
+            "drop_a.py.json".to_string(),
+            "drop_b.py.json".to_string(),
+            "keep.py.json".to_string(),
+        ],
+        "an empty .bcaignore must leave the deny-set untouched"
+    );
+}
+
+#[test]
+fn exclude_from_strips_utf8_bom_on_first_line() {
+    let dir = TempDir::new().unwrap();
+    let _ = make_tree(dir.path());
+    let bcaignore = dir.path().join(".bcaignore");
+    // UTF-8 BOM (`\u{feff}`, three bytes: EF BB BF) followed by a
+    // `#`-comment containing a deliberately malformed glob. Without
+    // BOM stripping, `# unclosed [bracket ...` would survive
+    // `starts_with('#')` (the BOM is the first char, not `#`), be
+    // passed to `Glob::new`, fail to parse, and crash the run with
+    // "invalid glob pattern". With BOM stripping, the trimmed line
+    // starts with `#` and is correctly skipped — the run succeeds.
+    let mut bytes: Vec<u8> = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend_from_slice(b"# unclosed [bracket - malformed if not skipped\n**/drop_a.py\n");
+    std::fs::write(&bcaignore, bytes).unwrap();
+    let out = dir.path().join("out");
+    std::fs::create_dir(&out).unwrap();
+
+    cli(dir.path())
+        .args([
+            "--paths",
+            dir.path().join("src").to_str().unwrap(),
+            "--exclude-from",
+            bcaignore.to_str().unwrap(),
+            "metrics",
+            "-O",
+            "json",
+            "-o",
+            out.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let names = json_files(&out);
+    assert_eq!(
+        names,
+        vec!["drop_b.py.json".to_string(), "keep.py.json".to_string()],
+        "the BOM must be stripped so the `#`-comment is recognized and skipped, leaving only `**/drop_a.py` as an active exclude"
+    );
+}

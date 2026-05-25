@@ -835,6 +835,11 @@ fn exclude_pattern_filter(trimmed: &str) -> Option<String> {
 /// returns `Some` for are collected; `None` skips the line. `flag`
 /// is the user-facing CLI flag name (e.g. `--paths-from`), included
 /// in error messages so users can tell which input failed.
+///
+/// `die`s (process exit 1) on file-open or per-line I/O failure.
+/// Unit tests should call [`collect_lines`] directly with a
+/// `Cursor` or `&[u8]` reader instead — invoking this function with
+/// a missing path would kill the test process.
 fn read_lines_from<T>(src: &Path, flag: &str, map: impl Fn(&str) -> Option<T>) -> Vec<T> {
     if src.as_os_str() == "-" {
         let label = format!("{flag} -");
@@ -847,9 +852,16 @@ fn read_lines_from<T>(src: &Path, flag: &str, map: impl Fn(&str) -> Option<T>) -
 }
 
 /// Drain `reader` line-by-line, trimming surrounding whitespace and
-/// feeding each result to `map`. `die`s on I/O failure, prefixing
-/// the message with `label` and the failing line number so the
-/// caller can identify the source.
+/// any leading UTF-8 BOM, then feeding each result to `map`. `die`s
+/// on I/O failure, prefixing the message with `label` and the
+/// failing line number so the caller can identify the source.
+///
+/// BOM stripping is per-line rather than first-line-only: most
+/// lines won't carry a BOM, and `\u{feff}` is not whitespace per
+/// `char::is_whitespace`, so a BOM-prefixed pattern (e.g. an editor
+/// that saved `.bcaignore` as UTF-8-with-BOM) would otherwise
+/// become a literal glob starting with U+FEFF that matches no real
+/// path — silently disabling the first exclude.
 fn collect_lines<R, T>(reader: R, label: &str, map: impl Fn(&str) -> Option<T>) -> Vec<T>
 where
     R: std::io::BufRead,
@@ -861,7 +873,7 @@ where
             let line = r.unwrap_or_else(|e| {
                 die(format_args!("{label}: read error on line {}: {e}", i + 1))
             });
-            map(line.trim())
+            map(line.trim().trim_start_matches('\u{feff}'))
         })
         .collect()
 }
