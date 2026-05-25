@@ -126,10 +126,18 @@ fn exclude_from_skips_blank_and_comment_lines() {
     let dir = TempDir::new().unwrap();
     let _ = make_tree(dir.path());
     let bcaignore = dir.path().join(".bcaignore");
+    // The first comment is a malformed glob (`[` opens a character
+    // class that never closes). If production stops skipping
+    // `#`-prefixed lines, `mk_globset` would try to parse this as a
+    // pattern and bail out with "invalid glob pattern" — turning
+    // the green `["keep.py.json"]` assertion red. Without this
+    // line, every comment in the fixture is also a benign glob
+    // (globset accepts arbitrary literal text), so the test would
+    // pass under a regression that failed to skip comments.
     std::fs::write(
         &bcaignore,
         "\
-# top-level comment, must be skipped
+# unclosed [bracket — malformed glob, must be skipped
 
 **/drop_a.py
    # indented comment, must be skipped
@@ -207,6 +215,11 @@ fn exclude_from_invalid_glob_in_file_dies_like_exclude_flag() {
             "json",
         ])
         .assert()
-        .failure()
+        // Pin exit 1 (tool error) rather than `.failure()` (any
+        // non-zero). The CLI contract reserves exit 2 for
+        // threshold violations; a regression that routed a
+        // malformed glob through the violation path would slip
+        // past a bare `.failure()` assertion.
+        .code(1)
         .stderr(predicate::str::contains("invalid glob pattern"));
 }
