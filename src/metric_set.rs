@@ -410,10 +410,12 @@ mod tests {
     }
 
     /// Every `Metric` variant. Tests that need to walk the enum
-    /// exhaustively reach for this constant so a newly-added variant
-    /// surfaces as a compile error here (the wildcard in the
-    /// initialiser would not catch a missed `match` arm in
-    /// [`fmt::Display`] or [`std::str::FromStr`]).
+    /// exhaustively reach for this constant. The array initialiser
+    /// itself has no exhaustiveness check, so the
+    /// `_all_variants_exhaustive_guard` function below pins the
+    /// invariant: it pattern-matches every variant on the table side
+    /// and emits a compile error (`non-exhaustive patterns`) if a
+    /// new `Metric` variant lands without an entry being added here.
     const ALL_VARIANTS: &[Metric] = &[
         Metric::Cognitive,
         Metric::Cyclomatic,
@@ -429,6 +431,34 @@ mod tests {
         Metric::Mi,
         Metric::Wmc,
     ];
+
+    /// Compile-time guard that every `Metric` variant appears in
+    /// [`ALL_VARIANTS`]. `Metric` is `#[non_exhaustive]` for downstream
+    /// crates, but within this crate (where the enum is defined) the
+    /// match is still exhaustiveness-checked — so adding
+    /// `Metric::Foo` without extending the array above triggers
+    /// `error[E0004]: non-exhaustive patterns` here. The match arms
+    /// must be kept in lock-step with [`ALL_VARIANTS`]; the
+    /// `bit_per_metric_is_unique` test additionally pins each variant
+    /// to a distinct bit, so a missing array entry surfaces twice.
+    #[allow(dead_code)]
+    fn _all_variants_exhaustive_guard(m: Metric) {
+        match m {
+            Metric::Cognitive
+            | Metric::Cyclomatic
+            | Metric::Halstead
+            | Metric::Loc
+            | Metric::Nom
+            | Metric::Tokens
+            | Metric::NArgs
+            | Metric::Exit
+            | Metric::Abc
+            | Metric::Npm
+            | Metric::Npa
+            | Metric::Mi
+            | Metric::Wmc => (),
+        }
+    }
 
     #[test]
     fn from_str_round_trips_every_variant_display_name() {
