@@ -307,12 +307,27 @@ py-lint:
 	else echo "ruff not found; skipping py-lint"; fi
 
 py-typecheck:
-	@if command -v mypy >/dev/null 2>&1; then \
+	@# Prefer the bindings dir's `.venv/bin/{mypy,pyright}` when
+	@# present so the type checker resolves dev-dependencies
+	@# (pytest, etc.) declared in `big-code-analysis-py/pyproject.toml`
+	@# from the project's documented venv layout. Fall back to the
+	@# host's PATH when the venv hasn't been provisioned (CI sets
+	@# `VIRTUAL_ENV` and uses PATH-resolved binaries). A pipx-isolated
+	@# system `mypy` can't see the bindings dir's pytest stubs.
+	@if [ -x $(BCA_PY_DIR)/.venv/bin/mypy ]; then \
+	  echo "Type-checking with mypy --strict (venv)..."; \
+	  (cd $(BCA_PY_DIR) && .venv/bin/mypy --strict python tests examples) || \
+	    { echo "mypy --strict found issues"; exit 1; }; \
+	elif command -v mypy >/dev/null 2>&1; then \
 	  echo "Type-checking with mypy --strict..."; \
 	  (cd $(BCA_PY_DIR) && mypy --strict python tests examples) || \
 	    { echo "mypy --strict found issues"; exit 1; }; \
 	else echo "mypy not found; skipping mypy stage of py-typecheck"; fi
-	@if command -v pyright >/dev/null 2>&1; then \
+	@if [ -x $(BCA_PY_DIR)/.venv/bin/pyright ]; then \
+	  echo "Type-checking with pyright (strict, venv)..."; \
+	  (cd $(BCA_PY_DIR) && .venv/bin/pyright) || \
+	    { echo "pyright found issues"; exit 1; }; \
+	elif command -v pyright >/dev/null 2>&1; then \
 	  echo "Type-checking with pyright (strict)..."; \
 	  (cd $(BCA_PY_DIR) && pyright) || \
 	    { echo "pyright found issues"; exit 1; }; \
@@ -329,7 +344,20 @@ py-typecheck:
 # checkout (target/ is restored from cache but the .so is rebuilt on
 # every job invocation, not repeated within a single job).
 py-test:
-	@if command -v maturin >/dev/null 2>&1; then \
+	@# Prefer the bindings dir's `.venv/bin/{maturin,python}` over the
+	@# host's PATH for the same reason `py-typecheck` does: the venv
+	@# has pytest (declared as a dev-dependency in
+	@# `big-code-analysis-py/pyproject.toml`), the host's bare Python
+	@# typically does not. CI activates the venv explicitly via
+	@# `VIRTUAL_ENV` and uses PATH-resolved binaries — both paths
+	@# reach the same wheel because `maturin develop` installs into
+	@# whichever venv it finds.
+	@if [ -x $(BCA_PY_DIR)/.venv/bin/maturin ] && [ -x $(BCA_PY_DIR)/.venv/bin/python ]; then \
+	  echo "Building extension + running pytest (venv)..."; \
+	  find $(BASE_DIR)target -name 'libbig_code_analysis_py*' -delete 2>/dev/null || true; \
+	  (cd $(BCA_PY_DIR) && .venv/bin/maturin develop --quiet && .venv/bin/python -m pytest) || \
+	    { echo "py-test failed"; exit 1; }; \
+	elif command -v maturin >/dev/null 2>&1; then \
 	  echo "Building extension + running pytest..."; \
 	  find $(BASE_DIR)target -name 'libbig_code_analysis_py*' -delete 2>/dev/null || true; \
 	  (cd $(BCA_PY_DIR) && maturin develop --quiet && python -m pytest) || \
