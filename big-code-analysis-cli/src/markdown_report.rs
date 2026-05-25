@@ -1130,40 +1130,61 @@ mod tests {
         // pattern locked in by `ThresholdSet::evaluate_with_policy`
         // (issue #292 in the library crate, lesson 13).
         //
-        // 10_000 levels is far below any pathological-input bound a
-        // real CLI invocation would hit, but well above the ~1k-frame
-        // depth at which the recursive form overflows on a default
-        // 2 MiB stack on Linux/x86_64. Reverting the production
-        // change to the recursive `for child in &space.spaces` /
-        // `extract_summaries_inner(child, …)` form makes this test
-        // abort with `thread … has overflowed its stack`.
-        const DEPTH: usize = 10_000;
+        // Run the walk on a deliberately tiny 256 KiB stack so the
+        // assertion is deterministic regardless of release/debug
+        // optimization, OS default, or `RUST_MIN_STACK`: any
+        // recursive descent at DEPTH frames blows this budget, while
+        // the iterative form's working memory is independent of
+        // recursion depth. Reverting the production change to the
+        // recursive `for child in &space.spaces` /
+        // `extract_summaries_inner(child, …)` form aborts this test
+        // with `thread … has overflowed its stack` on every supported
+        // platform.
+        const DEPTH: usize = 50_000;
+        const TIGHT_STACK: usize = 256 * 1024;
 
-        // Build a synthetic FuncSpace tree by chaining each level's
-        // child onto the previous one's `spaces`. Constructed bottom-
-        // up so each `push` is O(1) and the build itself does not
-        // recurse.
-        let mut current = make_space("f_inner", SpaceKind::Function, DEPTH, DEPTH);
-        for i in (0..DEPTH).rev() {
-            let mut parent = if i == 0 {
-                make_space("root.rs", SpaceKind::Unit, 1, DEPTH + 1)
-            } else {
-                make_space(&format!("f_{i}"), SpaceKind::Function, i, DEPTH + 1)
-            };
-            parent.spaces.push(current);
-            current = parent;
-        }
+        let handle = std::thread::Builder::new()
+            .stack_size(TIGHT_STACK)
+            .spawn(|| {
+                // Build a synthetic FuncSpace tree by chaining each
+                // level's child onto the previous one's `spaces`.
+                // Constructed bottom-up so each `push` is O(1) and
+                // the build itself does not recurse.
+                let mut current = make_space("f_inner", SpaceKind::Function, DEPTH, DEPTH);
+                for i in (0..DEPTH).rev() {
+                    let mut parent = if i == 0 {
+                        make_space("root.rs", SpaceKind::Unit, 1, DEPTH + 1)
+                    } else {
+                        make_space(&format!("f_{i}"), SpaceKind::Function, i, DEPTH + 1)
+                    };
+                    parent.spaces.push(current);
+                    current = parent;
+                }
 
-        let mut out = Vec::new();
-        extract_summaries(&current, "root.rs", LANG::Rust, "", &mut out);
+                let mut out = Vec::new();
+                extract_summaries(&current, "root.rs", LANG::Rust, "", &mut out);
 
-        // DEPTH+1 because the chain has DEPTH wrappers plus the
-        // innermost `f_inner` leaf.
-        assert_eq!(out.len(), DEPTH + 1);
-        // Pre-order: root first, innermost last.
-        assert_eq!(out[0].kind, SpaceKind::Unit);
-        assert_eq!(out[0].name, "root.rs");
-        assert_eq!(out[DEPTH].name, "f_inner");
+                // DEPTH+1 because the chain has DEPTH wrappers plus
+                // the innermost `f_inner` leaf.
+                assert_eq!(out.len(), DEPTH + 1);
+                // Pre-order: root first, innermost last.
+                assert_eq!(out[0].kind, SpaceKind::Unit);
+                assert_eq!(out[0].name, "root.rs");
+                assert_eq!(out[DEPTH].name, "f_inner");
+
+                // FuncSpace contains `spaces: Vec<FuncSpace>`, so
+                // letting the chained tree drop at scope exit walks
+                // one frame per nested space and would overflow this
+                // tight stack — masking the production-side
+                // assertions above with a Drop-side overflow on test
+                // exit. The OS reclaims the memory at process exit;
+                // this is fine for a test.
+                std::mem::forget(current);
+            })
+            .expect("spawn worker thread with bounded stack");
+        handle
+            .join()
+            .expect("iterative extract_summaries must not overflow even a 256 KiB stack");
     }
 
     // ── generate_report tests ──────────────────────────────────────
