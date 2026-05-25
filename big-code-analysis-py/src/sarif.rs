@@ -535,7 +535,7 @@ pub(crate) fn to_sarif(
                 .name()
                 .map_or_else(|_| "<unknown type>".to_string(), |n| n.to_string());
             return Err(PyTypeError::new_err(format!(
-                "to_sarif expected a result dict or AnalysisError, got {type_name}"
+                "to_sarif expected a result dict, AnalysisError, or None, got {type_name}"
             )));
         };
         collect_offenders(&dict, &thresholds, &mut offenders)?;
