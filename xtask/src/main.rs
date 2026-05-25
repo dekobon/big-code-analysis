@@ -150,7 +150,7 @@ fn render_man_page(
     // produce the same `{prefix}-{sub}` filename, the second
     // `fs::write` would silently overwrite the first. Fail loudly
     // instead so the conflict surfaces in `cargo xtask` / CI.
-    if expected.iter().any(|n| n == &filename) {
+    if expected.contains(&filename) {
         return Err(io::Error::new(
             io::ErrorKind::AlreadyExists,
             format!("duplicate man page filename `{filename}` for command `{name}`"),

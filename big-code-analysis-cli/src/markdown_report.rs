@@ -128,9 +128,7 @@ fn extract_summaries_inner(
             npm: m.npm.total_npm(),
         });
 
-        for child in current.spaces.iter().rev() {
-            stack.push(child);
-        }
+        stack.extend(current.spaces.iter().rev());
     }
 }
 
