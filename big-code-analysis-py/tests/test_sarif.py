@@ -94,17 +94,14 @@ def _expected_sarif_uri(path: Path) -> str:
     out: list[str] = []
     if drive_abs:
         out.append("file:///")
-    unreserved = (
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~/:@"
-    )
+    unreserved = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~/:@"
     for ch in raw:
         if ch == "\\":
             out.append("/")
         elif ch in unreserved:
             out.append(ch)
         else:
-            for byte in ch.encode("utf-8"):
-                out.append(f"%{byte:02X}")
+            out.extend(f"%{byte:02X}" for byte in ch.encode("utf-8"))
     return "".join(out)
 
 
