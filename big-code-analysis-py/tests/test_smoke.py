@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import tomllib
 from collections.abc import Mapping
 from pathlib import Path
@@ -518,12 +519,14 @@ def test_analyze_raises_filenotfounderror_with_errno_and_filename(
 
 
 @pytest.mark.skipif(
-    os.name != "posix",
+    os.name != "posix" or sys.platform == "darwin",
     reason=(
         "Non-UTF-8 path fixtures use OsStrExt::from_bytes / "
         "os.fsencode of a surrogateescape string, which is unix-only. "
         "Windows has its own non-UTF-8 mechanism (unpaired surrogates "
-        "via OsStringExt::from_wide); covering it is a separate fixture."
+        "via OsStringExt::from_wide); covering it is a separate fixture. "
+        "macOS APFS/HFS+ rejects non-UTF-8 byte sequences with EILSEQ "
+        "at write time, so the fixture cannot even be created there."
     ),
 )
 def test_analyze_rejects_non_utf8_path_by_default(tmp_path: Path) -> None:
@@ -547,7 +550,7 @@ def test_analyze_rejects_non_utf8_path_by_default(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(
-    os.name != "posix",
+    os.name != "posix" or sys.platform == "darwin",
     reason="See test_analyze_rejects_non_utf8_path_by_default.",
 )
 def test_analyze_allow_lossy_path_mirrors_cli_substitution(

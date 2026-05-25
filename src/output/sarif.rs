@@ -130,6 +130,68 @@ fn rule_description(metric: &str) -> &str {
         .unwrap_or(metric)
 }
 
+/// Convert an OS path string into a SARIF `artifactLocation.uri`
+/// value (an RFC 3986 URI reference).
+///
+/// SARIF 2.1.0 §3.4.4 requires `artifactLocation.uri` be a valid URI
+/// reference. Backslash separators (Windows paths) and characters
+/// outside the URI unreserved/reserved sets break that — the
+/// json-schema validator GitHub Code Scanning uses rejects them
+/// under the `uri-reference` format. We:
+///
+/// - Normalize separators to `/`.
+/// - Percent-encode any byte outside the URI unreserved set + `/`
+///   so spaces and other path characters survive validation.
+/// - For absolute Windows paths beginning with a drive letter
+///   (`C:\…` → `C:/…`), prefix with `file:///` so the leading `C:`
+///   is not interpreted as a URI scheme.
+fn path_to_uri_reference(path: &str) -> String {
+    let bytes = path.as_bytes();
+    let is_windows_drive_abs = bytes.len() >= 2
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && (bytes.len() == 2 || bytes[2] == b'/' || bytes[2] == b'\\');
+
+    let mut out = String::with_capacity(path.len() + if is_windows_drive_abs { 8 } else { 0 });
+    if is_windows_drive_abs {
+        out.push_str("file:///");
+    }
+    for &b in bytes {
+        match b {
+            b'\\' => out.push('/'),
+            // RFC 3986 unreserved + path separator + segment-safe sub-delims +
+            // ':' '@' (allowed in path) + '%' would need its own escaping but
+            // raw paths from the OS will not contain it pre-encoded.
+            b'A'..=b'Z'
+            | b'a'..=b'z'
+            | b'0'..=b'9'
+            | b'-'
+            | b'.'
+            | b'_'
+            | b'~'
+            | b'/'
+            | b':'
+            | b'@' => out.push(b as char),
+            _ => {
+                let hi = b >> 4;
+                let lo = b & 0xF;
+                out.push('%');
+                out.push(hex_digit(hi));
+                out.push(hex_digit(lo));
+            }
+        }
+    }
+    out
+}
+
+fn hex_digit(nibble: u8) -> char {
+    match nibble {
+        0..=9 => (b'0' + nibble) as char,
+        10..=15 => (b'A' + nibble - 10) as char,
+        _ => '0',
+    }
+}
+
 /// Write a SARIF 2.1.0 document for `offenders` to `writer`.
 ///
 /// Offenders whose path is not valid UTF-8 are skipped with a warning
@@ -149,7 +211,7 @@ pub fn write_sarif<W: Write>(offenders: &[OffenderRecord], mut writer: W) -> io:
     let mut rule_ids: BTreeSet<&str> = BTreeSet::new();
 
     for record in offenders {
-        let Some(uri) = warn_non_utf8_path("SARIF", &record.path) else {
+        let Some(path_str) = warn_non_utf8_path("SARIF", &record.path) else {
             continue;
         };
         rule_ids.insert(record.metric.as_str());
@@ -168,7 +230,9 @@ pub fn write_sarif<W: Write>(offenders: &[OffenderRecord], mut writer: W) -> io:
             },
             locations: vec![Location {
                 physical_location: PhysicalLocation {
-                    artifact_location: ArtifactLocation { uri },
+                    artifact_location: ArtifactLocation {
+                        uri: path_to_uri_reference(path_str),
+                    },
                     region: Region {
                         start_line: record.start_line.max(1),
                         end_line: Some(record.end_line.max(record.start_line.max(1))),
@@ -268,21 +332,21 @@ struct Message {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Location<'a> {
-    physical_location: PhysicalLocation<'a>,
+    physical_location: PhysicalLocation,
     #[serde(skip_serializing_if = "Option::is_none")]
     logical_locations: Option<Vec<LogicalLocation<'a>>>,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct PhysicalLocation<'a> {
-    artifact_location: ArtifactLocation<'a>,
+struct PhysicalLocation {
+    artifact_location: ArtifactLocation,
     region: Region,
 }
 
 #[derive(Serialize)]
-struct ArtifactLocation<'a> {
-    uri: &'a str,
+struct ArtifactLocation {
+    uri: String,
 }
 
 #[derive(Serialize)]
@@ -456,6 +520,31 @@ mod tests {
             v["runs"][0]["tool"]["driver"]["version"],
             env!("CARGO_PKG_VERSION")
         );
+    }
+
+    #[test]
+    fn windows_drive_path_becomes_file_uri() {
+        // Windows absolute path: backslashes flip to /, drive letter
+        // gets wrapped in `file:///` so it isn't parsed as a scheme.
+        assert_eq!(
+            path_to_uri_reference(r"C:\Users\RUNNER~1\AppData\Local\Temp\fixture.rs"),
+            "file:///C:/Users/RUNNER~1/AppData/Local/Temp/fixture.rs"
+        );
+    }
+
+    #[test]
+    fn posix_relative_path_is_unchanged() {
+        assert_eq!(path_to_uri_reference("src/foo.rs"), "src/foo.rs");
+    }
+
+    #[test]
+    fn posix_absolute_path_keeps_leading_slash() {
+        assert_eq!(path_to_uri_reference("/tmp/foo.rs"), "/tmp/foo.rs");
+    }
+
+    #[test]
+    fn space_is_percent_encoded() {
+        assert_eq!(path_to_uri_reference("src/my file.rs"), "src/my%20file.rs");
     }
 
     #[test]

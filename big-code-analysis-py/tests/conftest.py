@@ -48,7 +48,11 @@ def _locate_workspace_binary() -> str | None:
     branches, mtime preference is the safer default.
     """
     target = _workspace_target_dir()
-    candidates = [target / "debug" / "bca", target / "release" / "bca"]
+    exe = ".exe" if os.name == "nt" else ""
+    candidates = [
+        target / "debug" / f"bca{exe}",
+        target / "release" / f"bca{exe}",
+    ]
     existing = [c for c in candidates if c.is_file()]
     if not existing:
         return None
