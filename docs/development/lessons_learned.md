@@ -2286,3 +2286,265 @@ and three `repr_fn.call1((&field,))?.extract()?` per
 promises.
 
 ---
+
+## 45. XML attribute-value normalization collapses raw TAB / LF / CR — emit numeric character references
+
+XML 1.0 §3.3.3 ("Attribute-Value Normalization") mandates that
+any whitespace character inside an attribute value other than
+the result of a character reference is normalized to a single
+space (`U+0020`) by a conforming parser on read. The bytes
+survive on disk, but every conforming consumer (Jenkins,
+SonarQube, GitLab CI, libxml2-based tooling) sees the value
+with `\t` / `\n` / `\r` collapsed to spaces — irrecoverable
+data loss the emitter cannot detect through byte inspection.
+Numeric character references (`&#x9;` / `&#xA;` / `&#xD;`) are
+the spec-blessed escape: they survive normalization because
+the value the parser publishes is the post-replacement scalar
+(0x09 / 0x0A / 0x0D), not the bytes they came from.
+
+**`XmlAttr::fmt` emitted literal TAB / LF / CR inside
+Checkstyle attribute values** (#340, `1dfe7a1`). The source
+comment justified the literal pass-through with "CI consumers
+are friendlier when newlines stay literal — keep them as-is",
+actively misstating the XML spec. The bug was latent because
+no production code path fed a path with embedded `\n` / `\t`
+into an attribute value today — POSIX permits them in
+filenames, and a future multi-line message template would
+silently lose its whitespace structure on every consumer. The
+fix replaces the three literal arms with `&#x9;` / `&#xA;` /
+`&#xD;` writes, and the regression test re-parses the emitted
+XML with `quick_xml::reader::Reader` to confirm the
+round-tripped attribute value byte-equals the original —
+emitter-side byte inspection alone could not have caught the
+bug.
+
+**Lesson:** Any new XML writer that uses attribute values for
+data (paths, messages, identifiers carrying user-supplied
+text) must escape TAB / LF / CR as numeric character
+references, not as literal bytes. The conforming-parser
+behavior is silent — no error, no warning, just normalization
+on read — so the only way to validate the round-trip is to
+re-parse with a real parser and compare scalar-for-scalar.
+Cite §3.3.3 in the escape function's comment so the next
+contributor doesn't revert it on aesthetic grounds.
+
+---
+
+## 46. Source-literal `"ï»¿"` is three Latin-1 codepoints, not the UTF-8 BOM
+
+The string `"ï»¿"` in Rust source is three Unicode codepoints
+(U+00EF U+00BB U+00BF) — the three bytes of the UTF-8 BOM
+(`EF BB BF`) reinterpreted as individual Latin-1 chars. The
+*canonical* UTF-8 BOM that any UTF-8 decoder produces is a
+single codepoint, U+FEFF, three UTF-8 bytes long. The two
+strings have disjoint `chars()` iterators and `==` returns
+`false` between them. The mojibake form arises when content
+with a UTF-8 BOM is copy-pasted into source via a
+Latin-1-aware editor (or a terminal that mis-decodes the
+input) — the visible "ï»¿" glyphs match the BOM bytes
+one-for-one, but the underlying codepoints are wrong.
+Production code that compares against the mojibake literal
+silently misses the canonical form a UTF-8 parser actually
+produces, and vice versa.
+
+**`sanitize_identifier`'s BOM check matched only the mojibake
+form** (#345, `fed31a4`). `enums/src/common.rs`'s `if name ==
+"ï»¿"` was intended to map the UTF-8 BOM token from a
+tree-sitter grammar to a stable `"BOM"` identifier. The
+literal was the three-codepoint mojibake form; tree-sitter
+exposes node kinds as valid UTF-8 strings, so a future grammar
+that surfaced a BOM token would return the single-codepoint
+U+FEFF form and the branch would silently miss. The
+fall-through path landed in the generic character loop where
+U+FEFF is not in the punctuation match, hit the `_ =>
+continue` catch-all, produced an empty identifier, and
+triggered the `Anon{i}` fallback — generating an `Anon<N>`
+enum variant instead of the stable `BOM` identifier the code
+claimed to emit. Reachable but latent: no grammar in scope
+hits this path today. The fix matches both forms explicitly
+with `\u{FEFF}` / `\u{00EF}\u{00BB}\u{00BF}` Unicode escapes,
+removing the source-encoding dependence.
+
+**Lesson:** Any non-ASCII source literal that exists to match
+a runtime value should be written with `\u{...}` escapes, not
+as the rendered glyphs. The Rust compiler accepts both forms;
+only runtime comparison reveals the divergence. The
+mojibake-vs-canonical class of bug recurs any time you
+copy-paste BOM / zero-width / right-to-left / Asian-range text
+from an editor that mis-decodes the input. Defensive
+accept-both is safer than canonical-only when the production
+source-of-truth (here, tree-sitter's UTF-8 decoder) is
+well-understood; explicit `\u{...}` escapes make the intent
+reviewable.
+
+---
+
+## 47. Bound the thread stack to make stack-overflow tests deterministic across platforms
+
+A regression test for an iterative-walk refactor that builds
+a fixed-depth synthetic tree and runs the walker without
+overflowing the stack is only meaningful if the equivalent
+recursive form would overflow the same stack. Libtest spawns
+each test on a thread whose stack size is governed by Rust's
+spawn defaults (historically 2 MiB, but overridable via
+`RUST_MIN_STACK` and not stable across Rust versions or build
+profiles). A recursion frame for a small walker (`&FuncSpace`,
+an `out: &mut Vec`, a few locals) is roughly 150–250 bytes;
+in release builds with inlining and tail-call collapsing,
+10_000 frames may fit comfortably in 2 MiB and the test passes
+against the very bug it claims to catch. Spawning the test
+body on a thread with a deliberately tiny stack
+(`std::thread::Builder::new().stack_size(256 * 1024)`) makes
+the failure mode deterministic: any recursive descent at DEPTH
+overflows the budget regardless of platform or optimization;
+the iterative form's working memory is independent of
+recursion depth and succeeds. The Drop side needs the same
+care — `FuncSpace` contains `Vec<FuncSpace>` so dropping the
+chained tree walks one frame per level and overflows the same
+tight stack at function exit. `std::mem::forget` on the
+test-local tree sidesteps the Drop-side overflow; the OS
+reclaims memory at process exit, which is fine for a test.
+
+**`deeply_nested_spaces_do_not_overflow_stack` initially used
+DEPTH=10_000 on libtest's default stack** (#338's regression
+test, hardened in review-fix `940a56a`). The first attempt
+pinned the iterative walk via the count-and-name assertions
+but left the bug-side failure (the reverted recursive form)
+at the mercy of platform stack defaults. A code review pass
+flagged that release-mode optimization could leave 10_000
+small frames fitting in 2 MiB; the test would then pass
+against the reintroduced bug, violating the test-via-revert
+rule in `.claude/rules/testing.md`. The fix spawned the body
+on a 256 KiB-stack worker via `std::thread::Builder` and
+bumped `DEPTH` to 50_000 so the budget is overwhelmed under
+every optimization level. A trailing `std::mem::forget(current)`
+keeps the chained-tree Drop from overflowing the same tight
+stack on test exit and masking the production-side assertion
+with a Drop-side abort.
+
+**Lesson:** Stack-overflow regression tests must spawn the
+walker on a thread with `stack_size` explicitly bounded — not
+on libtest's default. The bound should be tight enough that
+any plausible recursive descent at the test's chosen DEPTH
+overflows it under every realistic compiler optimization, and
+loose enough that the iterative form's working memory fits.
+If the structure under test has a recursive `Drop`, route the
+root through `std::mem::forget` after the assertions or
+iteratively unwind it before returning — otherwise a
+Drop-side overflow on test exit shadows the production-side
+correctness check and the test fails for the wrong reason.
+
+---
+
+## 48. Hand-written enum lists need a match-based companion to enforce exhaustiveness
+
+A `const FOO: &[Enum] = &[Enum::A, Enum::B, ...]` looks like
+"every variant in the enum" but the Rust compiler does not
+enforce it. Adding `Enum::C` without extending the array
+compiles cleanly; only `match` expressions on `Enum` trigger
+the `non-exhaustive patterns` error. Tests that drive from the
+hand-written list — parameterized round-trip tests, dispatch
+tables, name-lookup matrices — silently lose coverage for the
+new variant until some unrelated `match` arm forces the
+contributor to remember. The fix is a private guard function
+near the array whose body matches every variant with `=> ()`:
+the match arms must be kept in lockstep with the array (and
+with any other hand-written list of variants), and the
+compiler enforces it the moment a new variant lands.
+`#[non_exhaustive]` does not weaken the guarantee — within
+the defining crate, exhaustiveness is still checked; only
+cross-crate matches require the wildcard (the
+opposite-direction concern covered by lesson #39).
+
+**`ALL_VARIANTS` in `src/metric_set.rs::tests` was advertised
+as compile-error-on-drift but was not** (#339, hardened in
+review-fix `654f24c`). The original doc comment claimed "a
+newly-added variant surfaces as a compile error here". Five
+tests — `from_str_round_trips_every_variant_display_name`,
+`names_table_parses_to_every_variant`,
+`distinct_bits_per_variant`,
+`all_variants_round_trip_through_all_contains`, and
+`storage_width_covers_every_variant` — iterated over the
+list. Adding `Metric::Foo` without extending the array would
+silently lose coverage for the new variant in all five tests
+until `Display`/`FromStr`'s `match self` surfaced the omission
+through an unrelated path. The fix added a sibling
+`fn _all_variants_exhaustive_guard(m: Metric) match m {
+Metric::A | Metric::B | ... => () }` whose match arms must be
+extended in lockstep with the array; a missing arm fires
+`E0004: non-exhaustive patterns` under `cargo test` (which
+runs as part of `make pre-commit` and CI).
+
+**Lesson:** Any time you maintain a hand-written list of enum
+variants — for parameterized tests, dispatch tables,
+name-lookup matrices, or "the canonical iteration order" —
+add a co-located match-based guard whose arms list every
+variant. The guard does not need to be called; the compile
+error is the guarantee. `#[allow(dead_code)]` is the right
+attribute for the function. Note the placement: a guard
+inside `#[cfg(test)]` only fires under the test target, so
+the validation gate (`cargo test --workspace --all-features`,
+which `make pre-commit` and CI run) is what catches the
+drift — a bare `cargo build` will not. Cite that placement
+in the guard's doc comment so a future reader knows the guard
+isn't compiled out of production builds for any other reason.
+
+---
+
+## 49. Unused `macro_rules!` captures are documentation lies that survive every refactor
+
+`macro_rules! foo { ( $( ($camel:ident, $name:ident) ),* ) =>
+{ ... } }` accepts a tuple per call-site entry, but if the
+expansion body never expands `$name`, the second tuple element
+is decorative. Worse, decorative is not neutral: the
+call-site `(Cpp, tree_sitter_cpp)` *looks* declarative — like
+the macro dispatches to `tree_sitter_cpp::LANGUAGE` — when in
+fact the hand-rolled body picks a completely different crate.
+The declared intent and the production code path diverge
+silently, the disagreement is invisible to `cargo build` and
+`cargo test`, and a code reader trusting the call-site syntax
+draws the wrong conclusion about what crate the variant
+resolves to. The remediation is one of two: (a) drop the
+unused capture from the macro signature and the call-site, so
+the syntax matches what the body actually uses; or (b) wire
+the capture through the body so the call-site becomes
+load-bearing and disagreement becomes a compile error.
+
+**`enums::mk_get_language!` captured `$name` but hardcoded
+every match arm** (#344, `0b417f2`). The `mk_langs!` driver
+in `enums/src/languages.rs` listed `(Cpp, tree_sitter_cpp)`,
+`(Mozjs, tree_sitter_mozjs)`, etc. — a declarative-looking
+tuple table that pinned each variant to its backing
+grammar-crate ident. But `mk_get_language!`'s expansion was a
+21-arm hand-written `match` where `Lang::Cpp =>
+tree_sitter_mozcpp::LANGUAGE.into()` (a different crate from
+the call-site's declared `tree_sitter_cpp`). The decorative
+ident drifted silently — verified via `cargo tree`:
+`tree-sitter-cpp` was pulled in only as a transitive of
+`bca-tree-sitter-mozcpp`, never directly. Option A applied:
+the second tuple element was dropped from the macro
+signature, the call-site collapsed to a bare `Cpp`, and
+non-obvious mappings (`Cpp` → mozcpp, `Mozjs` → mozjs, the
+vendored `bca-tree-sitter-*` forks, the `LANGUAGE_TYPESCRIPT`
+/ `LANGUAGE_PHP` per-language consts) now carry per-line
+`// -> <crate>` comments anchored to each entry per
+[macro-comments.md](../../.claude/rules/macro-comments.md).
+
+**Lesson:** Audit every `macro_rules!` capture against the
+expansion body during review. A capture the body never
+expands is a documentation lie — the call-site syntax says
+the value matters when it doesn't, and the drift is invisible
+to every standard gate. Two acceptable fixes: drop the
+capture (so the syntax matches the semantics), or wire it
+through the body (so the syntax becomes load-bearing). Pick
+the easier one. The cost of dropping is one call-site sweep
+and a follow-up annotation pass to preserve the per-call
+rationale comments; the cost of wiring through is
+occasionally needing import aliases or a third tuple element
+for special-case constants (`LANGUAGE_TSX` etc.). When the
+macro is hand-rolled because variants need bespoke per-arm
+logic, drop the unused capture and lean on
+[`.claude/rules/macro-comments.md`](../../.claude/rules/macro-comments.md)
+to preserve the narrative at the call-site.
+
+---
