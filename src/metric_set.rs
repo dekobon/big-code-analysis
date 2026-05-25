@@ -441,6 +441,15 @@ mod tests {
     /// must be kept in lock-step with [`ALL_VARIANTS`]; the
     /// `bit_per_metric_is_unique` test additionally pins each variant
     /// to a distinct bit, so a missing array entry surfaces twice.
+    ///
+    /// **Placement note**: this guard lives inside `mod tests`, so the
+    /// E0004 fires under `cargo test` / `cargo check --tests`, not
+    /// under a bare `cargo build`. The workspace validation gate
+    /// (`make pre-commit` and CI) runs `cargo test --workspace
+    /// --all-features`, so any new variant lands with the guard
+    /// active — but a contributor running `cargo build` alone after
+    /// adding `Metric::Foo` will not see the error until the next
+    /// test invocation.
     #[allow(dead_code)]
     fn _all_variants_exhaustive_guard(m: Metric) {
         match m {
