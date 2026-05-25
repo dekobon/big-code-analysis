@@ -29,11 +29,11 @@ If you prefer to use **big-code-analysis** as a crate, you can find the
 
 For task-oriented guides on embedding the crate — quick start,
 in-memory analysis, walking `FuncSpace` results, and error
-handling — see the [Using as a Library](library/README.md) section.
+handling — see the [Using as a Library](library/index.html) section.
 
 For the PyO3 bindings — `pip install big-code-analysis`, batch
 processing, flat-record iteration, SARIF output, and async
-patterns — see the [Python Bindings](python/README.md) section.
+patterns — see the [Python Bindings](python/index.html) section.
 
 ## License
 

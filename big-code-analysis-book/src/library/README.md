@@ -30,7 +30,7 @@ want one or more of the following:
   (CSV, SARIF, a database row, whatever).
 
 If you just want a Markdown quality report or a CI threshold gate,
-the [`bca` CLI](../commands/README.md) is faster to wire up.
+the [`bca` CLI](../commands/index.html) is faster to wire up.
 
 ## What is on offer today
 

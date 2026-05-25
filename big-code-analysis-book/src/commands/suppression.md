@@ -93,7 +93,7 @@ Lizard-style marker silences every metric.
 
 Lizard's `GENERATED CODE` marker is **not** handled here; it is part
 of the generated-code auto-skip mechanism (see
-[Skipping generated code](README.md#skipping-generated-code) and the
+[Skipping generated code](index.html#skipping-generated-code) and the
 `--no-skip-generated` flag).
 
 ### Native vs Lizard side by side

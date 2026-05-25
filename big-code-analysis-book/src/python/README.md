@@ -34,7 +34,7 @@ the `bca` CLI is the simpler tool — see
 [Commands → Metrics](../commands/metrics.md).
 
 If you're embedding the analysis into a long-running Rust program,
-the [Rust library](../library/README.md) is the lower-overhead
+the [Rust library](../library/index.html) is the lower-overhead
 option.
 
 ## Chapter contents

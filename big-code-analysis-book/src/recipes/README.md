@@ -20,7 +20,7 @@ The recipes are grouped by goal:
   every endpoint with `curl`.
 
 If you want a deeper look at any flag the recipes use, see the
-per-command pages under [Commands](../commands/README.md). For the
+per-command pages under [Commands](../commands/index.html). For the
 full list of metrics that show up in these recipes, see
 [Supported Metrics](../metrics.md).
 
