@@ -18,7 +18,7 @@ workflow substitutes at build time:
 | `alpine/APKBUILD.in`                          | `abuild -r` in Stage 2                |
 | `freebsd/+MANIFEST.in`                        | `pkg create -M` in Stage 2            |
 | `freebsd/port/`                               | Published as-is for ports-tree PRs    |
-| `homebrew/big-code-analysis.rb.tmpl`          | Pushed to `homebrew-big-code-analysis` |
+| `homebrew/big-code-analysis.rb.tmpl`          | Pushed to `dekobon/homebrew-tap` (shared tap) |
 | `scoop/big-code-analysis.json.in`             | Pushed to `scoop-big-code-analysis`   |
 
 Each format installs **both** `bca` (CLI) and `bca-web` (REST server)

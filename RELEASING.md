@@ -229,8 +229,9 @@ Secrets**:
 | `SCOOP_BUCKET_TOKEN`     | Fine-grained PAT for the Scoop bucket repo.      |
 
 The two PATs need write access to
-`dekobon/homebrew-big-code-analysis` and
-`dekobon/scoop-big-code-analysis` respectively.
+`dekobon/homebrew-tap` (shared tap; the workflow only touches
+`Formula/big-code-analysis.rb`) and `dekobon/scoop-big-code-analysis`
+respectively.
 
 crates.io authentication uses
 [Trusted Publishing](https://crates.io/docs/trusted-publishing) — no
@@ -263,7 +264,9 @@ Commit `minisign.pub`. Paste the contents of `minisign.key` into
 
 Stable releases push to (subject to the gating variables above):
 
-- `dekobon/homebrew-big-code-analysis` — Homebrew tap.
+- `dekobon/homebrew-tap` — shared Homebrew tap; the release workflow
+  commits only `Formula/big-code-analysis.rb` and leaves the other
+  formulae in the tap untouched.
 - `dekobon/scoop-big-code-analysis` — Scoop bucket.
 - crates.io — `big-code-analysis` (library) followed by
   `big-code-analysis-cli` and `big-code-analysis-web`.
@@ -511,7 +514,8 @@ gh attestation verify "${TARBALL}" -R dekobon/big-code-analysis
 Check that the downstream package managers updated (only applicable
 once the corresponding gating variable is on):
 
-- Homebrew tap: new commit on `dekobon/homebrew-big-code-analysis`.
+- Homebrew tap: new commit on `dekobon/homebrew-tap` touching
+  `Formula/big-code-analysis.rb`.
 - Scoop bucket: new commit on `dekobon/scoop-big-code-analysis`.
 
 ## Post-public-release checklist
@@ -528,9 +532,11 @@ turns into a foot-gun on the *next* release.
       --add`, and register a Trusted Publisher (repo owner
       `dekobon`, repo `big-code-analysis`, workflow `release.yml`,
       environment `release`).
-- [ ] **Homebrew tap repo created.** Create
-      `dekobon/homebrew-big-code-analysis`. The release workflow's
-      tap-push step expects this exact name.
+- [ ] **Shared Homebrew tap reachable.** Confirm
+      `dekobon/homebrew-tap` exists and the configured PAT can push to
+      it. The release workflow appends `Formula/big-code-analysis.rb`
+      to that tap alongside the other formulae; no dedicated tap repo
+      is required.
 - [ ] **Scoop bucket repo created.** Create
       `dekobon/scoop-big-code-analysis`. Same caveat.
 - [ ] **Fine-grained PATs minted and stored.** Generate
