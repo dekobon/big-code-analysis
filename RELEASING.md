@@ -53,10 +53,12 @@ One push of a `v*` tag will run this end-to-end:
    `minisign.pub` is not a placeholder, and extracts the matching
    `CHANGELOG.md` section as release notes.
 2. **build** — cross-compiles `bca` and `bca-web` for the target
-   matrix (Linux gnu/musl x86_64+aarch64, macOS x86_64+aarch64,
-   Windows x86_64+aarch64; FreeBSD x86_64 if added). Strips binaries,
-   captures debug symbols, and produces per-target `.tar.gz` / `.zip`
-   archives.
+   matrix: Linux gnu/musl × x86_64/aarch64, macOS aarch64, Windows
+   x86_64/aarch64. `x86_64-unknown-freebsd` is tracked separately
+   (see [#346](https://github.com/dekobon/big-code-analysis/issues/346)
+   under [Known pipeline issues](#known-pipeline-issues)). Strips
+   binaries, captures debug symbols, and produces per-target
+   `.tar.gz` / `.zip` archives.
 3. **package-*** — builds `.deb`, `.rpm`, `.apk`, and any other OS
    packages from the staged binaries.
 4. **smoke-*** — installs each package inside the appropriate
@@ -263,9 +265,25 @@ To create a fresh key:
 minisign -G -p minisign.pub -s minisign.key
 ```
 
-Commit `minisign.pub`. Paste the contents of `minisign.key` into
-`MINISIGN_SECRET_KEY` and its password into `MINISIGN_PASSWORD`. Keep
-`minisign.key` out of the repo.
+Commit `minisign.pub`. Store `minisign.key` as the
+`MINISIGN_SECRET_KEY` repo secret via stdin redirection — **do not
+paste the contents into the web UI**:
+
+```bash
+gh secret set MINISIGN_SECRET_KEY -R dekobon/big-code-analysis < minisign.key
+# The second command opens an interactive prompt on stdin; type the
+# password, press Enter, then Ctrl-D to signal EOF.
+gh secret set MINISIGN_PASSWORD -R dekobon/big-code-analysis
+```
+
+A minisign secret key file is two lines and ends with `\n`. Paste-via-
+UI silently strips the trailing newline (and can introduce other
+whitespace artefacts) so that `minisign -S` later fails with `Error
+while loading the secret key file` — masquerading as a wrong-key /
+wrong-password failure when the bytes are actually one newline short.
+Stdin redirection from the file preserves the exact file bytes —
+including the trailing newline that the web UI eats. Keep
+`minisign.key` itself out of the repo.
 
 ### External repos
 
@@ -780,7 +798,10 @@ Windows wheels are tracked separately under
    `minisign -G -p minisign.pub.new -s minisign.key.new`.
 2. Replace `minisign.pub` with the new public key and commit it.
 3. Update `MINISIGN_SECRET_KEY` and `MINISIGN_PASSWORD` secrets with
-   the new values.
+   the new values. Use stdin redirection — `gh secret set
+   MINISIGN_SECRET_KEY -R dekobon/big-code-analysis < minisign.key.new`
+   — to preserve the trailing newline of the key file; see
+   [Minisign key](#minisign-key) for why paste-via-UI bites.
 4. Cut a new release — its `SHA256SUMS.minisig` will be signed with
    the new key, self-documenting the rotation.
 
@@ -789,13 +810,24 @@ from that release's tagged commit.
 
 ## Fixing a broken release
 
-The pipeline fails *before* publish on any preflight, build, package,
-or smoke error, so a broken release almost never reaches users.
+The pipeline fails *before* `publish` on any preflight, build,
+package, smoke, or `sign-attest` error, so a broken release almost
+never reaches users. `sign-attest` is the latest hard-gate before
+external state changes; it is the right place to expect a noisy red
+if `MINISIGN_SECRET_KEY` is missing, corrupted, or doesn't pair with
+`MINISIGN_PASSWORD`.
+
+`post-publish verify` runs *after* `publish` and is an internal
+sanity check — its failure does not invalidate the published
+artefacts and does not roll back any external state. Treat a `verify`
+red as a CI bug to triage, not as a botched release.
 
 If publish itself partially succeeds (e.g. GitHub Release created but
 tap push failed), the fix is usually to re-run the workflow against
-the same tag via **Actions → Run workflow**. The pipeline is designed
-to be idempotent on re-run.
+the same tag — **Actions** tab → open the failed run → **Re-run
+failed jobs** (top-right of the run page). The pipeline is designed
+to be idempotent on re-run, and re-runs pick up freshly-set repo
+secrets without needing a force-retag.
 
 If you need to pull a release entirely:
 
@@ -806,3 +838,59 @@ gh release delete vX.Y.Z --cleanup-tag --yes
 Then fix the underlying issue, bump to `vX.Y.(Z+1)`, and re-tag.
 **Do not re-use a published version number** — Homebrew/Scoop and
 crates.io users may have already cached the old artefacts.
+
+### Cutover-only escape hatch: force-moving the tag
+
+The recovery rule above (bump to the next patch version) is correct
+for any release that already produced external state. On the *very
+first* tag for a brand-new repo, before `publish` has touched
+crates.io / Homebrew / Scoop, no downstream state exists yet to
+poison — and bumping the version mid-cutover adds churn (workspace
+version, man pages, SARIF snapshots, CHANGELOG section). In that
+narrow window, force-moving the tag is the cheaper recovery:
+
+```bash
+# Fix and push the underlying issue first
+git push origin main
+
+# Move the tag to point at the fix
+git tag -d vX.Y.Z
+git push origin :refs/tags/vX.Y.Z
+git tag -a vX.Y.Z -m "vX.Y.Z"
+git push origin vX.Y.Z
+```
+
+This is **only safe** while:
+
+- The GitHub Release object does not yet exist (or contains nothing
+  irrevocable).
+- `python-wheels.yml` has not yet uploaded to PyPI (PyPI versions are
+  immutable; a re-fire of the tag will trip the publish step but
+  won't roll back). Accept that single noisy red if the wheels are
+  already correctly on PyPI.
+- crates.io has not yet been told about this version. ANY publish
+  for the version — workflow-driven *or* manual `cargo publish` from
+  the maintainer's workstation — makes a force-retag inappropriate,
+  because the published version is irrevocable (yank-able, not
+  delete-able).
+
+Outside that window, never force-move — use `vX.Y.(Z+1)`.
+
+### Known pipeline issues
+
+Tracked as GitHub issues; a maintainer triaging a red run should
+check these first before deeper debugging:
+
+- [#346](https://github.com/dekobon/big-code-analysis/issues/346) —
+  `x86_64-unknown-freebsd` dropped from the binary matrix; cross
+  v0.2.5 + the vendored grammars' C++ scanners cannot link against
+  `libcxxrt` without a deeper toolchain change. Restoration via
+  `vmactions/freebsd-vm` is the queued remediation. While the target
+  is absent, FreeBSD users install from source.
+- [#351](https://github.com/dekobon/big-code-analysis/issues/351) —
+  `post-publish verify` fails on a brand-new release because
+  `SHA256SUMS` is emitted with `./`-prefixed filenames and the
+  verify-step awk filter compares against the unprefixed basename.
+  The artefacts themselves verify correctly with a manual
+  `sha256sum -c SHA256SUMS` (sha256sum canonicalises `./X` to `X`).
+  Will be fixed alongside the producer in v1.0.1.
