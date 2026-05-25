@@ -232,7 +232,13 @@ The two PATs need write access to
 `dekobon/homebrew-tap` (shared tap; the workflow only touches
 `Formula/big-code-analysis.rb`) and `dekobon/scoop-bucket` (shared
 bucket; the workflow only touches `bucket/big-code-analysis.json`)
-respectively.
+respectively. Both are minted at
+<https://github.com/settings/personal-access-tokens/new> as
+fine-grained PATs with **Repository access: Only select repositories**
+(scoped to the single tap or bucket repo) and **Repository permissions
+→ Contents: Read and write** — leave every other permission at *No
+access*. Store each token under Settings → Secrets and variables →
+Actions → Secrets on `dekobon/big-code-analysis`.
 
 crates.io authentication uses
 [Trusted Publishing](https://crates.io/docs/trusted-publishing) — no
@@ -271,45 +277,93 @@ Stable releases push to (subject to the gating variables above):
 - `dekobon/scoop-bucket` — shared Scoop bucket; the release workflow
   commits only `bucket/big-code-analysis.json` and leaves the other
   manifests in the bucket untouched.
-- crates.io — `big-code-analysis` (library) followed by
-  `big-code-analysis-cli` and `big-code-analysis-web`.
+- crates.io — leaf-first: the five `bca-tree-sitter-*` grammar
+  crates, then `big-code-analysis` (library), then
+  `big-code-analysis-cli` and `big-code-analysis-web`. See
+  [crates.io ownership](#cratesio-ownership) for the publish loop
+  and rate-limit details.
 
 Both tap and bucket repos must exist and accept the configured PAT.
 
 ### crates.io ownership
 
-Before the first automated publish:
+Before the first automated publish you must manually claim **all eight
+crate names** — the five `bca-tree-sitter-*` leaves plus the three
+top-level crates. The `publish-crates` job in `release.yml` uses
+Trusted Publishing which requires the crate to exist before TP can be
+registered, so the very first publish has to be a hand-rolled
+`cargo publish` from your workstation.
 
-1. **Check name availability.** Open
-   `https://crates.io/crates/big-code-analysis`,
-   `https://crates.io/crates/big-code-analysis-cli`, and
-   `https://crates.io/crates/big-code-analysis-web`. If any returns a
-   crate owned by someone else, pick a different name and update the
-   crate `Cargo.toml` before tagging — the `cargo owner --add` step
-   below only works on crates you already own.
-2. **Publish each crate manually once to claim the name.** `cargo
-   owner --add` requires the crate to exist, so the owner-management
-   step comes *after* the first publish, not before. From a clean
-   checkout at the release-prep commit:
+1. **Check name availability.** Open each of the following on
+   `https://crates.io/crates/<name>`:
+
+   - `bca-tree-sitter-ccomment`, `…-mozcpp`, `…-mozjs`, `…-preproc`,
+     `…-tcl`
+   - `big-code-analysis`
+   - `big-code-analysis-cli`
+   - `big-code-analysis-web`
+
+   If any name is taken by someone else, pick a different name and
+   update the matching `[package].name` (and the workspace alias for
+   leaves) before tagging — `cargo owner --add` only works on crates
+   you already own.
+
+2. **Verify the parent's `include` whitelist is present.** The
+   `[package].include = […]` block in the root `Cargo.toml`
+   restricts the published `.crate` to `src/**`, `Cargo.toml`,
+   `README.md`, `LICENSE`, and `CHANGELOG.md`. Without it,
+   `cargo publish` packages the entire repo — notably
+   `tests/repositories/` (~130 MiB compressed of snapshot
+   fixtures) — and the upload fails against crates.io's size
+   limit with a Varnish `503 backend write error` rather than a
+   useful error message. Verify before the first publish:
+
+   ```bash
+   cargo package -p big-code-analysis --allow-dirty --no-verify
+   ls -lh target/package/big-code-analysis-*.crate    # expect ≲ 1 MiB
+   ```
+
+   If the `.crate` is larger than a few MiB, fix the `include`
+   block before continuing.
+
+3. **Publish leaf-first, with rate-limit pacing.** crates.io
+   rate-limits **new** crates at roughly one per ten minutes after
+   a short burst. Publishing all eight in a single pass will trip
+   the limit; the second-half publishes return `429 Too Many
+   Requests` with an explicit `try again after <timestamp>` hint.
+   The simplest workaround is to retry on a loop:
 
    ```bash
    cargo login <your-token>
-   cargo publish -p big-code-analysis --locked
-   cargo publish -p big-code-analysis-cli --locked
-   cargo publish -p big-code-analysis-web --locked
+
+   # Leaf-first — the parent's `=<leaf-version>` pin cannot resolve
+   # until each leaf is on the sparse index. cargo publish waits
+   # for the index to catch up, so the next publish can resolve the
+   # previous one without an explicit sleep.
+   for d in tree-sitter-{ccomment,mozcpp,mozjs,preproc,tcl}; do
+     until cargo publish --locked --manifest-path "$d/Cargo.toml"; do sleep 60; done
+   done
+
+   # Parent + binaries. These will hit the new-crate rate limit on
+   # the first try; the until-loop retries every 60s until cargo
+   # exits 0.
+   until cargo publish -p big-code-analysis --locked;     do sleep 60; done
+   until cargo publish -p big-code-analysis-cli --locked; do sleep 60; done
+   until cargo publish -p big-code-analysis-web --locked; do sleep 60; done
    ```
 
-   After that, the `publish-crates` job takes over for every
-   subsequent release (and is a no-op for this same version because
-   of the idempotency check).
-3. **Add additional owners.** `cargo owner --add <github-handle>
-   big-code-analysis` (and the same for the two binary crates). A
-   single-owner crate is one forgotten password away from being
-   orphaned. If you have a GitHub team, use
-   `github:<org>:<team>`.
-4. **Register a Trusted Publisher for each crate** (see below). This
-   replaces any long-lived API token a future contributor might
-   otherwise wire into the workflow.
+   After all eight crates are on the registry, the `publish-crates`
+   job's idempotency check makes it a no-op for any tag at the same
+   version.
+
+4. **Add additional owners.** `cargo owner --add <github-handle>
+   <crate>` for each of the eight crates. A single-owner crate is
+   one forgotten password away from being orphaned. If you have a
+   GitHub team, use `github:<org>:<team>`.
+
+5. **Register a Trusted Publisher for each crate** (see below).
+   This replaces any long-lived API token a future contributor
+   might otherwise wire into the workflow.
 
 ### crates.io Trusted Publisher setup
 
@@ -328,8 +382,9 @@ one-time setup steps are required on top of the
    The name must match the TP registration exactly; a typo here is
    the most common self-inflicted failure mode.
 
-2. **Register a Trusted Publisher for each crate.** On crates.io,
-   open the settings page for each of `big-code-analysis`,
+2. **Register a Trusted Publisher for each of the eight crates.**
+   On crates.io, open the settings page for each of the five
+   `bca-tree-sitter-*` leaves, `big-code-analysis`,
    `big-code-analysis-cli`, and `big-code-analysis-web`. In the
    **Trusted Publishing** section, add a GitHub publisher with:
 
@@ -339,10 +394,11 @@ one-time setup steps are required on top of the
    - Environment: `release`.
 
    Every publishable crate needs its own trusted-publisher entry — a
-   TP registered on `big-code-analysis` does not cover the CLI or
-   the web crate. The workflow still performs a single `auth`
-   exchange for all publishes because crates.io issues one token
-   covering every crate whose TP config matches the JWT claims.
+   TP registered on `big-code-analysis` does not cover the CLI, the
+   web crate, or any of the leaves. The workflow still performs a
+   single `auth` exchange for all publishes because crates.io
+   issues one token covering every crate whose TP config matches
+   the JWT claims.
 
 3. **First stable release after cutover validates the path.** The
    prerelease gate (`if: needs.preflight.outputs.prerelease != 'true'`)
@@ -442,6 +498,13 @@ Before tagging, on `main`:
 - [ ] `minisign.pub` is a real key (run
       `grep '^untrusted comment: placeholder' minisign.pub` — it
       should print nothing).
+- [ ] Parent crate packages to a sane size — `cargo package -p
+      big-code-analysis --allow-dirty --no-verify` followed by
+      `ls -lh target/package/big-code-analysis-*.crate` should show
+      well under 10 MiB (the crates.io upload ceiling). If it
+      balloons, the `[package].include` block has regressed or a
+      newly-added directory needs to be excluded; see
+      [crates.io ownership](#cratesio-ownership).
 - [ ] The defer-and-gate variables (`ENABLE_CRATES_PUBLISH`,
       `ENABLE_HOMEBREW_TAP`, `ENABLE_SCOOP_BUCKET`) are set to the
       intended state for this release.
@@ -530,12 +593,25 @@ per-release flow, but skipping any of them on the cutover release
 turns into a foot-gun on the *next* release.
 
 - [ ] **crates.io ownership and Trusted Publisher.** For each of
-      `big-code-analysis`, `big-code-analysis-cli`,
-      `big-code-analysis-web`: claim the name with a manual
-      `cargo publish`, add at least one co-owner via `cargo owner
+      the eight publishable crates (the five `bca-tree-sitter-*`
+      leaves, `big-code-analysis`, `big-code-analysis-cli`,
+      `big-code-analysis-web`): claim the name with a manual
+      `cargo publish` (leaf-first, retry on the new-crate rate
+      limit — see [crates.io ownership](#cratesio-ownership) for
+      the loop), add at least one co-owner via `cargo owner
       --add`, and register a Trusted Publisher (repo owner
       `dekobon`, repo `big-code-analysis`, workflow `release.yml`,
       environment `release`).
+- [ ] **PyPI Trusted Publisher and `pypi` GH environment.** Claim
+      `big-code-analysis` on PyPI via the pending-publisher flow at
+      <https://pypi.org/manage/account/publishing/> (registers the
+      TP and reserves the name in one step), and create the `pypi`
+      GitHub environment so protection rules can attach before the
+      first wheel publish. See [Python wheels
+      (PyPI)](#python-wheels-pypi).
+- [ ] **`python-wheels` PR label.** Create the label (see the
+      Python wheels section) so contributors can opt PRs into the
+      wheel matrix.
 - [ ] **Shared Homebrew tap reachable.** Confirm
       `dekobon/homebrew-tap` exists and the configured PAT can push to
       it. The release workflow appends `Formula/big-code-analysis.rb`
