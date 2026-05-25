@@ -145,6 +145,17 @@ fn render_man_page(
     let mut buffer = Vec::<u8>::new();
     man.render(&mut buffer)?;
     let filename = format!("{name}.1");
+    // Defensive: if a future top-level binary (e.g. `bca-web`) ever
+    // collides with a `bca` subcommand name, or two recursion paths
+    // produce the same `{prefix}-{sub}` filename, the second
+    // `fs::write` would silently overwrite the first. Fail loudly
+    // instead so the conflict surfaces in `cargo xtask` / CI.
+    if expected.iter().any(|n| n == &filename) {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!("duplicate man page filename `{filename}` for command `{name}`"),
+        ));
+    }
     fs::write(out_dir.join(&filename), buffer)?;
     expected.push(filename);
     Ok(())
@@ -152,8 +163,8 @@ fn render_man_page(
 
 #[cfg(test)]
 mod tests {
-    use super::sweep_orphans;
-    use std::fs;
+    use super::{render_man_page, sweep_orphans};
+    use std::{fs, io};
     use tempfile::TempDir;
 
     fn touch(dir: &std::path::Path, name: &str) {
@@ -234,6 +245,34 @@ mod tests {
             bare_dir.exists(),
             "directory with .1 extension must be skipped"
         );
+    }
+
+    #[test]
+    fn render_man_page_rejects_duplicate_filename() {
+        let tmp = TempDir::new().expect("tempdir");
+        let mut expected = Vec::<String>::new();
+
+        // First write succeeds and seeds `expected` with `bca-web.1`.
+        let first = clap::Command::new("bca-web").version("0.1.0");
+        render_man_page(&first, "0.1.0", tmp.path(), &mut expected)
+            .expect("first render must succeed");
+        assert_eq!(expected, vec!["bca-web.1".to_string()]);
+
+        // Second command rendered under the same filename — simulates a
+        // future `bca web` subcommand colliding with the `bca-web`
+        // top-level binary, or any other prefix collision.
+        let second = clap::Command::new("bca-web").version("0.1.0");
+        let err = render_man_page(&second, "0.1.0", tmp.path(), &mut expected)
+            .expect_err("second render must fail on filename collision");
+        assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
+        assert!(
+            err.to_string().contains("bca-web.1"),
+            "error must name the colliding filename, got: {err}"
+        );
+        // `expected` must not gain a duplicate entry on the error path —
+        // otherwise `sweep_orphans` would skip the legitimate page on a
+        // later run that no longer produces the collision.
+        assert_eq!(expected, vec!["bca-web.1".to_string()]);
     }
 
     #[cfg(unix)]
