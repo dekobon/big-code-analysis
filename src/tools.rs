@@ -611,6 +611,12 @@ fn resolve_against_parent(possibilities: &[PathBuf], current_path: &Path) -> Opt
     unique_filter(possibilities, current_path, |p| p.starts_with(parent))
 }
 
+/// Last-chance fallback in the `guess_file` strategy chain: returns
+/// every candidate whose `get_paths_dist` from `current_path` ties
+/// the minimum, or an empty `Vec` when no candidate has a defined
+/// distance. Unlike the unique-match strategies, this may
+/// legitimately return zero or many entries — its result is the
+/// function's final answer, not a "try the next strategy" signal.
 fn min_distance_candidates(possibilities: &[PathBuf], current_path: &Path) -> Vec<PathBuf> {
     // Hold survivors as borrows during the walk: `Less` arms clear the
     // prior set without dropping owned `PathBuf`s, and the trailing
