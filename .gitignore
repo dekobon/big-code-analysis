@@ -21,3 +21,4 @@ big-code-analysis-py/python/big_code_analysis/_native*.so
 # lock file is per-developer cache, not a reproducibility artefact.
 big-code-analysis-py/uv.lock
 *.pyc
+abuild-keys/
