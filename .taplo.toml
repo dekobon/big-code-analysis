@@ -27,4 +27,9 @@ exclude = [
     # taplo formatting would diverge from bca's output and break the
     # byte-identical regenerate-on-unchanged-tree contract.
     ".bca-baseline.toml",
+    # Python virtual environments (developer-local, gitignored) carry
+    # vendored typeshed stub TOMLs that follow upstream formatting —
+    # taplo must not descend into them.
+    "**/.venv/**",
+    "**/venv/**",
 ]
