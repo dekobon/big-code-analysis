@@ -324,35 +324,35 @@ path = "./big-code-analysis-cli/src/markdown_report/sections.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1568817.9194917995
+value = 1672341.782940951
 
 [[entry]]
 path = "./big-code-analysis-cli/src/markdown_report/sections.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 572.0
+value = 601.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/markdown_report/sections.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 72.0
+value = 74.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/markdown_report/sections.rs"
 function = "<file>"
 start_line = 1
 metric = "nexits"
-value = 11.0
+value = 12.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/markdown_report/sections.rs"
 function = "<file>"
 start_line = 1
 metric = "nom"
-value = 47.0
+value = 51.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/metric_catalog.rs"
@@ -1108,21 +1108,21 @@ path = "./src/concurrent_files.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 823602.9327463376
+value = 415146.872117775
 
 [[entry]]
 path = "./src/concurrent_files.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 439.0
+value = 319.0
 
 [[entry]]
 path = "./src/concurrent_files.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 40.0
+value = 33.0
 
 [[entry]]
 path = "./src/concurrent_files.rs"
@@ -1130,13 +1130,6 @@ function = "<file>"
 start_line = 1
 metric = "nexits"
 value = 8.0
-
-[[entry]]
-path = "./src/concurrent_files.rs"
-function = "<file>"
-start_line = 1
-metric = "nom"
-value = 31.0
 
 [[entry]]
 path = "./src/concurrent_files.rs"
@@ -2977,14 +2970,14 @@ path = "./src/tools.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 3141047.906865977
+value = 1384762.7744984012
 
 [[entry]]
 path = "./src/tools.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1213.0
+value = 711.0
 
 [[entry]]
 path = "./src/tools.rs"
@@ -3005,4 +2998,4 @@ path = "./src/tools.rs"
 function = "<file>"
 start_line = 1
 metric = "nom"
-value = 108.0
+value = 56.0

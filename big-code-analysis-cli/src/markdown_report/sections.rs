@@ -195,12 +195,24 @@ impl CyclomaticStats {
     }
 }
 
-/// Filter `entries`, sort the survivors descending by `metric`, and
-/// truncate to at most `top_n`. Returns `None` when no entry passes
-/// the filter so callers can early-out before emitting an empty
-/// heading. The cyclomatic-hotspots writer doesn't use this — it
-/// needs to compute summary stats over the full filtered set before
-/// truncation.
+/// Filter `entries`, keep the `top_n` highest-by-`metric` survivors,
+/// and return them sorted descending. Returns `None` when no entry
+/// passes the filter so callers can early-out before emitting an
+/// empty heading.
+///
+/// Two section writers bypass this helper:
+/// - `write_cyclomatic_hotspots` needs summary stats over the **full**
+///   filtered set before truncation, so it can't use a top-N adapter.
+/// - `write_mi_lowest` sorts ascending (lowest MI first), not descending.
+///
+/// Implementation: uses `select_nth_unstable_by` to partition the head
+/// in `O(N)` average, then stable-sorts only the head — overall
+/// `O(N + k log k)` instead of `O(N log N)` for a full sort that
+/// throws away `N − k` entries (#358). The comparator matches
+/// `sort_by_metric_desc` so the resulting top-N set is identical to
+/// the full-sort approach for any total-order input; per-writer
+/// filters narrow `kind`, so `(file, start_line, name)` tie-breaking
+/// uniquely orders the survivors in practice.
 fn top_n_desc<'a, F, M>(
     entries: &[&'a FunctionSummary],
     top_n: usize,
@@ -216,8 +228,21 @@ where
     if filtered.is_empty() {
         return None;
     }
+    let n = filtered.len().min(top_n);
+    if n == 0 {
+        return Some(Vec::new());
+    }
+    if n < filtered.len() {
+        filtered.select_nth_unstable_by(n - 1, |a, b| {
+            metric(b)
+                .total_cmp(&metric(a))
+                .then_with(|| a.file.cmp(&b.file))
+                .then_with(|| a.start_line.cmp(&b.start_line))
+                .then_with(|| a.name.cmp(&b.name))
+        });
+        filtered.truncate(n);
+    }
     sort_by_metric_desc(&mut filtered, metric);
-    filtered.truncate(top_n);
     Some(filtered)
 }
 
@@ -570,3 +595,7 @@ pub(super) fn split_units_and_functions<'a>(
         .collect();
     (units, funcs)
 }
+
+#[cfg(test)]
+#[path = "sections_tests.rs"]
+mod tests;
