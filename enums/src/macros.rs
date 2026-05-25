@@ -16,7 +16,7 @@ macro_rules! mk_enum {
 }
 
 macro_rules! mk_get_language {
-    ( $( ($camel:ident, $name:ident) ),* ) => {
+    ( $( $camel:ident ),* ) => {
         pub fn get_language(lang: &Lang) -> Language {
             match lang {
                 Lang::Kotlin => tree_sitter_kotlin_ng::LANGUAGE.into(),
@@ -58,9 +58,9 @@ macro_rules! mk_get_language_name {
 }
 
 macro_rules! mk_langs {
-    ( $( ($camel:ident, $name:ident) ),* ) => {
+    ( $( $camel:ident ),* ) => {
         mk_enum!($( $camel ),*);
-        mk_get_language!($( ($camel, $name) ),*);
+        mk_get_language!($( $camel ),*);
         mk_get_language_name!($( $camel ),*);
     };
 }
