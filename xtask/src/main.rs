@@ -150,7 +150,18 @@ fn render_man_page(
     // produce the same `{prefix}-{sub}` filename, the second
     // `fs::write` would silently overwrite the first. Fail loudly
     // instead so the conflict surfaces in `cargo xtask` / CI.
-    if expected.contains(&filename) {
+    //
+    // The comparison is ASCII-case-insensitive. clap command names
+    // are ASCII, but the resulting `*.1` files are written to the
+    // user's filesystem — APFS (macOS default) and NTFS (Windows
+    // default) are case-insensitive, so `Bca.1` and `bca.1` map to
+    // the same physical file. A case-sensitive `contains` check
+    // would let one entry pass the guard and silently overwrite the
+    // other on case-insensitive filesystems while case-sensitive
+    // ext4/btrfs see two distinct files. Normalising to ASCII case
+    // here makes the gate behave identically on every developer
+    // workstation.
+    if expected.iter().any(|n| n.eq_ignore_ascii_case(&filename)) {
         return Err(io::Error::new(
             io::ErrorKind::AlreadyExists,
             format!("duplicate man page filename `{filename}` for command `{name}`"),
@@ -273,6 +284,38 @@ mod tests {
         // otherwise `sweep_orphans` would skip the legitimate page on a
         // later run that no longer produces the collision.
         assert_eq!(expected, vec!["bca-web.1".to_string()]);
+    }
+
+    // ASCII case-insensitive guard for case-insensitive filesystems
+    // (APFS on macOS, NTFS on Windows). The collision detector must
+    // catch `Bca` vs `bca` even though Rust's `String == String`
+    // would see them as distinct.
+    #[test]
+    fn render_man_page_rejects_case_only_filename_collision() {
+        let tmp = TempDir::new().expect("tempdir");
+        let mut expected = Vec::<String>::new();
+
+        // First write: lowercase `bca.1`.
+        let first = clap::Command::new("bca").version("0.1.0");
+        render_man_page(&first, "0.1.0", tmp.path(), &mut expected)
+            .expect("first render must succeed");
+        assert_eq!(expected, vec!["bca.1".to_string()]);
+
+        // Second command differs only in case. On APFS / NTFS this
+        // would write to the same physical file; on ext4 / btrfs the
+        // two files are distinct but the man-page output set would
+        // still mislead users running `man bca` on a case-insensitive
+        // filesystem. Fail loudly on every developer workstation.
+        let second = clap::Command::new("BCA").version("0.1.0");
+        let err = render_man_page(&second, "0.1.0", tmp.path(), &mut expected)
+            .expect_err("second render must fail on case-only collision");
+        assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
+        assert!(
+            err.to_string().contains("BCA.1"),
+            "error must name the colliding filename, got: {err}"
+        );
+        // `expected` must not gain the BCA.1 entry on the error path.
+        assert_eq!(expected, vec!["bca.1".to_string()]);
     }
 
     #[cfg(unix)]
