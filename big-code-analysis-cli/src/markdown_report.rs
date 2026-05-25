@@ -323,9 +323,7 @@ pub(crate) fn generate_report(summaries: &[FunctionSummary], top_n: usize) -> St
     out
 }
 
-fn group_by_language(
-    summaries: &[FunctionSummary],
-) -> BTreeMap<&str, Vec<&FunctionSummary>> {
+fn group_by_language(summaries: &[FunctionSummary]) -> BTreeMap<&str, Vec<&FunctionSummary>> {
     let mut map = BTreeMap::<&str, Vec<&FunctionSummary>>::new();
     for s in summaries {
         map.entry(s.language.get_name()).or_default().push(s);
@@ -415,10 +413,7 @@ fn write_global_header(
     let _ = writeln!(out, "**Comment ratio:** {comment_ratio:.1}%");
 }
 
-fn write_per_language_overview(
-    out: &mut String,
-    by_lang: &BTreeMap<&str, Vec<&FunctionSummary>>,
-) {
+fn write_per_language_overview(out: &mut String, by_lang: &BTreeMap<&str, Vec<&FunctionSummary>>) {
     let _ = writeln!(out, "\n## Per-language overview\n");
     let mut overview_rows: Vec<Vec<String>> = Vec::with_capacity(by_lang.len());
     for (&lang_name, lang_summaries) in by_lang {

@@ -12,6 +12,7 @@
 ./tree-sitter-*/**
 ./tests/**
 ./**/tests/**
+./**/*_tests.rs
 ./enums/**
 ./target/**
 ./big-code-analysis-book/**

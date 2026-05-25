@@ -12,8 +12,8 @@ use std::fmt::Write as _;
 use big_code_analysis::SpaceKind;
 
 use super::{
-    Align, FunctionSummary, escape_cell, escape_name, is_class_like, mi_rating,
-    sort_by_metric_asc, sort_by_metric_desc, thousands, write_table,
+    Align, FunctionSummary, escape_cell, escape_name, is_class_like, mi_rating, sort_by_metric_asc,
+    sort_by_metric_desc, thousands, write_table,
 };
 use crate::format_util::MetricScalar;
 
@@ -195,11 +195,7 @@ impl CyclomaticStats {
     }
 }
 
-pub(super) fn write_cognitive_hotspots(
-    out: &mut String,
-    funcs: &[&FunctionSummary],
-    top_n: usize,
-) {
+pub(super) fn write_cognitive_hotspots(out: &mut String, funcs: &[&FunctionSummary], top_n: usize) {
     let mut cog_entries: Vec<&FunctionSummary> = funcs
         .iter()
         .filter(|s| s.cognitive > 0.0)
@@ -250,11 +246,7 @@ pub(super) fn write_cognitive_hotspots(
     );
 }
 
-pub(super) fn write_halstead_hotspots(
-    out: &mut String,
-    funcs: &[&FunctionSummary],
-    top_n: usize,
-) {
+pub(super) fn write_halstead_hotspots(out: &mut String, funcs: &[&FunctionSummary], top_n: usize) {
     let mut hal_entries: Vec<&FunctionSummary> = funcs
         .iter()
         .filter(|s| s.halstead_effort > 0.0)
@@ -305,11 +297,7 @@ pub(super) fn write_halstead_hotspots(
     );
 }
 
-pub(super) fn write_largest_by_sloc(
-    out: &mut String,
-    funcs: &[&FunctionSummary],
-    top_n: usize,
-) {
+pub(super) fn write_largest_by_sloc(out: &mut String, funcs: &[&FunctionSummary], top_n: usize) {
     let mut sloc_entries: Vec<&FunctionSummary> =
         funcs.iter().filter(|s| s.sloc > 0).copied().collect();
     if sloc_entries.is_empty() {

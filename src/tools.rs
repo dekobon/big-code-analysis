@@ -578,11 +578,7 @@ pub(crate) fn guess_file<S: ::std::hash::BuildHasher>(
 /// from `current_path`, returning `Some(matched)` only when exactly
 /// one survives. The cascading caller treats `None` as "this strategy
 /// did not yield a unique resolution — try the next one."
-fn unique_filter<F>(
-    possibilities: &[PathBuf],
-    current_path: &Path,
-    pred: F,
-) -> Option<Vec<PathBuf>>
+fn unique_filter<F>(possibilities: &[PathBuf], current_path: &Path, pred: F) -> Option<Vec<PathBuf>>
 where
     F: Fn(&PathBuf) -> bool,
 {
@@ -610,10 +606,7 @@ fn resolve_against_resolved(
 
 /// Candidate-in-same-directory heuristic: keep entries whose path
 /// starts with the including file's parent directory.
-fn resolve_against_parent(
-    possibilities: &[PathBuf],
-    current_path: &Path,
-) -> Option<Vec<PathBuf>> {
+fn resolve_against_parent(possibilities: &[PathBuf], current_path: &Path) -> Option<Vec<PathBuf>> {
     let parent = current_path.parent()?;
     unique_filter(possibilities, current_path, |p| p.starts_with(parent))
 }
