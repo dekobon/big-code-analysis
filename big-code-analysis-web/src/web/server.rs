@@ -1433,13 +1433,19 @@ mod tests {
         assert_eq!(config.semaphore.available_permits(), 1);
     }
 
-    // Regression test for #336: the global `JsonConfig` registered on the
-    // `App` is what bounds JSON payload size. The four per-route
+    // Regression test for #336: the global `JsonConfig` registered on
+    // the `App` is what bounds JSON payload size. The four per-route
     // `.app_data(web::Json::<T>)` calls removed in this change were
     // function-item values, not `JsonConfig` instances, and the
     // `Json<T>` extractor only honors `JsonConfig::from_req`. Build a
     // service with a small global limit and assert that a body
     // exceeding it is rejected with 413.
+    //
+    // The resource is wired with the same `guard::Header` filter the
+    // production `/ast` route uses (server.rs:411) so the test
+    // exercises the exact dispatch shape whose `.app_data` line was
+    // deleted — guard precedence vs. payload-size enforcement is then
+    // covered by this assertion rather than left implicit.
     #[actix_rt::test]
     async fn test_web_json_payload_too_large() {
         // Use a tiny limit so the test does not allocate megabytes.
@@ -1449,7 +1455,11 @@ mod tests {
             App::new()
                 .app_data(test_config())
                 .app_data(web::JsonConfig::default().limit(TEST_JSON_LIMIT))
-                .service(web::resource("/ast").route(web::post().to(ast_parser))),
+                .service(
+                    web::resource("/ast")
+                        .guard(guard::Header("content-type", "application/json"))
+                        .route(web::post().to(ast_parser)),
+                ),
         )
         .await;
 
@@ -1459,6 +1469,7 @@ mod tests {
         let oversized_code = "a".repeat(TEST_JSON_LIMIT * 2);
         let req = test::TestRequest::post()
             .uri("/ast")
+            .insert_header(ContentType::json())
             .set_json(AstPayload {
                 id: "1234".to_string(),
                 file_name: "foo.c".to_string(),
