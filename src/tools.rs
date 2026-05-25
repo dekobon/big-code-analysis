@@ -281,7 +281,7 @@ fn get_regex<'a>(
     regex: &'a str,
 ) -> Option<regex::bytes::Captures<'a>> {
     once_lock
-        .get_or_init(|| Regex::new(regex).unwrap())
+        .get_or_init(|| Regex::new(regex).expect("constant regex pattern must compile"))
         .captures_iter(line)
         .next()
 }
@@ -516,8 +516,16 @@ pub(crate) fn normalize_path<P: AsRef<Path>>(path: P) -> PathBuf {
 pub(crate) fn get_paths_dist(path1: &Path, path2: &Path) -> Option<usize> {
     for ancestor in path1.ancestors() {
         if path2.starts_with(ancestor) && !ancestor.as_os_str().is_empty() {
-            let path1 = path1.strip_prefix(ancestor).unwrap();
-            let path2 = path2.strip_prefix(ancestor).unwrap();
+            // `ancestor` is yielded by `path1.ancestors()`, so it is
+            // a prefix of `path1` by construction; `path2` was just
+            // verified by `starts_with` above. Both `strip_prefix`
+            // calls are therefore infallible.
+            let path1 = path1
+                .strip_prefix(ancestor)
+                .expect("ancestor is by construction a prefix of path1");
+            let path2 = path2
+                .strip_prefix(ancestor)
+                .expect("ancestor verified by starts_with above");
             return Some(path1.components().count() + path2.components().count());
         }
     }

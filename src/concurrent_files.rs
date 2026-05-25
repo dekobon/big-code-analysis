@@ -33,12 +33,9 @@ fn consumer<Config, ProcFiles>(receiver: JobReceiver<Config>, func: Arc<ProcFile
 where
     ProcFiles: Fn(PathBuf, &Config) -> std::io::Result<()> + Send + Sync,
 {
-    while let Ok(job) = receiver.recv() {
-        if job.is_none() {
-            break;
-        }
-        // Cannot panic because of the check immediately above.
-        let job = job.unwrap();
+    // `Ok(None)` is the poison-pill terminating the consumer loop;
+    // `Err(_)` means the channel was closed (sender dropped).
+    while let Ok(Some(job)) = receiver.recv() {
         let path = job.path.clone();
 
         if let Err(err) = func(job.path, &job.cfg) {
@@ -345,5 +342,74 @@ mod tests {
         assert!(visited.iter().any(|n| n == "visible.rs"));
         assert!(!visited.iter().any(|n| n == ".hidden"));
         assert!(!visited.iter().any(|n| n == "inside.rs"));
+    }
+
+    #[test]
+    fn consumer_terminates_on_poison_pill() {
+        // The `consumer` loop terminates when the sender sends `None`
+        // (the poison-pill used in `ConcurrentRunner::run`). Before the
+        // refactor this relied on `if job.is_none() { break; }` followed
+        // by `job.unwrap()`; the equivalent `while let Ok(Some(job))`
+        // pattern must still terminate cleanly without panic.
+        let (sender, receiver): (JobSender<()>, JobReceiver<()>) = unbounded();
+
+        // Count how many times the supplied closure is invoked so the
+        // test would notice if the consumer mistakenly tried to process
+        // the poison-pill.
+        let invocations = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let invocations_for_closure = Arc::clone(&invocations);
+        let func = Arc::new(move |_path: PathBuf, _cfg: &()| {
+            invocations_for_closure.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        });
+
+        let handle = thread::spawn(move || consumer(receiver, func));
+
+        // Send only the poison-pill — no real job.
+        sender.send(None).expect("send should succeed");
+
+        // The consumer must exit cleanly without `recv` errors or
+        // panics on the now-`None` job item.
+        handle.join().expect("consumer thread should not panic");
+        assert_eq!(
+            invocations.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "consumer must not invoke the closure for the poison-pill",
+        );
+    }
+
+    #[test]
+    fn consumer_processes_jobs_then_terminates_on_poison_pill() {
+        // Mixed sequence: real jobs first, then the `None` poison-pill.
+        // Each `Some(job)` must be processed; the `None` must terminate
+        // the loop without panicking.
+        let (sender, receiver): (JobSender<()>, JobReceiver<()>) = unbounded();
+
+        let invocations = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let invocations_for_closure = Arc::clone(&invocations);
+        let func = Arc::new(move |_path: PathBuf, _cfg: &()| {
+            invocations_for_closure.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        });
+
+        let handle = thread::spawn(move || consumer(receiver, func));
+
+        let cfg = Arc::new(());
+        for name in ["a.rs", "b.rs", "c.rs"] {
+            sender
+                .send(Some(JobItem {
+                    path: PathBuf::from(name),
+                    cfg: Arc::clone(&cfg),
+                }))
+                .expect("send should succeed");
+        }
+        sender.send(None).expect("send should succeed");
+
+        handle.join().expect("consumer thread should not panic");
+        assert_eq!(
+            invocations.load(std::sync::atomic::Ordering::SeqCst),
+            3,
+            "all three real jobs must be processed before the poison-pill",
+        );
     }
 }
