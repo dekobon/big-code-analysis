@@ -101,6 +101,18 @@ documentation = "https://docs.rs/big-code-analysis/"
 readme = "README.md"
 keywords = ["metrics"]
 description = "Tool to compute and export code metrics"
+# Whitelist what ends up in the published .crate. Without this,
+# cargo picks up the entire repo — including tests/repositories/
+# (30k+ files of real-world corpora used for snapshot tests, ~130
+# MiB compressed) and the mdBook source. None of that is needed by
+# downstream consumers.
+include = [
+  "/src/**/*",
+  "/Cargo.toml",
+  "/README.md",
+  "/LICENSE",
+  "/CHANGELOG.md",
+]
 
 [dependencies]
 aho-corasick = "^1.0"
