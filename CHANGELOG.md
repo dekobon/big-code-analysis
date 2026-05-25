@@ -20,6 +20,15 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Added
 
+- `bca --exclude-from <FILE>` global flag reads `--exclude` glob
+  patterns from a file (one per line, `.gitignore`-style: blank lines
+  and `#`-prefixed comments are skipped). Patterns union with any
+  inline `--exclude <GLOB>` flags into a single deny-set. The
+  convention is a `.bcaignore` at the repo root so workflow,
+  recipe, and local baseline-bootstrap can share one source of truth.
+  Use `-` for stdin. Fixes
+  [#355](https://github.com/dekobon/big-code-analysis/issues/355).
+
 - **Python bindings shipped** — close-out of
   [#103](https://github.com/dekobon/big-code-analysis/issues/103)
   (umbrella) via phase 9/9 in

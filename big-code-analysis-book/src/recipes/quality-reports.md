@@ -76,6 +76,18 @@ bca \
 > swallowed as a glob. Equivalent single-value forms with `=` also
 > work: `--include="*.rs" --exclude="**/target/**"`.
 
+For a stable repo-wide deny-set, keep the patterns in a file at the
+repo root (a `.bcaignore` by convention) and load it with
+`--exclude-from`. Patterns are unioned with any inline `--exclude`
+values; blank lines and `#`-prefixed comments are skipped:
+
+```bash
+bca \
+    --paths . \
+    --exclude-from .bcaignore \
+    report markdown --output report.md
+```
+
 ## Show only the worst offenders
 
 For a quick triage view that highlights the top three problems per

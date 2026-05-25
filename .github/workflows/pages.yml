@@ -136,29 +136,11 @@ jobs:
     name: bca self-scan
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Single source of truth for the workspace-minus-vendored exclude
-    # list. Every `bca` invocation below sources this via word-splitting
-    # under `set -f` so the globs reach the CLI verbatim. If you add or
-    # remove an entry, also refresh `.bca-baseline.toml` in the same
-    # commit — the baseline keys are sensitive to which files the
-    # walker actually visits.
-    env:
-      BCA_EXCLUDES: >-
-        ./tree-sitter-*/**
-        ./tests/**
-        ./**/tests/**
-        ./enums/**
-        ./target/**
-        ./big-code-analysis-book/**
-        ./docs/**
-        ./packaging/**
-        ./utils/**
-        ./xtask/**
-        ./generate-grammars/**
-        ./man/**
-        ./abuild-keys/**
-        ./**/examples/**
-        ./check-*.py
+    # The workspace-minus-vendored exclude list lives in `.bcaignore`
+    # at the repo root — every `bca` invocation below points to it
+    # via `--exclude-from`. If you edit `.bcaignore`, also refresh
+    # `.bca-baseline.toml` in the same commit — the baseline keys
+    # are sensitive to which files the walker actually visits.
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -201,10 +183,10 @@ jobs:
       - name: bca version
         run: bca --version
 
-      # `set -f` disables filename expansion so the `*` in BCA_EXCLUDES
-      # entries reaches bca as a literal glob rather than being expanded
-      # by the shell against the current directory. The SC2086 disable
-      # is intentional: we WANT word-splitting on whitespace here.
+      # `--exclude-from .bcaignore` reads the deny-set once from the
+      # repo-root file so workflow, recipe, and local bootstrap all
+      # share the same list (issue #355). No `set -f` / word-splitting
+      # dance is needed — patterns are read line-by-line from disk.
       #
       # `--strip-prefix "./"` matches the `./` prefix that `--paths .`
       # produces in the walker's output. Passing `$PWD/` (the original
@@ -213,11 +195,9 @@ jobs:
       - name: Generate Markdown report
         run: |
           set -euo pipefail
-          set -f
-          # shellcheck disable=SC2086
           bca \
             --paths . \
-            --exclude $BCA_EXCLUDES \
+            --exclude-from .bcaignore \
             --num-jobs "$(nproc)" \
             report markdown \
             --top 30 \
@@ -227,11 +207,9 @@ jobs:
       - name: Generate HTML report
         run: |
           set -euo pipefail
-          set -f
-          # shellcheck disable=SC2086
           bca \
             --paths . \
-            --exclude $BCA_EXCLUDES \
+            --exclude-from .bcaignore \
             --num-jobs "$(nproc)" \
             report html \
             --top 50 \
@@ -240,20 +218,13 @@ jobs:
 
       # Run the gate last so the report artifacts above always upload
       # even when thresholds fail — the report is most useful when CI
-      # is red. `--num-jobs` is interposed between the variadic
-      # `--exclude` list and the `check` subcommand to stop clap from
-      # consuming `check` as one more exclude glob (it is a num_args(0..)
-      # global option, so without a separating flag the subcommand
-      # disappears into the array and bca errors with
-      # "<COMMAND> required").
+      # is red.
       - name: Threshold gate (baseline-ratcheted)
         run: |
           set -euo pipefail
-          set -f
-          # shellcheck disable=SC2086
           bca \
             --paths . \
-            --exclude $BCA_EXCLUDES \
+            --exclude-from .bcaignore \
             --num-jobs "$(nproc)" \
             check \
             --config bca-thresholds.toml \

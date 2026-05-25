@@ -242,8 +242,20 @@ git add bca-thresholds.toml .bca-baseline.toml
 This snippet bootstraps from `src/` only — appropriate for a
 single-crate library. For a multi-crate workspace, see the
 [live worked example](#live-worked-example): its `.github/workflows/pages.yml`
-scans the entire repo with an explicit `--exclude` list for vendored
-grammars, generated trees, and tests.
+scans the entire repo with `--exclude-from .bcaignore`, a checked-in
+deny-set covering vendored grammars, generated trees, and tests.
+
+> **Share the exclude list across workflow, recipe, and bootstrap.**
+> Put the deny-set in a single file at the repo root (a `.bcaignore`
+> by convention, mirroring `.gitignore` / `.dockerignore`) and point
+> every `bca` invocation at it with `--exclude-from .bcaignore`.
+> Patterns from `--exclude-from` are unioned with any inline
+> `--exclude <GLOB>` flags into one deny-set — keep `--exclude` for
+> one-off ad-hoc excludes. Blank lines and `#`-prefixed comment lines
+> in the file are skipped. Patterns follow the same `./`-prefix
+> convention as `--exclude` arguments (the walker's emitted form).
+> Pair edits to `.bcaignore` with a `--write-baseline` refresh — the
+> baseline keys are sensitive to which files the walker visits.
 
 ```yaml
 - name: Threshold check with baseline

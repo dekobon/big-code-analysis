@@ -181,6 +181,15 @@ struct GlobalOpts {
     /// use `./-`.
     #[clap(long = "paths-from", value_parser, global = true)]
     paths_from: Option<PathBuf>,
+    /// Read additional `--exclude` glob patterns from a file (one per
+    /// line, `.gitignore`-style). Blank lines and lines whose first
+    /// non-whitespace character is `#` are skipped. Use `-` to read
+    /// from stdin; to pass a file literally named `-`, use `./-`.
+    /// Patterns are unioned with any `--exclude` values into a single
+    /// deny-set; order does not matter. Convention is a `.bcaignore`
+    /// at the repo root, mirroring `.gitignore` / `.dockerignore`.
+    #[clap(long = "exclude-from", value_parser, global = true)]
+    exclude_from: Option<PathBuf>,
     /// Disable `.gitignore` / `.ignore` / global gitignore awareness
     /// when expanding directory seeds. Explicit file paths are always
     /// honored regardless of this flag.
@@ -807,6 +816,38 @@ fn read_paths_from(src: &Path) -> Vec<PathBuf> {
     }
 }
 
+/// Read newline-separated `--exclude` glob patterns from `src` (a
+/// path on disk or `-` for stdin). Blank lines and lines whose first
+/// non-whitespace character is `#` (i.e. `.gitignore`-style
+/// comments) are skipped; surrounding whitespace on retained lines
+/// is trimmed. `die`s on I/O failure with the path / failing line.
+fn read_exclude_patterns_from(src: &Path) -> Vec<String> {
+    if src.as_os_str() == "-" {
+        collect_pattern_lines(std::io::stdin().lock(), "--exclude-from -")
+    } else {
+        let label = format!("--exclude-from {}", src.display());
+        let f = std::fs::File::open(src).unwrap_or_else(|e| die(format_args!("{label}: {e}")));
+        collect_pattern_lines(std::io::BufReader::new(f), &label)
+    }
+}
+
+/// Drain `reader` into trimmed glob-pattern strings, skipping blank
+/// lines and `.gitignore`-style `#` comment lines. `die`s on I/O
+/// failure, prefixing the message with `label` and the failing line.
+fn collect_pattern_lines<R: std::io::BufRead>(reader: R, label: &str) -> Vec<String> {
+    reader
+        .lines()
+        .enumerate()
+        .filter_map(|(i, r)| {
+            let line = r.unwrap_or_else(|e| {
+                die(format_args!("{label}: read error on line {}: {e}", i + 1))
+            });
+            let trimmed = line.trim();
+            (!trimmed.is_empty() && !trimmed.starts_with('#')).then(|| trimmed.to_owned())
+        })
+        .collect()
+}
+
 /// Drain `reader` into `PathBuf`s, one per non-blank line. `die`s on
 /// I/O failure, prefixing the message with `label` and the failing
 /// line number so the caller can identify the source.
@@ -875,7 +916,11 @@ fn expand_seed_paths(
 
 fn run_walk(globals: GlobalOpts, cfg: Config) -> HashMap<String, Vec<PathBuf>> {
     let include = mk_globset(globals.include).unwrap_or_else(|e| die(e));
-    let exclude = mk_globset(globals.exclude).unwrap_or_else(|e| die(e));
+    let mut exclude_patterns = globals.exclude;
+    if let Some(src) = globals.exclude_from {
+        exclude_patterns.extend(read_exclude_patterns_from(&src));
+    }
+    let exclude = mk_globset(exclude_patterns).unwrap_or_else(|e| die(e));
     let num_jobs = resolve_num_jobs(globals.num_jobs);
     let paths = expand_seed_paths(globals.paths, globals.paths_from, globals.no_ignore);
     let files_data = FilesData {
@@ -1840,5 +1885,52 @@ mod tests {
             missing = from_clap.difference(&from_const).collect::<Vec<_>>(),
             extra = from_const.difference(&from_clap).collect::<Vec<_>>(),
         );
+    }
+
+    #[test]
+    fn collect_pattern_lines_skips_blank_and_comment_lines() {
+        let input = "\
+# comment at top
+target/
+
+  # indented comment
+node_modules/
+
+\t
+**/*.snap
+   tests/repositories/**   
+";
+        let got = collect_pattern_lines(std::io::Cursor::new(input), "test");
+        assert_eq!(
+            got,
+            vec![
+                "target/",
+                "node_modules/",
+                "**/*.snap",
+                "tests/repositories/**"
+            ],
+            "blank lines, comment lines, and surrounding whitespace must all be stripped",
+        );
+    }
+
+    #[test]
+    fn collect_pattern_lines_treats_hash_inside_pattern_as_literal() {
+        let input = "\
+a/#weird/path
+#full-line-comment
+";
+        let got = collect_pattern_lines(std::io::Cursor::new(input), "test");
+        assert_eq!(
+            got,
+            vec!["a/#weird/path"],
+            "only lines whose first non-whitespace char is `#` count as comments",
+        );
+    }
+
+    #[test]
+    fn collect_pattern_lines_returns_empty_for_only_blanks_and_comments() {
+        let input = "\n# only comments\n\t  \n# another\n";
+        let got = collect_pattern_lines(std::io::Cursor::new(input), "test");
+        assert!(got.is_empty(), "expected empty Vec, got {got:?}");
     }
 }

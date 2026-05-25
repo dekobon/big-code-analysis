@@ -1,0 +1,26 @@
+# Shared exclude list for `bca --paths . --exclude-from .bcaignore ...`.
+# Mirrors the deny-set the self-scan workflow and the local baseline
+# refresh both walk. Keep this file and `.bca-baseline.toml` in sync —
+# the baseline keys are sensitive to which files the walker visits.
+#
+# Patterns use the same `./`-prefix convention as the walker's emitted
+# form so they match `--paths .` output one-to-one.
+#
+# Blank lines and lines whose first non-whitespace character is `#`
+# are skipped (`.gitignore`-style).
+
+./tree-sitter-*/**
+./tests/**
+./**/tests/**
+./enums/**
+./target/**
+./big-code-analysis-book/**
+./docs/**
+./packaging/**
+./utils/**
+./xtask/**
+./generate-grammars/**
+./man/**
+./abuild-keys/**
+./**/examples/**
+./check-*.py
