@@ -58,11 +58,21 @@ pub(crate) struct FunctionSummary {
     pub npm: f64,
 }
 
-/// Recursively extract [`FunctionSummary`] records from a [`FuncSpace`] tree.
+/// Extract [`FunctionSummary`] records from a [`FuncSpace`] tree in
+/// pre-order.
 ///
 /// `strip_prefix` is applied to `file` using `str::strip_prefix` semantics:
 /// if the file path starts with the prefix it is removed, otherwise the path
 /// is kept as-is.
+///
+/// The traversal is iterative (not recursive) so an adversarially deeply
+/// nested AST cannot overflow the worker thread's stack — the thread pool's
+/// default 2 MiB stack is small enough that pathological input matters.
+/// Mirrors `ThresholdSet::evaluate_with_policy` in
+/// [`crate::thresholds`]; see lesson 13 in
+/// `docs/development/lessons_learned.md` for the analogous web-service
+/// denial-of-service vector and issues #292 / #308 for the prior
+/// `attach_function_suppression` fix that this extractor was missed by.
 pub(crate) fn extract_summaries(
     space: &FuncSpace,
     file: &str,
@@ -80,40 +90,47 @@ fn extract_summaries_inner(
     language: LANG,
     out: &mut Vec<FunctionSummary>,
 ) {
-    let m = &space.metrics;
-    out.push(FunctionSummary {
-        file: display_file.to_string(),
-        name: space.name.clone().unwrap_or_default(),
-        kind: space.kind,
-        language,
-        start_line: space.start_line,
-        end_line: space.end_line,
-        sloc: m.loc.sloc() as usize,
-        ploc: m.loc.ploc() as usize,
-        lloc: m.loc.lloc() as usize,
-        cloc: m.loc.cloc() as usize,
-        tokens: m.tokens.tokens_sum() as usize,
-        cyclomatic: m.cyclomatic.cyclomatic(),
-        cognitive: m.cognitive.cognitive(),
-        halstead_volume: m.halstead.volume(),
-        halstead_difficulty: m.halstead.difficulty(),
-        halstead_effort: m.halstead.effort(),
-        halstead_bugs: m.halstead.bugs(),
-        halstead_time: m.halstead.time(),
-        mi_original: m.mi.mi_original(),
-        mi_sei: m.mi.mi_sei(),
-        mi_visual_studio: m.mi.mi_visual_studio(),
-        nargs: m.nargs.nargs_total() as usize,
-        nexits: m.nexits.exit_sum() as usize,
-        nom: m.nom.total() as usize,
-        abc: m.abc.magnitude(),
-        wmc: m.wmc.total_wmc(),
-        npa: m.npa.total_npa(),
-        npm: m.npm.total_npm(),
-    });
+    // Iterative pre-order walk over the FuncSpace tree. Children are
+    // pushed in reverse so `pop()` visits them in source order — this
+    // produces the same FunctionSummary ordering as the prior recursive
+    // form, preserving snapshot stability.
+    let mut stack: Vec<&FuncSpace> = vec![space];
+    while let Some(current) = stack.pop() {
+        let m = &current.metrics;
+        out.push(FunctionSummary {
+            file: display_file.to_string(),
+            name: current.name.clone().unwrap_or_default(),
+            kind: current.kind,
+            language,
+            start_line: current.start_line,
+            end_line: current.end_line,
+            sloc: m.loc.sloc() as usize,
+            ploc: m.loc.ploc() as usize,
+            lloc: m.loc.lloc() as usize,
+            cloc: m.loc.cloc() as usize,
+            tokens: m.tokens.tokens_sum() as usize,
+            cyclomatic: m.cyclomatic.cyclomatic(),
+            cognitive: m.cognitive.cognitive(),
+            halstead_volume: m.halstead.volume(),
+            halstead_difficulty: m.halstead.difficulty(),
+            halstead_effort: m.halstead.effort(),
+            halstead_bugs: m.halstead.bugs(),
+            halstead_time: m.halstead.time(),
+            mi_original: m.mi.mi_original(),
+            mi_sei: m.mi.mi_sei(),
+            mi_visual_studio: m.mi.mi_visual_studio(),
+            nargs: m.nargs.nargs_total() as usize,
+            nexits: m.nexits.exit_sum() as usize,
+            nom: m.nom.total() as usize,
+            abc: m.abc.magnitude(),
+            wmc: m.wmc.total_wmc(),
+            npa: m.npa.total_npa(),
+            npm: m.npm.total_npm(),
+        });
 
-    for child in &space.spaces {
-        extract_summaries_inner(child, display_file, language, out);
+        for child in current.spaces.iter().rev() {
+            stack.push(child);
+        }
     }
 }
 
@@ -1103,6 +1120,52 @@ mod tests {
         extract_summaries(&root, "root.py", LANG::Python, "", &mut out);
         assert_eq!(out.len(), 2);
         assert!(out.iter().all(|s| s.language == LANG::Python));
+    }
+
+    #[test]
+    fn deeply_nested_spaces_do_not_overflow_stack() {
+        // Regression test for issue #338. The prior recursive form of
+        // `extract_summaries_inner` walked one Rust stack frame per
+        // nested FuncSpace; an adversarially deep AST (chained
+        // lambdas, generated parser fixtures) trips the worker
+        // thread's default 2 MiB stack. Mirrors the iterative-walk
+        // pattern locked in by `ThresholdSet::evaluate_with_policy`
+        // (issue #292 in the library crate, lesson 13).
+        //
+        // 10_000 levels is far below any pathological-input bound a
+        // real CLI invocation would hit, but well above the ~1k-frame
+        // depth at which the recursive form overflows on a default
+        // 2 MiB stack on Linux/x86_64. Reverting the production
+        // change to the recursive `for child in &space.spaces` /
+        // `extract_summaries_inner(child, …)` form makes this test
+        // abort with `thread … has overflowed its stack`.
+        const DEPTH: usize = 10_000;
+
+        // Build a synthetic FuncSpace tree by chaining each level's
+        // child onto the previous one's `spaces`. Constructed bottom-
+        // up so each `push` is O(1) and the build itself does not
+        // recurse.
+        let mut current = make_space("f_inner", SpaceKind::Function, DEPTH, DEPTH);
+        for i in (0..DEPTH).rev() {
+            let mut parent = if i == 0 {
+                make_space("root.rs", SpaceKind::Unit, 1, DEPTH + 1)
+            } else {
+                make_space(&format!("f_{i}"), SpaceKind::Function, i, DEPTH + 1)
+            };
+            parent.spaces.push(current);
+            current = parent;
+        }
+
+        let mut out = Vec::new();
+        extract_summaries(&current, "root.rs", LANG::Rust, "", &mut out);
+
+        // DEPTH+1 because the chain has DEPTH wrappers plus the
+        // innermost `f_inner` leaf.
+        assert_eq!(out.len(), DEPTH + 1);
+        // Pre-order: root first, innermost last.
+        assert_eq!(out[0].kind, SpaceKind::Unit);
+        assert_eq!(out[0].name, "root.rs");
+        assert_eq!(out[DEPTH].name, "f_inner");
     }
 
     // ── generate_report tests ──────────────────────────────────────
