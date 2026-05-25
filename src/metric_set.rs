@@ -60,8 +60,13 @@ impl Metric {
     // Bit position used inside [`MetricSet`]. The ordering is
     // intentionally arbitrary — the only contract is that each
     // variant maps to a distinct bit.
+    //
+    // Returns `u32` to match [`MetricSet`]'s storage width: at `u16`
+    // the bitfield would overflow once a 17th variant landed (debug
+    // panic / release wrap), and `Metric` is `#[non_exhaustive]`
+    // specifically so new variants can land additively.
     #[inline]
-    const fn bit(self) -> u16 {
+    const fn bit(self) -> u32 {
         1 << (self as u32)
     }
 
@@ -206,13 +211,13 @@ impl FromStr for Metric {
 /// `MetricSet::all()` is the default: every metric enabled, matching
 /// the pre-#257 behaviour.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-pub struct MetricSet(u16);
+pub struct MetricSet(u32);
 
 impl MetricSet {
     // All-metrics mask: OR together every variant's bit. Kept
     // explicit (rather than `(1 << N) - 1`) so adding a new variant
     // requires a deliberate edit here and surfaces in code review.
-    const ALL_BITS: u16 = Metric::Cognitive.bit()
+    const ALL_BITS: u32 = Metric::Cognitive.bit()
         | Metric::Cyclomatic.bit()
         | Metric::Halstead.bit()
         | Metric::Loc.bit()
@@ -546,26 +551,48 @@ mod tests {
         // Each variant must map to a distinct bit; otherwise the
         // bitfield silently aliases two metrics and gating one
         // toggles the other.
-        let mut seen: u16 = 0;
-        for m in [
-            Metric::Cognitive,
-            Metric::Cyclomatic,
-            Metric::Halstead,
-            Metric::Loc,
-            Metric::Nom,
-            Metric::Tokens,
-            Metric::NArgs,
-            Metric::Exit,
-            Metric::Abc,
-            Metric::Npm,
-            Metric::Npa,
-            Metric::Mi,
-            Metric::Wmc,
-        ] {
+        let mut seen: u32 = 0;
+        for &m in ALL_VARIANTS {
             let bit = m.bit();
+            assert_ne!(bit, 0, "bit() must be non-zero for {m}");
             assert_eq!(seen & bit, 0, "duplicate bit for {m}: {bit:#b}");
             seen |= bit;
         }
         assert_eq!(seen, MetricSet::ALL_BITS);
+    }
+
+    // Every variant in `ALL_VARIANTS` must round-trip through
+    // `MetricSet::all().contains(m)`. Adding a `Metric` variant
+    // without extending `MetricSet::ALL_BITS` (the OR-chain in the
+    // impl) fails here — a missing entry in `ALL_BITS` leaves the
+    // new variant's bit clear in `all()` and this assert trips.
+    #[test]
+    fn all_variants_round_trip_through_all_contains() {
+        let set = MetricSet::all();
+        for &m in ALL_VARIANTS {
+            assert!(
+                set.contains(m),
+                "MetricSet::all() must contain {m}; \
+                 did a new variant land without updating ALL_BITS?",
+            );
+        }
+    }
+
+    // `MetricSet`'s storage type must remain wide enough for every
+    // declared `Metric` variant; `bit()` shifts by `self as u32` so
+    // a 33rd variant would overflow the `u32` storage just as a
+    // 17th overflowed the previous `u16`. Pin the headroom so a
+    // future widening (u32 -> u64) is a deliberate, reviewed edit.
+    #[test]
+    fn storage_width_covers_every_variant() {
+        // `Metric` discriminants are 0..N-1; the highest bit set by
+        // any `bit()` call is `1 << (N-1)`. For u32 storage this
+        // means N must stay <= 32.
+        const STORAGE_BITS: usize = u32::BITS as usize;
+        assert!(
+            ALL_VARIANTS.len() <= STORAGE_BITS,
+            "MetricSet storage exhausted: {} variants > {STORAGE_BITS}-bit storage; widen MetricSet",
+            ALL_VARIANTS.len(),
+        );
     }
 }

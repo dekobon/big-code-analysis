@@ -906,6 +906,16 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Fixed
 
+- `MetricSet`'s internal bitfield is now `u32`. `Metric::bit()` shifted
+  `1 << (self as u32)` but the storage was `u16`, so adding a 17th
+  variant (the enum is `#[non_exhaustive]` precisely so that can
+  happen) would panic in debug or silently wrap in release, corrupting
+  every `MetricSet` operation. Widened storage and bit-width to `u32`
+  for 32 metrics of headroom, with three regression tests pinning the
+  invariants: every variant maps to a distinct non-zero bit, every
+  variant round-trips through `MetricSet::all().contains()`, and the
+  variant count stays within the storage width
+  ([#339](https://github.com/dekobon/big-code-analysis/issues/339)).
 - TypeScript and TSX Halstead now classify the `string` type-keyword
   alias as an operand, matching `Checker::is_string`. The tree-sitter
   TS / TSX grammars expose the `string` keyword used in type
