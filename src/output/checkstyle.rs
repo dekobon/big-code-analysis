@@ -90,9 +90,11 @@ fn write_error<W: Write>(writer: &mut W, record: &OffenderRecord) -> io::Result<
 }
 
 /// Format adapter that XML-escapes attribute values. We escape the five
-/// XML predefined entities plus control characters that are not allowed
-/// in XML 1.0 attribute values (we replace them with `?` so the output
-/// remains a valid document; lossy but predictable).
+/// XML predefined entities, emit numeric character references for TAB
+/// / LF / CR (which XML 1.0 §3.3.3 attribute-value normalization would
+/// otherwise collapse to a single space), and replace remaining C0
+/// controls with `?` so the output stays a well-formed XML 1.0 document
+/// (lossy but predictable).
 struct XmlAttr<'a>(&'a str);
 
 impl std::fmt::Display for XmlAttr<'_> {
@@ -105,12 +107,16 @@ impl std::fmt::Display for XmlAttr<'_> {
                 '>' => f.write_str("&gt;")?,
                 '"' => f.write_str("&quot;")?,
                 '\'' => f.write_str("&apos;")?,
-                // Tab, newline, CR are legal in attribute values but
-                // CI consumers are friendlier when newlines stay
-                // literal — keep them as-is. Other C0 controls are
-                // illegal in XML 1.0; replace with '?' rather than
-                // emit a malformed document.
-                '\t' | '\n' | '\r' => f.write_char(ch)?,
+                // XML 1.0 §3.3.3 mandates attribute-value normalization:
+                // a conforming parser collapses literal TAB / LF / CR
+                // bytes inside an attribute value to a single space on
+                // read. To round-trip these characters intact (POSIX
+                // paths may contain newlines, and future message
+                // templates may span lines), emit numeric character
+                // references — they are exempt from normalization.
+                '\t' => f.write_str("&#x9;")?,
+                '\n' => f.write_str("&#xA;")?,
+                '\r' => f.write_str("&#xD;")?,
                 c if (c as u32) < 0x20 => f.write_char('?')?,
                 c => f.write_char(c)?,
             }
@@ -263,5 +269,98 @@ mod tests {
         };
         let out = render(&[r]);
         assert!(out.contains("weird?name"), "{out}");
+    }
+
+    #[test]
+    fn whitespace_in_attribute_round_trips_via_numeric_refs() {
+        use quick_xml::events::Event;
+        use quick_xml::reader::Reader;
+
+        // XML 1.0 §3.3.3: a conforming parser collapses raw TAB / LF /
+        // CR inside an attribute value to a single space on read. POSIX
+        // paths legally contain '\n', so emitting them as literal bytes
+        // would silently mangle every offender that lands on such a
+        // file. Numeric character references are exempt from this
+        // normalization — emit them and the parser-visible value
+        // matches what we wrote.
+        let r = OffenderRecord {
+            path: PathBuf::from("src/weird\npath\twith\rwhitespace.rs"),
+            function: None,
+            start_line: 1,
+            end_line: 1,
+            start_col: None,
+            metric: "cyclomatic".into(),
+            value: 1.0,
+            limit: 0.0,
+            severity: Severity::Warning,
+        };
+        let out = render(&[r]);
+
+        // Emitter side: the three whitespace bytes must appear as
+        // numeric character references, never as literal bytes inside
+        // the attribute.
+        assert!(out.contains("&#xA;"), "missing &#xA; (LF) in {out}");
+        assert!(out.contains("&#x9;"), "missing &#x9; (TAB) in {out}");
+        assert!(out.contains("&#xD;"), "missing &#xD; (CR) in {out}");
+        // The `name="..."` attribute itself must not contain a raw LF /
+        // TAB / CR — otherwise attribute-value normalization would
+        // collapse it to a space on read.
+        let name_open = out.find("name=\"").expect("name attribute present");
+        let after_open = &out[name_open + b"name=\"".len()..];
+        let name_close = after_open.find('"').expect("name attribute closed");
+        let attr_lit = &after_open[..name_close];
+        assert!(
+            !attr_lit.contains('\n') && !attr_lit.contains('\t') && !attr_lit.contains('\r'),
+            "raw whitespace leaked into attribute literal: {attr_lit:?}"
+        );
+
+        // Parser side: re-parse with quick-xml and confirm the
+        // round-tripped value still contains the original raw bytes.
+        let mut reader = Reader::from_str(&out);
+        let mut buf = Vec::new();
+        let mut roundtripped: Option<String> = None;
+        loop {
+            match reader.read_event_into(&mut buf).expect("well-formed XML") {
+                Event::Start(start) | Event::Empty(start) if start.name().as_ref() == b"file" => {
+                    for attr in start.attributes().with_checks(false).flatten() {
+                        if attr.key.as_ref() == b"name" {
+                            roundtripped = Some(
+                                attr.unescape_value()
+                                    .expect("attribute value decodes")
+                                    .into_owned(),
+                            );
+                        }
+                    }
+                }
+                Event::Eof => break,
+                _ => {}
+            }
+            buf.clear();
+        }
+        let roundtripped = roundtripped.expect("found <file name=...>");
+        assert_eq!(roundtripped, "src/weird\npath\twith\rwhitespace.rs");
+    }
+
+    #[test]
+    fn predefined_entities_still_escape_after_whitespace_fix() {
+        // Regression guard: tightening the TAB/LF/CR arms must not
+        // disturb the five predefined-entity escapes that this format
+        // has always emitted.
+        let r = OffenderRecord {
+            path: PathBuf::from("a&b<c>d\"e'f.rs"),
+            function: None,
+            start_line: 1,
+            end_line: 1,
+            start_col: None,
+            metric: "cyclomatic".into(),
+            value: 1.0,
+            limit: 0.0,
+            severity: Severity::Warning,
+        };
+        let out = render(&[r]);
+        assert!(
+            out.contains(r#"name="a&amp;b&lt;c&gt;d&quot;e&apos;f.rs""#),
+            "predefined-entity escapes regressed: {out}"
+        );
     }
 }
