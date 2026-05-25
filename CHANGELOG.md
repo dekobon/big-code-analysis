@@ -494,6 +494,55 @@ why no value stability is offered until `1.0`. Entries above the
   re-added — CI does not currently upload coverage; revisit only if
   a `cargo-llvm-cov` job lands
   ([#148](https://github.com/dekobon/big-code-analysis/issues/148)).
+- Removed four dead per-route `.app_data(web::Json::<T>)` calls from
+  `big-code-analysis-web`'s `HttpServer` builder. Each was a bare
+  tuple-struct constructor function-item, not a `JsonConfig`, so the
+  `Json<T>` extractor never looked them up. The global
+  `JsonConfig::default().limit(max_size)` registered one line earlier
+  is what actually bounds JSON payload size; the per-route lines were
+  misleading no-ops from PR #883's actix-web 4.1 bump. Added a 413
+  Payload-Too-Large regression test against a small global limit
+  ([#336](https://github.com/dekobon/big-code-analysis/issues/336)).
+- `xtask`'s `render_man_page` now returns
+  `io::Error::new(io::ErrorKind::AlreadyExists, ...)` when two
+  rendered pages would write to the same `{name}.1` filename. The
+  previous blind `fs::write` plus `expected.push(filename)` would
+  silently overwrite the first page and mask the collision from the
+  orphan sweep, so a hypothetical future `bca web` subcommand
+  colliding with the `bca-web` top-level binary would ship only one
+  of the two pages
+  ([#337](https://github.com/dekobon/big-code-analysis/issues/337)).
+- `enums/templates/foo.rs` has been deleted. The file was an
+  unreferenced early scaffold (no `#[template(path = ...)]` pointed
+  at it) containing syntactically invalid Rust — semicolons instead
+  of commas as enum-variant separators, plus missing `Eq`/`Clone`/
+  `FromPrimitive` derives that real production templates require —
+  and would have misled anyone using it as a copy-paste starting
+  point
+  ([#342](https://github.com/dekobon/big-code-analysis/issues/342)).
+- Four `unwrap()` sites in non-test code have been replaced with
+  either `expect("invariant")` carrying the proof in the panic text
+  or restructured `match`/`while let` patterns that make the
+  impossibility lexical: `dump_spans` in `src/function.rs` now uses
+  `into_iter().enumerate()` with an `i == last_idx` flag; `consumer`
+  in `src/concurrent_files.rs` uses `while let Ok(Some(job)) =
+  receiver.recv()`; `get_regex` and `get_paths_dist` in
+  `src/tools.rs` carry `.expect("constant regex must compile")` and
+  `.expect("ancestor verified by starts_with above")` respectively.
+  Regression tests added for the `dump_spans` n=0/1/many paths and
+  the `consumer` poison-pill loop
+  ([#343](https://github.com/dekobon/big-code-analysis/issues/343)).
+- `enums::mk_langs!` and `enums::mk_get_language!` no longer accept
+  the unused grammar-crate ident as a tuple second element. The
+  macro expansion never referenced `$name`, so the
+  `(Cpp, tree_sitter_cpp)` declaration was decorative — and
+  misleading, since `get_language(&Lang::Cpp)` actually resolves to
+  `tree_sitter_mozcpp::LANGUAGE`. Variants that resolve against a
+  non-obvious grammar (`Cpp` → mozcpp, `Mozjs` → mozjs, the vendored
+  `bca-tree-sitter-*` forks, the `LANGUAGE_TYPESCRIPT` / `LANGUAGE_PHP`
+  per-language consts) now carry an inline `// -> <crate>` comment
+  pinned to each entry
+  ([#344](https://github.com/dekobon/big-code-analysis/issues/344)).
 - **Vendored grammar forks renamed to `bca-tree-sitter-*`** to unblock
   first-time crates.io publication of `big-code-analysis`. The five
   in-tree path-dep crates — `tree-sitter-ccomment`, `tree-sitter-mozcpp`,
@@ -906,6 +955,16 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Fixed
 
+- `extract_summaries_inner` in the CLI's markdown-report walker now
+  walks the `FuncSpace` tree iteratively (explicit `Vec<&FuncSpace>`
+  stack with children pushed in reverse for source order). The prior
+  recursive form reintroduced the unbounded-recursion DoS that #292
+  closed elsewhere — an adversarially deep AST (chained lambdas,
+  generated parser fixtures) would overflow the worker thread's
+  default 2 MiB stack during `bca report` execution. Mirrors the
+  iterative pattern in `ThresholdSet::evaluate_with_policy`; see
+  lesson 13
+  ([#338](https://github.com/dekobon/big-code-analysis/issues/338)).
 - `MetricSet`'s internal bitfield is now `u32`. `Metric::bit()` shifted
   `1 << (self as u32)` but the storage was `u16`, so adding a 17th
   variant (the enum is `#[non_exhaustive]` precisely so that can
@@ -916,6 +975,37 @@ why no value stability is offered until `1.0`. Entries above the
   variant round-trips through `MetricSet::all().contains()`, and the
   variant count stays within the storage width
   ([#339](https://github.com/dekobon/big-code-analysis/issues/339)).
+- `XmlAttr` in the Checkstyle XML output now escapes TAB, LF, and CR
+  as numeric character references (`&#x9;`, `&#xA;`, `&#xD;`). The
+  previous implementation passed these bytes through literally on the
+  belief they would survive — but XML 1.0 §3.3.3 mandates that any
+  whitespace character inside an attribute value (other than via a
+  numeric character reference) is normalized to a single space on
+  read. POSIX paths with embedded newlines and any future multi-line
+  message template would silently lose their whitespace structure on
+  every conforming consumer (Jenkins, SonarQube, IDE plugins).
+  Round-trip test added that re-parses the emitted XML with
+  `quick-xml` and asserts the bytes survive
+  ([#340](https://github.com/dekobon/big-code-analysis/issues/340)).
+- `to_sarif` in the Python bindings now silently skips `None`
+  iterable entries alongside its existing `AnalysisError` skip
+  semantics. The natural composition
+  `bca.to_sarif([bca.analyze(p) for p in paths])` previously raised
+  `TypeError` whenever any input file was classified as generated —
+  the documented return of `analyze()` for those files is `None`.
+  Both `None` and `AnalysisError` now represent "no record emitted
+  for this file". The TypeError message for genuinely-unsupported
+  items now lists `None` as an accepted shape
+  ([#341](https://github.com/dekobon/big-code-analysis/issues/341)).
+- `sanitize_identifier` in the `enums` crate now matches both the
+  canonical `\u{FEFF}` BOM (the shape tree-sitter actually emits
+  from `node_kind_for_id` after UTF-8 decoding) and the
+  three-codepoint `\u{00EF}\u{00BB}\u{00BF}` mojibake form the
+  previous `"ï»¿"` literal decoded to. A future grammar that
+  surfaces a BOM token now gets a stable `BOM` identifier instead of
+  falling through to the `Anon<N>` fallback. New `tests` module
+  anchors both BOM shapes plus the reserved-keyword table
+  ([#345](https://github.com/dekobon/big-code-analysis/issues/345)).
 - TypeScript and TSX Halstead now classify the `string` type-keyword
   alias as an operand, matching `Checker::is_string`. The tree-sitter
   TS / TSX grammars expose the `string` keyword used in type
