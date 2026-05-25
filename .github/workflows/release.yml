@@ -463,7 +463,14 @@ jobs:
   package-deb:
     name: package .deb (${{ matrix.crate }} / ${{ matrix.deb_arch }})
     needs: [preflight, build]
-    runs-on: ubuntu-22.04
+    # ubuntu-24.04 — cargo-deb's prebuilt binary (CARGO_DEB_VERSION
+    # above) is linked against glibc 2.39, which ubuntu-22.04 (glibc
+    # 2.35) does not have. The packaging runner's glibc does not
+    # affect the produced .deb: the binaries inside it are already
+    # built for their target triple by the `build` job. The smoke
+    # matrix below still installs the .deb on ubuntu:22.04,
+    # ubuntu:24.04, and debian:12 to catch any incompatibility.
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
