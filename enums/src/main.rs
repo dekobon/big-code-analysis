@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
-use clap::builder::{PossibleValuesParser, TypedValueParser};
 use clap::Parser;
+use clap::builder::{PossibleValuesParser, TypedValueParser};
 
 use enums::*;
 
