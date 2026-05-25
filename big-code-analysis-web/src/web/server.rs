@@ -1445,7 +1445,9 @@ mod tests {
     // production `/ast` route uses (server.rs:411) so the test
     // exercises the exact dispatch shape whose `.app_data` line was
     // deleted — guard precedence vs. payload-size enforcement is then
-    // covered by this assertion rather than left implicit.
+    // covered by this assertion rather than left implicit. `set_json`
+    // sets the `Content-Type: application/json` header on the request,
+    // so the request matches the guard.
     #[actix_rt::test]
     async fn test_web_json_payload_too_large() {
         // Use a tiny limit so the test does not allocate megabytes.
@@ -1469,7 +1471,6 @@ mod tests {
         let oversized_code = "a".repeat(TEST_JSON_LIMIT * 2);
         let req = test::TestRequest::post()
             .uri("/ast")
-            .insert_header(ContentType::json())
             .set_json(AstPayload {
                 id: "1234".to_string(),
                 file_name: "foo.c".to_string(),
