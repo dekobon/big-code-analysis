@@ -480,6 +480,20 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Changed
 
+- **README badges replaced.** Dropped the four upstream
+  `mozilla/rust-code-analysis` badges that no longer worked for this
+  fork: the Mozilla TaskCluster job (URL pinned at `/master/`; the
+  fork's default branch is `main` and no TaskCluster job is wired up),
+  the codecov badge (rendered `coverage: unknown` since no CI job
+  uploads coverage), and the Mozilla Matrix chat badge (link
+  resolved to the upstream `#rust-code-analysis:mozilla.org` room,
+  not a room this fork owns). Replaced them with the badge set the
+  fork can actually back: crates.io version, MSRV (sourced
+  dynamically from `Cargo.toml`'s `rust-version`), CI workflow
+  status, CodeQL status, docs.rs, and license. No coverage badge is
+  re-added — CI does not currently upload coverage; revisit only if
+  a `cargo-llvm-cov` job lands
+  ([#148](https://github.com/dekobon/big-code-analysis/issues/148)).
 - **Vendored grammar forks renamed to `bca-tree-sitter-*`** to unblock
   first-time crates.io publication of `big-code-analysis`. The five
   in-tree path-dep crates — `tree-sitter-ccomment`, `tree-sitter-mozcpp`,

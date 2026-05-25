@@ -1,11 +1,11 @@
 # big-code-analysis
 
-[![Crates.io](https://img.shields.io/crates/v/big-code-analysis.svg)](https://crates.io/crates/big-code-analysis)
-[![Task Status](https://community-tc.services.mozilla.com/api/github/v1/repository/dekobon/big-code-analysis/master/badge.svg)](https://community-tc.services.mozilla.com/api/github/v1/repository/dekobon/big-code-analysis/master/latest)
-[![codecov](https://codecov.io/gh/dekobon/big-code-analysis/branch/master/graph/badge.svg)](https://codecov.io/gh/dekobon/big-code-analysis)
-<a href="https://chat.mozilla.org/#/room/#big-code-analysis:mozilla.org" target="_blank">
-   <img alt="Chat on Matrix" src="https://img.shields.io/badge/chat%20on%20[m]-%23rust--code--analysis%3Amozilla.org-blue">
-</a>
+[![crates.io](https://img.shields.io/crates/v/big-code-analysis.svg)](https://crates.io/crates/big-code-analysis)
+[![MSRV](https://img.shields.io/crates/msrv/big-code-analysis.svg)](Cargo.toml)
+[![CI](https://github.com/dekobon/big-code-analysis/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/dekobon/big-code-analysis/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
+[![CodeQL](https://github.com/dekobon/big-code-analysis/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/dekobon/big-code-analysis/actions/workflows/github-code-scanning/codeql)
+[![docs.rs](https://docs.rs/big-code-analysis/badge.svg)](https://docs.rs/big-code-analysis)
+[![License](https://img.shields.io/crates/l/big-code-analysis.svg)](LICENSE)
 
 **big-code-analysis** is a hard fork of the [rust-code-analysis](https://github.com/mozilla/rust-code-analysis) project.
 This project is an unapologetic vibe-coded fork that seeks to add as many features and functions as fast as possible.
