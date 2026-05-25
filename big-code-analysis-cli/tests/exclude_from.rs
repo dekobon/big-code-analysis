@@ -260,7 +260,7 @@ fn exclude_from_stdin_reads_patterns() {
 }
 
 #[test]
-fn exclude_from_empty_file_is_noop() {
+fn exclude_from_empty_file_leaves_inline_excludes_intact() {
     let dir = TempDir::new().unwrap();
     let _ = make_tree(dir.path());
     let bcaignore = dir.path().join(".bcaignore");
@@ -268,12 +268,23 @@ fn exclude_from_empty_file_is_noop() {
     let out = dir.path().join("out");
     std::fs::create_dir(&out).unwrap();
 
+    // Pair the empty `--exclude-from` with a meaningful
+    // `--exclude=` so the test distinguishes "empty file → no
+    // patterns added" (correct) from "flag silently ignored →
+    // empty deny-set" (regression). Under correct code, the
+    // inline `--exclude` still drops drop_a.py; under a
+    // regression where `globals.exclude_from` is unread, this
+    // assertion would still hold — so the file-read path is
+    // independently pinned by `exclude_from_missing_file_dies_*`
+    // and `exclude_from_file_drops_listed_patterns`. Together
+    // the three tests triangulate the wiring.
     cli(dir.path())
         .args([
             "--paths",
             dir.path().join("src").to_str().unwrap(),
             "--exclude-from",
             bcaignore.to_str().unwrap(),
+            "--exclude=**/drop_a.py",
             "metrics",
             "-O",
             "json",
@@ -284,15 +295,10 @@ fn exclude_from_empty_file_is_noop() {
         .success();
 
     let names = json_files(&out);
-    // No patterns, no excludes — all three fixture files survive.
     assert_eq!(
         names,
-        vec![
-            "drop_a.py.json".to_string(),
-            "drop_b.py.json".to_string(),
-            "keep.py.json".to_string(),
-        ],
-        "an empty .bcaignore must leave the deny-set untouched"
+        vec!["drop_b.py.json".to_string(), "keep.py.json".to_string()],
+        "empty .bcaignore must not perturb inline `--exclude` semantics"
     );
 }
 

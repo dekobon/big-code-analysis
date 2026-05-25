@@ -110,3 +110,11 @@ covered by a wildcard ignore rule.
   with any `--paths` values; `-I` / `-X` globs still apply. Blank
   lines are skipped; `#` is treated as a path character (not a
   comment). To pass a file literally named `-`, write `./-`.
+- `--exclude-from <FILE>` — read newline-separated `--exclude` glob
+  patterns from `<FILE>`, or from stdin when `<FILE>` is `-`.
+  Patterns are unioned with any inline `--exclude` / `-X` values
+  into a single deny-set; order does not matter. `.gitignore`-style:
+  blank lines and lines whose first non-whitespace character is `#`
+  are skipped, and a leading UTF-8 BOM is stripped. Convention is a
+  `.bcaignore` at the repo root, mirroring `.gitignore` /
+  `.dockerignore`. To pass a file literally named `-`, write `./-`.

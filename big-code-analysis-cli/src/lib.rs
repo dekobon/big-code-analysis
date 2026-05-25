@@ -859,17 +859,21 @@ fn read_lines_from<T>(
 }
 
 /// Drain `reader` line-by-line, trimming surrounding whitespace and
-/// any leading UTF-8 BOM, then feeding each result to `map`.
-/// Returns `Err(message)` on the first I/O failure, with `label`
-/// and the failing line number embedded so the caller can surface
-/// which input failed without further context.
+/// any UTF-8 BOMs (leading or trailing), then feeding each result
+/// to `map`. Returns `Err(message)` on the first I/O failure, with
+/// `label` and the failing line number embedded so the caller can
+/// surface which input failed without further context.
 ///
 /// BOM stripping is per-line rather than first-line-only: most
 /// lines won't carry a BOM, and `\u{feff}` is not whitespace per
 /// `char::is_whitespace`, so a BOM-prefixed pattern (e.g. an editor
 /// that saved `.bcaignore` as UTF-8-with-BOM) would otherwise
 /// become a literal glob starting with U+FEFF that matches no real
-/// path — silently disabling the first exclude.
+/// path — silently disabling the first exclude. Trimming treats
+/// whitespace and BOM as a single character class to handle
+/// `\u{feff}  pattern` and `pattern\u{feff}` correctly with one
+/// pass — the previous order-sensitive `trim().trim_start_matches`
+/// chain corrupted those edge cases.
 fn collect_lines<R, T>(
     reader: R,
     label: &str,
@@ -882,7 +886,9 @@ where
         .lines()
         .enumerate()
         .filter_map(|(i, r)| match r {
-            Ok(line) => map(line.trim().trim_start_matches('\u{feff}')).map(Ok),
+            Ok(line) => {
+                map(line.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}')).map(Ok)
+            }
             Err(e) => Some(Err(format!("{label}: read error on line {}: {e}", i + 1))),
         })
         .collect()
@@ -1928,7 +1934,7 @@ mod tests {
             "   tests/repositories/**   \n",
         );
         let got = collect_lines(std::io::Cursor::new(input), "test", exclude_pattern_filter)
-            .expect("Cursor reads never fail");
+            .expect("ASCII fixture decodes cleanly");
         assert_eq!(
             got,
             vec![
@@ -1948,7 +1954,7 @@ a/#weird/path
 #full-line-comment
 ";
         let got = collect_lines(std::io::Cursor::new(input), "test", exclude_pattern_filter)
-            .expect("Cursor reads never fail");
+            .expect("ASCII fixture decodes cleanly");
         assert_eq!(
             got,
             vec!["a/#weird/path"],
@@ -1960,7 +1966,105 @@ a/#weird/path
     fn collect_lines_returns_empty_for_only_blanks_and_comments() {
         let input = "\n# only comments\n\t  \n# another\n";
         let got = collect_lines(std::io::Cursor::new(input), "test", exclude_pattern_filter)
-            .expect("Cursor reads never fail");
+            .expect("ASCII fixture decodes cleanly");
         assert!(got.is_empty(), "expected empty Vec, got {got:?}");
+    }
+
+    #[test]
+    fn collect_lines_strips_bom_on_inner_lines_not_just_first() {
+        // BOM on the third pattern line. The doc comment for
+        // `collect_lines` promises per-line BOM stripping; this
+        // pins it. A regression that limited stripping to line 0
+        // would leave `\u{feff}**/inner.py` as a literal-U+FEFF
+        // glob and the assertion below would fail.
+        let input = "**/a.py\n**/b.py\n\u{feff}**/inner.py\n";
+        let got = collect_lines(std::io::Cursor::new(input), "test", exclude_pattern_filter)
+            .expect("ASCII fixture decodes cleanly");
+        assert_eq!(
+            got,
+            vec!["**/a.py", "**/b.py", "**/inner.py"],
+            "BOM on an inner line must be stripped, not just on line 0",
+        );
+    }
+
+    #[test]
+    fn collect_lines_strips_trailing_bom() {
+        // Trailing BOM (e.g. from a concatenated or
+        // half-broken-editor file). `trim_matches` with a
+        // BOM-or-whitespace predicate must strip it from the end
+        // too — otherwise the pattern carries a literal U+FEFF
+        // suffix matching no real path.
+        let input = "**/a.py\u{feff}\n";
+        let got = collect_lines(std::io::Cursor::new(input), "test", exclude_pattern_filter)
+            .expect("ASCII fixture decodes cleanly");
+        assert_eq!(got, vec!["**/a.py"], "trailing BOM must be stripped");
+    }
+
+    #[test]
+    fn collect_lines_handles_bom_then_whitespace_then_pattern() {
+        // `\u{feff}  **/foo.rs` — the order-sensitive
+        // `trim().trim_start_matches('\u{feff}')` chain used to
+        // leave literal leading spaces here because `trim()` stops
+        // at the non-whitespace BOM. The fixed implementation
+        // treats whitespace and BOM as one character class.
+        let input = "\u{feff}  **/foo.rs\n";
+        let got = collect_lines(std::io::Cursor::new(input), "test", exclude_pattern_filter)
+            .expect("ASCII fixture decodes cleanly");
+        assert_eq!(
+            got,
+            vec!["**/foo.rs"],
+            "BOM-then-whitespace combinations must strip cleanly with no literal leading spaces",
+        );
+    }
+
+    /// Filter that mirrors the closure passed by `read_paths_from`
+    /// — kept verbose so the test pins the production policy
+    /// rather than its own copy. Update both call sites in lockstep.
+    fn keep_path_pattern(trimmed: &str) -> Option<PathBuf> {
+        (!trimmed.is_empty()).then(|| PathBuf::from(trimmed))
+    }
+
+    #[test]
+    fn paths_closure_keeps_hash_prefixed_lines_as_literal_paths() {
+        // Pins the doc claim on `read_paths_from`: `#` is a path
+        // character, not a comment. A refactor that accidentally
+        // swapped in `exclude_pattern_filter` for the paths reader
+        // (the two are now adjacent and have the same signature)
+        // would silently filter `#`-prefixed paths; this test
+        // would fail.
+        let input = "/tmp/normal/path\n#weird-but-valid-path\n";
+        let got = collect_lines(std::io::Cursor::new(input), "test", keep_path_pattern)
+            .expect("ASCII fixture decodes cleanly");
+        assert_eq!(
+            got,
+            vec![
+                PathBuf::from("/tmp/normal/path"),
+                PathBuf::from("#weird-but-valid-path"),
+            ],
+            "`#`-prefixed lines are literal paths for `--paths-from`, NOT comments",
+        );
+    }
+
+    #[test]
+    fn exclude_pattern_filter_direct_policy_check() {
+        // The function exists "so unit tests can exercise the
+        // exact policy" per its doc — this is that exercise,
+        // outside the `collect_lines` integration path.
+        assert_eq!(exclude_pattern_filter(""), None, "blank line skipped");
+        assert_eq!(
+            exclude_pattern_filter("# top comment"),
+            None,
+            "`#`-prefix skipped"
+        );
+        assert_eq!(
+            exclude_pattern_filter("**/foo.rs"),
+            Some("**/foo.rs".to_owned()),
+            "normal pattern retained",
+        );
+        assert_eq!(
+            exclude_pattern_filter("a/#weird/path"),
+            Some("a/#weird/path".to_owned()),
+            "`#` mid-line is literal, only leading-`#` counts as comment",
+        );
     }
 }

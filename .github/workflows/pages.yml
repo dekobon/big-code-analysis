@@ -183,10 +183,13 @@ jobs:
       - name: bca version
         run: bca --version
 
-      # `--exclude-from .bcaignore` reads the deny-set once from the
-      # repo-root file so workflow, recipe, and local bootstrap all
-      # share the same list (issue #355). No `set -f` / word-splitting
-      # dance is needed — patterns are read line-by-line from disk.
+      # `--exclude-from "${GITHUB_WORKSPACE}/.bcaignore"` reads the
+      # deny-set once from the repo-root file so workflow, recipe,
+      # and local bootstrap all share the same list (issue #355).
+      # No `set -f` / word-splitting dance is needed — patterns are
+      # read line-by-line from disk. The absolute `${GITHUB_WORKSPACE}`
+      # prefix makes the path cwd-independent, so a future step that
+      # sets `working-directory:` does not break the gate.
       #
       # `--strip-prefix "./"` matches the `./` prefix that `--paths .`
       # produces in the walker's output. Passing `$PWD/` (the original
@@ -197,7 +200,7 @@ jobs:
           set -euo pipefail
           bca \
             --paths . \
-            --exclude-from .bcaignore \
+            --exclude-from "${GITHUB_WORKSPACE}/.bcaignore" \
             --num-jobs "$(nproc)" \
             report markdown \
             --top 30 \
@@ -209,7 +212,7 @@ jobs:
           set -euo pipefail
           bca \
             --paths . \
-            --exclude-from .bcaignore \
+            --exclude-from "${GITHUB_WORKSPACE}/.bcaignore" \
             --num-jobs "$(nproc)" \
             report html \
             --top 50 \
@@ -224,7 +227,7 @@ jobs:
           set -euo pipefail
           bca \
             --paths . \
-            --exclude-from .bcaignore \
+            --exclude-from "${GITHUB_WORKSPACE}/.bcaignore" \
             --num-jobs "$(nproc)" \
             check \
             --config bca-thresholds.toml \
