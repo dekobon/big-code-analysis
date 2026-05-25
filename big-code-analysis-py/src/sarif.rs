@@ -455,11 +455,14 @@ fn collect_offenders(
 /// `result` accepts:
 /// * a single ``dict`` matching :func:`analyze` / :func:`analyze_source`
 ///   output, or
-/// * any iterable yielding such dicts and/or
-///   :class:`AnalysisError` instances (e.g. the return of
-///   :func:`analyze_batch`). `AnalysisError` entries are skipped
-///   silently — they represent files the pipeline could not analyse,
-///   not findings.
+/// * any iterable yielding such dicts, :class:`AnalysisError`
+///   instances, and/or ``None`` (e.g. the return of
+///   :func:`analyze_batch`, or a list comprehension over
+///   :func:`analyze` which returns ``None`` for generated files).
+///   :class:`AnalysisError` and ``None`` entries are skipped silently
+///   — they represent files for which no record was emitted (either
+///   the pipeline could not analyse them, or they were classified as
+///   generated), not findings.
 ///
 /// Pass ``thresholds={"cyclomatic": 15, "loc.lloc": 200, …}`` to drive
 /// finding emission. ``thresholds=None`` (the default) is equivalent
@@ -513,11 +516,13 @@ pub(crate) fn to_sarif(
     // Iterable path. `try_iter()` errors if the value is not iterable
     // — let that propagate to the caller as a `TypeError`. Per the
     // documented contract, `AnalysisError` entries are skipped
-    // silently (they represent files we couldn't analyse); anything
+    // silently (they represent files we couldn't analyse) and `None`
+    // entries are likewise skipped (the documented return of
+    // :func:`analyze` for generated files — issue #341); anything
     // else that isn't a dict is a programmer error.
     for item in result.try_iter()? {
         let item = item?;
-        if item.is_instance_of::<PyAnalysisError>() {
+        if item.is_none() || item.is_instance_of::<PyAnalysisError>() {
             continue;
         }
         let Ok(dict) = item.clone().cast_into::<PyDict>() else {

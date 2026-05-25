@@ -298,6 +298,47 @@ def test_to_sarif_does_not_raise_on_pure_analysis_error_input(
     assert parsed["runs"][0]["results"] == []
 
 
+def test_to_sarif_filters_none_entries_silently(tmp_path: Path) -> None:
+    """``None`` entries in an iterable must be skipped, not raised
+    (issue #341).
+
+    ``analyze()`` documents that it returns ``None`` for files
+    classified as generated, so the natural pattern
+    ``bca.to_sarif([bca.analyze(p) for p in paths])`` MUST tolerate
+    ``None`` siblings alongside successful dicts. The skip mirrors
+    the ``AnalysisError`` contract — both represent "no record
+    emitted for this file".
+
+    Uses ``cyclomatic=0`` so the ok.py finding is positively
+    asserted alongside the silent-skip behaviour, mirroring
+    ``test_to_sarif_filters_analysis_errors_silently``: a regression
+    that dropped successful dicts together with ``None`` would emit
+    zero findings and slip past a bare "no errors raised" check.
+    """
+    ok = tmp_path / "ok.py"
+    ok.write_text("def f(x):\n    return x + 1\n")
+    good = bca.analyze(ok)
+    assert isinstance(good, dict), "fixture must produce an analysed dict"
+
+    parsed = _parse(bca.to_sarif([good, None], thresholds={"cyclomatic": 0}))
+    findings = parsed["runs"][0]["results"]
+    assert len(findings) == 1, (
+        f"expected one finding from ok.py (None skipped, dict kept), got {findings!r}"
+    )
+    assert findings[0]["ruleId"] == "cyclomatic"
+    assert findings[0]["locations"][0]["physicalLocation"]["artifactLocation"][
+        "uri"
+    ] == _expected_sarif_uri(ok)
+
+
+def test_to_sarif_does_not_raise_on_pure_none_input() -> None:
+    """An iterable containing **only** ``None`` still yields a
+    well-formed empty SARIF run (issue #341 — generated-file lists
+    that happen to be entirely generated)."""
+    parsed = _parse(bca.to_sarif([None, None], thresholds={"cyclomatic": 1}))
+    assert parsed["runs"][0]["results"] == []
+
+
 # ─────────────────────────────────────────────────────────────────
 # Input validation
 # ─────────────────────────────────────────────────────────────────
