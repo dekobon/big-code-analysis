@@ -510,7 +510,10 @@ why no value stability is offered until `1.0`. Entries above the
   silently overwrite the first page and mask the collision from the
   orphan sweep, so a hypothetical future `bca web` subcommand
   colliding with the `bca-web` top-level binary would ship only one
-  of the two pages
+  of the two pages. The collision check is ASCII-case-insensitive
+  so case-insensitive filesystems (APFS on macOS, NTFS on Windows)
+  treat `Bca.1` and `bca.1` as colliding even though Rust string
+  equality does not
   ([#337](https://github.com/dekobon/big-code-analysis/issues/337)).
 - `enums/templates/foo.rs` has been deleted. The file was an
   unreferenced early scaffold (no `#[template(path = ...)]` pointed
@@ -989,13 +992,15 @@ why no value stability is offered until `1.0`. Entries above the
   ([#340](https://github.com/dekobon/big-code-analysis/issues/340)).
 - `to_sarif` in the Python bindings now silently skips `None`
   iterable entries alongside its existing `AnalysisError` skip
-  semantics. The natural composition
-  `bca.to_sarif([bca.analyze(p) for p in paths])` previously raised
-  `TypeError` whenever any input file was classified as generated —
-  the documented return of `analyze()` for those files is `None`.
-  Both `None` and `AnalysisError` now represent "no record emitted
-  for this file". The TypeError message for genuinely-unsupported
-  items now lists `None` as an accepted shape
+  semantics, **and** accepts a scalar `None` (yielding a
+  well-formed empty SARIF run). The natural compositions
+  `bca.to_sarif([bca.analyze(p) for p in paths])` and
+  `bca.to_sarif(bca.analyze(p))` previously raised `TypeError`
+  whenever any input file was classified as generated — the
+  documented return of `analyze()` for those files is `None`. Both
+  `None` and `AnalysisError` now represent "no record emitted for
+  this file". The TypeError message for genuinely-unsupported items
+  now lists `None` as an accepted shape
   ([#341](https://github.com/dekobon/big-code-analysis/issues/341)).
 - `sanitize_identifier` in the `enums` crate now matches both the
   canonical `\u{FEFF}` BOM (the shape tree-sitter actually emits
