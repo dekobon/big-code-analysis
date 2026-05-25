@@ -136,6 +136,19 @@ fn render_man_page(
     expected: &mut Vec<String>,
 ) -> io::Result<()> {
     let name = cmd.get_name().to_string();
+    // The collision check below is `eq_ignore_ascii_case`, which only
+    // folds case in the ASCII range. Every clap command in this
+    // workspace is ASCII today, so this is sufficient — but if a
+    // future contributor adds a non-ASCII command name (e.g.
+    // `Café` vs `café`), the case-insensitive guard would silently
+    // miss the collision on case-insensitive filesystems. Trip the
+    // debug-build assertion instead of letting the latent gap reach
+    // the filesystem.
+    debug_assert!(
+        name.is_ascii(),
+        "non-ASCII command name `{name}` would defeat the ASCII-case-insensitive collision guard; \
+         switch to a Unicode case-folding comparison (e.g. unicase) before adding non-ASCII names",
+    );
     let man = clap_mangen::Man::new(cmd.clone())
         .title(name.to_uppercase())
         .section("1")
@@ -152,15 +165,15 @@ fn render_man_page(
     // instead so the conflict surfaces in `cargo xtask` / CI.
     //
     // The comparison is ASCII-case-insensitive. clap command names
-    // are ASCII, but the resulting `*.1` files are written to the
-    // user's filesystem — APFS (macOS default) and NTFS (Windows
-    // default) are case-insensitive, so `Bca.1` and `bca.1` map to
-    // the same physical file. A case-sensitive `contains` check
-    // would let one entry pass the guard and silently overwrite the
-    // other on case-insensitive filesystems while case-sensitive
-    // ext4/btrfs see two distinct files. Normalising to ASCII case
-    // here makes the gate behave identically on every developer
-    // workstation.
+    // are ASCII (enforced by the `debug_assert` above), but the
+    // resulting `*.1` files are written to the user's filesystem —
+    // APFS (macOS default) and NTFS (Windows default) are
+    // case-insensitive, so `Bca.1` and `bca.1` map to the same
+    // physical file. A case-sensitive `contains` check would let one
+    // entry pass the guard and silently overwrite the other on
+    // case-insensitive filesystems while case-sensitive ext4/btrfs
+    // see two distinct files. Normalising to ASCII case here makes
+    // the gate behave identically on every developer workstation.
     if expected.iter().any(|n| n.eq_ignore_ascii_case(&filename)) {
         return Err(io::Error::new(
             io::ErrorKind::AlreadyExists,
