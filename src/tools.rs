@@ -611,11 +611,11 @@ fn resolve_against_parent(possibilities: &[PathBuf], current_path: &Path) -> Opt
     unique_filter(possibilities, current_path, |p| p.starts_with(parent))
 }
 
-/// Last-chance fallback: candidates with minimal `get_paths_dist`
-/// from `current_path`. Unlike the unique-match strategies, this one
-/// may return zero or many candidates — its result is the function's
-/// final answer.
 fn min_distance_candidates(possibilities: &[PathBuf], current_path: &Path) -> Vec<PathBuf> {
+    // Hold survivors as borrows during the walk: `Less` arms clear the
+    // prior set without dropping owned `PathBuf`s, and the trailing
+    // `cloned()` runs exactly once per final survivor — never on
+    // entries that were tentatively kept and later evicted.
     let mut dist_min = usize::MAX;
     let mut path_min: Vec<&PathBuf> = Vec::new();
     for p in possibilities {

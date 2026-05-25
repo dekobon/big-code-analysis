@@ -4,8 +4,8 @@
 //! to `out`. Empty inputs produce no output so the orchestrator can
 //! call each writer unconditionally without per-section emptiness
 //! checks. Filtering, sorting, and `top_n` truncation are localized
-//! to each writer, matching the structure that lived inline in
-//! `write_language_section` before the #357 P2 split.
+//! to each writer so the shared "filter → sort → take → emit table"
+//! shape stays close to the per-section column layout it drives.
 
 use std::fmt::Write as _;
 
@@ -101,7 +101,7 @@ pub(super) fn write_cyclomatic_hotspots(
     if cc_entries.is_empty() {
         return;
     }
-    let stats = CyclomaticStats::from(cc_entries.as_slice());
+    let stats = CyclomaticStats::from_entries(cc_entries.as_slice());
     let avg_cc = stats.average();
 
     sort_by_metric_desc(&mut cc_entries, |s| s.cyclomatic);
@@ -167,7 +167,7 @@ struct CyclomaticStats {
 }
 
 impl CyclomaticStats {
-    fn from(entries: &[&FunctionSummary]) -> Self {
+    fn from_entries(entries: &[&FunctionSummary]) -> Self {
         let mut stats = Self {
             sum: 0.0,
             count: 0,
@@ -195,20 +195,39 @@ impl CyclomaticStats {
     }
 }
 
-pub(super) fn write_cognitive_hotspots(out: &mut String, funcs: &[&FunctionSummary], top_n: usize) {
-    let mut cog_entries: Vec<&FunctionSummary> = funcs
-        .iter()
-        .filter(|s| s.cognitive > 0.0)
-        .copied()
-        .collect();
-    if cog_entries.is_empty() {
-        return;
+/// Filter `entries`, sort the survivors descending by `metric`, and
+/// truncate to at most `top_n`. Returns `None` when no entry passes
+/// the filter so callers can early-out before emitting an empty
+/// heading. The cyclomatic-hotspots writer doesn't use this — it
+/// needs to compute summary stats over the full filtered set before
+/// truncation.
+fn top_n_desc<'a, F, M>(
+    entries: &[&'a FunctionSummary],
+    top_n: usize,
+    filter: F,
+    metric: M,
+) -> Option<Vec<&'a FunctionSummary>>
+where
+    F: Fn(&FunctionSummary) -> bool,
+    M: Fn(&FunctionSummary) -> f64,
+{
+    let mut filtered: Vec<&FunctionSummary> =
+        entries.iter().filter(|s| filter(s)).copied().collect();
+    if filtered.is_empty() {
+        return None;
     }
-    sort_by_metric_desc(&mut cog_entries, |s| s.cognitive);
-    let count = cog_entries.len().min(top_n);
+    sort_by_metric_desc(&mut filtered, metric);
+    filtered.truncate(top_n);
+    Some(filtered)
+}
+
+pub(super) fn write_cognitive_hotspots(out: &mut String, funcs: &[&FunctionSummary], top_n: usize) {
+    let Some(entries) = top_n_desc(funcs, top_n, |s| s.cognitive > 0.0, |s| s.cognitive) else {
+        return;
+    };
 
     let _ = writeln!(out, "\n### Cognitive Complexity Hotspots\n");
-    let rows: Vec<Vec<String>> = cog_entries[..count]
+    let rows: Vec<Vec<String>> = entries
         .iter()
         .map(|s| {
             vec![
@@ -247,19 +266,17 @@ pub(super) fn write_cognitive_hotspots(out: &mut String, funcs: &[&FunctionSumma
 }
 
 pub(super) fn write_halstead_hotspots(out: &mut String, funcs: &[&FunctionSummary], top_n: usize) {
-    let mut hal_entries: Vec<&FunctionSummary> = funcs
-        .iter()
-        .filter(|s| s.halstead_effort > 0.0)
-        .copied()
-        .collect();
-    if hal_entries.is_empty() {
+    let Some(entries) = top_n_desc(
+        funcs,
+        top_n,
+        |s| s.halstead_effort > 0.0,
+        |s| s.halstead_effort,
+    ) else {
         return;
-    }
-    sort_by_metric_desc(&mut hal_entries, |s| s.halstead_effort);
-    let count = hal_entries.len().min(top_n);
+    };
 
     let _ = writeln!(out, "\n### Halstead Effort Hotspots\n");
-    let rows: Vec<Vec<String>> = hal_entries[..count]
+    let rows: Vec<Vec<String>> = entries
         .iter()
         .map(|s| {
             vec![
@@ -298,16 +315,12 @@ pub(super) fn write_halstead_hotspots(out: &mut String, funcs: &[&FunctionSummar
 }
 
 pub(super) fn write_largest_by_sloc(out: &mut String, funcs: &[&FunctionSummary], top_n: usize) {
-    let mut sloc_entries: Vec<&FunctionSummary> =
-        funcs.iter().filter(|s| s.sloc > 0).copied().collect();
-    if sloc_entries.is_empty() {
+    let Some(entries) = top_n_desc(funcs, top_n, |s| s.sloc > 0, |s| s.sloc as f64) else {
         return;
-    }
-    sort_by_metric_desc(&mut sloc_entries, |s| s.sloc as f64);
-    let count = sloc_entries.len().min(top_n);
+    };
 
     let _ = writeln!(out, "\n### Largest Functions by SLOC\n");
-    let rows: Vec<Vec<String>> = sloc_entries[..count]
+    let rows: Vec<Vec<String>> = entries
         .iter()
         .map(|s| {
             vec![
@@ -346,16 +359,12 @@ pub(super) fn write_largest_by_sloc(out: &mut String, funcs: &[&FunctionSummary]
 }
 
 pub(super) fn write_many_params(out: &mut String, funcs: &[&FunctionSummary], top_n: usize) {
-    let mut nargs_entries: Vec<&FunctionSummary> =
-        funcs.iter().filter(|s| s.nargs > 3).copied().collect();
-    if nargs_entries.is_empty() {
+    let Some(entries) = top_n_desc(funcs, top_n, |s| s.nargs > 3, |s| s.nargs as f64) else {
         return;
-    }
-    sort_by_metric_desc(&mut nargs_entries, |s| s.nargs as f64);
-    let count = nargs_entries.len().min(top_n);
+    };
 
     let _ = writeln!(out, "\n### Functions With Many Parameters (>3)\n");
-    let rows: Vec<Vec<String>> = nargs_entries[..count]
+    let rows: Vec<Vec<String>> = entries
         .iter()
         .map(|s| {
             vec![
@@ -427,19 +436,17 @@ pub(super) fn write_actionable_summary(out: &mut String, funcs: &[&FunctionSumma
 }
 
 pub(super) fn write_wmc_hotspots(out: &mut String, entries: &[&FunctionSummary], top_n: usize) {
-    let mut class_entries: Vec<&FunctionSummary> = entries
-        .iter()
-        .filter(|s| is_class_like(s.kind) && s.wmc > 0.0)
-        .copied()
-        .collect();
-    if class_entries.is_empty() {
+    let Some(classes) = top_n_desc(
+        entries,
+        top_n,
+        |s| is_class_like(s.kind) && s.wmc > 0.0,
+        |s| s.wmc,
+    ) else {
         return;
-    }
-    sort_by_metric_desc(&mut class_entries, |s| s.wmc);
-    let count = class_entries.len().min(top_n);
+    };
 
     let _ = writeln!(out, "\n### Class/Trait/Impl Hotspots (WMC)\n");
-    let rows: Vec<Vec<String>> = class_entries[..count]
+    let rows: Vec<Vec<String>> = classes
         .iter()
         .map(|s| {
             vec![
@@ -476,16 +483,12 @@ pub(super) fn write_wmc_hotspots(out: &mut String, entries: &[&FunctionSummary],
 }
 
 pub(super) fn write_nexits_hotspots(out: &mut String, funcs: &[&FunctionSummary], top_n: usize) {
-    let mut nexits_entries: Vec<&FunctionSummary> =
-        funcs.iter().filter(|s| s.nexits > 0).copied().collect();
-    if nexits_entries.is_empty() {
+    let Some(entries) = top_n_desc(funcs, top_n, |s| s.nexits > 0, |s| s.nexits as f64) else {
         return;
-    }
-    sort_by_metric_desc(&mut nexits_entries, |s| s.nexits as f64);
-    let count = nexits_entries.len().min(top_n);
+    };
 
     let _ = writeln!(out, "\n### Functions with the most exit points (NEXITS)\n");
-    let rows: Vec<Vec<String>> = nexits_entries[..count]
+    let rows: Vec<Vec<String>> = entries
         .iter()
         .map(|s| {
             vec![
@@ -516,16 +519,12 @@ pub(super) fn write_nexits_hotspots(out: &mut String, funcs: &[&FunctionSummary]
 }
 
 pub(super) fn write_abc_hotspots(out: &mut String, funcs: &[&FunctionSummary], top_n: usize) {
-    let mut abc_entries: Vec<&FunctionSummary> =
-        funcs.iter().filter(|s| s.abc > 0.0).copied().collect();
-    if abc_entries.is_empty() {
+    let Some(entries) = top_n_desc(funcs, top_n, |s| s.abc > 0.0, |s| s.abc) else {
         return;
-    }
-    sort_by_metric_desc(&mut abc_entries, |s| s.abc);
-    let count = abc_entries.len().min(top_n);
+    };
 
     let _ = writeln!(out, "\n### ABC Magnitude Hotspots\n");
-    let rows: Vec<Vec<String>> = abc_entries[..count]
+    let rows: Vec<Vec<String>> = entries
         .iter()
         .map(|s| {
             vec![

@@ -478,7 +478,6 @@ fn collect_offenders(
 /// match the CLI's `bca check -O sarif` byte-for-byte.
 #[pyfunction]
 #[pyo3(signature = (result, /, *, thresholds = None))]
-
 pub(crate) fn to_sarif(
     py: Python<'_>,
     result: &Bound<'_, PyAny>,

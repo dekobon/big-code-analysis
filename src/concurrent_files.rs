@@ -122,9 +122,10 @@ impl Filters<'_> {
     }
 }
 
-/// Walk `root` recursively, yielding only regular files that match
+/// Walk `root` recursively, yielding only regular files that pass
 /// `filters` and aren't hidden. `WalkDir` errors are surfaced as
-/// `ConcurrentErrors::Sender` so the caller can `?`-propagate them.
+/// `ConcurrentErrors::Sender` so the caller can `?`-propagate them
+/// through this iterator.
 fn walk_dir_files<'a>(
     root: &Path,
     filters: &'a Filters<'_>,
@@ -134,8 +135,8 @@ fn walk_dir_files<'a>(
         .filter_entry(|e| !is_hidden(e))
         .filter_map(move |entry| match entry {
             Ok(entry) => {
-                let path = entry.path().to_path_buf();
-                (filters.matches(&path) && path.is_file()).then_some(Ok(path))
+                let path = entry.path();
+                (filters.matches(path) && path.is_file()).then(|| Ok(path.to_path_buf()))
             }
             Err(e) => Some(Err(ConcurrentErrors::Sender(e.to_string()))),
         })

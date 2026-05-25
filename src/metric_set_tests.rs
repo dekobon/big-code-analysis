@@ -1,9 +1,8 @@
-// Unit tests for `metric_set::Metric` / `metric_set::MetricSet`. Lives
-// in a sibling file and is wired in via `#[path =
-// "metric_set_tests.rs"] mod tests;` so the production
-// `metric_set.rs` stays under the `bca check` per-file metric caps
-// (issue #357 P3). The `.bcaignore` `*_tests.rs` glob keeps this file
-// out of the self-scan walker.
+// Sibling-file unit tests for `Metric` / `MetricSet`, wired in via
+// `#[path = "metric_set_tests.rs"] mod tests;` so the production
+// `metric_set.rs` stays under the `bca check` per-file metric caps.
+// The `./**/*_tests.rs` rule in `.bcaignore` keeps this file out of
+// the self-scan walker.
 
 use super::*;
 

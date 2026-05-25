@@ -1,9 +1,8 @@
-// Integration-style tests for the `web::server` routes and helpers.
-// Lives in a sibling file and is wired in via `#[path =
-// "server_tests.rs"] mod tests;` so the production `server.rs` stays
-// under the `bca check` per-file metric caps (issue #357 P3). The
-// `.bcaignore` `*_tests.rs` glob keeps this file out of the
-// self-scan walker.
+// Sibling-file integration-style tests for the `web::server` routes
+// and helpers, wired in via `#[path = "server_tests.rs"] mod tests;`
+// so the production `server.rs` stays under the `bca check` per-file
+// metric caps. The `./**/*_tests.rs` rule in `.bcaignore` keeps this
+// file out of the self-scan walker.
 
 use actix_web::web::Bytes;
 use actix_web::{http::StatusCode, http::header::ContentType, test};

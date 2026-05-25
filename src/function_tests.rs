@@ -1,9 +1,8 @@
-// Unit tests for `dump_spans`/`dump_span`. Lives in a sibling file and
-// is wired in via `#[path = "function_tests.rs"] mod tests;` so the
-// production `function.rs` stays under the `bca check` per-file
-// metric caps (issue #357 P3). Added to `.bcaignore` alongside the
-// rest of the workspace's test files so the self-scan walker skips
-// it the same way it skips the `./tests/` directory.
+// Sibling-file unit tests for `dump_spans` / `dump_span`, wired in via
+// `#[path = "function_tests.rs"] mod tests;` so the production
+// `function.rs` stays under the `bca check` per-file metric caps.
+// Matched by the `./**/*_tests.rs` rule in `.bcaignore`, so the
+// self-scan walker skips this file the same way it skips `./tests/`.
 
 use super::*;
 use std::path::PathBuf;

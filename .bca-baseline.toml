@@ -324,35 +324,35 @@ path = "./big-code-analysis-cli/src/markdown_report/sections.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1602161.0760360244
+value = 1568817.9194917995
 
 [[entry]]
 path = "./big-code-analysis-cli/src/markdown_report/sections.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 573.0
+value = 572.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/markdown_report/sections.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 67.0
+value = 72.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/markdown_report/sections.rs"
 function = "<file>"
 start_line = 1
 metric = "nexits"
-value = 10.0
+value = 11.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/markdown_report/sections.rs"
 function = "<file>"
 start_line = 1
 metric = "nom"
-value = 45.0
+value = 47.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/metric_catalog.rs"
@@ -590,7 +590,7 @@ path = "./big-code-analysis-py/src/sarif.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 645.0
+value = 644.0
 
 [[entry]]
 path = "./big-code-analysis-py/src/sarif.rs"
@@ -1108,14 +1108,14 @@ path = "./src/concurrent_files.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 823110.0524753943
+value = 823602.9327463376
 
 [[entry]]
 path = "./src/concurrent_files.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 438.0
+value = 439.0
 
 [[entry]]
 path = "./src/concurrent_files.rs"
@@ -1133,15 +1133,22 @@ value = 8.0
 
 [[entry]]
 path = "./src/concurrent_files.rs"
+function = "<file>"
+start_line = 1
+metric = "nom"
+value = 31.0
+
+[[entry]]
+path = "./src/concurrent_files.rs"
 function = "ConcurrentRunner<Config>"
-start_line = 184
+start_line = 185
 metric = "halstead.effort"
 value = 90611.09946788894
 
 [[entry]]
 path = "./src/concurrent_files.rs"
 function = "ConcurrentRunner<Config>"
-start_line = 184
+start_line = 185
 metric = "nargs"
 value = 9.0
 

@@ -307,7 +307,7 @@ pub(crate) fn generate_report(summaries: &[FunctionSummary], top_n: usize) -> St
     // Group by language display name (BTreeMap → deterministic alphabetical order).
     let by_lang = group_by_language(summaries);
 
-    let totals = GlobalTotals::from(summaries);
+    let totals = GlobalTotals::from_entries(summaries);
     write_global_header(&mut out, &totals, &by_lang);
 
     if by_lang.is_empty() {
@@ -343,7 +343,7 @@ struct GlobalTotals {
 }
 
 impl GlobalTotals {
-    fn from(summaries: &[FunctionSummary]) -> Self {
+    fn from_entries(summaries: &[FunctionSummary]) -> Self {
         let mut t = Self {
             files: 0,
             sloc: 0,

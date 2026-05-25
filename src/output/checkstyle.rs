@@ -101,9 +101,9 @@ impl std::fmt::Display for XmlAttr<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Unify every per-char escape behind a single `f.write_str` so the
         // `?` operator fires once per iteration instead of once per arm —
-        // each `?` is a counted exit (see issue #357 P0). The 4-byte
-        // stack buffer covers every UTF-8 scalar; `encode_utf8` borrows
-        // from it for the default arm so all arms unify as `&str`.
+        // each `?` is a counted exit on the per-function `nexits` budget.
+        // The 4-byte stack buffer covers every UTF-8 scalar; `encode_utf8`
+        // borrows from it for the default arm so all arms unify as `&str`.
         let mut buf = [0u8; 4];
         for ch in self.0.chars() {
             let escaped: &str = match ch {
