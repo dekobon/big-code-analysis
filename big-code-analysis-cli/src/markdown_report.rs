@@ -12,12 +12,12 @@
     clippy::too_many_lines
 )]
 
+mod sections;
+
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
 use big_code_analysis::{FuncSpace, LANG, SpaceKind};
-
-use crate::format_util::MetricScalar;
 
 /// Compact per-function/class metric record for the markdown report pipeline.
 #[derive(Debug)]
@@ -232,41 +232,9 @@ enum Align {
     Right,
 }
 
-/// Write a GFM pipe table with column widths padded to the longest
-/// header / cell, so the raw text aligns when viewed in a plain-text
-/// terminal. Padded tables remain valid GFM and render identically in
-/// GitHub, mdBook, and pulldown-cmark.
-///
-/// Each row must have the same length as `headers` and `aligns`.
-/// Cells are taken verbatim — escape any pipes / newlines with
-/// [`escape_cell`] / [`escape_name`] before calling.
 fn write_table(out: &mut String, headers: &[&str], aligns: &[Align], rows: &[Vec<String>]) {
     debug_assert_eq!(headers.len(), aligns.len());
-    let widths: Vec<usize> = headers
-        .iter()
-        .enumerate()
-        .map(|(i, h)| {
-            let cell_w = rows.iter().map(|r| r[i].chars().count()).max().unwrap_or(0);
-            // Min 3 keeps the separator (`---` / `--:`) unambiguous for GFM.
-            h.chars().count().max(cell_w).max(3)
-        })
-        .collect();
-
-    let push_cell = |out: &mut String, cell: &str, width: usize, align: Align| {
-        let pad = width - cell.chars().count();
-        out.push(' ');
-        match align {
-            Align::Left => {
-                out.push_str(cell);
-                out.extend(std::iter::repeat_n(' ', pad));
-            }
-            Align::Right => {
-                out.extend(std::iter::repeat_n(' ', pad));
-                out.push_str(cell);
-            }
-        }
-        out.push(' ');
-    };
+    let widths = column_widths(headers, rows);
 
     out.push('|');
     for (i, h) in headers.iter().enumerate() {
@@ -277,16 +245,7 @@ fn write_table(out: &mut String, headers: &[&str], aligns: &[Align], rows: &[Vec
 
     out.push('|');
     for (i, &a) in aligns.iter().enumerate() {
-        out.push(' ');
-        match a {
-            Align::Left => out.extend(std::iter::repeat_n('-', widths[i])),
-            Align::Right => {
-                out.extend(std::iter::repeat_n('-', widths[i] - 1));
-                out.push(':');
-            }
-        }
-        out.push(' ');
-        out.push('|');
+        push_separator(out, a, widths[i]);
     }
     out.push('\n');
 
@@ -301,42 +260,131 @@ fn write_table(out: &mut String, headers: &[&str], aligns: &[Align], rows: &[Vec
     }
 }
 
-/// Produce a Markdown quality-metrics report from the collected summaries.
-///
-/// `top_n` controls how many entries appear in each hotspot table.
+fn column_widths(headers: &[&str], rows: &[Vec<String>]) -> Vec<usize> {
+    headers
+        .iter()
+        .enumerate()
+        .map(|(i, h)| {
+            let cell_w = rows.iter().map(|r| r[i].chars().count()).max().unwrap_or(0);
+            // Min 3 keeps the separator (`---` / `--:`) unambiguous for GFM.
+            h.chars().count().max(cell_w).max(3)
+        })
+        .collect()
+}
+
+fn push_cell(out: &mut String, cell: &str, width: usize, align: Align) {
+    let pad = width - cell.chars().count();
+    out.push(' ');
+    match align {
+        Align::Left => {
+            out.push_str(cell);
+            out.extend(std::iter::repeat_n(' ', pad));
+        }
+        Align::Right => {
+            out.extend(std::iter::repeat_n(' ', pad));
+            out.push_str(cell);
+        }
+    }
+    out.push(' ');
+}
+
+fn push_separator(out: &mut String, align: Align, width: usize) {
+    out.push(' ');
+    match align {
+        Align::Left => out.extend(std::iter::repeat_n('-', width)),
+        Align::Right => {
+            out.extend(std::iter::repeat_n('-', width - 1));
+            out.push(':');
+        }
+    }
+    out.push(' ');
+    out.push('|');
+}
+
 pub(crate) fn generate_report(summaries: &[FunctionSummary], top_n: usize) -> String {
     let mut out = String::new();
 
     // Group by language display name (BTreeMap → deterministic alphabetical order).
-    let by_lang = {
-        let mut map = BTreeMap::<&str, Vec<&FunctionSummary>>::new();
+    let by_lang = group_by_language(summaries);
+
+    let totals = GlobalTotals::from(summaries);
+    write_global_header(&mut out, &totals, &by_lang);
+
+    if by_lang.is_empty() {
+        return out;
+    }
+
+    write_per_language_overview(&mut out, &by_lang);
+
+    for (&lang_name, lang_summaries) in &by_lang {
+        write_language_section(&mut out, lang_name, lang_summaries, top_n);
+    }
+
+    out
+}
+
+fn group_by_language(
+    summaries: &[FunctionSummary],
+) -> BTreeMap<&str, Vec<&FunctionSummary>> {
+    let mut map = BTreeMap::<&str, Vec<&FunctionSummary>>::new();
+    for s in summaries {
+        map.entry(s.language.get_name()).or_default().push(s);
+    }
+    map
+}
+
+/// Aggregate counters for the global report header — file/SLOC/PLOC
+/// totals plus function and class-like-symbol counts in one pass.
+struct GlobalTotals {
+    files: usize,
+    sloc: usize,
+    ploc: usize,
+    cloc: usize,
+    functions: usize,
+    classes: usize,
+}
+
+impl GlobalTotals {
+    fn from(summaries: &[FunctionSummary]) -> Self {
+        let mut t = Self {
+            files: 0,
+            sloc: 0,
+            ploc: 0,
+            cloc: 0,
+            functions: 0,
+            classes: 0,
+        };
         for s in summaries {
-            map.entry(s.language.get_name()).or_default().push(s);
+            if s.kind == SpaceKind::Unit {
+                t.files += 1;
+                t.sloc += s.sloc;
+                t.ploc += s.ploc;
+                t.cloc += s.cloc;
+            }
+            if s.kind == SpaceKind::Function {
+                t.functions += 1;
+            }
+            if is_class_like(s.kind) {
+                t.classes += 1;
+            }
         }
-        map
-    };
+        t
+    }
 
-    // ── Global header ───────────────────────────────────────────────────
-    let (total_files, total_sloc, total_ploc, total_cloc, total_functions, total_classes) =
-        summaries.iter().fold(
-            (0usize, 0usize, 0usize, 0usize, 0usize, 0usize),
-            |(files, sloc, ploc, cloc, funcs, classes), s| {
-                (
-                    files + usize::from(s.kind == SpaceKind::Unit),
-                    sloc + if s.kind == SpaceKind::Unit { s.sloc } else { 0 },
-                    ploc + if s.kind == SpaceKind::Unit { s.ploc } else { 0 },
-                    cloc + if s.kind == SpaceKind::Unit { s.cloc } else { 0 },
-                    funcs + usize::from(s.kind == SpaceKind::Function),
-                    classes + usize::from(is_class_like(s.kind)),
-                )
-            },
-        );
-    let comment_ratio = if total_sloc > 0 {
-        (total_cloc as f64 / total_sloc as f64) * 100.0
-    } else {
-        0.0
-    };
+    fn comment_ratio(&self) -> f64 {
+        if self.sloc > 0 {
+            (self.cloc as f64 / self.sloc as f64) * 100.0
+        } else {
+            0.0
+        }
+    }
+}
 
+fn write_global_header(
+    out: &mut String,
+    totals: &GlobalTotals,
+    by_lang: &BTreeMap<&str, Vec<&FunctionSummary>>,
+) {
     let languages_list: String = by_lang
         .keys()
         .map(|k| title_case(k))
@@ -347,69 +395,37 @@ pub(crate) fn generate_report(summaries: &[FunctionSummary], top_n: usize) -> St
     let _ = writeln!(
         out,
         "**Files analyzed:** {}    **Languages:** {}",
-        thousands(total_files),
+        thousands(totals.files),
         languages_list,
     );
     let _ = writeln!(
         out,
         "**Total SLOC:** {}  **PLOC:** {}  **Comments:** {}",
-        thousands(total_sloc),
-        thousands(total_ploc),
-        thousands(total_cloc),
+        thousands(totals.sloc),
+        thousands(totals.ploc),
+        thousands(totals.cloc),
     );
     let _ = writeln!(
         out,
         "**Functions/methods:** {}    **Classes/impls/traits:** {}",
-        thousands(total_functions),
-        thousands(total_classes),
+        thousands(totals.functions),
+        thousands(totals.classes),
     );
+    let comment_ratio = totals.comment_ratio();
     let _ = writeln!(out, "**Comment ratio:** {comment_ratio:.1}%");
+}
 
-    if by_lang.is_empty() {
-        return out;
-    }
-
-    // ── Per-language overview table ─────────────────────────────────────
+fn write_per_language_overview(
+    out: &mut String,
+    by_lang: &BTreeMap<&str, Vec<&FunctionSummary>>,
+) {
     let _ = writeln!(out, "\n## Per-language overview\n");
     let mut overview_rows: Vec<Vec<String>> = Vec::with_capacity(by_lang.len());
-    for (&lang_name, lang_summaries) in &by_lang {
-        let (lang_unit_count, lang_sloc, mi_sum) = lang_summaries
-            .iter()
-            .filter(|s| s.kind == SpaceKind::Unit)
-            .fold((0usize, 0usize, 0.0f64), |(c, sl, mi), s| {
-                (c + 1, sl + s.sloc, mi + s.mi_visual_studio)
-            });
-        let avg_mi = if lang_unit_count > 0 {
-            mi_sum / lang_unit_count as f64
-        } else {
-            0.0
-        };
-        let (func_count, avg_cc, avg_cog) = {
-            let (count, cc_sum, cog_sum) = lang_summaries
-                .iter()
-                .filter(|s| s.kind == SpaceKind::Function)
-                .fold((0usize, 0.0f64, 0.0f64), |(c, cc, cog), s| {
-                    (c + 1, cc + s.cyclomatic, cog + s.cognitive)
-                });
-            if count > 0 {
-                (count, cc_sum / count as f64, cog_sum / count as f64)
-            } else {
-                (0, 0.0, 0.0)
-            }
-        };
-
-        overview_rows.push(vec![
-            title_case(lang_name),
-            thousands(lang_unit_count),
-            thousands(lang_sloc),
-            thousands(func_count),
-            format!("{avg_mi:.1}"),
-            format!("{avg_cc:.1}"),
-            format!("{avg_cog:.1}"),
-        ]);
+    for (&lang_name, lang_summaries) in by_lang {
+        overview_rows.push(lang_overview_row(lang_name, lang_summaries));
     }
     write_table(
-        &mut out,
+        out,
         &[
             "Language",
             "Files",
@@ -430,13 +446,56 @@ pub(crate) fn generate_report(summaries: &[FunctionSummary], top_n: usize) -> St
         ],
         &overview_rows,
     );
+}
 
-    // ── Per-language sections ───────────────────────────────────────────
-    for (&lang_name, lang_summaries) in &by_lang {
-        write_language_section(&mut out, lang_name, lang_summaries, top_n);
+fn lang_overview_row(lang_name: &str, lang_summaries: &[&FunctionSummary]) -> Vec<String> {
+    let (unit_count, lang_sloc, avg_mi) = unit_aggregates(lang_summaries);
+    let (func_count, avg_cc, avg_cog) = function_aggregates(lang_summaries);
+    vec![
+        title_case(lang_name),
+        thousands(unit_count),
+        thousands(lang_sloc),
+        thousands(func_count),
+        format!("{avg_mi:.1}"),
+        format!("{avg_cc:.1}"),
+        format!("{avg_cog:.1}"),
+    ]
+}
+
+fn unit_aggregates(lang_summaries: &[&FunctionSummary]) -> (usize, usize, f64) {
+    let mut count = 0usize;
+    let mut sloc = 0usize;
+    let mut mi_sum = 0.0f64;
+    for s in lang_summaries.iter().filter(|s| s.kind == SpaceKind::Unit) {
+        count += 1;
+        sloc += s.sloc;
+        mi_sum += s.mi_visual_studio;
     }
+    let avg_mi = if count > 0 {
+        mi_sum / count as f64
+    } else {
+        0.0
+    };
+    (count, sloc, avg_mi)
+}
 
-    out
+fn function_aggregates(lang_summaries: &[&FunctionSummary]) -> (usize, f64, f64) {
+    let mut count = 0usize;
+    let mut cc_sum = 0.0f64;
+    let mut cog_sum = 0.0f64;
+    for s in lang_summaries
+        .iter()
+        .filter(|s| s.kind == SpaceKind::Function)
+    {
+        count += 1;
+        cc_sum += s.cyclomatic;
+        cog_sum += s.cognitive;
+    }
+    if count > 0 {
+        (count, cc_sum / count as f64, cog_sum / count as f64)
+    } else {
+        (0, 0.0, 0.0)
+    }
 }
 
 fn write_language_section(
@@ -448,522 +507,19 @@ fn write_language_section(
     let display_name = title_case(lang_name);
     let _ = writeln!(out, "\n## {display_name}\n");
 
-    let units: Vec<&FunctionSummary> = entries
-        .iter()
-        .filter(|s| s.kind == SpaceKind::Unit)
-        .copied()
-        .collect();
-    let funcs: Vec<&FunctionSummary> = entries
-        .iter()
-        .filter(|s| s.kind == SpaceKind::Function)
-        .copied()
-        .collect();
+    let (units, funcs) = sections::split_units_and_functions(entries);
 
-    // ── Summary ────────────────────────────────────────────────────
-    {
-        let (files, sloc, ploc, cloc, mi_sum) = units.iter().fold(
-            (0usize, 0usize, 0usize, 0usize, 0.0f64),
-            |(f, sl, pl, cl, mi), s| {
-                (
-                    f + 1,
-                    sl + s.sloc,
-                    pl + s.ploc,
-                    cl + s.cloc,
-                    mi + s.mi_visual_studio,
-                )
-            },
-        );
-        let cr = if sloc > 0 {
-            (cloc as f64 / sloc as f64) * 100.0
-        } else {
-            0.0
-        };
-        let avg_mi = if files > 0 {
-            mi_sum / files as f64
-        } else {
-            0.0
-        };
-        let rating = mi_rating(avg_mi);
-
-        let _ = writeln!(out, "### Summary\n");
-        let _ = writeln!(
-            out,
-            "Files: {} | SLOC: {} | PLOC: {} | Comment ratio: {cr:.1}%",
-            thousands(files),
-            thousands(sloc),
-            thousands(ploc),
-        );
-        let _ = writeln!(out, "Average MI: {avg_mi:.1} ({rating})");
-    }
-
-    // ── Maintainability Index (lowest files) ───────────────────────
-    {
-        let mut mi_entries: Vec<&FunctionSummary> = units
-            .iter()
-            .filter(|s| s.mi_visual_studio > 0.0)
-            .copied()
-            .collect();
-        if !mi_entries.is_empty() {
-            sort_by_metric_asc(&mut mi_entries, |s| s.mi_visual_studio);
-            let count = mi_entries.len().min(top_n);
-
-            let _ = writeln!(
-                out,
-                "\n### Maintainability Index (lowest files, top-{top_n})\n"
-            );
-            let rows: Vec<Vec<String>> = mi_entries[..count]
-                .iter()
-                .map(|s| {
-                    vec![
-                        escape_cell(&s.file),
-                        format!("{:.1}", s.mi_visual_studio),
-                        thousands(s.sloc),
-                        thousands(s.tokens),
-                    ]
-                })
-                .collect();
-            write_table(
-                out,
-                &["File", "MI", "SLOC", "Tokens"],
-                &[Align::Left, Align::Right, Align::Right, Align::Right],
-                &rows,
-            );
-        }
-    }
-
-    // ── Cyclomatic Complexity Hotspots ──────────────────────────────
-    {
-        let mut cc_entries: Vec<&FunctionSummary> = funcs
-            .iter()
-            .filter(|s| s.cyclomatic > 0.0)
-            .copied()
-            .collect();
-        if !cc_entries.is_empty() {
-            let (cc_sum, cc_count, max_cc, count_gt10, count_gt20) = cc_entries.iter().fold(
-                (0.0f64, 0usize, f64::NAN, 0usize, 0usize),
-                |(sum, cnt, mx, g10, g20), s| {
-                    let c = s.cyclomatic;
-                    (
-                        sum + c,
-                        cnt + 1,
-                        f64::max(mx, c),
-                        g10 + usize::from(c > 10.0),
-                        g20 + usize::from(c > 20.0),
-                    )
-                },
-            );
-            let avg_cc = if cc_count > 0 {
-                cc_sum / cc_count as f64
-            } else {
-                0.0
-            };
-
-            sort_by_metric_desc(&mut cc_entries, |s| s.cyclomatic);
-            let count = cc_entries.len().min(top_n);
-
-            let _ = writeln!(out, "\n### Cyclomatic Complexity Hotspots\n");
-            let rows: Vec<Vec<String>> = cc_entries[..count]
-                .iter()
-                .map(|s| {
-                    vec![
-                        escape_name(&s.name),
-                        escape_cell(&s.file),
-                        s.start_line.to_string(),
-                        MetricScalar(s.cyclomatic).to_string(),
-                        MetricScalar(s.cognitive).to_string(),
-                        thousands(s.sloc),
-                        thousands(s.tokens),
-                    ]
-                })
-                .collect();
-            write_table(
-                out,
-                &[
-                    "Function",
-                    "File",
-                    "Line",
-                    "CC",
-                    "Cognitive",
-                    "SLOC",
-                    "Tokens",
-                ],
-                &[
-                    Align::Left,
-                    Align::Left,
-                    Align::Right,
-                    Align::Right,
-                    Align::Right,
-                    Align::Right,
-                    Align::Right,
-                ],
-                &rows,
-            );
-            let _ = writeln!(out);
-            let _ = writeln!(
-                out,
-                "Average CC: {avg_cc:.1} | Max: {max_cc:.0} | CC > 10: {count_gt10} functions | CC > 20: {count_gt20} functions",
-            );
-        }
-    }
-
-    // ── Cognitive Complexity Hotspots ───────────────────────────────
-    {
-        let mut cog_entries: Vec<&FunctionSummary> = funcs
-            .iter()
-            .filter(|s| s.cognitive > 0.0)
-            .copied()
-            .collect();
-        if !cog_entries.is_empty() {
-            sort_by_metric_desc(&mut cog_entries, |s| s.cognitive);
-            let count = cog_entries.len().min(top_n);
-
-            let _ = writeln!(out, "\n### Cognitive Complexity Hotspots\n");
-            let rows: Vec<Vec<String>> = cog_entries[..count]
-                .iter()
-                .map(|s| {
-                    vec![
-                        escape_name(&s.name),
-                        escape_cell(&s.file),
-                        s.start_line.to_string(),
-                        MetricScalar(s.cognitive).to_string(),
-                        MetricScalar(s.cyclomatic).to_string(),
-                        thousands(s.sloc),
-                        thousands(s.tokens),
-                    ]
-                })
-                .collect();
-            write_table(
-                out,
-                &[
-                    "Function",
-                    "File",
-                    "Line",
-                    "Cognitive",
-                    "CC",
-                    "SLOC",
-                    "Tokens",
-                ],
-                &[
-                    Align::Left,
-                    Align::Left,
-                    Align::Right,
-                    Align::Right,
-                    Align::Right,
-                    Align::Right,
-                    Align::Right,
-                ],
-                &rows,
-            );
-        }
-    }
-
-    // ── Halstead Effort Hotspots ───────────────────────────────────
-    {
-        let mut hal_entries: Vec<&FunctionSummary> = funcs
-            .iter()
-            .filter(|s| s.halstead_effort > 0.0)
-            .copied()
-            .collect();
-        if !hal_entries.is_empty() {
-            sort_by_metric_desc(&mut hal_entries, |s| s.halstead_effort);
-            let count = hal_entries.len().min(top_n);
-
-            let _ = writeln!(out, "\n### Halstead Effort Hotspots\n");
-            let rows: Vec<Vec<String>> = hal_entries[..count]
-                .iter()
-                .map(|s| {
-                    vec![
-                        escape_name(&s.name),
-                        escape_cell(&s.file),
-                        MetricScalar(s.halstead_effort).to_string(),
-                        MetricScalar(s.halstead_volume).to_string(),
-                        format!("{:.2}", s.halstead_bugs),
-                        thousands(s.sloc),
-                        thousands(s.tokens),
-                    ]
-                })
-                .collect();
-            write_table(
-                out,
-                &[
-                    "Function",
-                    "File",
-                    "Effort",
-                    "Volume",
-                    "Est. Bugs",
-                    "SLOC",
-                    "Tokens",
-                ],
-                &[
-                    Align::Left,
-                    Align::Left,
-                    Align::Right,
-                    Align::Right,
-                    Align::Right,
-                    Align::Right,
-                    Align::Right,
-                ],
-                &rows,
-            );
-        }
-    }
-
-    // ── Largest Functions by SLOC ──────────────────────────────────
-    {
-        let mut sloc_entries: Vec<&FunctionSummary> =
-            funcs.iter().filter(|s| s.sloc > 0).copied().collect();
-        if !sloc_entries.is_empty() {
-            sort_by_metric_desc(&mut sloc_entries, |s| s.sloc as f64);
-            let count = sloc_entries.len().min(top_n);
-
-            let _ = writeln!(out, "\n### Largest Functions by SLOC\n");
-            let rows: Vec<Vec<String>> = sloc_entries[..count]
-                .iter()
-                .map(|s| {
-                    vec![
-                        escape_name(&s.name),
-                        escape_cell(&s.file),
-                        s.start_line.to_string(),
-                        thousands(s.sloc),
-                        thousands(s.tokens),
-                        MetricScalar(s.cyclomatic).to_string(),
-                        MetricScalar(s.cognitive).to_string(),
-                    ]
-                })
-                .collect();
-            write_table(
-                out,
-                &[
-                    "Function",
-                    "File",
-                    "Line",
-                    "SLOC",
-                    "Tokens",
-                    "CC",
-                    "Cognitive",
-                ],
-                &[
-                    Align::Left,
-                    Align::Left,
-                    Align::Right,
-                    Align::Right,
-                    Align::Right,
-                    Align::Right,
-                    Align::Right,
-                ],
-                &rows,
-            );
-        }
-    }
-
-    // ── Functions With Many Parameters (>3) ────────────────────────
-    {
-        let mut nargs_entries: Vec<&FunctionSummary> =
-            funcs.iter().filter(|s| s.nargs > 3).copied().collect();
-        if !nargs_entries.is_empty() {
-            sort_by_metric_desc(&mut nargs_entries, |s| s.nargs as f64);
-            let count = nargs_entries.len().min(top_n);
-
-            let _ = writeln!(out, "\n### Functions With Many Parameters (>3)\n");
-            let rows: Vec<Vec<String>> = nargs_entries[..count]
-                .iter()
-                .map(|s| {
-                    vec![
-                        escape_name(&s.name),
-                        escape_cell(&s.file),
-                        s.nargs.to_string(),
-                        thousands(s.sloc),
-                        thousands(s.tokens),
-                    ]
-                })
-                .collect();
-            write_table(
-                out,
-                &["Function", "File", "Args", "SLOC", "Tokens"],
-                &[
-                    Align::Left,
-                    Align::Left,
-                    Align::Right,
-                    Align::Right,
-                    Align::Right,
-                ],
-                &rows,
-            );
-        }
-    }
-
-    // ── Actionable Summary ─────────────────────────────────────────
-    {
-        let (cc_gt10, cog_gt15, sloc_gt100, nargs_gt3, bugs_gt1) = funcs.iter().fold(
-            (0usize, 0usize, 0usize, 0usize, 0usize),
-            |(a, b, c, d, e), s| {
-                (
-                    a + usize::from(s.cyclomatic > 10.0),
-                    b + usize::from(s.cognitive > 15.0),
-                    c + usize::from(s.sloc > 100),
-                    d + usize::from(s.nargs > 3),
-                    e + usize::from(s.halstead_bugs > 1.0),
-                )
-            },
-        );
-
-        let _ = writeln!(out, "\n### Actionable Summary\n");
-        if cc_gt10 == 0 && cog_gt15 == 0 && sloc_gt100 == 0 && nargs_gt3 == 0 && bugs_gt1 == 0 {
-            let _ = writeln!(out, "No major quality concerns detected.");
-        } else {
-            if cc_gt10 > 0 {
-                let _ = writeln!(out, "- **{cc_gt10}** functions with CC > 10");
-            }
-            if cog_gt15 > 0 {
-                let _ = writeln!(
-                    out,
-                    "- **{cog_gt15}** functions with cognitive complexity > 15"
-                );
-            }
-            if sloc_gt100 > 0 {
-                let _ = writeln!(out, "- **{sloc_gt100}** functions with SLOC > 100");
-            }
-            if nargs_gt3 > 0 {
-                let _ = writeln!(
-                    out,
-                    "- **{nargs_gt3}** functions with more than 3 parameters"
-                );
-            }
-            if bugs_gt1 > 0 {
-                let _ = writeln!(
-                    out,
-                    "- **{bugs_gt1}** functions with estimated Halstead bugs > 1.0"
-                );
-            }
-        }
-    }
-
-    // ── Class/Trait/Impl Hotspots (WMC) ────────────────────────────
-    {
-        let mut class_entries: Vec<&FunctionSummary> = entries
-            .iter()
-            .filter(|s| is_class_like(s.kind) && s.wmc > 0.0)
-            .copied()
-            .collect();
-        if !class_entries.is_empty() {
-            sort_by_metric_desc(&mut class_entries, |s| s.wmc);
-            let count = class_entries.len().min(top_n);
-
-            let _ = writeln!(out, "\n### Class/Trait/Impl Hotspots (WMC)\n");
-            let rows: Vec<Vec<String>> = class_entries[..count]
-                .iter()
-                .map(|s| {
-                    vec![
-                        escape_name(&s.name),
-                        escape_cell(&s.file),
-                        s.start_line.to_string(),
-                        MetricScalar(s.wmc).to_string(),
-                        s.nom.to_string(),
-                        MetricScalar(s.npa).to_string(),
-                        MetricScalar(s.npm).to_string(),
-                        thousands(s.sloc),
-                        thousands(s.tokens),
-                    ]
-                })
-                .collect();
-            write_table(
-                out,
-                &[
-                    "Class", "File", "Line", "WMC", "Methods", "NPA", "NPM", "SLOC", "Tokens",
-                ],
-                &[
-                    Align::Left,
-                    Align::Left,
-                    Align::Right,
-                    Align::Right,
-                    Align::Right,
-                    Align::Right,
-                    Align::Right,
-                    Align::Right,
-                    Align::Right,
-                ],
-                &rows,
-            );
-        }
-    }
-
-    // ── Functions with the most exit points (NEXITS) ───────────────
-    {
-        let mut nexits_entries: Vec<&FunctionSummary> =
-            funcs.iter().filter(|s| s.nexits > 0).copied().collect();
-        if !nexits_entries.is_empty() {
-            sort_by_metric_desc(&mut nexits_entries, |s| s.nexits as f64);
-            let count = nexits_entries.len().min(top_n);
-
-            let _ = writeln!(out, "\n### Functions with the most exit points (NEXITS)\n");
-            let rows: Vec<Vec<String>> = nexits_entries[..count]
-                .iter()
-                .map(|s| {
-                    vec![
-                        escape_name(&s.name),
-                        escape_cell(&s.file),
-                        s.start_line.to_string(),
-                        s.nexits.to_string(),
-                        MetricScalar(s.cyclomatic).to_string(),
-                        thousands(s.sloc),
-                        thousands(s.tokens),
-                    ]
-                })
-                .collect();
-            write_table(
-                out,
-                &["Function", "File", "Line", "Exits", "CC", "SLOC", "Tokens"],
-                &[
-                    Align::Left,
-                    Align::Left,
-                    Align::Right,
-                    Align::Right,
-                    Align::Right,
-                    Align::Right,
-                    Align::Right,
-                ],
-                &rows,
-            );
-        }
-    }
-
-    // ── ABC Magnitude Hotspots ─────────────────────────────────────
-    {
-        let mut abc_entries: Vec<&FunctionSummary> =
-            funcs.iter().filter(|s| s.abc > 0.0).copied().collect();
-        if !abc_entries.is_empty() {
-            sort_by_metric_desc(&mut abc_entries, |s| s.abc);
-            let count = abc_entries.len().min(top_n);
-
-            let _ = writeln!(out, "\n### ABC Magnitude Hotspots\n");
-            let rows: Vec<Vec<String>> = abc_entries[..count]
-                .iter()
-                .map(|s| {
-                    vec![
-                        escape_name(&s.name),
-                        escape_cell(&s.file),
-                        s.start_line.to_string(),
-                        format!("{:.1}", s.abc),
-                        thousands(s.sloc),
-                        thousands(s.tokens),
-                    ]
-                })
-                .collect();
-            write_table(
-                out,
-                &["Function", "File", "Line", "ABC", "SLOC", "Tokens"],
-                &[
-                    Align::Left,
-                    Align::Left,
-                    Align::Right,
-                    Align::Right,
-                    Align::Right,
-                    Align::Right,
-                ],
-                &rows,
-            );
-        }
-    }
+    sections::write_summary(out, &units);
+    sections::write_mi_lowest(out, &units, top_n);
+    sections::write_cyclomatic_hotspots(out, &funcs, top_n);
+    sections::write_cognitive_hotspots(out, &funcs, top_n);
+    sections::write_halstead_hotspots(out, &funcs, top_n);
+    sections::write_largest_by_sloc(out, &funcs, top_n);
+    sections::write_many_params(out, &funcs, top_n);
+    sections::write_actionable_summary(out, &funcs);
+    sections::write_wmc_hotspots(out, entries, top_n);
+    sections::write_nexits_hotspots(out, &funcs, top_n);
+    sections::write_abc_hotspots(out, &funcs, top_n);
 }
 
 #[cfg(test)]
