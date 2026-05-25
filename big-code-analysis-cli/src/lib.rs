@@ -819,9 +819,15 @@ fn read_paths_from(src: &Path) -> Vec<PathBuf> {
 /// skipped; surrounding whitespace on retained lines is trimmed.
 /// `die`s on I/O failure with the path / failing line.
 fn read_exclude_patterns_from(src: &Path) -> Vec<String> {
-    read_lines_from(src, "--exclude-from", |trimmed| {
-        (!trimmed.is_empty() && !trimmed.starts_with('#')).then(|| trimmed.to_owned())
-    })
+    read_lines_from(src, "--exclude-from", exclude_pattern_filter)
+}
+
+/// Retention policy for `--exclude-from` lines: keep the trimmed
+/// non-blank, non-`#`-prefixed text as an exclude pattern; otherwise
+/// skip. Named so the unit tests can exercise the exact policy the
+/// production reader applies instead of mirroring it.
+fn exclude_pattern_filter(trimmed: &str) -> Option<String> {
+    (!trimmed.is_empty() && !trimmed.starts_with('#')).then(|| trimmed.to_owned())
 }
 
 /// Open `src` (a path on disk or `-` for stdin), buffer it, and
@@ -1882,14 +1888,6 @@ mod tests {
         );
     }
 
-    /// Mirror of the closure used by `read_exclude_patterns_from`,
-    /// so these unit tests pin the `.gitignore`-style retention
-    /// policy (blank-line + `#`-comment skipping) the production
-    /// caller actually applies.
-    fn keep_exclude_pattern(trimmed: &str) -> Option<String> {
-        (!trimmed.is_empty() && !trimmed.starts_with('#')).then(|| trimmed.to_owned())
-    }
-
     #[test]
     fn collect_lines_skips_blank_and_comment_lines() {
         // The literal trailing spaces on the last pattern are
@@ -1907,7 +1905,7 @@ mod tests {
             "**/*.snap\n",
             "   tests/repositories/**   \n",
         );
-        let got = collect_lines(std::io::Cursor::new(input), "test", keep_exclude_pattern);
+        let got = collect_lines(std::io::Cursor::new(input), "test", exclude_pattern_filter);
         assert_eq!(
             got,
             vec![
@@ -1926,7 +1924,7 @@ mod tests {
 a/#weird/path
 #full-line-comment
 ";
-        let got = collect_lines(std::io::Cursor::new(input), "test", keep_exclude_pattern);
+        let got = collect_lines(std::io::Cursor::new(input), "test", exclude_pattern_filter);
         assert_eq!(
             got,
             vec!["a/#weird/path"],
@@ -1937,7 +1935,7 @@ a/#weird/path
     #[test]
     fn collect_lines_returns_empty_for_only_blanks_and_comments() {
         let input = "\n# only comments\n\t  \n# another\n";
-        let got = collect_lines(std::io::Cursor::new(input), "test", keep_exclude_pattern);
+        let got = collect_lines(std::io::Cursor::new(input), "test", exclude_pattern_filter);
         assert!(got.is_empty(), "expected empty Vec, got {got:?}");
     }
 }
