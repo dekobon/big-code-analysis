@@ -25,7 +25,7 @@ exclude = [
 ]
 
 [workspace.package]
-version = "0.0.25"
+version = "1.0.0"
 edition = "2024"
 rust-version = "1.94"
 license = "MPL-2.0"
@@ -56,11 +56,20 @@ tree-sitter-python = "=0.25.0"
 tree-sitter-ruby = "=0.23.1"
 tree-sitter-rust = "=0.24.2"
 tree-sitter-typescript = "=0.23.2"
-tree-sitter-ccomment = { path = "./tree-sitter-ccomment", version = "=0.20.3" }
-tree-sitter-mozcpp = { path = "./tree-sitter-mozcpp", version = "=0.20.4" }
-tree-sitter-mozjs = { path = "./tree-sitter-mozjs", version = "=0.20.3" }
-tree-sitter-preproc = { path = "./tree-sitter-preproc", version = "=0.20.3" }
-tree-sitter-tcl = { path = "./tree-sitter-tcl", version = "=1.1.0" }
+# Vendored grammar forks. Each is published under a `bca-tree-sitter-*`
+# package name (so we do not collide with the upstream Mozilla / community
+# crates on crates.io), but the produced Rust crate keeps its original
+# `tree_sitter_<lang>` import path via `[lib] name = ...` in the leaf
+# manifest. Cargo's `package = ...` alias here means consumer code that
+# pulls in the dep as `tree-sitter-<lang>` continues to work unchanged.
+# Rationale and the rejected alternatives live on the umbrella
+# issue (dekobon/big-code-analysis#149); the operational details
+# (publish order, first-bootstrap workflow) live in `RELEASING.md`.
+tree-sitter-ccomment = { package = "bca-tree-sitter-ccomment", path = "./tree-sitter-ccomment", version = "=1.0.0" }
+tree-sitter-mozcpp = { package = "bca-tree-sitter-mozcpp", path = "./tree-sitter-mozcpp", version = "=1.0.0" }
+tree-sitter-mozjs = { package = "bca-tree-sitter-mozjs", path = "./tree-sitter-mozjs", version = "=1.0.0" }
+tree-sitter-preproc = { package = "bca-tree-sitter-preproc", path = "./tree-sitter-preproc", version = "=1.0.0" }
+tree-sitter-tcl = { package = "bca-tree-sitter-tcl", path = "./tree-sitter-tcl", version = "=1.0.0" }
 
 # PyO3 powers the `big-code-analysis-py` cdylib. Pinned to a major
 # series; bumping is a deliberate, separate change because the Bound

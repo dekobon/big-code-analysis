@@ -71,9 +71,10 @@ One push of a `v*` tag will run this end-to-end:
    Homebrew formula and Scoop manifest.
 7. **publish-crates** — for non pre-releases, **subject to the gating
    variables below**, runs `cargo publish` for each publishable
-   workspace crate in dependency order: `big-code-analysis` (library)
-   first, then `big-code-analysis-cli` and `big-code-analysis-web`.
-   Skips idempotently if the version is already on crates.io.
+   workspace crate in dependency order: the five `bca-tree-sitter-*`
+   grammar leaves first, then `big-code-analysis` (library), then
+   `big-code-analysis-cli` and `big-code-analysis-web`. Skips
+   idempotently if the version is already on crates.io.
 8. **verify** — downloads the published musl tarball back out of the
    release, verifies the minisign signature, checksum, and SLSA
    provenance.
@@ -121,40 +122,92 @@ to keep the dry-run posture.
 ## Vendored tree-sitter grammar publishability
 
 The workspace vendors five tree-sitter grammar crates under path
-dependencies:
+dependencies. As of issue
+[#149](https://github.com/dekobon/big-code-analysis/issues/149), they
+publish to crates.io under project-namespaced names so they don't
+collide with the Mozilla-published originals (which sit at older
+versions and a different owner):
 
-- `tree-sitter-ccomment`.
-- `tree-sitter-mozcpp`.
-- `tree-sitter-mozjs`.
-- `tree-sitter-preproc`.
-- `tree-sitter-tcl`.
+| Path-dep directory     | Published crate name        | Rust import path        |
+| ---------------------- | --------------------------- | ----------------------- |
+| `tree-sitter-ccomment` | `bca-tree-sitter-ccomment`  | `tree_sitter_ccomment`  |
+| `tree-sitter-mozcpp`   | `bca-tree-sitter-mozcpp`    | `tree_sitter_mozcpp`    |
+| `tree-sitter-mozjs`    | `bca-tree-sitter-mozjs`     | `tree_sitter_mozjs`     |
+| `tree-sitter-preproc`  | `bca-tree-sitter-preproc`   | `tree_sitter_preproc`   |
+| `tree-sitter-tcl`      | `bca-tree-sitter-tcl`       | `tree_sitter_tcl`       |
 
-These crates currently set `publish = false`. They are **not
-publishable to crates.io as-is** because their crate names collide
-with upstream tree-sitter grammar crates that we have diverged from,
-and crates.io does not allow re-publishing under a name owned by a
-different account. Three options exist for unblocking publication of
-`big-code-analysis` itself:
+Each leaf manifest sets `[lib] name = "tree_sitter_<lang>"` so the
+*produced* Rust crate keeps its original import path even though the
+*published* package name is `bca-tree-sitter-<lang>`. The workspace
+alias in the root `Cargo.toml` (and `enums/Cargo.toml`) uses Cargo's
+`package = ...` aliasing so every consumer site reads
+`tree-sitter-<lang> = { workspace = true }` as before — call sites
+under `src/`, `enums/`, and feature flags did not change.
 
-1. **Rename the vendored forks** to a project-namespaced prefix —
-   e.g. `bca-tree-sitter-ccomment`, `bca-tree-sitter-mozcpp`,
-   `bca-tree-sitter-mozjs`, `bca-tree-sitter-preproc`,
-   `bca-tree-sitter-tcl` — and publish them as separate crates.
-   Cleanest from a downstream-consumer perspective; requires renaming
-   the path dependencies in the root `Cargo.toml` and the inline
-   `name = "tree-sitter-*"` in each crate.
-2. **Inline the C sources** into the parent crate. Removes the
-   separate-crate problem entirely but inflates the parent crate
-   tarball and the build graph; only viable if the C grammar sources
-   are stable enough that we never need to re-sync them from upstream
-   tree-sitter.
-3. **Skip crates.io for the workspace entirely** and ship only via
-   tagged GitHub releases / homebrew / scoop. Lowest blast radius,
-   highest friction for downstream Rust users (no `cargo add
-   big-code-analysis`).
+**Publish order is leaf-first.** The `publish-crates` job in
+`release.yml` publishes the five `bca-tree-sitter-*` crates ahead of
+`big-code-analysis`, because the parent's `=<leaf-version>` pin can
+only resolve once each leaf is on crates.io. The sparse-index
+existence check in each step makes the job idempotent across re-runs
+of the same tag.
 
-The decision has not been made yet. Until it is, `publish-crates`
-should remain gated by `ENABLE_CRATES_PUBLISH` as described above.
+**Bootstrap on the very first release.** The parent's
+`cargo publish --dry-run -p big-code-analysis` cannot resolve until
+the five leaves are on crates.io. The preflight job in `release.yml`
+handles this automatically: it queries the sparse index for
+`bca-tree-sitter-ccomment` at the workspace-pinned version, and only
+runs the parent dry-run if that leaf is already published. On the
+first tag with `ENABLE_CRATES_PUBLISH=true`, the parent dry-run is
+skipped with a `::notice::` and the `publish-crates` job uploads the
+five leaves *first*, then `big-code-analysis`, then the binaries —
+in one workflow run, no manual intervention. From the second tag
+onwards the parent dry-run becomes a hard gate.
+
+`make release-check VERSION=…` mirrors the same logic: it
+unconditionally dry-runs the five leaves, then wraps the parent
+dry-run in a warning that points back to this section if the
+bootstrap state is detected.
+
+**Lockstep version policy.** Every crate in this repository — the
+library, the CLI, the web crate, the Python crate, the `enums` /
+`xtask` helpers, and the five `bca-tree-sitter-*` vendored grammar
+leaves — shares one version number. There is no per-crate version
+drift. A version bump touches:
+
+1. `[workspace.package] version` in the root `Cargo.toml` — this
+   covers every workspace member that declares
+   `version.workspace = true`.
+2. `[package] version` in `enums/Cargo.toml` (excluded from the
+   workspace; cannot inherit).
+3. `[package] version` in each of the five
+   `tree-sitter-<lang>/Cargo.toml` files (also excluded).
+4. The `version = "=<new>"` pin on every `bca-tree-sitter-*` entry
+   in `[workspace.dependencies]` (root `Cargo.toml`) and the
+   matching block in `enums/Cargo.toml`.
+5. The `version = "=<new>"` pin on the `big-code-analysis` path-dep
+   in `big-code-analysis-cli/Cargo.toml` and
+   `big-code-analysis-web/Cargo.toml`.
+6. The hard-coded version references in user-facing docs
+   (`README.md`, `STABILITY.md`, the book's `quick-start.md` and
+   `cargo-features.md`) **and** the install snippet in every
+   leaf's `bindings/rust/README.md` (5 files), since those ship
+   inside the published `bca-tree-sitter-*` tarballs and render as
+   the crates.io landing page.
+7. The man pages (re-run `cargo run -p xtask`).
+8. The SARIF tool-version snapshots (re-run `cargo insta test` and
+   accept).
+9. A new `## [<new>]` section in `CHANGELOG.md` (the unreleased
+   block is collapsed into it at release time).
+
+Run `./check-versions.py` (also wired into `make pre-commit` and
+the `lint` job in `.github/workflows/ci.yml`) after editing to
+catch any item the human eye missed.
+
+A grammar refresh (`recreate-grammars.sh` regenerates the parsers)
+is a normal change *under* the current version — bumping the
+grammars does not bump the version on its own. The next workspace
+release picks up the regenerated grammars at whatever leaf version
+already matches the workspace version.
 
 ## Prerequisites (one-time setup)
 
@@ -310,9 +363,11 @@ edit these in lockstep:
    (e.g. `big-code-analysis = { path = "...", version = "x.y.z", ...
    }`). Must match the workspace version, otherwise `cargo publish`
    on the dependent crate will reject the dependency.
-3. The `enums/` helper workspace (excluded from the root workspace).
-   Its own `Cargo.toml` carries an independent version; bump only if
-   the enum-generation surface changes.
+3. The `enums/` helper crate (excluded from the root workspace).
+   Its own `[package] version` carries the same value — bump it
+   alongside the workspace bump, never on its own.
+4. Each `tree-sitter-<lang>/Cargo.toml` (also excluded). Same
+   discipline as `enums/`: bump in lockstep with the workspace.
 
 After editing, regenerate the lockfile and sanity-check the bump:
 

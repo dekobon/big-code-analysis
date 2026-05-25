@@ -480,6 +480,32 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Changed
 
+- **Vendored grammar forks renamed to `bca-tree-sitter-*`** to unblock
+  first-time crates.io publication of `big-code-analysis`. The five
+  in-tree path-dep crates — `tree-sitter-ccomment`, `tree-sitter-mozcpp`,
+  `tree-sitter-mozjs`, `tree-sitter-preproc`, `tree-sitter-tcl` —
+  now publish as `bca-tree-sitter-ccomment`, `bca-tree-sitter-mozcpp`,
+  `bca-tree-sitter-mozjs`, `bca-tree-sitter-preproc`, and
+  `bca-tree-sitter-tcl` (all at `0.1.0`). The Rust crate name produced
+  by each leaf manifest is preserved as `tree_sitter_<lang>` via
+  `[lib] name = ...`, and the workspace alias in `Cargo.toml` /
+  `enums/Cargo.toml` uses Cargo's `package = ...` aliasing so every
+  call site keeps importing `tree_sitter_ccomment::LANGUAGE` etc.
+  unchanged. Resolves the "vendored-grammar publish strategy" item
+  in [#149](https://github.com/dekobon/big-code-analysis/issues/149)
+  via the "rename forks" option (rationale and rejected
+  alternatives are recorded on the issue thread). MIT `LICENSE`
+  files now ship in every leaf tarball — added a `LICENSE` to
+  `tree-sitter-tcl` (copied from
+  `tree-sitter-grammars/tree-sitter-tcl` at `v1.1.0`) and appended a
+  `Modifications copyright (c) 2025-2026 Elijah Zupancic` line to
+  the four Mozilla-derived `LICENSE` files.
+
+- `release.yml` `publish-crates` job now publishes the five
+  `bca-tree-sitter-*` leaf crates ahead of `big-code-analysis`, with
+  per-leaf sparse-index existence checks so re-runs of the same tag
+  stay idempotent.
+
 - `big-code-analysis-py/pyproject.toml`: `[tool.maturin].features`
   now includes `pyo3/abi3-py312` alongside `pyo3/extension-module`.
   Both `maturin develop` and the CI wheel build go through the
@@ -1437,14 +1463,14 @@ why no value stability is offered until `1.0`. Entries above the
   and were therefore already scored correctly
   ([#178](https://github.com/dekobon/big-code-analysis/issues/178)).
 
-## [0.0.25] - 2026-05-10
+## [1.0.0] - 2026-05-10
 
 > **Fork-anchor note.** Forked from Mozilla's
 > [`rust-code-analysis`](https://github.com/mozilla/rust-code-analysis)
 > at commit `007ee15` on 2026-04-26 and renamed to `big-code-analysis`.
 > This entry consolidates all changes through the first
 > public release; there were no intermediate tagged releases between
-> the fork point and `0.0.25`.
+> the fork point and `1.0.0`.
 
 ### Added
 
@@ -1656,10 +1682,10 @@ why no value stability is offered until `1.0`. Entries above the
   the blocking thread pool (`fix(web): track orphaned blocking
   tasks and reject when threshold exceeded`, commit `94c8141`).
 
-<!-- Release-cutter: when the v0.0.25 tag is created, retarget both
-links below at `v0.0.25` (Unreleased: `v0.0.25...HEAD`; 0.0.25:
-`007ee15...v0.0.25`). They currently point at `HEAD` so the
+<!-- Release-cutter: when the v1.0.0 tag is created, retarget both
+links below at `v1.0.0` (Unreleased: `v1.0.0...HEAD`; 1.0.0:
+`007ee15...v1.0.0`). They currently point at `HEAD` so the
 comparison links resolve before the tag exists. -->
 
 [Unreleased]: https://github.com/dekobon/big-code-analysis/compare/HEAD...HEAD
-[0.0.25]: https://github.com/dekobon/big-code-analysis/compare/007ee15...HEAD
+[1.0.0]: https://github.com/dekobon/big-code-analysis/compare/007ee15...HEAD

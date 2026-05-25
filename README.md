@@ -66,7 +66,7 @@ Every tree-sitter grammar is gated behind a per-language Cargo
 feature. The default feature set is `all-languages`, so a bare
 
 ```toml
-big-code-analysis = "0.0.25"
+big-code-analysis = "1.0.0"
 ```
 
 pulls every grammar in (matching the library's historical behaviour
@@ -75,15 +75,17 @@ only need a subset of languages can opt out of the defaults and
 re-enable just the grammars they want:
 
 ```toml
-big-code-analysis = { version = "0.0.25", default-features = false, features = ["rust", "typescript"] }
+big-code-analysis = { version = "1.0.0", default-features = false, features = ["rust", "typescript"] }
 ```
 
 Supported language features: `bash`, `cpp`, `csharp`, `elixir`,
 `go`, `groovy`, `java`, `javascript`, `kotlin`, `lua`, `mozjs`,
 `perl`, `php`, `python`, `ruby`, `rust`, `tcl`, `typescript`. The
 `cpp` feature covers the `Cpp`, `Ccomment`, and `Preproc` LANG
-variants and pulls in `tree-sitter-mozcpp`, `tree-sitter-ccomment`,
-and `tree-sitter-preproc` together.
+variants and pulls in `bca-tree-sitter-mozcpp`,
+`bca-tree-sitter-ccomment`, and `bca-tree-sitter-preproc` together
+(published forks of the matching Mozilla grammars — see the publish
+strategy notes in `RELEASING.md`).
 
 The `LANG` enum keeps every variant defined regardless of the active
 feature set; selecting a [`LANG`] variant whose feature is off

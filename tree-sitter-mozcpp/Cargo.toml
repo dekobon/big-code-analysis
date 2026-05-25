@@ -1,14 +1,19 @@
 [package]
-name = "tree-sitter-mozcpp"
-description = "Mozcpp grammar for the tree-sitter parsing library"
-version = "0.20.4"
-publish = false
-authors = ["Calixte Denizet <cdenizet@mozilla.com>"]
+name = "bca-tree-sitter-mozcpp"
+description = "Mozcpp grammar for the tree-sitter parsing library (big-code-analysis fork)"
+version = "1.0.0"
+authors = [
+  "Calixte Denizet <cdenizet@mozilla.com>",
+  "Elijah Zupancic <elijah@zupancic.name>",
+]
 license = "MIT"
 readme = "bindings/rust/README.md"
 keywords = ["incremental", "parsing", "mozcpp"]
 categories = ["parsing", "text-editors"]
 repository = "https://github.com/dekobon/big-code-analysis"
+# Upstream lineage this fork is derived from; preserved so the
+# crates.io landing page links back to the Mozilla original.
+homepage = "https://github.com/mozilla/rust-code-analysis"
 edition = "2021"
 
 build = "bindings/rust/build.rs"
@@ -16,9 +21,11 @@ include = [
   "bindings/rust/*",
   "grammar.js",
   "src/*",
+  "LICENSE",
 ]
 
 [lib]
+name = "tree_sitter_mozcpp"
 path = "bindings/rust/lib.rs"
 
 [dependencies]

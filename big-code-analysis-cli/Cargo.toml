@@ -1,13 +1,6 @@
 [package]
 name = "big-code-analysis-cli"
-# CLI version is bumped independently of the workspace floor when a
-# CLI-only change makes a user-visible break that the library API
-# does not. Issue #235 (move offender formats from `bca metrics` to
-# `bca check`) is the first such bump; older entries reused the
-# workspace version. Once a workspace-wide release lifts the floor
-# past this value, drop the override and go back to
-# `version.workspace = true`.
-version = "0.1.0"
+version.workspace = true
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -27,7 +20,7 @@ ignore = "^0.4"
 # The CLI exposes every language `bca` advertises, so it pins the
 # library's full feature set explicitly. Disabling default features
 # here would silently drop grammars from the CLI build. See #252.
-big-code-analysis = { path = "..", version = "=0.0.25", default-features = false, features = [
+big-code-analysis = { path = "..", version = "=1.0.0", default-features = false, features = [
   "all-languages",
 ] }
 serde = { version = "^1.0", features = ["derive"] }

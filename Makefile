@@ -50,7 +50,7 @@ FIND_EXCLUDE   := $(foreach dir,$(EXCLUDE_DIRS),! -path './$(dir)/*')
 # warnings on `$(2)`, e.g. $(call find-by-ext,md,).
 find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name "*.$(1)" -type f $(FIND_EXCLUDE))
 
-.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors enums-check lint clippy udeps insta-review insta-accept clean install install-cli install-web doc doc-open doc-check book book-serve book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local py-fmt py-fmt-check py-lint py-typecheck py-test _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-enums-check _pc-py-fmt _pc-py-typecheck _pc-py-test _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-enums-check _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test
+.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors check-versions enums-check lint clippy udeps insta-review insta-accept clean install install-cli install-web doc doc-open doc-check book book-serve book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local py-fmt py-fmt-check py-lint py-typecheck py-test _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-check-versions _pc-enums-check _pc-py-fmt _pc-py-typecheck _pc-py-test _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-check-versions _ci-enums-check _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test
 
 # Default target
 help:
@@ -88,6 +88,7 @@ help:
 	@echo "  makefile-check                       Lint Makefile with checkmake"
 	@echo "  actionlint                           Lint GitHub Actions workflows with actionlint"
 	@echo "  snapshot-anchors                     Block new bare insta snapshots"
+	@echo "  check-versions                       Enforce lockstep version invariant across owned crates"
 	@echo "  enums-check                          cargo clippy on workspace-excluded enums crate"
 	@echo "  lint                                 Run all linters"
 	@echo ""
@@ -236,6 +237,13 @@ snapshot-anchors:
 	@echo "Checking insta snapshot anchors..."
 	@python3 $(BASE_DIR)check-snapshot-anchors.py
 
+# Lockstep-version invariant: every owned crate and every internal
+# `=<v>` dep pin must equal `[workspace.package].version`. See
+# `RELEASING.md` "Lockstep version policy" and `check-versions.py`.
+check-versions:
+	@echo "Checking lockstep version invariant..."
+	@python3 $(BASE_DIR)check-versions.py
+
 # The `enums/` crate is listed in `[workspace].exclude` (it ships a
 # non-published codegen binary used only by `recreate-grammars.sh`), so
 # it is invisible to `cargo {check,clippy,test} --workspace` and to the
@@ -349,7 +357,7 @@ lint:
 	$(MAKE) -j --output-sync=target \
 	  _ci-clippy \
 	  _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check \
-	  _ci-actionlint _ci-snapshot-anchors _ci-enums-check
+	  _ci-actionlint _ci-snapshot-anchors _ci-check-versions _ci-enums-check
 
 # ---------------------------------------------------------------------------
 # Maintenance
@@ -409,7 +417,7 @@ pre-commit:
 	$(MAKE) -j --output-sync=target \
 	  _pc-test \
 	  _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check \
-	  _pc-actionlint _pc-snapshot-anchors _pc-enums-check \
+	  _pc-actionlint _pc-snapshot-anchors _pc-check-versions _pc-enums-check \
 	  _pc-py-fmt _pc-py-typecheck _pc-py-test
 	@echo "Pre-commit checks passed"
 
@@ -418,7 +426,7 @@ ci:
 	$(MAKE) -j --output-sync=target \
 	  _ci-cargo-pipeline \
 	  _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check \
-	  _ci-actionlint _ci-snapshot-anchors _ci-enums-check \
+	  _ci-actionlint _ci-snapshot-anchors _ci-check-versions _ci-enums-check \
 	  _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test
 	@echo "CI checks passed"
 
@@ -446,6 +454,7 @@ ci:
 #    ├── _pc-makefile-check
 #    ├── _pc-actionlint
 #    ├── _pc-snapshot-anchors
+#    ├── _pc-check-versions
 #    ├── _pc-enums-check
 #    ├── _pc-py-fmt
 #    └── _pc-py-typecheck
@@ -502,6 +511,9 @@ _pc-actionlint: _pc-fmt
 _pc-snapshot-anchors: _pc-fmt
 	$(MAKE) snapshot-anchors
 
+_pc-check-versions: _pc-fmt
+	$(MAKE) check-versions
+
 _pc-enums-check: _pc-fmt
 	$(MAKE) enums-check
 
@@ -535,7 +547,8 @@ _pc-py-test: _pc-udeps
 #   2. parallel:
 #      _ci-cargo-pipeline: clippy → test → build → doc-check → udeps
 #      _ci-shellcheck, _ci-markdown-lint, _ci-toml-lint, _ci-makefile-check,
-#      _ci-actionlint, _ci-snapshot-anchors, _ci-enums-check
+#      _ci-actionlint, _ci-snapshot-anchors, _ci-check-versions,
+#      _ci-enums-check
 #
 # _ci-enums-check runs on `enums/Cargo.toml`, which has its own `target/`
 # (workspace-excluded), so it does NOT share the workspace cargo lock and
@@ -578,6 +591,9 @@ _ci-actionlint:
 
 _ci-snapshot-anchors:
 	$(MAKE) snapshot-anchors
+
+_ci-check-versions:
+	$(MAKE) check-versions
 
 _ci-enums-check:
 	$(MAKE) enums-check
@@ -633,16 +649,16 @@ verify-changelog:
 # release-check: full pre-tag gate. cargo-deny enforces the license /
 # advisory / source allowlists; cargo-about's dry-run renders the
 # per-binary THIRD-PARTY-LICENSES files the release archives ship;
-# `cargo publish --dry-run -p big-code-analysis` is wrapped in a
-# best-effort guard because the five vendored grammar crates
-# (tree-sitter-{mozcpp,mozjs,ccomment,preproc,tcl}) are path-dep and
-# `publish = false`, so the lib dry-run can't actually resolve until
-# that's sorted (see #149's pre-public-release prerequisites). The
-# `if`-form (vs `|| true`) distinguishes the expected-failure case
-# (any non-zero exit) from a real `make` failure mode and lets us
-# print an actionable message rather than swallowing every possible
-# error. Once the grammar publish strategy lands in #149, remove
-# the wrapper entirely.
+# the publish dry-runs catch metadata regressions (missing
+# description/license/readme, deny.toml violations, version drift)
+# before any external publish fires. The five vendored grammar
+# leaves dry-run unconditionally. The parent dry-run mirrors CI's
+# preflight bootstrap probe (see `.github/workflows/release.yml`):
+# we query the sparse index for `bca-tree-sitter-ccomment` at the
+# workspace-pinned version and only run the parent dry-run if that
+# leaf is already on crates.io. On the very first release the probe
+# returns "not on registry", the parent dry-run is skipped with an
+# explanatory note, and CI handles the bootstrap end-to-end.
 release-check:
 	@if [ -z "$(VERSION)" ]; then \
 	  echo "ERROR: VERSION not set. Usage: make release-check VERSION=0.1.0"; \
@@ -660,15 +676,20 @@ release-check:
 	  --config about.toml \
 	  --manifest-path big-code-analysis-web/Cargo.toml \
 	  about.hbs > /dev/null
-	@echo "Dry-running cargo publish for big-code-analysis (best-effort, see CI gate)..."
-	@if ! cargo publish -p big-code-analysis --dry-run --locked; then \
-	  echo "::warning::big-code-analysis publish dry-run failed."; \
-	  echo "::warning::This is EXPECTED while the five vendored tree-sitter-*"; \
-	  echo "::warning::path-dep grammar crates remain unpublishable to crates.io"; \
-	  echo "::warning::(see #149's pre-public-release prerequisites). If the"; \
-	  echo "::warning::failure message looks unrelated (e.g. network, deny.toml"; \
-	  echo "::warning::violation, missing description field), investigate before"; \
-	  echo "::warning::tagging."; \
+	@echo "Dry-running cargo publish for the five vendored grammar leaves..."
+	@for d in tree-sitter-ccomment tree-sitter-mozcpp tree-sitter-mozjs tree-sitter-preproc tree-sitter-tcl; do \
+	  cargo publish --dry-run --locked --manifest-path "$$d/Cargo.toml" || exit 1; \
+	done
+	@LEAF_VERSION=$$(awk -F'"' \
+	  '/^\[package\]/{f=1; next} /^\[/{f=0} f && /^version *=/ {print $$2; exit}' \
+	  tree-sitter-ccomment/Cargo.toml); \
+	BODY=$$(curl -sfL "https://index.crates.io/bc/a-/bca-tree-sitter-ccomment" 2>/dev/null || true); \
+	if [ -n "$$BODY" ] && echo "$$BODY" | grep -q "\"vers\":\"$$LEAF_VERSION\""; then \
+	  echo "Dry-running cargo publish for big-code-analysis..."; \
+	  cargo publish -p big-code-analysis --dry-run --locked; \
+	else \
+	  echo "Skipping big-code-analysis dry-run: bca-tree-sitter-ccomment $$LEAF_VERSION not yet on crates.io"; \
+	  echo "(bootstrap state — CI will publish the leaves before the parent on the next release tag)."; \
 	fi
 	@$(MAKE) verify-changelog VERSION=$(VERSION)
 	@echo "release-check passed for $(VERSION)"

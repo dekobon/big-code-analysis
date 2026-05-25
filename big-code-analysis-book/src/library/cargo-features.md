@@ -6,7 +6,7 @@ the default
 
 ```toml
 [dependencies]
-big-code-analysis = "0.0.25"
+big-code-analysis = "1.0.0"
 ```
 
 pulls every grammar in — matching the library's historical
@@ -24,7 +24,7 @@ A downstream service that only analyses Rust and TypeScript:
 
 ```toml
 [dependencies]
-big-code-analysis = { version = "0.0.25", default-features = false, features = ["rust", "typescript"] }
+big-code-analysis = { version = "1.0.0", default-features = false, features = ["rust", "typescript"] }
 ```
 
 The library still compiles, the `LANG` enum still has every
@@ -40,7 +40,7 @@ per-language pipeline depends on).
 | Feature      | Grammar crates pulled in                                                       |
 |--------------|--------------------------------------------------------------------------------|
 | `bash`       | `tree-sitter-bash`                                                             |
-| `cpp`        | `tree-sitter-mozcpp`, `tree-sitter-ccomment`, `tree-sitter-preproc` (covers the `Cpp`, `Ccomment`, and `Preproc` variants) |
+| `cpp`        | `bca-tree-sitter-mozcpp`, `bca-tree-sitter-ccomment`, `bca-tree-sitter-preproc` (covers the `Cpp`, `Ccomment`, and `Preproc` variants) |
 | `csharp`     | `tree-sitter-c-sharp`                                                          |
 | `elixir`     | `tree-sitter-elixir`                                                           |
 | `go`         | `tree-sitter-go`                                                               |
@@ -49,17 +49,22 @@ per-language pipeline depends on).
 | `javascript` | `tree-sitter-javascript`                                                       |
 | `kotlin`     | `tree-sitter-kotlin-ng`                                                        |
 | `lua`        | `tree-sitter-lua`                                                              |
-| `mozjs`      | `tree-sitter-mozjs`                                                            |
+| `mozjs`      | `bca-tree-sitter-mozjs`                                                        |
 | `perl`       | `tree-sitter-perl`                                                             |
 | `php`        | `tree-sitter-php`                                                              |
 | `python`     | `tree-sitter-python`                                                           |
 | `ruby`       | `tree-sitter-ruby`                                                             |
 | `rust`       | `tree-sitter-rust`                                                             |
-| `tcl`        | `tree-sitter-tcl`                                                              |
+| `tcl`        | `bca-tree-sitter-tcl`                                                          |
 | `typescript` | `tree-sitter-typescript` (used by both the `Typescript` and `Tsx` variants)    |
 
 The umbrella `all-languages` feature enables every entry in this
-table.
+table. The `bca-tree-sitter-*` crates are in-tree forks of the
+upstream Mozilla / community grammars; the Rust import path remains
+`tree_sitter_<lang>` regardless. See
+[`RELEASING.md`](https://github.com/dekobon/big-code-analysis/blob/main/RELEASING.md#vendored-tree-sitter-grammar-publishability)
+for the rename rationale and the workspace `package = ...` alias
+trick that keeps consumer call sites unchanged.
 
 ## What happens when a feature is off
 

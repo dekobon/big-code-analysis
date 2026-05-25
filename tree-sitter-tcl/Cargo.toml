@@ -1,11 +1,18 @@
 [package]
-name = "tree-sitter-tcl"
-description = "Tcl grammar for the tree-sitter parsing library"
-version = "1.1.0"
-publish = false
+name = "bca-tree-sitter-tcl"
+description = "Tcl grammar for the tree-sitter parsing library (big-code-analysis fork)"
+version = "1.0.0"
+authors = [
+  "Lewis Russell",
+  "Elijah Zupancic <elijah@zupancic.name>",
+]
+readme = "bindings/rust/README.md"
 keywords = ["incremental", "parsing", "TCL"]
 categories = ["parsing", "text-editors"]
-repository = "https://github.com/tree-sitter-grammars/tree-sitter-tcl"
+repository = "https://github.com/dekobon/big-code-analysis"
+# Upstream grammar this fork is derived from; preserved so the
+# crates.io landing page links back to the source-of-truth grammar.
+homepage = "https://github.com/tree-sitter-grammars/tree-sitter-tcl"
 edition = "2021"
 license = "MIT"
 
@@ -15,9 +22,11 @@ include = [
   "src/grammar.json",
   "src/node-types.json",
   "src/*",
+  "LICENSE",
 ]
 
 [lib]
+name = "tree_sitter_tcl"
 path = "bindings/rust/lib.rs"
 
 [dependencies]

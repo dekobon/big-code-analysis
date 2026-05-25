@@ -18,7 +18,7 @@ The headlines for library consumers:
 - **No value stability before `1.0`.** A grammar pin bump or a
   bug fix in a metric definition can shift any metric value on
   any file in any direction, even across a patch bump. Pin to an
-  exact version (`big-code-analysis = "= 0.0.25"`) if you need
+  exact version (`big-code-analysis = "= 1.0.0"`) if you need
   bit-for-bit reproducibility across runs.
 - **MSRV is `1.94`.** Bumping the MSRV is treated as a minor-bump
   event and is flagged in the changelog under **(breaking)** —

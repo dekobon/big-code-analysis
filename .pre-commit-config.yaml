@@ -80,6 +80,16 @@ repos:
         entry: python3 check-snapshot-anchors.py
         pass_filenames: false
 
+      # Lockstep version invariant — every owned crate and every
+      # `=<v>` internal-dep pin must match the workspace version.
+      # See RELEASING.md "Lockstep version policy".
+      - id: check-versions
+        name: check-versions
+        language: system
+        files: '(Cargo\.toml|/Cargo\.toml|/bindings/rust/README\.md|^README\.md|^STABILITY\.md|big-code-analysis-book/src/library/(quick-start|cargo-features|stability)\.md|check-versions\.py)$'
+        entry: python3 check-versions.py
+        pass_filenames: false
+
       # The `enums/` crate is workspace-excluded, so the workspace
       # clippy/test hooks above never touch it. Add a dedicated check
       # so warnings here cannot drift (see #164).

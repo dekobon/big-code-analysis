@@ -339,6 +339,12 @@ jobs:
       # this check.
       - name: snapshot anchors (explicit)
         run: python3 check-snapshot-anchors.py
+      # Defensive twin to the snapshot-anchors gate above: `make lint`
+      # already invokes check-versions, but pinning it here guarantees
+      # the lockstep version invariant is enforced even if a future
+      # refactor drops it from the aggregate recipe.
+      - name: check-versions (explicit)
+        run: python3 check-versions.py
       # Defensive: the prior `make lint` step already runs enums-check
       # as part of its aggregate. Repeating it here protects against a
       # regression to that aggregate (e.g., enums-check accidentally

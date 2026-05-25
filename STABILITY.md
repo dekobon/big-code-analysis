@@ -1,6 +1,6 @@
 # Stability policy
 
-`big-code-analysis` is currently `0.0.25` — pre-`1.0`. The README is
+`big-code-analysis` is currently `1.0.0`. The README is
 candid that this is "an unapologetic vibe-coded fork that seeks to add
 as many features and functions as fast as possible". This document
 tells library consumers what they can and cannot rely on while we are
@@ -21,7 +21,7 @@ Why patch bumps can move values: a grammar pin bump (any
 `tree-sitter-*` crate in the root `Cargo.toml`) or a regression fix
 in a metric definition is by definition a value change but does not
 necessarily break the API surface. Callers who need bit-for-bit
-reproducibility should pin to an exact version (`= "0.0.25"`).
+reproducibility should pin to an exact version (`= "1.0.0"`).
 
 [semver]: https://semver.org/spec/v2.0.0.html
 
@@ -116,7 +116,7 @@ The following are explicitly **not** part of the shape contract:
   matures.
 
 If you need to compare metric runs across time, pin to an exact
-version (`big-code-analysis = "= 0.0.25"`) and store the version
+version (`big-code-analysis = "= 1.0.0"`) and store the version
 alongside the results. Note that `bca --version` prints the CLI
 binary's own version, not the library version — to record the
 library version from a CLI run, capture it from `Cargo.lock` or

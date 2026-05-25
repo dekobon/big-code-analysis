@@ -1,15 +1,19 @@
-# tree-sitter-mozcpp
+# bca-tree-sitter-mozcpp
 
-This crate provides a Mozcpp grammar for the [tree-sitter][] parsing library. To
-use this crate, add it to the `[dependencies]` section of your `Cargo.toml`
-file.  (Note that you will probably also need to depend on the
-[`tree-sitter`][tree-sitter crate] crate to use the parsed result in any useful
-way.)
+This crate is the `big-code-analysis` fork of `tree-sitter-mozcpp`,
+published under the `bca-tree-sitter-*` namespace so it does not
+collide with the original Mozilla `tree-sitter-mozcpp` on
+crates.io. The Rust import path is preserved as
+`tree_sitter_mozcpp`, so existing code does not change.
+
+To use this crate, add it to the `[dependencies]` section of your
+`Cargo.toml` file. (You will probably also need to depend on the
+[`tree-sitter`][tree-sitter crate] crate to use the parsed result.)
 
 ``` toml
 [dependencies]
-tree-sitter = "0.25.3"
-tree-sitter-mozcpp = "0.20.4"
+tree-sitter = "0.26"
+bca-tree-sitter-mozcpp = "1.0"
 ```
 
 Typically, you will use the [LANGUAGE][] function to add this

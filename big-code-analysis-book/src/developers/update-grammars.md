@@ -48,21 +48,32 @@ Commit your changes and create a new pull request
 Update the version of `tree-sitter-cli` in the `package.json` file of
 the internal grammar and then install the updated version.
 
-Update dependency `version` field in `Cargo.toml` and
-`enums/Cargo.toml`. Below an example for the `tree-sitter-ccomment`
-grammar
+The five vendored grammars publish under the `bca-tree-sitter-*`
+namespace (see `RELEASING.md` for the rename rationale), but consumer
+call sites still reference them as `tree-sitter-<lang>` via Cargo's
+`package = ...` alias. **A grammar refresh does not bump the leaf's
+version on its own** — every crate in this repository shares one
+workspace-wide version, and bumping the leaves out of step with the
+parent is not allowed (see the "Lockstep version policy" in
+`RELEASING.md`). Regenerate the parser tables, accept the resulting
+test-snapshot drift, and ship the change under the current version.
+The next workspace release picks up the new grammars at whatever
+shared version the next tag declares.
+
+If a regeneration also needs an updated `tree-sitter` *runtime*
+dependency, bump the dev-dependency line inside the leaf's
+`Cargo.toml`:
 
 ```toml
-tree-sitter-ccomment = { path = "./tree-sitter-ccomment", version = "=x.xx.x" }
+[dev-dependencies]
+tree-sitter = "=x.x.x"
 ```
 
-where `x` represents a digit.
-
-Open the `Cargo.toml` file of the chosen grammar and:
-
-- Set its version to the **same** value present in the main
-  `Cargo.toml` file
-- Increase the `tree-sitter` version to the most recent one
+Leave `[package] name = "bca-tree-sitter-<lang>"`,
+`[package] version`, and `[lib] name = "tree_sitter_<lang>"`
+untouched — the rename trick in `[lib]` is what keeps Rust import
+paths stable, and the version line is managed by the lockstep
+bump at release time.
 
 Run the appropriate script to update the grammar by recreating and
 refreshing every file and script.

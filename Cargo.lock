@@ -354,10 +354,57 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
+name = "bca-tree-sitter-ccomment"
+version = "1.0.0"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "bca-tree-sitter-mozcpp"
+version = "1.0.0"
+dependencies = [
+ "cc",
+ "tree-sitter-cpp",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "bca-tree-sitter-mozjs"
+version = "1.0.0"
+dependencies = [
+ "cc",
+ "tree-sitter-javascript",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "bca-tree-sitter-preproc"
+version = "1.0.0"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "bca-tree-sitter-tcl"
+version = "1.0.0"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
 name = "big-code-analysis"
-version = "0.0.25"
+version = "1.0.0"
 dependencies = [
  "aho-corasick",
+ "bca-tree-sitter-ccomment",
+ "bca-tree-sitter-mozcpp",
+ "bca-tree-sitter-mozjs",
+ "bca-tree-sitter-preproc",
+ "bca-tree-sitter-tcl",
  "crossbeam",
  "csv",
  "dekobon-tree-sitter-groovy",
@@ -379,29 +426,24 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-bash",
  "tree-sitter-c-sharp",
- "tree-sitter-ccomment",
  "tree-sitter-elixir",
  "tree-sitter-go",
  "tree-sitter-java",
  "tree-sitter-javascript",
  "tree-sitter-kotlin-ng",
  "tree-sitter-lua",
- "tree-sitter-mozcpp",
- "tree-sitter-mozjs",
  "tree-sitter-perl",
  "tree-sitter-php",
- "tree-sitter-preproc",
  "tree-sitter-python",
  "tree-sitter-ruby",
  "tree-sitter-rust",
- "tree-sitter-tcl",
  "tree-sitter-typescript",
  "walkdir",
 ]
 
 [[package]]
 name = "big-code-analysis-cli"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "assert_cmd",
  "big-code-analysis",
@@ -423,7 +465,7 @@ dependencies = [
 
 [[package]]
 name = "big-code-analysis-py"
-version = "0.0.25"
+version = "1.0.0"
 dependencies = [
  "big-code-analysis",
  "pyo3",
@@ -435,7 +477,7 @@ dependencies = [
 
 [[package]]
 name = "big-code-analysis-web"
-version = "0.0.25"
+version = "1.0.0"
 dependencies = [
  "actix-rt",
  "actix-web",
@@ -3052,14 +3094,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tree-sitter-ccomment"
-version = "0.20.3"
-dependencies = [
- "cc",
- "tree-sitter-language",
-]
-
-[[package]]
 name = "tree-sitter-cpp"
 version = "0.23.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3136,24 +3170,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tree-sitter-mozcpp"
-version = "0.20.4"
-dependencies = [
- "cc",
- "tree-sitter-cpp",
- "tree-sitter-language",
-]
-
-[[package]]
-name = "tree-sitter-mozjs"
-version = "0.20.3"
-dependencies = [
- "cc",
- "tree-sitter-javascript",
- "tree-sitter-language",
-]
-
-[[package]]
 name = "tree-sitter-perl"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3169,14 +3185,6 @@ name = "tree-sitter-php"
 version = "0.24.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0d8c17c3ab69052c5eeaa7ff5cd972dd1bc25d1b97ee779fec391ad3b5df5592"
-dependencies = [
- "cc",
- "tree-sitter-language",
-]
-
-[[package]]
-name = "tree-sitter-preproc"
-version = "0.20.3"
 dependencies = [
  "cc",
  "tree-sitter-language",
@@ -3207,14 +3215,6 @@ name = "tree-sitter-rust"
 version = "0.24.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "439e577dbe07423ec2582ac62c7531120dbfccfa6e5f92406f93dd271a120e45"
-dependencies = [
- "cc",
- "tree-sitter-language",
-]
-
-[[package]]
-name = "tree-sitter-tcl"
-version = "1.1.0"
 dependencies = [
  "cc",
  "tree-sitter-language",
@@ -3695,7 +3695,7 @@ checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
 
 [[package]]
 name = "xtask"
-version = "0.0.0"
+version = "1.0.0"
 dependencies = [
  "big-code-analysis-cli",
  "big-code-analysis-web",
