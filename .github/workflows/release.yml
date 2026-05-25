@@ -228,7 +228,11 @@ jobs:
           - { target: aarch64-unknown-linux-gnu,  runner: ubuntu-22.04,   cross: true  }
           - { target: x86_64-unknown-linux-musl,  runner: ubuntu-latest,  cross: true  }
           - { target: aarch64-unknown-linux-musl, runner: ubuntu-latest,  cross: true  }
-          - { target: x86_64-unknown-freebsd,     runner: ubuntu-latest,  cross: true  }
+          # x86_64-unknown-freebsd is intentionally absent. cross v0.2.5's
+          # docker image cannot link the vendored grammars' C++ scanner
+          # code against libcxxrt without a deeper toolchain change. See
+          # #346 — re-add once Option C (vmactions/freebsd-vm native
+          # build) is wired.
           # Intel macOS dropped from prebuilt artefacts (parity with
           # host-identity): GitHub's macos-13 runner pool is chronically
           # oversubscribed (1h+ queue waits), and Apple stopped shipping
@@ -249,7 +253,7 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.target }}
 
-      - name: Install cross (Linux / FreeBSD cross-compile)
+      - name: Install cross (Linux cross-compile)
         if: matrix.cross
         uses: taiki-e/install-action@f48d2f8ba2b452934c948b7be1a768079c3632ff # v2.79.6
         with:
@@ -369,7 +373,7 @@ jobs:
       # processed by the host binutils — `objcopy` fails with "Unable to
       # recognise the format of the input file". `llvm-objcopy` and
       # `llvm-strip` are architecture-agnostic over ELF and handle every
-      # Rust Linux/FreeBSD target from any runner.
+      # Rust Linux target from any runner.
       - name: Install llvm-objcopy (ELF-agnostic strip/objcopy)
         if: ${{ !contains(matrix.target, 'windows') && !contains(matrix.target, 'apple') }}
         run: |
@@ -753,81 +757,8 @@ jobs:
           path: out/apk/**
           if-no-files-found: error
 
-  package-freebsd:
-    name: package FreeBSD .pkg
-    needs: [preflight, build]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          ref: ${{ needs.preflight.outputs.ref }}
-
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: archive-x86_64-unknown-freebsd
-          path: dist
-
-      - name: Render +MANIFEST and ports Makefile
-        env:
-          VERSION: ${{ needs.preflight.outputs.version }}
-        run: |
-          set -eu
-          sed "s|@@VERSION@@|${VERSION}|g" \
-            packaging/freebsd/+MANIFEST.in > +MANIFEST
-          mkdir -p out
-          sed "s|@@VERSION@@|${VERSION}|g" \
-            packaging/freebsd/port/Makefile > "out/freebsd-port-Makefile"
-          cp packaging/freebsd/port/pkg-descr "out/freebsd-port-pkg-descr"
-
-      - name: Build .pkg in FreeBSD VM
-        uses: vmactions/freebsd-vm@d1e65811565151536c0c894fff74f06351ed26e6 # v1.4.5
-        with:
-          release: "14.0"
-          usesh: true
-          prepare: |
-            pkg install -y ca_root_nss
-          run: |
-            set -eu
-            VERSION="${{ needs.preflight.outputs.version }}"
-            STAGE="big-code-analysis-${VERSION}-x86_64-unknown-freebsd"
-            mkdir -p stage/usr/local/bin \
-                     stage/usr/local/share/man/man1 \
-                     stage/usr/local/share/licenses/big-code-analysis
-            tar -xzf "dist/${STAGE}.tar.gz" -C dist
-            install -m 755 "dist/${STAGE}/bca"     stage/usr/local/bin/bca
-            install -m 755 "dist/${STAGE}/bca-web" stage/usr/local/bin/bca-web
-            # FreeBSD's mandoc-derived man infrastructure expects gzipped
-            # pages under share/man/man1. `gzip -9n` strips the original
-            # filename + timestamp so the archive bytes stay reproducible
-            # across re-renders of the same source file.
-            for m in dist/${STAGE}/man/*.1; do
-              base=$(basename "$m")
-              install -m 644 "$m" "stage/usr/local/share/man/man1/${base}"
-              gzip -9n "stage/usr/local/share/man/man1/${base}"
-            done
-            install -m 644 "dist/${STAGE}/LICENSE" \
-              stage/usr/local/share/licenses/big-code-analysis/LICENSE
-            install -m 644 "dist/${STAGE}/THIRD-PARTY-LICENSES-bca.md" \
-              stage/usr/local/share/licenses/big-code-analysis/THIRD-PARTY-LICENSES-bca.md
-            install -m 644 "dist/${STAGE}/THIRD-PARTY-LICENSES-bca-web.md" \
-              stage/usr/local/share/licenses/big-code-analysis/THIRD-PARTY-LICENSES-bca-web.md
-            # pkg's `create -M <manifest> -r <stage>` does not auto-
-            # scan the stage tree — without an explicit plist the
-            # resulting package ends up metadata-only (zero files). A
-            # plist is just a list of package-relative file paths, one
-            # per line; generate it from what we just staged.
-            (cd stage && find . -type f | sed 's|^\./|/|' | sort) > pkg-plist
-            echo "::group::pkg-plist"
-            cat pkg-plist
-            echo "::endgroup::"
-            pkg create -M +MANIFEST -p pkg-plist -r stage -o out
-
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: freebsd-pkg
-          path: out/**
-          if-no-files-found: error
+  # package-freebsd job removed for v1.0.0. See follow-up issue for
+  # FreeBSD support via vmactions/freebsd-vm native build.
 
   # ─── Stage 3 — smoke test (install + run each package) ───────────────
   # aarch64 smoke tests use QEMU user-mode emulation to install/run the
@@ -987,36 +918,7 @@ jobs:
               ls /usr/share/man/man1/bca-metrics.1.gz >/dev/null
             '
 
-  smoke-freebsd:
-    name: smoke FreeBSD .pkg
-    needs: [preflight, package-freebsd]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: freebsd-pkg
-          path: dist
-      - name: Install and run inside FreeBSD 14 VM
-        uses: vmactions/freebsd-vm@d1e65811565151536c0c894fff74f06351ed26e6 # v1.4.5
-        with:
-          release: "14.0"
-          usesh: true
-          run: |
-            set -eux
-            PKG=$(ls dist/*.pkg | head -n1)
-            pkg install -y "$PKG"
-            # Diagnostic: print files the package installed — if any
-            # binary is missing, `pkg info -l` exposes it.
-            pkg info -l big-code-analysis
-            bca --version     | grep -F "${{ needs.preflight.outputs.version }}"
-            bca-web --version | grep -F "${{ needs.preflight.outputs.version }}"
-            test -s /usr/local/share/licenses/big-code-analysis/THIRD-PARTY-LICENSES-bca.md
-            test -s /usr/local/share/licenses/big-code-analysis/THIRD-PARTY-LICENSES-bca-web.md
-            # FreeBSD packaging installs gzipped pages under
-            # /usr/local/share/man/man1 (see the package-freebsd job).
-            test -f /usr/local/share/man/man1/bca.1.gz
-            test -f /usr/local/share/man/man1/bca-web.1.gz
-            test -f /usr/local/share/man/man1/bca-metrics.1.gz
+  # smoke-freebsd job removed for v1.0.0 alongside package-freebsd.
 
   smoke-macos:
     name: smoke macOS tarball (${{ matrix.runner }})
@@ -1125,11 +1027,9 @@ jobs:
       - package-deb
       - package-rpm
       - package-apk
-      - package-freebsd
       - smoke-deb
       - smoke-rpm
       - smoke-apk
-      - smoke-freebsd
       - smoke-macos
       - smoke-windows
     runs-on: ubuntu-latest
@@ -1268,8 +1168,6 @@ jobs:
             release/SHA256SUMS
             release/SHA256SUMS.minisig
             release/APKBUILD.*
-            release/freebsd-port-Makefile
-            release/freebsd-port-pkg-descr
 
       - name: Compute tap/bucket SHA-256s
         if: needs.preflight.outputs.prerelease != 'true'
