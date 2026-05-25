@@ -99,14 +99,19 @@ struct XmlAttr<'a>(&'a str);
 
 impl std::fmt::Display for XmlAttr<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use std::fmt::Write as _;
+        // Unify every per-char escape behind a single `f.write_str` so the
+        // `?` operator fires once per iteration instead of once per arm —
+        // each `?` is a counted exit (see issue #357 P0). The 4-byte
+        // stack buffer covers every UTF-8 scalar; `encode_utf8` borrows
+        // from it for the default arm so all arms unify as `&str`.
+        let mut buf = [0u8; 4];
         for ch in self.0.chars() {
-            match ch {
-                '&' => f.write_str("&amp;")?,
-                '<' => f.write_str("&lt;")?,
-                '>' => f.write_str("&gt;")?,
-                '"' => f.write_str("&quot;")?,
-                '\'' => f.write_str("&apos;")?,
+            let escaped: &str = match ch {
+                '&' => "&amp;",
+                '<' => "&lt;",
+                '>' => "&gt;",
+                '"' => "&quot;",
+                '\'' => "&apos;",
                 // XML 1.0 §3.3.3 mandates attribute-value normalization:
                 // a conforming parser collapses literal TAB / LF / CR
                 // bytes inside an attribute value to a single space on
@@ -114,12 +119,13 @@ impl std::fmt::Display for XmlAttr<'_> {
                 // paths may contain newlines, and future message
                 // templates may span lines), emit numeric character
                 // references — they are exempt from normalization.
-                '\t' => f.write_str("&#x9;")?,
-                '\n' => f.write_str("&#xA;")?,
-                '\r' => f.write_str("&#xD;")?,
-                c if (c as u32) < 0x20 => f.write_char('?')?,
-                c => f.write_char(c)?,
-            }
+                '\t' => "&#x9;",
+                '\n' => "&#xA;",
+                '\r' => "&#xD;",
+                c if (c as u32) < 0x20 => "?",
+                c => c.encode_utf8(&mut buf),
+            };
+            f.write_str(escaped)?;
         }
         Ok(())
     }

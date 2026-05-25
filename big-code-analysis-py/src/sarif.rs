@@ -478,14 +478,31 @@ fn collect_offenders(
 /// match the CLI's `bca check -O sarif` byte-for-byte.
 #[pyfunction]
 #[pyo3(signature = (result, /, *, thresholds = None))]
+
 pub(crate) fn to_sarif(
     py: Python<'_>,
     result: &Bound<'_, PyAny>,
     thresholds: Option<&Bound<'_, PyDict>>,
 ) -> PyResult<String> {
+    let offenders = collect_offenders_for_input(result, thresholds)?;
+    render(py, &offenders)
+}
+
+fn collect_offenders_for_input(
+    result: &Bound<'_, PyAny>,
+    thresholds: Option<&Bound<'_, PyDict>>,
+) -> PyResult<Vec<OffenderRecord>> {
     let thresholds = resolve_thresholds(thresholds)?;
     let mut offenders: Vec<OffenderRecord> = Vec::new();
+    dispatch_by_input_kind(result, &thresholds, &mut offenders)?;
+    Ok(offenders)
+}
 
+fn dispatch_by_input_kind(
+    result: &Bound<'_, PyAny>,
+    thresholds: &[Threshold],
+    offenders: &mut Vec<OffenderRecord>,
+) -> PyResult<()> {
     // Scalar `None` — symmetric with the iterable arm's silent-skip
     // contract below. `analyze()` returns `None` for generated files
     // (the documented default), so the natural single-call pattern
@@ -494,66 +511,80 @@ pub(crate) fn to_sarif(
     // iterable`. Issue #341 closed the list-comprehension form; this
     // closes the scalar form so both compose with `analyze()`.
     if result.is_none() {
-        return render(py, &offenders);
+        return Ok(());
     }
-
     // Single dict — accept as a result without forcing the caller to
     // wrap it in a list.
     if let Ok(dict) = result.clone().cast_into::<PyDict>() {
-        collect_offenders(&dict, &thresholds, &mut offenders)?;
-        return render(py, &offenders);
+        return collect_offenders(&dict, thresholds, offenders);
     }
+    // Reject Mapping-but-not-dict and `str` early with clear errors —
+    // see [`mapping_or_str_error`] for the rationale on each branch.
+    if let Some(err) = mapping_or_str_error(result) {
+        return Err(err);
+    }
+    collect_offenders_from_iter(result, thresholds, offenders)
+}
 
-    // Reject Mapping-but-not-dict (e.g. `types.MappingProxyType`) with
-    // a clear error. Without this branch the value would fall through
-    // to the iterable path, iterate dict keys as strings, and fail the
-    // per-item dict cast with a confusing "got str" — see Phase-3
-    // review.
+/// Return a `TypeError` for the two iterable-shaped inputs that would
+/// otherwise yield confusing per-item failures: `Mapping`s that are
+/// not `dict` (e.g. `types.MappingProxyType`) iterate as keys, and
+/// `str` iterates as one-character substrings. Both fall through the
+/// iterable path to a masked "got str" error from the per-item dict
+/// cast unless caught here.
+fn mapping_or_str_error(result: &Bound<'_, PyAny>) -> Option<PyErr> {
     if result.cast::<PyMapping>().is_ok() {
-        return Err(PyTypeError::new_err(concat!(
+        return Some(PyTypeError::new_err(concat!(
             "to_sarif: result must be a plain dict ",
             "(got a Mapping that is not a dict — pass `dict(mapping)` ",
             "if you need to wrap a MappingProxyType or similar)",
         )));
     }
-
-    // Reject `str` / `bytes` explicitly: they ARE iterable in Python
-    // and would otherwise yield one-character/byte items that fail
-    // the dict downcast with a confusing message.
     if result.is_instance_of::<PyString>() {
-        return Err(PyTypeError::new_err(
+        return Some(PyTypeError::new_err(
             "to_sarif: result must be a dict or an iterable of dicts, not str",
         ));
     }
+    None
+}
 
-    // Iterable path. `try_iter()` errors if the value is not iterable
-    // — let that propagate to the caller as a `TypeError`. Per the
-    // documented contract, `AnalysisError` entries are skipped
-    // silently (they represent files we couldn't analyse) and `None`
-    // entries are likewise skipped (the documented return of
-    // :func:`analyze` for generated files — issue #341); anything
-    // else that isn't a dict is a programmer error.
+fn collect_offenders_from_iter(
+    result: &Bound<'_, PyAny>,
+    thresholds: &[Threshold],
+    offenders: &mut Vec<OffenderRecord>,
+) -> PyResult<()> {
+    // `try_iter()` errors if the value is not iterable — let that
+    // propagate to the caller as a `TypeError`. Per the documented
+    // contract, `AnalysisError` entries are skipped silently (they
+    // represent files we couldn't analyse) and `None` entries are
+    // likewise skipped (the documented return of :func:`analyze` for
+    // generated files — issue #341); anything else that isn't a dict
+    // is a programmer error.
     for item in result.try_iter()? {
         let item = item?;
         if item.is_none() || item.is_instance_of::<PyAnalysisError>() {
             continue;
         }
-        let Ok(dict) = item.clone().cast_into::<PyDict>() else {
-            // `get_type().name()` can itself fail on objects with a
-            // broken `__class__` — fall back to a literal placeholder
-            // so the caller still sees a clear "wrong type" error
-            // instead of the masked introspection error.
-            let type_name = item
-                .get_type()
-                .name()
-                .map_or_else(|_| "<unknown type>".to_string(), |n| n.to_string());
-            return Err(PyTypeError::new_err(format!(
-                "to_sarif expected a result dict, AnalysisError, or None, got {type_name}"
-            )));
-        };
-        collect_offenders(&dict, &thresholds, &mut offenders)?;
+        let dict = cast_iter_item_to_dict(&item)?;
+        collect_offenders(&dict, thresholds, offenders)?;
     }
-    render(py, &offenders)
+    Ok(())
+}
+
+fn cast_iter_item_to_dict<'py>(item: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyDict>> {
+    item.clone().cast_into::<PyDict>().map_err(|_| {
+        // `get_type().name()` can itself fail on objects with a broken
+        // `__class__` — fall back to a literal placeholder so the
+        // caller still sees a clear "wrong type" error instead of the
+        // masked introspection error.
+        let type_name = item
+            .get_type()
+            .name()
+            .map_or_else(|_| "<unknown type>".to_string(), |n| n.to_string());
+        PyTypeError::new_err(format!(
+            "to_sarif expected a result dict, AnalysisError, or None, got {type_name}"
+        ))
+    })
 }
 
 fn render(py: Python<'_>, offenders: &[OffenderRecord]) -> PyResult<String> {
