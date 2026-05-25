@@ -529,9 +529,11 @@ mod tests {
     #[actix_rt::test]
     async fn test_web_ast() {
         let app = test::init_service(
-            App::new()
-                .app_data(test_config())
-                .service(web::resource("/ast").route(web::post().to(ast_parser))),
+            App::new().app_data(test_config()).service(
+                web::resource("/ast")
+                    .guard(guard::Header("content-type", "application/json"))
+                    .route(web::post().to(ast_parser)),
+            ),
         )
         .await;
         let req = test::TestRequest::post()
@@ -618,9 +620,11 @@ mod tests {
     #[actix_rt::test]
     async fn test_web_ast_string() {
         let app = test::init_service(
-            App::new()
-                .app_data(test_config())
-                .service(web::resource("/ast").route(web::post().to(ast_parser))),
+            App::new().app_data(test_config()).service(
+                web::resource("/ast")
+                    .guard(guard::Header("content-type", "application/json"))
+                    .route(web::post().to(ast_parser)),
+            ),
         )
         .await;
         let req = test::TestRequest::post()
@@ -685,9 +689,11 @@ mod tests {
     #[actix_rt::test]
     async fn test_web_comment_json() {
         let app = test::init_service(
-            App::new()
-                .app_data(test_config())
-                .service(web::resource("/comment").route(web::post().to(comment_removal_json))),
+            App::new().app_data(test_config()).service(
+                web::resource("/comment")
+                    .guard(guard::Header("content-type", "application/json"))
+                    .route(web::post().to(comment_removal_json)),
+            ),
         )
         .await;
         let req = test::TestRequest::post()
@@ -711,9 +717,11 @@ mod tests {
     #[actix_rt::test]
     async fn test_web_comment_json_invalid() {
         let app = test::init_service(
-            App::new()
-                .app_data(test_config())
-                .service(web::resource("/comment").route(web::post().to(comment_removal_json))),
+            App::new().app_data(test_config()).service(
+                web::resource("/comment")
+                    .guard(guard::Header("content-type", "application/json"))
+                    .route(web::post().to(comment_removal_json)),
+            ),
         )
         .await;
         let req = test::TestRequest::post()
@@ -737,9 +745,11 @@ mod tests {
     #[actix_rt::test]
     async fn test_web_comment_json_no_comment() {
         let app = test::init_service(
-            App::new()
-                .app_data(test_config())
-                .service(web::resource("/comment").route(web::post().to(comment_removal_json))),
+            App::new().app_data(test_config()).service(
+                web::resource("/comment")
+                    .guard(guard::Header("content-type", "application/json"))
+                    .route(web::post().to(comment_removal_json)),
+            ),
         )
         .await;
         let req = test::TestRequest::post()
@@ -920,9 +930,11 @@ mod tests {
     #[actix_rt::test]
     async fn test_web_metrics_json() {
         let app = test::init_service(
-            App::new()
-                .app_data(test_config())
-                .service(web::resource("/metrics").route(web::post().to(metrics_json))),
+            App::new().app_data(test_config()).service(
+                web::resource("/metrics")
+                    .guard(guard::Header("content-type", "application/json"))
+                    .route(web::post().to(metrics_json)),
+            ),
         )
         .await;
         let req = test::TestRequest::post()
@@ -1007,9 +1019,11 @@ mod tests {
     #[actix_rt::test]
     async fn test_web_metrics_json_unit() {
         let app = test::init_service(
-            App::new()
-                .app_data(test_config())
-                .service(web::resource("/metrics").route(web::post().to(metrics_json))),
+            App::new().app_data(test_config()).service(
+                web::resource("/metrics")
+                    .guard(guard::Header("content-type", "application/json"))
+                    .route(web::post().to(metrics_json)),
+            ),
         )
         .await;
         let req = test::TestRequest::post()
@@ -1174,9 +1188,11 @@ mod tests {
     #[actix_rt::test]
     async fn test_web_function_json() {
         let app = test::init_service(
-            App::new()
-                .app_data(test_config())
-                .service(web::resource("/function").route(web::post().to(function_json))),
+            App::new().app_data(test_config()).service(
+                web::resource("/function")
+                    .guard(guard::Header("content-type", "application/json"))
+                    .route(web::post().to(function_json)),
+            ),
         )
         .await;
         let req = test::TestRequest::post()
