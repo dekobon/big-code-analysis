@@ -72,6 +72,42 @@ def _cli_check_sarif(bca_path: str, path: Path, *, threshold: str) -> dict[str, 
 # ─────────────────────────────────────────────────────────────────
 
 
+def _expected_sarif_uri(path: Path) -> str:
+    """Mirror ``path_to_uri_reference`` in ``src/output/sarif.rs``.
+
+    SARIF ``artifactLocation.uri`` is an RFC 3986 URI reference, so
+    the writer percent-encodes characters outside the URI unreserved
+    set, normalises backslashes to ``/``, and wraps absolute Windows
+    drive paths in ``file:///``. The bindings hand their offender
+    paths to the same writer, so the test-side expectation needs the
+    matching transformation.
+    """
+    raw = str(path)
+    # Detect a Windows-style drive prefix (`C:\...` or `C:/...`).
+    drive_abs = (
+        len(raw) >= 2
+        and raw[0].isascii()
+        and raw[0].isalpha()
+        and raw[1] == ":"
+        and (len(raw) == 2 or raw[2] in ("\\", "/"))
+    )
+    out: list[str] = []
+    if drive_abs:
+        out.append("file:///")
+    unreserved = (
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~/:@"
+    )
+    for ch in raw:
+        if ch == "\\":
+            out.append("/")
+        elif ch in unreserved:
+            out.append(ch)
+        else:
+            for byte in ch.encode("utf-8"):
+                out.append(f"%{byte:02X}")
+    return "".join(out)
+
+
 def _parse(doc: str) -> dict[str, Any]:
     """Parse a SARIF string and pin the top-level invariants."""
     assert isinstance(doc, str), f"to_sarif must return str, got {type(doc).__name__}"
@@ -248,7 +284,9 @@ def test_to_sarif_filters_analysis_errors_silently(tmp_path: Path) -> None:
         f"expected one finding from ok.py (errors skipped, dict kept), got {findings!r}"
     )
     assert findings[0]["ruleId"] == "cyclomatic"
-    assert findings[0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] == str(ok)
+    assert findings[0]["locations"][0]["physicalLocation"]["artifactLocation"][
+        "uri"
+    ] == _expected_sarif_uri(ok)
 
 
 def test_to_sarif_does_not_raise_on_pure_analysis_error_input(

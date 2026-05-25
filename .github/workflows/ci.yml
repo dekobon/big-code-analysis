@@ -297,7 +297,24 @@ jobs:
         run: npm install -g markdownlint-cli2@0.18.1
       - uses: taiki-e/install-action@f48d2f8ba2b452934c948b7be1a768079c3632ff # v2.79.6
         with:
-          tool: taplo-cli@0.10.0,shellcheck@0.10.0,shfmt@3.12.0,actionlint@1.7.12
+          tool: taplo-cli@0.10.0,shellcheck@0.10.0,shfmt@3.12.0
+      # actionlint 1.7.12's prebuilt binary is not yet in
+      # taiki-e/install-action's manifest, and cargo-binstall has no
+      # fallback for it. Fetch the upstream release tarball directly,
+      # mirroring the checkmake step below. Bump SHA256 in lockstep
+      # with `ACTIONLINT_VERSION`.
+      - name: Install actionlint
+        env:
+          ACTIONLINT_VERSION: "1.7.12"
+          ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+        run: |
+          set -euo pipefail
+          url="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL -o /tmp/actionlint.tgz "$url"
+          echo "${ACTIONLINT_SHA256}  /tmp/actionlint.tgz" | sha256sum -c -
+          tar -xzf /tmp/actionlint.tgz -C /tmp actionlint
+          install -m 0755 /tmp/actionlint /usr/local/bin/actionlint
+          actionlint -version
       # checkmake is not in taiki-e/install-action's manifest; fetch the
       # pinned upstream release binary directly. The SHA256 below comes
       # from the upstream `checksums.txt` published alongside the
