@@ -230,7 +230,8 @@ Secrets**:
 
 The two PATs need write access to
 `dekobon/homebrew-tap` (shared tap; the workflow only touches
-`Formula/big-code-analysis.rb`) and `dekobon/scoop-big-code-analysis`
+`Formula/big-code-analysis.rb`) and `dekobon/scoop-bucket` (shared
+bucket; the workflow only touches `bucket/big-code-analysis.json`)
 respectively.
 
 crates.io authentication uses
@@ -267,7 +268,9 @@ Stable releases push to (subject to the gating variables above):
 - `dekobon/homebrew-tap` — shared Homebrew tap; the release workflow
   commits only `Formula/big-code-analysis.rb` and leaves the other
   formulae in the tap untouched.
-- `dekobon/scoop-big-code-analysis` — Scoop bucket.
+- `dekobon/scoop-bucket` — shared Scoop bucket; the release workflow
+  commits only `bucket/big-code-analysis.json` and leaves the other
+  manifests in the bucket untouched.
 - crates.io — `big-code-analysis` (library) followed by
   `big-code-analysis-cli` and `big-code-analysis-web`.
 
@@ -516,7 +519,8 @@ once the corresponding gating variable is on):
 
 - Homebrew tap: new commit on `dekobon/homebrew-tap` touching
   `Formula/big-code-analysis.rb`.
-- Scoop bucket: new commit on `dekobon/scoop-big-code-analysis`.
+- Scoop bucket: new commit on `dekobon/scoop-bucket` touching
+  `bucket/big-code-analysis.json`.
 
 ## Post-public-release checklist
 
@@ -537,8 +541,11 @@ turns into a foot-gun on the *next* release.
       it. The release workflow appends `Formula/big-code-analysis.rb`
       to that tap alongside the other formulae; no dedicated tap repo
       is required.
-- [ ] **Scoop bucket repo created.** Create
-      `dekobon/scoop-big-code-analysis`. Same caveat.
+- [ ] **Shared Scoop bucket reachable.** Confirm
+      `dekobon/scoop-bucket` exists and the configured PAT can push
+      to it. The release workflow appends
+      `bucket/big-code-analysis.json` alongside the other manifests;
+      no dedicated bucket repo is required.
 - [ ] **Fine-grained PATs minted and stored.** Generate
       `HOMEBREW_TAP_TOKEN` and `SCOOP_BUCKET_TOKEN` as fine-grained
       PATs scoped to the tap and bucket repos respectively, with

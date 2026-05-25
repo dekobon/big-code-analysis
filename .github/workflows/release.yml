@@ -1354,7 +1354,7 @@ jobs:
             echo "SCOOP_BUCKET_TOKEN not set — skipping bucket push"
             exit 0
           fi
-          REPO="https://github.com/dekobon/scoop-big-code-analysis.git"
+          REPO="https://github.com/dekobon/scoop-bucket.git"
           AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$SCOOP_BUCKET_TOKEN" | base64 -w0)"
           if ! git -c "http.extraheader=$AUTH_HEADER" ls-remote "$REPO" &>/dev/null; then
             echo "::warning::bucket repo $REPO not reachable — skipping bucket push"

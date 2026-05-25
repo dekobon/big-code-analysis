@@ -19,7 +19,7 @@ workflow substitutes at build time:
 | `freebsd/+MANIFEST.in`                        | `pkg create -M` in Stage 2            |
 | `freebsd/port/`                               | Published as-is for ports-tree PRs    |
 | `homebrew/big-code-analysis.rb.tmpl`          | Pushed to `dekobon/homebrew-tap` (shared tap) |
-| `scoop/big-code-analysis.json.in`             | Pushed to `scoop-big-code-analysis`   |
+| `scoop/big-code-analysis.json.in`             | Pushed to `dekobon/scoop-bucket` (shared bucket) |
 
 Each format installs **both** `bca` (CLI) and `bca-web` (REST server)
 side-by-side. The deb and rpm jobs in `release.yml` split into two
