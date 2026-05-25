@@ -27,6 +27,21 @@ This tool can be used to:
 
 In addition, we provide a **bca-web** tool to use the library through a REST API.
 
+## Live example reports
+
+`bca` runs against its own source on every push to `main` and publishes
+the result alongside the documentation:
+
+- HTML hotspot report:
+  <https://dekobon.github.io/big-code-analysis/reports/index.html>
+- Markdown PR/MR comment:
+  <https://dekobon.github.io/big-code-analysis/reports/report.md>
+
+The wiring lives in
+[`.github/workflows/pages.yml`](.github/workflows/pages.yml); see the
+book's [CI integration recipe](https://dekobon.github.io/big-code-analysis/recipes/ci.html)
+for adapting it to your own project.
+
 ## Usage
 
 **big-code-analysis** supports many types of programming languages and

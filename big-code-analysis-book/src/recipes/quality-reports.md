@@ -8,6 +8,24 @@ Recipes for producing aggregated, human-readable Markdown reports.
 > and surface threshold violations through the platform's native code
 > quality widgets.
 
+## Live example reports
+
+`big-code-analysis` publishes the output of `bca report markdown` and
+`bca report html` against its own source tree on every push to `main`.
+Open either to see exactly what the recipes on this page produce on a
+multi-language Rust + Python codebase:
+
+- HTML hotspot report (sortable tables, per-language sections):
+  <https://dekobon.github.io/big-code-analysis/reports/index.html>
+- Markdown PR/MR comment (paste-into-issue ready):
+  <https://dekobon.github.io/big-code-analysis/reports/report.md>
+
+The wiring that produces them lives in
+[`.github/workflows/pages.yml`](https://github.com/dekobon/big-code-analysis/blob/main/.github/workflows/pages.yml).
+The same workflow runs the threshold gate; see
+[CI integration](ci.md#live-worked-example) for the full pipeline
+shape.
+
 ## Generate a project-wide quality report
 
 Run from the project root and write the report to a file:

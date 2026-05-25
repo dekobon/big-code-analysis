@@ -443,3 +443,77 @@ pub fn outer() -> i32 {
         "expected nested function to be reported; stderr was:\n{stderr}",
     );
 }
+
+// ─── argv shape contract ─────────────────────────────────────────────
+//
+// `--exclude` is a global variadic option (`num_args(0..)`) on the
+// root command. clap collects every positional that follows it,
+// including the subcommand token, until it sees the next flag. Without
+// a separating flag between the exclude list and the subcommand, the
+// subcommand is silently consumed as another exclude glob.
+//
+// CI relies on `--num-jobs "$(nproc)"` (or any non-variadic flag)
+// being interposed between `--exclude …` and `check`. The two tests
+// below pin both directions of that contract:
+//
+//  * `check_subcommand_swallowed_by_variadic_exclude` is the negative
+//    pin — if clap or our argv shape ever changes so that the
+//    subcommand IS recognised after a bare variadic, this test fails
+//    and we can safely simplify the workflow defence.
+//  * `check_runs_with_num_jobs_separator` is the positive pin — the
+//    exact argv shape `.github/workflows/pages.yml` uses must keep
+//    working.
+
+#[test]
+fn check_subcommand_swallowed_by_variadic_exclude() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
+
+    // No separator between `--exclude` values and `check`. clap eats
+    // `check` as one more glob, then errors because no subcommand was
+    // ever provided.
+    let assert = cli()
+        .args([
+            "--paths",
+            &path,
+            "--exclude",
+            "./nothing/**",
+            "check",
+            "--threshold",
+            "cyclomatic=10",
+        ])
+        .assert()
+        // Exit 2 is clap's parser-error code (see clap_builder::error).
+        .code(2);
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
+    assert!(
+        stderr.contains("<COMMAND>"),
+        "expected clap to complain that <COMMAND> is missing (because \
+         `check` was consumed by --exclude); stderr was:\n{stderr}",
+    );
+}
+
+#[test]
+fn check_runs_with_num_jobs_separator() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
+
+    // `--num-jobs` is a non-variadic flag; placing it between the
+    // exclude list and the subcommand terminates the variadic and lets
+    // clap recognise `check`. This is the exact argv shape the Pages
+    // workflow uses.
+    cli()
+        .args([
+            "--paths",
+            &path,
+            "--exclude",
+            "./nothing/**",
+            "--num-jobs",
+            "1",
+            "check",
+            "--threshold",
+            "cyclomatic=10",
+        ])
+        .assert()
+        .success();
+}

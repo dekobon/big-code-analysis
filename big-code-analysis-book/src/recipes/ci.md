@@ -42,6 +42,23 @@ the [Quality reports recipe](quality-reports.md).
 
 ## GitHub Actions
 
+### Live worked example
+
+`big-code-analysis` runs the recipes below against its own source on
+every push and PR. The workflow source —
+[`.github/workflows/pages.yml`](https://github.com/dekobon/big-code-analysis/blob/main/.github/workflows/pages.yml) —
+exercises the GitHub-Releases install path, the cache, the
+baseline-ratcheted gate, and both report formats. The output sits on
+GitHub Pages alongside this book:
+
+- HTML hotspot report:
+  <https://dekobon.github.io/big-code-analysis/reports/index.html>
+- Markdown PR/MR comment:
+  <https://dekobon.github.io/big-code-analysis/reports/report.md>
+
+Copy snippets below straight into your own workflow; the `bca` version
+quoted is the latest published release at the time of writing.
+
 ### Threshold gate, SARIF, and clang-warning matcher
 
 The three pre-existing recipes — hard threshold gate, SARIF upload to
@@ -50,44 +67,109 @@ annotations — live in the
 [Check command page](../commands/check.md#ci-example-github-actions).
 Use the link rather than re-implementing them here.
 
-### Caching the `cargo install` of `bca`
+### Installing `bca` from a GitHub Release (recommended)
 
-Compiling `bca` from source on every push wastes minutes. Two options
-keep the install path fast and reproducible:
+The fastest, most reproducible install path is the prebuilt tarball
+from this repository's [GitHub Releases](https://github.com/dekobon/big-code-analysis/releases).
+It is a single `curl | sha256sum | tar`, requires no Rust toolchain,
+and produces byte-identical binaries across runs. Pair it with
+[`actions/cache`](https://github.com/actions/cache) keyed by version
+so a green-path rerun skips the download entirely:
 
 ```yaml
-# Option 1: prebuilt binaries via taiki-e/install-action
+env:
+  BCA_VERSION: "1.0.0"
+  BCA_TARGET:  "x86_64-unknown-linux-gnu"
+  # sha256 of big-code-analysis-${BCA_VERSION}-${BCA_TARGET}.tar.gz from the
+  # release's SHA256SUMS file. Bump together with BCA_VERSION.
+  BCA_SHA256:  "b974b16c52d3295aeec0a0fc0de381025c55194dbdbe72a75cede91120470797"
+
+steps:
+  # Cache key MUST include BCA_SHA256 (and BCA_TARGET). Without the
+  # sha256 in the key, rotating the published checksum without bumping
+  # the version returns a stale binary on cache hit and silently
+  # bypasses the `sha256sum --check` in the install step (which is
+  # gated on cache miss). Including BCA_TARGET matters when the same
+  # workflow runs against multiple `runs-on`.
+  - name: Cache bca binary
+    id: bca-cache
+    uses: actions/cache@v5
+    with:
+      path: ~/.local/bin/bca
+      key: bca-${{ runner.os }}-${{ env.BCA_TARGET }}-${{ env.BCA_VERSION }}-${{ env.BCA_SHA256 }}
+
+  - name: Install bca from GitHub Releases
+    if: steps.bca-cache.outputs.cache-hit != 'true'
+    run: |
+      set -euo pipefail
+      stage="big-code-analysis-${BCA_VERSION}-${BCA_TARGET}"
+      tarball="${stage}.tar.gz"
+      url="https://github.com/dekobon/big-code-analysis/releases/download/v${BCA_VERSION}/${tarball}"
+      mkdir -p "$HOME/.local/bin"
+      curl -fsSL --proto '=https' --tlsv1.2 -o "/tmp/${tarball}" "$url"
+      echo "${BCA_SHA256}  /tmp/${tarball}" | sha256sum --check --strict -
+      tar -xzf "/tmp/${tarball}" -C /tmp
+      install -m 0755 "/tmp/${stage}/bca" "$HOME/.local/bin/bca"
+      rm -rf "/tmp/${tarball}" "/tmp/${stage}"
+
+  - name: Prepend ~/.local/bin to PATH
+    run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+```
+
+Available `BCA_TARGET` values (pick the one that matches `runs-on`):
+`x86_64-unknown-linux-gnu`, `x86_64-unknown-linux-musl`,
+`aarch64-unknown-linux-gnu`, `aarch64-unknown-linux-musl`,
+`aarch64-apple-darwin`, `x86_64-pc-windows-msvc`,
+`aarch64-pc-windows-msvc`. Windows assets use `.zip` instead of
+`.tar.gz`; the `bca-web` binary ships alongside `bca` in the same
+archive.
+
+### Alternative: `cargo install` via prebuilt-aware actions
+
+When you cannot reach `github.com` from a runner (air-gapped, custom
+mirror) but can reach crates.io, the following two actions fall back
+transparently to `cargo install` when no prebuilt is published — at
+the cost of compile time on the cold path. Both pin to the same
+crates.io release as the GitHub Releases assets:
+
+```yaml
+# Option 1: taiki-e/install-action
 - name: Install bca
   uses: taiki-e/install-action@v2
   with:
-    tool: big-code-analysis-cli@<VERSION>
+    tool: big-code-analysis-cli@1.0.0
 ```
 
 ```yaml
-# Option 2: cargo-binstall, which falls back to source build if no
-# prebuilt artifact is published for the requested version
+# Option 2: cargo-binstall
 - name: Install cargo-binstall
   uses: cargo-bins/cargo-binstall@main
 - name: Install bca
-  run: cargo binstall --no-confirm big-code-analysis-cli --version <VERSION>
+  run: cargo binstall --no-confirm big-code-analysis-cli --version 1.0.0
 ```
 
-Pin to a specific `<VERSION>` (the published `big-code-analysis-cli`
-crate version on crates.io) so reports stay reproducible across
-runs. If a prebuilt binary is not yet published for your platform,
-both actions transparently fall back to `cargo install`, which is
-where the cargo registry cache earns its keep:
+If either action falls back to compilation, cache the cargo registry +
+the installed binary so the second run is fast:
 
 ```yaml
 - name: Cache cargo registry and bca binary
-  uses: actions/cache@v4
+  uses: actions/cache@v5
   with:
     path: |
       ~/.cargo/registry
       ~/.cargo/git
       ~/.cargo/bin/bca
-    key: bca-${{ runner.os }}-<VERSION>
+    # crates.io publishes immutable releases, so a `<version>` key is
+    # sufficient here — there is no sha256 to rotate. (The GitHub
+    # Releases install path above is different: republished release
+    # assets share a version, so its cache key must include the sha256.)
+    key: bca-${{ runner.os }}-1.0.0
 ```
+
+Pin to a specific version (matching a published
+`big-code-analysis-cli` release on crates.io) so reports stay
+reproducible across runs. A floating install surfaces
+metric-counting changes as "mysterious CI flakes" on Mondays.
 
 ### Posting the Markdown report as a PR comment
 
@@ -112,7 +194,7 @@ jobs:
       - name: Install bca
         uses: taiki-e/install-action@v2
         with:
-          tool: big-code-analysis-cli@<VERSION>
+          tool: big-code-analysis-cli@1.0.0
       - name: Generate report
         run: |
           bca \
@@ -130,7 +212,7 @@ jobs:
 ```
 
 The same Markdown file is suitable for upload as a build artifact
-(`actions/upload-artifact@v4`) if you want it downloadable from the
+(`actions/upload-artifact@v7`) if you want it downloadable from the
 workflow run page in addition to the PR comment.
 
 ### Baseline / ratchet pattern
@@ -147,6 +229,21 @@ bca --paths src/ check \
     --write-baseline .bca-baseline.toml
 git add bca-thresholds.toml .bca-baseline.toml
 ```
+
+> **Path-style stickiness.** Baseline entries are keyed by the exact
+> path string bca emits at write time. `--paths src/` records
+> `src/foo.rs`, `--paths .` records `./src/foo.rs`, and
+> `--paths "$PWD"` records the absolute path. The subsequent
+> `bca check --baseline` MUST use the same `--paths` form, or every
+> entry mismatches and the gate fails on every existing offender.
+> Pick one form and apply it consistently in CI and in the bootstrap
+> command.
+
+This snippet bootstraps from `src/` only — appropriate for a
+single-crate library. For a multi-crate workspace, see the
+[live worked example](#live-worked-example): its `.github/workflows/pages.yml`
+scans the entire repo with an explicit `--exclude` list for vendored
+grammars, generated trees, and tests.
 
 ```yaml
 - name: Threshold check with baseline
@@ -230,13 +327,38 @@ stages:
   - quality
 
 variables:
-  BCA_VERSION: "<VERSION>"  # pin a published big-code-analysis-cli release
+  BCA_VERSION: "1.0.0"  # pin a published big-code-analysis-cli release
+  BCA_TARGET:  "x86_64-unknown-linux-gnu"
+  # sha256 of big-code-analysis-${BCA_VERSION}-${BCA_TARGET}.tar.gz from
+  # the release's SHA256SUMS file. Bump together with BCA_VERSION.
+  BCA_SHA256:  "b974b16c52d3295aeec0a0fc0de381025c55194dbdbe72a75cede91120470797"
 
 bca-quality:
   stage: quality
-  image: rust:1-slim
+  image: debian:stable-slim
+  cache:
+    # Same key shape as the GitHub Actions snippet — bumping
+    # BCA_VERSION invalidates the cache automatically.
+    key: "bca-$BCA_VERSION"
+    paths:
+      - .cache/bca/
   before_script:
-    - cargo install big-code-analysis-cli --version "$BCA_VERSION" --locked
+    - apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates curl tar
+    - |
+      set -euo pipefail
+      install -d "$CI_PROJECT_DIR/.cache/bca" "$HOME/.local/bin"
+      if [ ! -x "$CI_PROJECT_DIR/.cache/bca/bca" ]; then
+        stage="big-code-analysis-${BCA_VERSION}-${BCA_TARGET}"
+        tarball="${stage}.tar.gz"
+        url="https://github.com/dekobon/big-code-analysis/releases/download/v${BCA_VERSION}/${tarball}"
+        curl -fsSL --proto '=https' --tlsv1.2 -o "/tmp/${tarball}" "$url"
+        echo "${BCA_SHA256}  /tmp/${tarball}" | sha256sum --check --strict -
+        tar -xzf "/tmp/${tarball}" -C /tmp
+        install -m 0755 "/tmp/${stage}/bca" "$CI_PROJECT_DIR/.cache/bca/bca"
+        rm -rf "/tmp/${tarball}" "/tmp/${stage}"
+      fi
+      install -m 0755 "$CI_PROJECT_DIR/.cache/bca/bca" "$HOME/.local/bin/bca"
+      export PATH="$HOME/.local/bin:$PATH"
   script:
     - bca
         --paths "$PWD"
