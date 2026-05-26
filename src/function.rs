@@ -101,31 +101,27 @@ fn dump_span(span: FunctionSpan, stdout: &mut dyn WriteColor, last: bool) -> std
     writeln!(stdout, "{}.", span.end_line)
 }
 
-// Generic over `WriteColor` so production passes a locked
-// `StandardStream` (colored stdout) and tests can capture the rendered
-// bytes via `termcolor::NoColor` over a `Vec<u8>`. The trait-object
-// alternative would also work; static dispatch is preferred here
-// because there is exactly one production caller and one test caller.
-fn dump_spans<W: WriteColor>(
+// Trait-object writer so production passes a locked `StandardStream`
+// (colored stdout) and tests capture rendered bytes via `termcolor::NoColor`
+// over a `Vec<u8>` — matches the dispatch shape of `dump_span` and the
+// `color` / `intense_color` helpers in `tools.rs`.
+fn dump_spans(
     spans: Vec<FunctionSpan>,
     path: &Path,
-    stdout: &mut W,
+    stdout: &mut dyn WriteColor,
 ) -> std::io::Result<()> {
-    if !spans.is_empty() {
-        intense_color(stdout, Color::Yellow)?;
-        writeln!(stdout, "In file {}", path.display())?;
-
-        // Consume `spans` by value: `dump_span` takes `FunctionSpan`
-        // by value, so cloning to use `split_last` would allocate
-        // strings unnecessarily. The outer `is_empty` guard ensures
-        // `spans.len() >= 1`, so `last_idx` is well-defined.
-        let last_idx = spans.len() - 1;
-        for (i, span) in spans.into_iter().enumerate() {
-            dump_span(span, stdout, i == last_idx)?;
-        }
-        color(stdout, Color::White)?;
+    if spans.is_empty() {
+        return Ok(());
     }
-    Ok(())
+    intense_color(stdout, Color::Yellow)?;
+    writeln!(stdout, "In file {}", path.display())?;
+    // Consume `spans` by value: cloning to use `split_last` would
+    // allocate each `FunctionSpan`'s `name: String` unnecessarily.
+    let last_idx = spans.len() - 1;
+    for (i, span) in spans.into_iter().enumerate() {
+        dump_span(span, stdout, i == last_idx)?;
+    }
+    color(stdout, Color::White)
 }
 
 /// Configuration options for detecting the span of
