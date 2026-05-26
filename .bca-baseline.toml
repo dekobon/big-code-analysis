@@ -1423,21 +1423,21 @@ path = "./src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 22390620.39410873
+value = 22696186.08048151
 
 [[entry]]
 path = "./src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 7091.0
+value = 7217.0
 
 [[entry]]
 path = "./src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 386.0
+value = 389.0
 
 [[entry]]
 path = "./src/metrics/abc.rs"
@@ -1451,7 +1451,7 @@ path = "./src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "nom"
-value = 557.0
+value = 563.0
 
 [[entry]]
 path = "./src/metrics/abc.rs"
@@ -1498,7 +1498,7 @@ value = 21.0
 [[entry]]
 path = "./src/metrics/abc.rs"
 function = "compute"
-start_line = 780
+start_line = 788
 metric = "cyclomatic"
 value = 15.0
 

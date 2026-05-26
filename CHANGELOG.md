@@ -133,6 +133,16 @@ for historical reference.
   pipe (so no SIGPIPE risk under pipefail when grep -q exits early on
   a large body) and no regex semantics (dots in semver versions never
   match arbitrary characters). Code-review follow-up to #363.
+- ABC metric: the dekobon tree-sitter-groovy condition classifier
+  in `groovy_count_condition`, `groovy_inspect_container`, and
+  `groovy_count_unary_conditions` now matches the `BooleanLiteral`
+  wrapper node (kind_id 270) instead of the leaf `True` / `False`
+  keyword tokens. The Groovy grammar mirrors the C# grammar's
+  wrapping convention for boolean literals, so the same class of
+  silent miscount affected Groovy `if (true)` / `while (false)` /
+  ternary / `!true` / `&&` + literal-operand chains. Companion to
+  the C# fix below; surfaced by a parallel-language audit of the
+  C# fix.
 - ABC metric: the tree-sitter-c-sharp condition classifier in
   `csharp_count_condition`, `csharp_inspect_container`, and
   `csharp_count_unary_conditions` now matches the `BooleanLiteral`

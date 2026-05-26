@@ -568,9 +568,13 @@ fn groovy_inspect_container(container_node: &Node, conditions: &mut f64) {
         node = child;
         node_kind = node.kind_id().into();
 
+        // `BooleanLiteral` is the dekobon tree-sitter-groovy
+        // grammar's named wrapper for `true` / `false` — see the
+        // doc comment on `groovy_count_condition` (companion to
+        // issue #371's C# fix).
         if matches!(
             node_kind,
-            MethodInvocation | CommandChain | Identifier | True | False
+            MethodInvocation | CommandChain | Identifier | BooleanLiteral
         ) {
             if has_boolean_content {
                 *conditions += 1.;
@@ -591,9 +595,13 @@ fn groovy_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             let node = cursor.node();
             let node_kind = node.kind_id().into();
 
+            // `BooleanLiteral` is the dekobon tree-sitter-groovy
+            // grammar's named wrapper for `true` / `false` — see
+            // the doc comment on `groovy_count_condition`
+            // (companion to issue #371's C# fix).
             if matches!(
                 node_kind,
-                MethodInvocation | CommandChain | Identifier | True | False
+                MethodInvocation | CommandChain | Identifier | BooleanLiteral
             ) && matches!(list_kind, BinaryExpression)
             {
                 *conditions += 1.;
@@ -1632,10 +1640,19 @@ impl Abc for GroovyCode {
 // chain contributes one condition directly; parenthesised and unary
 // containers delegate to `groovy_inspect_container`; binary / ternary
 // expressions are picked up by their own arms.
+//
+// The boolean-literal arm matches `BooleanLiteral` (the named
+// `boolean_literal` wrapper, kind_id 270), not the leaf `True` /
+// `False` keyword tokens which only appear *underneath* that
+// wrapper. `groovy_inspect_container` and
+// `groovy_count_unary_conditions` follow the same convention.
+// Companion to issue #371 (the C# fix); the dekobon Groovy
+// grammar mirrors the C# grammar's wrapping convention for
+// boolean literals.
 fn groovy_count_condition(condition: &Node, conditions: &mut f64) {
     use Groovy::*;
     match condition.kind_id().into() {
-        MethodInvocation | CommandChain | Identifier | True | False => {
+        MethodInvocation | CommandChain | Identifier | BooleanLiteral => {
             *conditions += 1.;
         }
         ParenthesizedExpression | UnaryExpression => {
@@ -3269,6 +3286,115 @@ mod tests {
                 // Two assignments to existing variables (`a = false`,
                 // `b = !b`).
                 assert_eq!(metric.abc.assignments_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_if_while_boolean_literal_condition() {
+        // Regression for the Groovy half of #371-class bugs: the
+        // dekobon tree-sitter-groovy grammar wraps a bare
+        // `true` / `false` literal used as the condition of
+        // `if` / `while` / `do` / `?:` in a `boolean_literal` node
+        // (`Groovy::BooleanLiteral`, kind_id 270), not the leaf
+        // `True` / `False` keyword tokens. `groovy_count_condition`
+        // must therefore match `BooleanLiteral` (the wrapper).
+        // Without that, every literal-condition statement silently
+        // scored 0 conditions. Mirror of
+        // `csharp_if_while_boolean_literal_condition`.
+        check_metrics::<GroovyParser>(
+            "void m() {
+                if (true) { println 'a' }
+                if (false) { println 'b' }
+                while (true) { break }
+                int t = true ? 1 : 0
+            }",
+            "foo.groovy",
+            |metric| {
+                // Four literal-condition statements contribute 4
+                // `BooleanLiteral` conditions (if / if / while /
+                // ternary), plus the ternary's `?` token adds one
+                // more via `groovy_count_token_condition` → 5
+                // total. The `println` calls contribute 2 branches
+                // (the `while` body's `break` is not a branch).
+                // The `int t = …` initializer contributes 1
+                // assignment.
+                assert_eq!(metric.abc.conditions_sum(), 5.0);
+                assert_eq!(metric.abc.branches_sum(), 2.0);
+                assert_eq!(metric.abc.assignments_sum(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_return_unary_boolean_literal() {
+        // Companion to `groovy_if_while_boolean_literal_condition`:
+        // a `!true` / `!false` operand inside a `return` statement
+        // routes through `groovy_inspect_container` (via
+        // `groovy_inspect_child(node, 1)` on the ReturnStatement).
+        // The `!` operator establishes boolean context, then the
+        // innermost-operand check matches `BooleanLiteral` — that
+        // helper's `BooleanLiteral` arm must be present or the
+        // count silently drops. Mutation-verified: removing
+        // `BooleanLiteral` from `groovy_inspect_container` leaves
+        // every other Groovy test passing.
+        check_metrics::<GroovyParser>(
+            "boolean f() {
+                return !true
+            }
+            boolean g() {
+                return !false
+            }",
+            "foo.groovy",
+            |metric| {
+                // Each `return !X` walks into
+                // `groovy_inspect_container` with a UnaryExpression
+                // wrapping a `BANG` + BooleanLiteral. The `!` arm
+                // seeds `has_boolean_content = true` (ReturnStatement
+                // is not a known-boolean parent), then the
+                // BooleanLiteral operand contributes one condition.
+                // Two `return !X` → 2 conditions, no branches, no
+                // assignments.
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+                assert_eq!(metric.abc.assignments_sum(), 0.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_short_circuit_with_boolean_literal_operand() {
+        // Companion to `groovy_if_while_boolean_literal_condition`:
+        // a bare `true` / `false` operand of `&&` / `||` lands in
+        // `groovy_count_unary_conditions`, which iterates the
+        // parent BinaryExpression's children. That helper must
+        // match the `BooleanLiteral` wrapper just like
+        // `groovy_count_condition` does — otherwise the operand
+        // silently scores zero. Mutation-verified: removing
+        // `BooleanLiteral` from the `groovy_count_unary_conditions`
+        // arm leaves every other Groovy test passing.
+        check_metrics::<GroovyParser>(
+            "void m(boolean x) {
+                if (x && true) { println 'a' }
+                if (false || x) { println 'b' }
+            }",
+            "foo.groovy",
+            |metric| {
+                // `&&` and `||` themselves are NOT in
+                // `groovy_count_token_condition`'s match list —
+                // they route through
+                // `groovy_walk_for_conditions::AMPAMP|PIPEPIPE`,
+                // which calls `groovy_count_unary_conditions` on
+                // the parent BinaryExpression. Each invocation
+                // counts every child that matches the terminal-
+                // operand kinds and whose parent is a
+                // BinaryExpression. For `x && true`: Identifier x
+                // (+1) + BooleanLiteral true (+1) = 2. For
+                // `false || x`: BooleanLiteral false (+1) +
+                // Identifier x (+1) = 2. Total 4.
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.branches_sum(), 2.0);
+                assert_eq!(metric.abc.assignments_sum(), 0.0);
             },
         );
     }
