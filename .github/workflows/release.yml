@@ -1239,10 +1239,19 @@ jobs:
           set -euo pipefail
           get() { sha256sum "release/big-code-analysis-${VERSION}-$1.tar.gz" | awk '{print $1}'; }
           getzip() { sha256sum "release/big-code-analysis-${VERSION}-$1.zip" | awk '{print $1}'; }
+          # Capture into variables first so command-substitution
+          # failures propagate. `echo "X=$(get …)"` would swallow a
+          # failure inside `get` because `set -e`'s controlling exit
+          # status is `echo`'s, not the substitution's — a missing
+          # tarball would render `X=` and publish empty SHA-256s into
+          # the Homebrew formula / Scoop manifest. See issue #366.
+          macos_aarch64=$(get aarch64-apple-darwin)
+          win_x86_64=$(getzip x86_64-pc-windows-msvc)
+          win_aarch64=$(getzip aarch64-pc-windows-msvc)
           {
-            echo "macos_aarch64=$(get aarch64-apple-darwin)"
-            echo "win_x86_64=$(getzip x86_64-pc-windows-msvc)"
-            echo "win_aarch64=$(getzip aarch64-pc-windows-msvc)"
+            echo "macos_aarch64=$macos_aarch64"
+            echo "win_x86_64=$win_x86_64"
+            echo "win_aarch64=$win_aarch64"
           } >> "$GITHUB_OUTPUT"
 
       - name: Render Homebrew formula
