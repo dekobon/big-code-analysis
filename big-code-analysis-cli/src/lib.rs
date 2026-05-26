@@ -1412,7 +1412,37 @@ fn ratio(v: &Violation) -> f64 {
 /// inside another process, use the [`big_code_analysis`] library crate
 /// directly instead of going through this entry point.
 pub fn run() {
-    let cli = match Cli::try_parse() {
+    let cli = parse_cli_with_legacy_hint();
+
+    let preproc = cli
+        .globals
+        .preproc_data
+        .as_ref()
+        .map(|p| load_preproc_data(p));
+
+    match cli.command {
+        Command::ListMetrics(args) => run_command_list_metrics(args),
+        Command::Dump => run_command_dump(cli.globals, preproc),
+        Command::Functions => run_command_functions(cli.globals, preproc),
+        Command::Metrics(args) => run_command_metrics(cli.globals, args, preproc),
+        Command::Ops(args) => run_command_ops(cli.globals, args, preproc),
+        Command::Report(args) => run_command_report(cli.globals, args, preproc),
+        Command::Find(args) => run_command_find(cli.globals, args, preproc),
+        Command::Count(args) => run_command_count(cli.globals, args, preproc),
+        Command::StripComments(args) => run_command_strip_comments(cli.globals, args, preproc),
+        Command::Check(args) => run_check(cli.globals, args, preproc),
+        Command::Preproc(args) => run_command_preproc(cli.globals, args),
+    }
+}
+
+
+/// Parse the CLI from `std::env::args_os`, emitting a legacy-CLI
+/// migration hint to stderr when the failure looks like it came from
+/// the pre-restructure flag shape (`-d` instead of `dump`, `-O
+/// markdown` instead of `report markdown`, etc.). Exits the process
+/// on parse failure via `clap::Error::exit`.
+fn parse_cli_with_legacy_hint() -> Cli {
+    match Cli::try_parse() {
         Ok(cli) => cli,
         Err(err) => {
             if matches!(
@@ -1428,164 +1458,181 @@ pub fn run() {
             }
             err.exit();
         }
+    }
+}
+
+fn run_command_list_metrics(args: ListMetricsArgs) {
+    let mut buf = Vec::new();
+    write_metrics(&mut buf, args.mode).expect("writing to Vec<u8> is infallible");
+    write_stdout_or_die(&buf);
+}
+
+fn run_command_dump(globals: GlobalOpts, preproc: Option<Arc<PreprocResults>>) {
+    let cfg = Config::new(Action::Dump, &globals, preproc);
+    run_walk(globals, cfg);
+}
+
+fn run_command_functions(globals: GlobalOpts, preproc: Option<Arc<PreprocResults>>) {
+    let cfg = Config::new(Action::Functions, &globals, preproc);
+    run_walk(globals, cfg);
+}
+
+fn run_command_metrics(
+    globals: GlobalOpts,
+    args: StructuredArgs,
+    preproc: Option<Arc<PreprocResults>>,
+) {
+    if matches!(args.output_format, Some(MetricsFormat::Cbor)) && args.output.is_none() {
+        die(CBOR_STDOUT_ERROR);
+    }
+    if args.output_format.is_some()
+        && let Some(ref out) = args.output
+        && out.exists()
+        && !out.is_dir()
+    {
+        die("--output must be a directory for `metrics`");
+    }
+    let action = Action::Metrics {
+        format: args.output_format,
+        pretty: args.pretty,
     };
+    let cfg = Config {
+        output: args.output,
+        ..Config::new(action, &globals, preproc)
+    };
+    run_walk(globals, cfg);
+}
 
-    let preproc = cli
-        .globals
-        .preproc_data
-        .as_ref()
-        .map(|p| load_preproc_data(p));
+fn run_command_ops(
+    globals: GlobalOpts,
+    args: StructuredArgs,
+    preproc: Option<Arc<PreprocResults>>,
+) {
+    if matches!(args.output_format, Some(MetricsFormat::Cbor)) && args.output.is_none() {
+        die(CBOR_STDOUT_ERROR);
+    }
+    if let Some(MetricsDispatch::Csv) = args.output_format.map(MetricsFormat::dispatch) {
+        die(
+            "CSV is not supported by `ops` because its column schema is metric-shaped; use `bca metrics --output-format <fmt>`",
+        );
+    }
+    if args.output_format.is_some()
+        && let Some(ref out) = args.output
+        && out.exists()
+        && !out.is_dir()
+    {
+        die("--output must be a directory for `ops`");
+    }
+    let action = Action::Ops {
+        format: args.output_format,
+        pretty: args.pretty,
+    };
+    let cfg = Config {
+        output: args.output,
+        ..Config::new(action, &globals, preproc)
+    };
+    run_walk(globals, cfg);
+}
 
-    match cli.command {
-        Command::ListMetrics(args) => {
-            let mut buf = Vec::new();
-            write_metrics(&mut buf, args.mode).expect("writing to Vec<u8> is infallible");
-            write_stdout_or_die(&buf);
+fn run_command_report(
+    globals: GlobalOpts,
+    args: ReportArgs,
+    preproc: Option<Arc<PreprocResults>>,
+) {
+    if let Some(ref output) = args.output {
+        if output.exists() && output.is_dir() {
+            die("--output must be a file path for `report`");
         }
-        Command::Dump => {
-            let cfg = Config::new(Action::Dump, &cli.globals, preproc);
-            run_walk(cli.globals, cfg);
+        if let Some(parent) = output.parent()
+            && !parent.as_os_str().is_empty()
+            && !parent.exists()
+        {
+            die(format_args!(
+                "parent directory of --output does not exist: {}",
+                parent.display()
+            ));
         }
-        Command::Functions => {
-            let cfg = Config::new(Action::Functions, &cli.globals, preproc);
-            run_walk(cli.globals, cfg);
-        }
-        Command::Metrics(args) => {
-            if matches!(args.output_format, Some(MetricsFormat::Cbor)) && args.output.is_none() {
-                die(CBOR_STDOUT_ERROR);
-            }
-            if args.output_format.is_some()
-                && let Some(ref out) = args.output
-                && out.exists()
-                && !out.is_dir()
-            {
-                die("--output must be a directory for `metrics`");
-            }
-            let action = Action::Metrics {
-                format: args.output_format,
-                pretty: args.pretty,
-            };
-            let cfg = Config {
-                output: args.output,
-                ..Config::new(action, &cli.globals, preproc)
-            };
-            run_walk(cli.globals, cfg);
-        }
-        Command::Ops(args) => {
-            if matches!(args.output_format, Some(MetricsFormat::Cbor)) && args.output.is_none() {
-                die(CBOR_STDOUT_ERROR);
-            }
-            if let Some(MetricsDispatch::Csv) = args.output_format.map(MetricsFormat::dispatch) {
-                die(
-                    "CSV is not supported by `ops` because its column schema is metric-shaped; use `bca metrics --output-format <fmt>`",
-                );
-            }
-            if args.output_format.is_some()
-                && let Some(ref out) = args.output
-                && out.exists()
-                && !out.is_dir()
-            {
-                die("--output must be a directory for `ops`");
-            }
-            let action = Action::Ops {
-                format: args.output_format,
-                pretty: args.pretty,
-            };
-            let cfg = Config {
-                output: args.output,
-                ..Config::new(action, &cli.globals, preproc)
-            };
-            run_walk(cli.globals, cfg);
-        }
-        Command::Report(args) => {
-            if let Some(ref output) = args.output {
-                if output.exists() && output.is_dir() {
-                    die("--output must be a file path for `report`");
-                }
-                if let Some(parent) = output.parent()
-                    && !parent.as_os_str().is_empty()
-                    && !parent.exists()
-                {
-                    die(format_args!(
-                        "parent directory of --output does not exist: {}",
-                        parent.display()
-                    ));
-                }
-            }
-            let (tx, rx) = std::sync::mpsc::channel();
-            let cfg = Config {
-                markdown_tx: Some(Mutex::new(tx)),
-                strip_prefix: args.strip_prefix,
-                ..Config::new(Action::Report, &cli.globals, preproc)
-            };
-            run_walk(cli.globals, cfg);
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    let cfg = Config {
+        markdown_tx: Some(Mutex::new(tx)),
+        strip_prefix: args.strip_prefix,
+        ..Config::new(Action::Report, &globals, preproc)
+    };
+    run_walk(globals, cfg);
 
-            // ConcurrentRunner::run() consumed Config (and thus the Sender).
-            // All worker threads have joined, so `rx.into_iter()` terminates.
-            let summaries: Vec<FunctionSummary> = rx.into_iter().collect();
-            let report = match args.format {
-                ReportFormat::Markdown => generate_report(&summaries, args.top as usize),
-                ReportFormat::Html => generate_html_report(&summaries, args.top as usize),
-            };
-            if let Some(ref output_path) = args.output {
-                std::fs::write(output_path, &report)
-                    .unwrap_or_else(|e| die_io("write report to", output_path, e));
-            } else {
-                write_stdout_or_die(report.as_bytes());
-            }
-        }
-        Command::Find(args) => {
-            let cfg = Config::new(Action::Find(args.nodes.into()), &cli.globals, preproc);
-            run_walk(cli.globals, cfg);
-        }
-        Command::Count(args) => {
-            let count_lock = Arc::new(Mutex::new(Count::default()));
-            let cfg = Config {
-                count_lock: Some(count_lock.clone()),
-                ..Config::new(Action::Count(args.nodes.into()), &cli.globals, preproc)
-            };
-            run_walk(cli.globals, cfg);
+    // ConcurrentRunner::run() consumed Config (and thus the Sender).
+    // All worker threads have joined, so `rx.into_iter()` terminates.
+    let summaries: Vec<FunctionSummary> = rx.into_iter().collect();
+    let report = match args.format {
+        ReportFormat::Markdown => generate_report(&summaries, args.top as usize),
+        ReportFormat::Html => generate_html_report(&summaries, args.top as usize),
+    };
+    if let Some(ref output_path) = args.output {
+        std::fs::write(output_path, &report)
+            .unwrap_or_else(|e| die_io("write report to", output_path, e));
+    } else {
+        write_stdout_or_die(report.as_bytes());
+    }
+}
 
-            let count = Arc::try_unwrap(count_lock)
-                .expect("all worker threads have joined; Arc refcount is 1")
-                .into_inner()
-                .expect("mutex not poisoned");
-            println!("{count}");
-        }
-        Command::StripComments(args) => {
-            let action = Action::StripComments {
-                in_place: args.in_place,
-            };
-            let cfg = Config::new(action, &cli.globals, preproc);
-            run_walk(cli.globals, cfg);
-        }
-        Command::Check(args) => {
-            run_check(cli.globals, args, preproc);
-        }
-        Command::Preproc(args) => {
-            let preproc_lock = Arc::new(Mutex::new(PreprocResults::default()));
-            let output = args.output;
-            let cfg = Config {
-                preproc_lock: Some(preproc_lock.clone()),
-                ..Config::new(Action::PreprocProduce, &cli.globals, None)
-            };
-            let all_files = run_walk(cli.globals, cfg);
+fn run_command_find(globals: GlobalOpts, args: NodesArgs, preproc: Option<Arc<PreprocResults>>) {
+    let cfg = Config::new(Action::Find(args.nodes.into()), &globals, preproc);
+    run_walk(globals, cfg);
+}
 
-            let mut data = Arc::try_unwrap(preproc_lock)
-                .expect("all worker threads have joined; Arc refcount is 1")
-                .into_inner()
-                .expect("mutex not poisoned");
-            fix_includes(&mut data.files, &all_files);
+fn run_command_count(globals: GlobalOpts, args: NodesArgs, preproc: Option<Arc<PreprocResults>>) {
+    let count_lock = Arc::new(Mutex::new(Count::default()));
+    let cfg = Config {
+        count_lock: Some(count_lock.clone()),
+        ..Config::new(Action::Count(args.nodes.into()), &globals, preproc)
+    };
+    run_walk(globals, cfg);
 
-            let serialized = serde_json::to_string(&data)
-                .unwrap_or_else(|e| die(format_args!("failed to serialize preproc data: {e}")));
-            if let Some(output_path) = output {
-                write_file(&output_path, serialized.as_bytes())
-                    .unwrap_or_else(|e| die_io("write preproc output to", &output_path, e));
-            } else {
-                println!("{serialized}");
-            }
-        }
+    let count = Arc::try_unwrap(count_lock)
+        .expect("all worker threads have joined; Arc refcount is 1")
+        .into_inner()
+        .expect("mutex not poisoned");
+    println!("{count}");
+}
+
+fn run_command_strip_comments(
+    globals: GlobalOpts,
+    args: StripCommentsArgs,
+    preproc: Option<Arc<PreprocResults>>,
+) {
+    let action = Action::StripComments {
+        in_place: args.in_place,
+    };
+    let cfg = Config::new(action, &globals, preproc);
+    run_walk(globals, cfg);
+}
+
+fn run_command_preproc(globals: GlobalOpts, args: PreprocArgs) {
+    let preproc_lock = Arc::new(Mutex::new(PreprocResults::default()));
+    let output = args.output;
+    let cfg = Config {
+        preproc_lock: Some(preproc_lock.clone()),
+        // PreprocProduce builds its own preproc results; any inbound
+        // `--preproc-data` from globals is intentionally ignored for
+        // this command (the original code passed `None` here too).
+        ..Config::new(Action::PreprocProduce, &globals, None)
+    };
+    let all_files = run_walk(globals, cfg);
+
+    let mut data = Arc::try_unwrap(preproc_lock)
+        .expect("all worker threads have joined; Arc refcount is 1")
+        .into_inner()
+        .expect("mutex not poisoned");
+    fix_includes(&mut data.files, &all_files);
+
+    let serialized = serde_json::to_string(&data)
+        .unwrap_or_else(|e| die(format_args!("failed to serialize preproc data: {e}")));
+    if let Some(output_path) = output {
+        write_file(&output_path, serialized.as_bytes())
+            .unwrap_or_else(|e| die_io("write preproc output to", &output_path, e));
+    } else {
+        println!("{serialized}");
     }
 }
 
