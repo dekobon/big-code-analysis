@@ -2,8 +2,9 @@
 
 Recipes for wiring `bca` into a build pipeline. The
 [`bca check`](../commands/check.md) command already ships every output
-shape a modern CI needs (Checkstyle, SARIF, clang/GCC warning lines,
-MSVC warning lines), plus [`bca report markdown`](../commands/report.md)
+shape a modern CI needs (Checkstyle, SARIF, GitLab Code Climate JSON,
+clang/GCC warning lines, MSVC warning lines), plus
+[`bca report markdown`](../commands/report.md)
 for humans. This page is a consolidated map from the user's *goal* to
 the right combination of subcommand, flags, and platform glue.
 
@@ -19,15 +20,10 @@ runnable example.
 | Ratchet thresholds on an existing codebase      | `bca check --config bca-thresholds.toml --baseline .bca-baseline.toml` *(‡)*                                 |
 | Inline PR annotations (GitHub)                  | `bca check … --output-format clang-warning --no-fail` + GCC problem matcher                                  |
 | Code Scanning alerts (GitHub)                   | `bca check … --output-format sarif --no-fail` + `github/codeql-action/upload-sarif`                          |
-| Merge-request widget (GitLab Code Quality)      | `bca check … --output-format checkstyle --no-fail` + Checkstyle-to-Code-Climate-JSON converter *(†)*         |
+| Merge-request widget (GitLab Code Quality)      | `bca check … --output-format code-climate --no-fail`                                                         |
 | Jenkins / SonarQube ingestion                   | `bca check … --output-format checkstyle`                                                                     |
 | Human-readable PR/MR comment or downloadable    | `bca report markdown --top 20 --strip-prefix "$PWD/"`                                                        |
 | Machine-readable artifact for dashboards        | `bca metrics --output-format json --output ./out`                                                            |
-
-*(†) GitLab's native Code Quality widget consumes **Code Climate JSON**,
-not Checkstyle. `bca check` does not emit Code Climate JSON yet; see
-[GitLab Code Quality widget](#gitlab-code-quality-widget) below for the
-converter recipe and current gap.*
 
 *(‡) Recommended adoption path when introducing thresholds on a
 codebase with existing offenders. See the
@@ -413,9 +409,8 @@ changes. Both tiers consume the same `.bca-baseline.toml`.
 ### Full `.gitlab-ci.yml` example
 
 The job below installs `bca`, runs the threshold check producing
-both Checkstyle XML and a Markdown report, uploads them as artifacts,
-and exposes the Checkstyle XML through GitLab's Code Quality report
-slot:
+Code Climate JSON (for the MR Code Quality widget), Checkstyle XML,
+and a Markdown report, then uploads them as artifacts:
 
 ```yaml
 stages:
@@ -460,6 +455,14 @@ bca-quality:
         --num-jobs "$(nproc)"
         check
         --config bca-thresholds.toml
+        --output-format code-climate
+        --output gl-code-quality-report.json
+        --no-fail
+    - bca
+        --paths "$PWD"
+        --num-jobs "$(nproc)"
+        check
+        --config bca-thresholds.toml
         --output-format checkstyle
         --output bca-checkstyle.xml
         --no-fail
@@ -475,83 +478,72 @@ bca-quality:
     - bca --paths "$PWD" check --config bca-thresholds.toml
   artifacts:
     when: always
+    reports:
+      codequality: gl-code-quality-report.json
     paths:
+      - gl-code-quality-report.json
       - bca-checkstyle.xml
       - bca-report.md
 ```
 
 A few notes about the example:
 
-- The first `bca check … --no-fail` invocation collects offenders
-  for the artifacts; the final `bca check` (no `--no-fail`) is the
-  pass/fail gate. Both runs use the same threshold config so the
-  artifacts always match the gate decision.
-- `artifacts:when: always` ensures the Markdown report and
-  Checkstyle XML are downloadable even on a red pipeline — which is
-  exactly when you want them most.
-- `artifacts:reports:codequality` is intentionally omitted: that slot
-  expects Code Climate JSON, not Checkstyle XML — see the
+- The first two `bca check … --no-fail` invocations collect
+  offenders for the artifacts; the final `bca check` (no
+  `--no-fail`) is the pass/fail gate. All three runs use the same
+  threshold config so the artifacts always match the gate decision.
+- `artifacts:when: always` ensures every artifact is downloadable
+  even on a red pipeline — which is exactly when you want them
+  most.
+- `artifacts:reports:codequality` wires the Code Climate JSON
+  directly into GitLab's MR Code Quality widget — see the
   [Code Quality widget section below](#gitlab-code-quality-widget)
-  for the converter recipe that lights up the MR widget.
+  for the field-by-field semantics.
 
 ### GitLab Code Quality widget
 
 GitLab's first-class Code Quality experience (inline complaints on
-the MR diff, summary on the MR overview page) requires
-[Code Climate JSON](https://docs.gitlab.com/ee/ci/testing/code_quality.html),
-**not** Checkstyle XML. `bca check` does not currently emit Code
-Climate JSON; a follow-up issue tracks adding it as a fifth
-`--output-format` value.
+the MR diff, summary on the MR overview page) consumes
+[Code Climate JSON](https://docs.gitlab.com/ci/testing/code_quality/).
+`bca check` emits this natively via `--output-format code-climate`,
+so the integration is a one-liner:
 
-Until then there are two paths:
-
-**1. Artifact-only (works today, no widget integration).** Publish
-the Checkstyle XML as a generic artifact (the example above already
-does this — no `reports:codequality` slot) and let developers
-download it from the pipeline page. The Markdown report fills the
-human-readable role.
-
-**2. Convert Checkstyle to Code Climate JSON.** Pipe the XML
-through a short converter so the Code Quality widget lights up. A
-minimal jq-style converter:
-
-```bash
-bca --paths "$PWD" check \
-    --config bca-thresholds.toml \
-    --output-format checkstyle \
-    --output bca-checkstyle.xml \
-    --no-fail
-
-# Convert Checkstyle XML to Code Climate JSON. Adjust to taste; the
-# point is the shape required by GitLab.
-python3 - <<'PY' > gl-code-quality-report.json
-import hashlib, json, xml.etree.ElementTree as ET
-issues = []
-for file_el in ET.parse("bca-checkstyle.xml").getroot().findall("file"):
-    path = file_el.get("name", "")
-    for err in file_el.findall("error"):
-        msg = err.get("message", "")
-        line = int(err.get("line", "1"))
-        fp = hashlib.sha1(f"{path}:{line}:{msg}".encode()).hexdigest()
-        issues.append({
-            "description": msg,
-            "check_name": err.get("source", "bca"),
-            "fingerprint": fp,
-            "severity": "minor",
-            "location": {"path": path, "lines": {"begin": line}},
-        })
-print(json.dumps(issues))
-PY
+```yaml
+code_quality:
+  stage: quality
+  script:
+    - bca --paths "$CI_PROJECT_DIR" check
+          --config bca-thresholds.toml
+          --output-format code-climate
+          --output gl-code-quality-report.json
+          --no-fail
+  artifacts:
+    when: always
+    reports:
+      codequality: gl-code-quality-report.json
+    paths:
+      - gl-code-quality-report.json
 ```
 
-Then reference `gl-code-quality-report.json` under
-`artifacts:reports:codequality` instead of the Checkstyle XML. The
-converter is intentionally small (≈15 lines) so it can live in the
-repo next to `bca-thresholds.toml`.
+Severity bands are derived from how far each metric exceeds its
+configured threshold (`value / limit` ratio, inverted for the
+maintainability-index family where lower is worse): `≤ 1.5×` →
+`minor`, `≤ 2×` → `major`, `≤ 4×` → `critical`, `> 4×` →
+`blocker`. The widget deduplicates findings by `fingerprint`; `bca`
+hashes `path \0 function \0 metric` (no line, no value) so a
+violation surviving an upstream line-drift edit still collapses
+into the same widget entry across pipeline runs.
 
-This documents the gap rather than papering over it. When `bca`
-gains a `codeclimate-json` format, the converter step will be
-deletable.
+Sanity-check a generated report locally:
+
+```bash
+jq 'all(.[]; has("description") and has("check_name")
+     and has("fingerprint") and has("severity")
+     and has("location"))' gl-code-quality-report.json
+# → true
+jq '[.[] | .severity] | unique' gl-code-quality-report.json
+# → a subset of ["info","minor","major","critical","blocker"]
+```
 
 ### MR-only comment with the Markdown report
 

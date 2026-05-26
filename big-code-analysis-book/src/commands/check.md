@@ -236,14 +236,16 @@ violation (unless `--no-fail`), 1 on tool error.
 | --------------- | ------------------------------------------------------- |
 | `checkstyle`    | Jenkins, SonarQube, GitLab, "warnings plugin" CI        |
 | `sarif`         | GitHub Code Scanning, modern IDEs / security tooling    |
+| `code-climate`  | GitLab MR Code Quality widget                           |
 | `clang-warning` | Editor quickfix parsers, GitHub Actions problem matcher |
 | `msvc-warning`  | Visual Studio, VS Code, Windows CI runners              |
 
 When no offenders exist the writer emits a well-formed but empty
-document — empty `runs[].results` array for SARIF, no `<file>`
-children under the `<checkstyle>` root for Checkstyle, and zero
-bytes for the two warning-line formats — so CI consumers can ingest
-clean runs unchanged.
+document — empty `runs[].results` array for SARIF, empty JSON array
+(`[]`) for Code Climate, no `<file>` children under the
+`<checkstyle>` root for Checkstyle, and zero bytes for the two
+warning-line formats — so CI consumers can ingest clean runs
+unchanged.
 
 ### Checkstyle (CI integration)
 

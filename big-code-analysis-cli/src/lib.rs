@@ -310,9 +310,10 @@ struct CheckArgs {
     #[clap(long = "no-suppress")]
     no_suppress: bool,
     /// CI/IDE document format for offender records (Checkstyle 4.3 XML,
-    /// SARIF 2.1.0 JSON, clang/GCC warning lines, MSVC warning lines).
-    /// When omitted, only the human-readable stderr stream is emitted;
-    /// the exit-code contract is unaffected.
+    /// SARIF 2.1.0 JSON, GitLab Code Climate JSON, clang/GCC warning
+    /// lines, MSVC warning lines). When omitted, only the
+    /// human-readable stderr stream is emitted; the exit-code contract
+    /// is unaffected.
     #[clap(long = "output-format", short = 'O', value_enum)]
     output_format: Option<AggregatedFormat>,
     /// File path for the aggregated offender document. Stdout if omitted.

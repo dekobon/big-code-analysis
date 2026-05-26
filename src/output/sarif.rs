@@ -27,108 +27,12 @@ use serde::Serialize;
 
 #[cfg(test)]
 use crate::output::offenders::Severity;
-use crate::output::offenders::{OffenderRecord, TOOL_ID, warn_non_utf8_path};
+use crate::output::offenders::{OffenderRecord, TOOL_ID, rule_description, warn_non_utf8_path};
 
 /// SARIF schema URL — pinned to 2.1.0 (the version GitHub Code
 /// Scanning ingests).
 const SARIF_SCHEMA: &str = "https://json.schemastore.org/sarif-2.1.0.json";
 const SARIF_VERSION: &str = "2.1.0";
-
-/// Short rule descriptions used in `tool.driver.rules[]`. Metrics not
-/// listed fall back to the metric name itself — never fail.
-const RULE_DESCRIPTIONS: &[(&str, &str)] = &[
-    (
-        "cyclomatic",
-        "Cyclomatic Complexity exceeds the configured threshold.",
-    ),
-    (
-        "cognitive",
-        "Cognitive Complexity exceeds the configured threshold.",
-    ),
-    (
-        "loc.sloc",
-        "Source lines of code exceed the configured threshold.",
-    ),
-    (
-        "loc.ploc",
-        "Physical lines of code exceed the configured threshold.",
-    ),
-    (
-        "loc.lloc",
-        "Logical lines of code exceed the configured threshold.",
-    ),
-    (
-        "loc.cloc",
-        "Comment lines of code exceed the configured threshold.",
-    ),
-    (
-        "loc.blank",
-        "Blank lines of code exceed the configured threshold.",
-    ),
-    (
-        "halstead.volume",
-        "Halstead volume exceeds the configured threshold.",
-    ),
-    (
-        "halstead.difficulty",
-        "Halstead difficulty exceeds the configured threshold.",
-    ),
-    (
-        "halstead.effort",
-        "Halstead effort exceeds the configured threshold.",
-    ),
-    (
-        "halstead.bugs",
-        "Estimated Halstead bugs exceed the configured threshold.",
-    ),
-    (
-        "nargs.total",
-        "Number of function arguments exceeds the configured threshold.",
-    ),
-    (
-        "nexits.sum",
-        "Number of exit points exceeds the configured threshold.",
-    ),
-    (
-        "nom.total",
-        "Number of methods/functions exceeds the configured threshold.",
-    ),
-    (
-        "npa.total",
-        "Number of public attributes exceeds the configured threshold.",
-    ),
-    (
-        "npm.total",
-        "Number of public methods exceeds the configured threshold.",
-    ),
-    (
-        "abc.magnitude",
-        "ABC magnitude exceeds the configured threshold.",
-    ),
-    (
-        "wmc.total",
-        "Weighted Methods per Class exceeds the configured threshold.",
-    ),
-    (
-        "mi.mi_original",
-        "Maintainability Index falls below the configured threshold.",
-    ),
-    (
-        "mi.mi_sei",
-        "Maintainability Index (SEI) falls below the configured threshold.",
-    ),
-    (
-        "mi.mi_visual_studio",
-        "Maintainability Index (Visual Studio) falls below the configured threshold.",
-    ),
-];
-
-fn rule_description(metric: &str) -> &str {
-    RULE_DESCRIPTIONS
-        .iter()
-        .find_map(|(name, desc)| (*name == metric).then_some(*desc))
-        .unwrap_or(metric)
-}
 
 /// Convert an OS path string into a SARIF `artifactLocation.uri`
 /// value (an RFC 3986 URI reference).
@@ -249,7 +153,7 @@ pub fn write_sarif<W: Write>(offenders: &[OffenderRecord], mut writer: W) -> io:
         .map(|id| Rule {
             id,
             short_description: Description {
-                text: rule_description(id),
+                text: rule_description(id).unwrap_or(*id),
             },
         })
         .collect();

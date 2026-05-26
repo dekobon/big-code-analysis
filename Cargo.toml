@@ -127,6 +127,10 @@ petgraph = "^0.8"
 regex = "^1.7"
 serde.workspace = true
 serde_json.workspace = true
+# Pinned to match the version already locked transitively via grammar
+# crates (Cargo.lock). Used by the GitLab Code Climate writer to
+# compute stable per-violation fingerprints.
+sha2 = "=0.10.9"
 termcolor = "^1.2"
 walkdir = "^2.3"
 

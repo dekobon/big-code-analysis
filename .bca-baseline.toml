@@ -37,28 +37,28 @@ path = "./big-code-analysis-cli/src/check_format.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 114754.3520404589
+value = 126346.67979869932
 
 [[entry]]
 path = "./big-code-analysis-cli/src/check_format.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 12.0
+value = 13.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/check_format.rs"
 function = "AggregatedFormat"
-start_line = 48
+start_line = 53
 metric = "nargs"
-value = 8.0
+value = 9.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/check_format.rs"
 function = "dump"
-start_line = 62
+start_line = 68
 metric = "nargs"
-value = 7.0
+value = 8.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/commands.rs"
@@ -268,7 +268,7 @@ path = "./big-code-analysis-cli/src/lib.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 928.0
+value = 929.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/lib.rs"
@@ -294,7 +294,7 @@ value = 57.0
 [[entry]]
 path = "./big-code-analysis-cli/src/lib.rs"
 function = "legacy_hint"
-start_line = 824
+start_line = 825
 metric = "halstead.effort"
 value = 48333.93310897573
 
@@ -2532,6 +2532,34 @@ metric = "cyclomatic"
 value = 15.0
 
 [[entry]]
+path = "./src/output/code_climate.rs"
+function = "<file>"
+start_line = 1
+metric = "halstead.effort"
+value = 1072209.485985333
+
+[[entry]]
+path = "./src/output/code_climate.rs"
+function = "<file>"
+start_line = 1
+metric = "loc.sloc"
+value = 620.0
+
+[[entry]]
+path = "./src/output/code_climate.rs"
+function = "<file>"
+start_line = 1
+metric = "nargs"
+value = 21.0
+
+[[entry]]
+path = "./src/output/code_climate.rs"
+function = "<file>"
+start_line = 1
+metric = "nom"
+value = 38.0
+
+[[entry]]
 path = "./src/output/csv.rs"
 function = "<file>"
 start_line = 1
@@ -2879,28 +2907,35 @@ path = "./src/output/offenders.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 76119.05395705439
+value = 104369.70794753898
+
+[[entry]]
+path = "./src/output/offenders.rs"
+function = "<file>"
+start_line = 1
+metric = "loc.sloc"
+value = 292.0
 
 [[entry]]
 path = "./src/output/sarif.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 909876.1746569603
+value = 895428.0843514435
 
 [[entry]]
 path = "./src/output/sarif.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 568.0
+value = 472.0
 
 [[entry]]
 path = "./src/output/sarif.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 14.0
+value = 12.0
 
 [[entry]]
 path = "./src/output/warning_line.rs"

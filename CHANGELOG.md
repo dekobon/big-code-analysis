@@ -23,6 +23,16 @@ for historical reference.
 
 ### Added
 
+- `bca check --output-format code-climate` (new) emits GitLab Code
+  Climate JSON directly into the MR Code Quality widget, replacing
+  the previous third-party Checkstyle→Code-Climate converter recipe.
+  Severity bands map metric-vs-threshold ratios onto GitLab's five
+  levels (`minor` ≤1.5×, `major` ≤2×, `critical` ≤4×, `blocker`
+  >4×), inverted for the `mi.*` family where lower is worse.
+  Fingerprints hash `path \0 function \0 metric` (deliberately
+  excluding line and value) so cosmetic line-drift edits still
+  collapse into the same widget entry. Fixes
+  [#354](https://github.com/dekobon/big-code-analysis/issues/354).
 - `enums/tests/dispatch.rs` (new) pins every `Lang` variant to its
   expected backing tree-sitter grammar crate via per-variant
   integration tests for `get_language` and `get_language_name`,

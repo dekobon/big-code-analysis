@@ -24,7 +24,7 @@ Print offenders to stderr but exit 0 even when thresholds are exceeded. Useful w
 Ignore in\-source suppression markers (`bca: suppress`, `#lizard forgives`, etc.). Every threshold violation is reported regardless of comment\-based silencers. CI auditors pass this to see the raw, un\-silenced offender list
 .TP
 \fB\-O\fR, \fB\-\-output\-format\fR \fI<OUTPUT_FORMAT>\fR
-CI/IDE document format for offender records (Checkstyle 4.3 XML, SARIF 2.1.0 JSON, clang/GCC warning lines, MSVC warning lines). When omitted, only the human\-readable stderr stream is emitted; the exit\-code contract is unaffected
+CI/IDE document format for offender records (Checkstyle 4.3 XML, SARIF 2.1.0 JSON, GitLab Code Climate JSON, clang/GCC warning lines, MSVC warning lines). When omitted, only the human\-readable stderr stream is emitted; the exit\-code contract is unaffected
 .br
 
 .br
@@ -34,6 +34,8 @@ CI/IDE document format for offender records (Checkstyle 4.3 XML, SARIF 2.1.0 JSO
 checkstyle
 .IP \(bu 2
 clang\-warning
+.IP \(bu 2
+code\-climate
 .IP \(bu 2
 msvc\-warning
 .IP \(bu 2

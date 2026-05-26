@@ -23,5 +23,8 @@ pub use csv::{CSV_EXTENSION, CSV_HEADER, write_csv};
 pub mod sarif;
 pub use sarif::write_sarif;
 
+pub mod code_climate;
+pub use code_climate::write_code_climate;
+
 pub mod warning_line;
 pub use warning_line::{write_clang_warning, write_msvc_warning};

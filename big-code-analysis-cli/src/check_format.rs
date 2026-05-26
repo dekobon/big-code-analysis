@@ -2,7 +2,7 @@
 //!
 //! `bca check` walks the source tree, collects [`Violation`] records,
 //! and — when `--output-format` is set — emits them as a single
-//! aggregated document. The four formats here are the CI/IDE
+//! aggregated document. The formats here are the CI/IDE
 //! integrations the threshold engine is meant to feed:
 //!
 //! - [`AggregatedFormat::Checkstyle`] — Checkstyle 4.3 XML (Jenkins,
@@ -11,6 +11,8 @@
 //!   Scanning, modern IDEs/security tooling).
 //! - [`AggregatedFormat::ClangWarning`] — clang/GCC warning lines
 //!   (editor quickfix parsers, GitHub Actions problem matchers).
+//! - [`AggregatedFormat::CodeClimate`] — GitLab Code Climate JSON
+//!   (GitLab MR Code Quality widget).
 //! - [`AggregatedFormat::MsvcWarning`] — MSVC `cl.exe` diagnostic
 //!   lines (Visual Studio, VS Code, Windows CI runners).
 //!
@@ -26,7 +28,8 @@ use std::path::Path;
 use clap::ValueEnum;
 
 use big_code_analysis::{
-    OffenderRecord, write_checkstyle, write_clang_warning, write_msvc_warning, write_sarif,
+    OffenderRecord, write_checkstyle, write_clang_warning, write_code_climate, write_msvc_warning,
+    write_sarif,
 };
 
 use crate::thresholds::Violation;
@@ -40,6 +43,8 @@ pub(crate) enum AggregatedFormat {
     Checkstyle,
     #[value(name = "clang-warning")]
     ClangWarning,
+    #[value(name = "code-climate")]
+    CodeClimate,
     #[value(name = "msvc-warning")]
     MsvcWarning,
     Sarif,
@@ -53,6 +58,7 @@ impl AggregatedFormat {
             Self::Checkstyle => "checkstyle",
             Self::Sarif => "sarif",
             Self::ClangWarning => "clang-warning",
+            Self::CodeClimate => "code-climate",
             Self::MsvcWarning => "msvc-warning",
         }
     }
@@ -71,6 +77,9 @@ impl AggregatedFormat {
             Self::Sarif => write_to_path_or_stdout(output_path, |w| write_sarif(offenders, w)),
             Self::ClangWarning => {
                 write_to_path_or_stdout(output_path, |w| write_clang_warning(offenders, w))
+            }
+            Self::CodeClimate => {
+                write_to_path_or_stdout(output_path, |w| write_code_climate(offenders, w))
             }
             Self::MsvcWarning => {
                 write_to_path_or_stdout(output_path, |w| write_msvc_warning(offenders, w))

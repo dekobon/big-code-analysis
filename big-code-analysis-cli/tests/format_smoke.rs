@@ -158,3 +158,89 @@ fn cli_csv_output_round_trips_through_csv_crate() {
         "expected header + at least one data row in CLI csv output, got {rows} rows"
     );
 }
+
+#[test]
+fn cli_check_code_climate_output_matches_gitlab_shape() {
+    // Routing + spec-compliance smoke for `--output-format code-climate`.
+    // Mirrors the SARIF/Checkstyle tests above: branchy fixture +
+    // tight threshold so the document carries real offenders, then
+    // assert it conforms to GitLab's strict subset of the Code
+    // Climate JSON spec (single array of objects, with each entry
+    // carrying the five required fields and `severity` from the
+    // GitLab enum).
+    const REQUIRED_KEYS: &[&str] = &[
+        "description",
+        "check_name",
+        "fingerprint",
+        "severity",
+        "location",
+    ];
+    const SEVERITY_ENUM: &[&str] = &["info", "minor", "major", "critical", "blocker"];
+
+    let dir = TempDir::new().unwrap();
+    let fixture = write_rust_fixture(&dir);
+    let out = run_check_offender_doc("code-climate", &fixture);
+
+    let doc: serde_json::Value =
+        serde_json::from_str(&out).expect("code-climate stdout parses as JSON");
+    let issues = doc
+        .as_array()
+        .expect("code-climate output must be a JSON array");
+    assert!(
+        !issues.is_empty(),
+        "expected at least one code-climate issue for branchy fixture; doc was:\n{out}",
+    );
+
+    for (i, issue) in issues.iter().enumerate() {
+        for key in REQUIRED_KEYS {
+            assert!(
+                issue.get(*key).is_some(),
+                "issue[{i}] missing required key {key:?}; entry was:\n{issue}",
+            );
+        }
+        let severity = issue["severity"].as_str().expect("severity is a string");
+        assert!(
+            SEVERITY_ENUM.contains(&severity),
+            "issue[{i}] severity {severity:?} not in GitLab enum {SEVERITY_ENUM:?}",
+        );
+        let path = issue["location"]["path"]
+            .as_str()
+            .expect("path is a string");
+        assert!(
+            !path.starts_with("./"),
+            "issue[{i}] location.path {path:?} starts with forbidden './'",
+        );
+        assert!(
+            !path.contains('\\'),
+            "issue[{i}] location.path {path:?} contains backslash",
+        );
+        assert!(
+            issue["check_name"]
+                .as_str()
+                .expect("check_name is a string")
+                .starts_with("big-code-analysis/"),
+            "issue[{i}] check_name not namespaced",
+        );
+        let fp = issue["fingerprint"]
+            .as_str()
+            .expect("fingerprint is a string");
+        assert_eq!(
+            fp.len(),
+            32,
+            "issue[{i}] fingerprint must be 32 hex chars, got {fp:?}",
+        );
+        let begin = issue["location"]["lines"]["begin"]
+            .as_u64()
+            .expect("lines.begin is an integer");
+        assert!(
+            begin >= 1,
+            "issue[{i}] lines.begin must be >= 1, got {begin}",
+        );
+    }
+
+    // GitLab forbids a BOM at the start of the artifact.
+    assert!(
+        !out.starts_with('\u{FEFF}'),
+        "code-climate output must not start with a BOM",
+    );
+}

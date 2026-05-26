@@ -198,15 +198,15 @@ pub use crate::suppression::{MetricKind, SuppressionPolicy, SuppressionScope};
 /// reporters.
 ///
 /// The most commonly used writers (`write_csv`, `write_sarif`,
-/// `write_checkstyle`, `write_clang_warning`, `write_msvc_warning`)
-/// and shared types (`OffenderRecord`, `Severity`, `TOOL_ID`,
-/// `CSV_HEADER`, `CSV_EXTENSION`) are also re-exported at the crate
-/// root.
+/// `write_checkstyle`, `write_clang_warning`, `write_code_climate`,
+/// `write_msvc_warning`) and shared types (`OffenderRecord`,
+/// `Severity`, `TOOL_ID`, `CSV_HEADER`, `CSV_EXTENSION`) are also
+/// re-exported at the crate root.
 pub mod output;
 pub use crate::output::{
     CSV_EXTENSION, CSV_HEADER, Dump, DumpCfg, OffenderRecord, Severity, TOOL_ID, dump_node,
-    dump_ops, dump_root, write_checkstyle, write_clang_warning, write_csv, write_msvc_warning,
-    write_sarif,
+    dump_ops, dump_root, write_checkstyle, write_clang_warning, write_code_climate, write_csv,
+    write_msvc_warning, write_sarif,
 };
 
 // --- AST plumbing (Node, Cursor) ---
