@@ -6,7 +6,7 @@
 
 use super::*;
 use std::path::PathBuf;
-use termcolor::NoColor;
+use termcolor::{Ansi, NoColor};
 
 fn make_span(name: &str, start: usize, end: usize) -> FunctionSpan {
     FunctionSpan {
@@ -14,6 +14,38 @@ fn make_span(name: &str, start: usize, end: usize) -> FunctionSpan {
         start_line: start,
         end_line: end,
         error: false,
+    }
+}
+
+// Render a single `dump_span` invocation into a `termcolor::Ansi` buffer.
+// `Ansi` writes ANSI escape sequences inline regardless of the surrounding
+// terminal, so the byte sequence is reproducible across hosts and pins the
+// exact color-then-text layout the segment-table refactor must preserve.
+fn dump_span_ansi(span: FunctionSpan, last: bool) -> String {
+    let mut buf = Ansi::new(Vec::<u8>::new());
+    dump_span(span, &mut buf, last).expect("write to in-memory buffer");
+    String::from_utf8(buf.into_inner()).expect("UTF-8")
+}
+
+fn assert_segments_in_order(out: &str, segments: &[&str]) {
+    let mut cursor = 0usize;
+    for (i, seg) in segments.iter().enumerate() {
+        let found = out[cursor..]
+            .find(seg)
+            .unwrap_or_else(|| panic!("segment {i} {seg:?} missing from output: {out:?}"))
+            + cursor;
+        if i > 0 {
+            // Each segment after the first must be preceded by at least one
+            // ANSI color escape (`\x1b[`). A refactor that drops a color()
+            // call leaves two text fragments touching without a code in
+            // between — this assertion catches it.
+            assert!(
+                out[cursor..found].contains("\x1b["),
+                "missing color escape before segment {i} {seg:?}: gap was {gap:?}",
+                gap = &out[cursor..found],
+            );
+        }
+        cursor = found + seg.len();
     }
 }
 
@@ -104,5 +136,49 @@ fn dump_spans_many_spans_marks_only_last() {
     assert!(
         last_line.contains("c: from line 14 to line 20."),
         "last-prefix line should belong to the final span `c`, got: {last_line:?}",
+    );
+}
+
+#[test]
+fn dump_span_ansi_layout_non_error_branch() {
+    // Pins both the text segments *and* the color-then-text layout
+    // that the segment-table refactor must preserve byte-for-byte.
+    // A reordering of segments (e.g. start_line ↔ end_line) makes
+    // `find` skip past the misplaced fragment and fail. A dropped
+    // `color()` call leaves two text fragments adjacent and trips
+    // the gap-must-contain-escape check.
+    let out = dump_span_ansi(make_span("hello", 1, 5), false);
+
+    assert!(out.starts_with("\x1b["), "must begin with a color escape: {out:?}");
+    assert!(out.ends_with("5.\n"), "trailing newline missing: {out:?}");
+    assert_segments_in_order(
+        &out,
+        &["   |- ", "hello: ", "from line ", "1", " to line ", "5.\n"],
+    );
+}
+
+#[test]
+fn dump_span_ansi_layout_error_branch() {
+    // The error branch substitutes the span name with the literal
+    // "error: " and must not leak the name. `last = true` selects
+    // the last-prefix glyph. Same color-then-text invariant as the
+    // non-error branch.
+    let span = FunctionSpan {
+        name: "should-not-appear".into(),
+        start_line: 7,
+        end_line: 8,
+        error: true,
+    };
+    let out = dump_span_ansi(span, true);
+
+    assert!(out.starts_with("\x1b["), "must begin with a color escape: {out:?}");
+    assert!(out.ends_with("8.\n"), "trailing newline missing: {out:?}");
+    assert!(
+        !out.contains("should-not-appear"),
+        "error branch must not include span name: {out:?}",
+    );
+    assert_segments_in_order(
+        &out,
+        &["   `- ", "error: ", "from line ", "7", " to line ", "8.\n"],
     );
 }

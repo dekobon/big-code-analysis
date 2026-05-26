@@ -75,30 +75,39 @@ pub fn function<T: ParserTrait>(parser: &T) -> Vec<FunctionSpan> {
 }
 
 fn dump_span(span: FunctionSpan, stdout: &mut dyn WriteColor, last: bool) -> std::io::Result<()> {
-    let pref = if last { "   `- " } else { "   |- " };
-
-    color(stdout, Color::Blue)?;
-    write!(stdout, "{pref}")?;
-
-    if span.error {
-        intense_color(stdout, Color::Red)?;
-        write!(stdout, "error: ")?;
+    // Build the six (color, intense, text) segments once, then write them
+    // in one loop. The original 25-line body called color() / intense_color()
+    // and write!()/writeln!() in alternation, scattering 13 `?` exits across
+    // the function — over the per-fn nexits cap. Collapsing into a table
+    // keeps the rendered byte sequence identical (verified by the
+    // `dump_span_ansi_layout_*` tests) while reducing nexits to two `?`
+    // sites inside the loop and one trailing `Ok(())`.
+    let prefix = if last { "   `- " } else { "   |- " };
+    let (label_color, label_intense, label_text) = if span.error {
+        (Color::Red, true, "error: ".to_string())
     } else {
-        intense_color(stdout, Color::Magenta)?;
-        write!(stdout, "{}: ", span.name)?;
+        (Color::Magenta, true, format!("{}: ", span.name))
+    };
+    let start = span.start_line.to_string();
+    let end = format!("{}.\n", span.end_line);
+
+    let segments: [(Color, bool, &str); 6] = [
+        (Color::Blue, false, prefix),
+        (label_color, label_intense, &label_text),
+        (Color::Green, false, "from line "),
+        (Color::White, false, &start),
+        (Color::Green, false, " to line "),
+        (Color::White, false, &end),
+    ];
+    for (col, intense, text) in segments {
+        if intense {
+            intense_color(stdout, col)?;
+        } else {
+            color(stdout, col)?;
+        }
+        stdout.write_all(text.as_bytes())?;
     }
-
-    color(stdout, Color::Green)?;
-    write!(stdout, "from line ")?;
-
-    color(stdout, Color::White)?;
-    write!(stdout, "{}", span.start_line)?;
-
-    color(stdout, Color::Green)?;
-    write!(stdout, " to line ")?;
-
-    color(stdout, Color::White)?;
-    writeln!(stdout, "{}.", span.end_line)
+    Ok(())
 }
 
 // Trait-object writer so production passes a locked `StandardStream`
