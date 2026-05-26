@@ -1773,31 +1773,19 @@ fn csharp_walk_for_conditions(node: &Node, stats: &mut Stats) {
     }
 }
 
-// `cond ? a : b` — children are [cond, ?, a, :, b].
+// `cond ? a : b` — children are [cond, ?, a, :, b]. The cond-classifier
+// match is shared with `csharp_walk_for_conditions`'s `if`/`while`/`do`
+// arms via `csharp_count_condition`; the two branch slots delegate to
+// `csharp_inspect_container` via `csharp_inspect_child` so a parenthesised
+// or `!`-prefixed branch contributes one condition just like a bare
+// invocation/identifier/boolean would.
 fn csharp_walk_conditional(node: &Node, stats: &mut Stats) {
-    use Csharp::*;
+    let conds = &mut stats.conditions;
     if let Some(condition) = node.child(0) {
-        match condition.kind_id().into() {
-            crate::Csharp::InvocationExpression
-            | crate::Csharp::InvocationExpression2
-            | crate::Csharp::InvocationExpression3
-            | Identifier
-            | True
-            | False => {
-                stats.conditions += 1.;
-            }
-            crate::Csharp::ParenthesizedExpression
-            | crate::Csharp::ParenthesizedExpression2
-            | crate::Csharp::ParenthesizedExpression3
-            | crate::Csharp::PrefixUnaryExpression
-            | crate::Csharp::PrefixUnaryExpression2 => {
-                csharp_inspect_container(&condition, &mut stats.conditions);
-            }
-            _ => {}
-        }
+        csharp_count_condition(&condition, conds);
     }
-    csharp_inspect_child(node, 2, &mut stats.conditions);
-    csharp_inspect_child(node, 4, &mut stats.conditions);
+    csharp_inspect_child(node, 2, conds);
+    csharp_inspect_child(node, 4, conds);
 }
 
 // Counts unary / single-token conditions inside `for` statements. The
