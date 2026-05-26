@@ -377,6 +377,16 @@ struct CheckArgs {
     /// affected metric so the count is still visible.
     #[clap(long = "github-annotations")]
     github_annotations: bool,
+    /// File path to append a markdown digest of the violations to —
+    /// per-file rollup table, per-metric breakdown, and top-N
+    /// offenders by `value / limit` ratio. Mirrors the format
+    /// `bca report markdown` produces so a reader skimming the GHA
+    /// step-summary panel sees a familiar table layout. When this
+    /// flag is omitted, auto-detect via `$GITHUB_STEP_SUMMARY`. The
+    /// block is bracketed by HTML-comment markers so a retried step
+    /// replaces (not stacks) the previous digest.
+    #[clap(long = "summary-file", value_parser)]
+    summary_file: Option<PathBuf>,
 }
 
 #[derive(Args, Debug)]

@@ -322,6 +322,21 @@ fn emit_check_results(
     }
     drop(stderr);
 
+    // Append the markdown digest to `$GITHUB_STEP_SUMMARY` (or the
+    // user-supplied `--summary-file`). Writes are bracketed by the
+    // bca-step-summary markers so a retried GHA step replaces
+    // (instead of stacks) the previous block. Failures here are
+    // logged but never affect the exit-code contract — the
+    // step-summary panel is informational.
+    if let Some(path) = step_summary_path(args)
+        && let Err(e) = check_format::write_step_summary(&path, &pairs)
+    {
+        eprintln!(
+            "bca: failed to append step summary to {}: {e}",
+            path.display()
+        );
+    }
+
     // Emit the aggregated CI/IDE document if requested. Empty input
     // produces a well-formed but offender-free document, which CI
     // consumers can ingest unchanged on clean runs. The exit-code
@@ -347,6 +362,17 @@ fn emit_check_results(
 fn github_annotations_enabled(args: &CheckArgs) -> bool {
     args.github_annotations
         || std::env::var(check_format::GITHUB_ACTIONS_ENV).as_deref() == Ok("true")
+}
+
+/// Resolve the path to append the step-summary digest to, in
+/// precedence: explicit `--summary-file <path>` wins; otherwise
+/// `$GITHUB_STEP_SUMMARY` (auto-detected in GHA workflows); otherwise
+/// `None` and the digest is not emitted.
+fn step_summary_path(args: &CheckArgs) -> Option<PathBuf> {
+    if let Some(p) = &args.summary_file {
+        return Some(p.clone());
+    }
+    std::env::var_os(check_format::GITHUB_STEP_SUMMARY_ENV).map(PathBuf::from)
 }
 
 /// One row in the per-file rollup footer. The display string is
@@ -490,32 +516,12 @@ fn write_footer_row(
     )
 }
 
-/// Pick the worst violation in a slice by `value / limit` ratio. Ties
-/// break by larger absolute value, then by metric name ascending.
-/// Limits of `0.0` saturate to `f64::INFINITY` so a "no value
-/// permitted" threshold dominates ratio comparison without triggering
-/// NaN from `value / 0.0`.
-///
-/// Returns `None` only if the slice is empty. In `write_summary_footer`
-/// the slice can't be empty in practice — `BTreeMap::entry(...).or_default()
-/// .push(v)` guarantees at least one element per key — but expressing
-/// "non-empty slice" in the type system isn't worth the ceremony, so
-/// the caller propagates the `None` via `?` instead.
+/// Pick the worst violation in a slice. Thin wrapper around
+/// [`Violation::pick_worst`] kept for call-site readability —
+/// `pick_worst(vs)` in this module's stderr-footer code path reads
+/// the same as it did before the shared helper landed.
 fn pick_worst<'a>(vs: &[&'a Violation]) -> Option<&'a Violation> {
-    vs.iter().copied().max_by(|a, b| {
-        ratio(a)
-            .total_cmp(&ratio(b))
-            .then_with(|| a.value.total_cmp(&b.value))
-            .then_with(|| b.metric.cmp(a.metric))
-    })
-}
-
-fn ratio(v: &Violation) -> f64 {
-    if v.limit > 0.0 {
-        v.value / v.limit
-    } else {
-        f64::INFINITY
-    }
+    Violation::pick_worst(vs)
 }
 
 /// Parse `std::env::args_os()` and execute the selected `bca`

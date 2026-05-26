@@ -4,7 +4,7 @@
 .SH NAME
 bca\-check \- Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed"
 .SH SYNOPSIS
-\fBbca\-check\fR [\fB\-\-threshold\fR] [\fB\-\-config\fR] [\fB\-\-no\-fail\fR] [\fB\-\-no\-suppress\fR] [\fB\-O\fR|\fB\-\-output\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-baseline\fR] [\fB\-\-write\-baseline\fR] [\fB\-\-no\-summary\fR] [\fB\-\-since\fR] [\fB\-\-changed\-only\fR] [\fB\-\-github\-annotations\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+\fBbca\-check\fR [\fB\-\-threshold\fR] [\fB\-\-config\fR] [\fB\-\-no\-fail\fR] [\fB\-\-no\-suppress\fR] [\fB\-O\fR|\fB\-\-output\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-baseline\fR] [\fB\-\-write\-baseline\fR] [\fB\-\-no\-summary\fR] [\fB\-\-since\fR] [\fB\-\-changed\-only\fR] [\fB\-\-github\-annotations\fR] [\fB\-\-summary\-file\fR] [\fB\-h\fR|\fB\-\-help\fR] 
 .SH DESCRIPTION
 Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed"
 .SH OPTIONS
@@ -62,6 +62,9 @@ Drop violations from files outside the `\-\-since`/auto\-detected touched set en
 .TP
 \fB\-\-github\-annotations\fR
 Emit GitHub Actions `::error file=…,line=…,title=…::msg` workflow commands per violation so the GHA UI renders them as inline annotations on the file\-diff view. Additive to the human\-readable stderr stream — annotations ride on top, they don\*(Aqt replace it. Auto\-enabled when `$GITHUB_ACTIONS == "true"`. Capped at 10 per metric (GitHub Actions surfaces at most 10 errors per step in the UI); overflow rolls up to one `::error::N more <metric> violations not shown` line per affected metric so the count is still visible
+.TP
+\fB\-\-summary\-file\fR \fI<SUMMARY_FILE>\fR
+File path to append a markdown digest of the violations to — per\-file rollup table, per\-metric breakdown, and top\-N offenders by `value / limit` ratio. Mirrors the format `bca report markdown` produces so a reader skimming the GHA step\-summary panel sees a familiar table layout. When this flag is omitted, auto\-detect via `$GITHUB_STEP_SUMMARY`. The block is bracketed by HTML\-comment markers so a retried step replaces (not stacks) the previous digest
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help (see a summary with \*(Aq\-h\*(Aq)

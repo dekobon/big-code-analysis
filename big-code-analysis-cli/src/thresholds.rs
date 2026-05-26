@@ -224,6 +224,38 @@ impl Violation {
             MetricScalar(self.limit),
         )
     }
+
+    /// The `value / limit` ratio used to rank violation severity.
+    /// Saturates to `f64::INFINITY` when the configured limit is
+    /// zero ("no value permitted") so a NaN never escapes into
+    /// downstream sorts — `total_cmp` then ranks the violation
+    /// above all finite-ratio ones, which matches the user
+    /// intuition that "0 is the strictest possible limit".
+    pub(crate) fn ratio(&self) -> f64 {
+        if self.limit > 0.0 {
+            self.value / self.limit
+        } else {
+            f64::INFINITY
+        }
+    }
+
+    /// Pick the worst violation in a slice by `value / limit` ratio.
+    /// Ties break by larger absolute value, then by metric name
+    /// ascending. Returns `None` only if the slice is empty.
+    ///
+    /// Shared between the `commands::write_summary_footer` rollup
+    /// (stderr) and `check_format::write_per_file_rollup`
+    /// ($GITHUB_STEP_SUMMARY markdown). Forking the tiebreak across
+    /// the two emitters would let the two surfaces disagree about
+    /// which violation is "worst" for the same file.
+    pub(crate) fn pick_worst<'a>(vs: &[&'a Self]) -> Option<&'a Self> {
+        vs.iter().copied().max_by(|a, b| {
+            a.ratio()
+                .total_cmp(&b.ratio())
+                .then_with(|| a.value.total_cmp(&b.value))
+                .then_with(|| b.metric.cmp(a.metric))
+        })
+    }
 }
 
 impl fmt::Display for Violation {

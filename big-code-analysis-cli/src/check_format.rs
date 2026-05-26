@@ -33,6 +33,8 @@ use big_code_analysis::{
     write_sarif,
 };
 
+use crate::baseline::Coverage;
+use crate::format_util::MetricScalar;
 use crate::thresholds::Violation;
 
 /// Aggregated CI/IDE output formats accepted by `bca check
@@ -182,6 +184,228 @@ fn escape_gha(s: &str, slot: GhaSlot) -> String {
 enum GhaSlot {
     Property,
     Message,
+}
+
+/// Env var GitHub Actions sets to the path of the step-summary
+/// markdown file. Appending to it surfaces a rendered digest in the
+/// step's summary panel — much more discoverable than scrolling
+/// the raw job log.
+pub(crate) const GITHUB_STEP_SUMMARY_ENV: &str = "GITHUB_STEP_SUMMARY";
+
+/// Number of top-by-ratio offenders surfaced in the step-summary
+/// "Top offenders" table. Paired with [`DEFAULT_GITHUB_ANNOTATION_CAP`]
+/// so the same N most-egregious functions surface in both the inline
+/// annotations and the rollup; tuning either changes both. The `const`
+/// references the cap directly rather than declaring an independent
+/// `10` so drift cannot occur silently.
+pub(crate) const STEP_SUMMARY_TOP_OFFENDERS: usize = DEFAULT_GITHUB_ANNOTATION_CAP;
+
+/// Sentinel marker pair that bounds the `bca`-written block inside
+/// the step-summary file. GitHub Actions appends, never truncates,
+/// `$GITHUB_STEP_SUMMARY` on every write — so a naive append on a
+/// retried step would stack two copies of the rollup. By bracketing
+/// our block with these markers and replacing on subsequent writes,
+/// retries produce a single up-to-date digest regardless of how many
+/// times the step ran. The markers are HTML comments and never
+/// visible in the rendered output.
+pub(crate) const STEP_SUMMARY_BEGIN_MARKER: &str = "<!-- bca-step-summary-begin -->";
+pub(crate) const STEP_SUMMARY_END_MARKER: &str = "<!-- bca-step-summary-end -->";
+
+/// Append (or replace, on retry) a markdown digest of the violations
+/// to `path`. The block contains the same per-file rollup `--no-summary`
+/// surfaces on stderr, plus a per-metric count breakdown and a
+/// top-N-offenders table sorted by `value / limit` ratio. Empty
+/// input still writes a "✓ no violations" block so the developer
+/// sees positive confirmation in the step summary even on clean
+/// runs.
+pub(crate) fn write_step_summary(
+    path: &Path,
+    pairs: &[(Violation, Option<Coverage>)],
+) -> std::io::Result<()> {
+    let new_block = compose_step_summary_block(pairs);
+    // First-write (file does not yet exist) is the common case in
+    // GHA workflows; treat NotFound as an empty starting state.
+    // Other I/O errors (permission denied, mid-FS error) must bubble
+    // — silently swallowing them would let the caller emit a
+    // misleading "failed to append" diagnostic that hides the actual
+    // permission / FS problem.
+    let existing = match std::fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(e),
+    };
+    let replaced = replace_step_summary_block(&existing, &new_block);
+    std::fs::write(path, replaced)
+}
+
+/// Compose the bracketed markdown block. Always idempotent for the
+/// same `pairs` (no timestamps, no random IDs), so two consecutive
+/// runs over the same offenders produce byte-identical output.
+fn compose_step_summary_block(pairs: &[(Violation, Option<Coverage>)]) -> String {
+    let mut out = String::new();
+    out.push_str(STEP_SUMMARY_BEGIN_MARKER);
+    out.push('\n');
+    out.push_str("## `bca check`: threshold violations\n\n");
+    if pairs.is_empty() {
+        out.push_str("✓ No threshold violations.\n");
+    } else {
+        use std::fmt::Write as _;
+        let _ = writeln!(out, "**Total violations:** {}\n", pairs.len());
+        write_per_file_rollup(&mut out, pairs);
+        out.push('\n');
+        write_metric_breakdown(&mut out, pairs);
+        out.push('\n');
+        write_top_offenders(&mut out, pairs, STEP_SUMMARY_TOP_OFFENDERS);
+    }
+    out.push_str(STEP_SUMMARY_END_MARKER);
+    out.push('\n');
+    out
+}
+
+/// Replace any existing `bca`-marker block in `existing` with
+/// `new_block`. When the markers are absent (first write, or a
+/// non-`bca`-managed file), append `new_block` to the end. Idempotent
+/// across retries: bca runs N+1 times → file contains exactly one
+/// up-to-date block, not N+1 stacked copies.
+fn replace_step_summary_block(existing: &str, new_block: &str) -> String {
+    if let Some(begin) = existing.find(STEP_SUMMARY_BEGIN_MARKER)
+        && let Some(end) = existing[begin..].find(STEP_SUMMARY_END_MARKER)
+    {
+        // `end` is relative to `begin`; absolute end-of-marker
+        // position is `begin + end + len(END_MARKER)`. Splice in the
+        // new block, preserving content outside the markers.
+        let end_abs = begin + end + STEP_SUMMARY_END_MARKER.len();
+        // Drop the trailing newline (if any) immediately after the
+        // end marker so we don't accumulate blank lines on repeated
+        // replacements.
+        let tail_start = if existing.as_bytes().get(end_abs) == Some(&b'\n') {
+            end_abs + 1
+        } else {
+            end_abs
+        };
+        let mut out = String::with_capacity(existing.len() + new_block.len());
+        out.push_str(&existing[..begin]);
+        out.push_str(new_block);
+        out.push_str(&existing[tail_start..]);
+        return out;
+    }
+    let mut out = existing.to_string();
+    if !existing.is_empty() && !existing.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push_str(new_block);
+    out
+}
+
+/// "Per-file rollup" GFM table: file, violation count, worst metric
+/// (by ratio), worst value, worst limit. Sorted by count desc, then
+/// path asc.
+fn write_per_file_rollup(out: &mut String, pairs: &[(Violation, Option<Coverage>)]) {
+    use std::fmt::Write as _;
+    out.push_str("### Per-file rollup\n\n");
+    out.push_str("| File | Violations | Worst metric | Value | Limit |\n");
+    out.push_str("|------|-----------:|--------------|------:|------:|\n");
+    let mut by_path: BTreeMap<&Path, Vec<&Violation>> = BTreeMap::new();
+    for (v, _) in pairs {
+        by_path.entry(v.path.as_path()).or_default().push(v);
+    }
+    let mut rows: Vec<(usize, &Violation, String)> = by_path
+        .iter()
+        .filter_map(|(path, vs)| {
+            let worst = Violation::pick_worst(vs)?;
+            Some((vs.len(), worst, path.display().to_string()))
+        })
+        .collect();
+    rows.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.2.cmp(&b.2)));
+    for (count, worst, display) in rows {
+        let _ = writeln!(
+            out,
+            "| {} | {} | {} | {} | {} |",
+            escape_gfm_cell(&display),
+            count,
+            worst.metric,
+            MetricScalar(worst.value),
+            MetricScalar(worst.limit),
+        );
+    }
+}
+
+/// "Metric breakdown" GFM table: count of violations per metric,
+/// sorted by count desc then metric name asc.
+fn write_metric_breakdown(out: &mut String, pairs: &[(Violation, Option<Coverage>)]) {
+    use std::fmt::Write as _;
+    out.push_str("### Metric breakdown\n\n");
+    out.push_str("| Metric | Violations |\n");
+    out.push_str("|--------|-----------:|\n");
+    let mut counts: BTreeMap<&'static str, usize> = BTreeMap::new();
+    for (v, _) in pairs {
+        *counts.entry(v.metric).or_insert(0) += 1;
+    }
+    let mut rows: Vec<(&&'static str, &usize)> = counts.iter().collect();
+    rows.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
+    for (metric, n) in rows {
+        let _ = writeln!(out, "| {metric} | {n} |");
+    }
+}
+
+/// "Top offenders" GFM table: up to `top_n` violations ranked by
+/// `value / limit` ratio (saturating to infinity for zero-limit
+/// thresholds, mirroring `pick_worst`).
+fn write_top_offenders(out: &mut String, pairs: &[(Violation, Option<Coverage>)], top_n: usize) {
+    use std::fmt::Write as _;
+    let _ = writeln!(out, "### Top {top_n} offenders (by value / limit)\n");
+    out.push_str("| File | Line | Function | Metric | Value | Limit |\n");
+    out.push_str("|------|-----:|----------|--------|------:|------:|\n");
+    let mut sorted: Vec<&Violation> = pairs.iter().map(|(v, _)| v).collect();
+    // Primary key: ratio desc (worst first). Secondary keys are
+    // deterministic tiebreaks — without them, two violations with
+    // the same ratio (common: same metric and limit, integer values)
+    // would surface in iterator-order, which depends on upstream
+    // collection types and would let the digest reorder between
+    // refactors.
+    sorted.sort_by(|a, b| {
+        b.ratio()
+            .total_cmp(&a.ratio())
+            .then_with(|| a.path.cmp(&b.path))
+            .then_with(|| a.start_line.cmp(&b.start_line))
+            .then_with(|| a.metric.cmp(b.metric))
+    });
+    for v in sorted.iter().take(top_n) {
+        let _ = writeln!(
+            out,
+            "| {} | {} | {} | {} | {} | {} |",
+            escape_gfm_cell(&v.path.display().to_string()),
+            v.start_line,
+            escape_gfm_cell(&v.function),
+            v.metric,
+            MetricScalar(v.value),
+            MetricScalar(v.limit),
+        );
+    }
+}
+
+/// Escape `\`, `|`, and newlines in a GFM table cell. `|` is the
+/// column separator; `\` must be escaped first so that escaping `|`
+/// to `\|` doesn't accidentally interact with a literal backslash
+/// already present in the cell (a path `a\|b` would otherwise
+/// produce `a\\|b`, which GFM renders as `a\` followed by a column
+/// break rather than the literal `a\|b`). Newlines and carriage
+/// returns are collapsed to a single space — multi-line cells
+/// would break the table layout entirely.
+fn escape_gfm_cell(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            // Escape `\` FIRST so the subsequent `|` → `\|` rule
+            // doesn't conflict with a literal backslash already in
+            // the cell.
+            '\\' => out.push_str("\\\\"),
+            '|' => out.push_str("\\|"),
+            '\n' | '\r' => out.push(' '),
+            _ => out.push(ch),
+        }
+    }
+    out
 }
 
 pub(crate) fn violation_to_offender(v: Violation) -> OffenderRecord {
@@ -440,5 +664,197 @@ mod tests {
             "expected non-UTF-8 path to be skipped, got: {}",
             String::from_utf8_lossy(&buf)
         );
+    }
+
+    // --- $GITHUB_STEP_SUMMARY emitter tests ---
+
+    fn coverage_pair(v: Violation) -> (Violation, Option<Coverage>) {
+        (v, None)
+    }
+
+    #[test]
+    fn compose_step_summary_block_is_idempotent_for_same_input() {
+        // The block is content-only — no timestamps, no random IDs —
+        // so two runs over the same violation set produce
+        // byte-identical output. This is the load-bearing invariant
+        // for `replace_step_summary_block`'s retry semantics: a
+        // retried GHA step writes exactly the same block, so the
+        // step-summary panel does not flicker between retries.
+        let pairs = vec![
+            coverage_pair(violation_for("src/a.rs", "f", "cyclomatic")),
+            coverage_pair(violation_for("src/b.rs", "g", "cognitive")),
+        ];
+        let a = compose_step_summary_block(&pairs);
+        let b = compose_step_summary_block(&pairs);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn compose_step_summary_block_contains_required_sections() {
+        let pairs = vec![
+            coverage_pair(violation_for("src/a.rs", "f", "cyclomatic")),
+            coverage_pair(violation_for("src/b.rs", "g", "cognitive")),
+        ];
+        let out = compose_step_summary_block(&pairs);
+        assert!(out.starts_with(STEP_SUMMARY_BEGIN_MARKER));
+        assert!(out.trim_end().ends_with(STEP_SUMMARY_END_MARKER));
+        assert!(out.contains("## `bca check`: threshold violations"));
+        assert!(out.contains("**Total violations:** 2"));
+        assert!(out.contains("### Per-file rollup"));
+        assert!(out.contains("### Metric breakdown"));
+        assert!(out.contains("### Top 10 offenders"));
+        // Per-file rollup row pinned via the cell shape (`src/a.rs`
+        // with cyclomatic worst metric) so a regression that dropped
+        // a column or transposed cells would fail.
+        assert!(
+            out.contains("| src/a.rs | 1 | cyclomatic |"),
+            "missing per-file row, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn compose_step_summary_block_empty_input_writes_clean_message() {
+        let out = compose_step_summary_block(&[]);
+        assert!(out.starts_with(STEP_SUMMARY_BEGIN_MARKER));
+        assert!(out.contains("✓ No threshold violations."));
+        // Don't emit empty rollup / breakdown sections — the
+        // checkmark is the entire body.
+        assert!(!out.contains("### Per-file rollup"));
+    }
+
+    #[test]
+    fn replace_step_summary_block_first_write_appends_to_empty_file() {
+        let new_block = "<!-- bca-step-summary-begin -->\nbody\n<!-- bca-step-summary-end -->\n";
+        let out = replace_step_summary_block("", new_block);
+        assert_eq!(out, new_block);
+    }
+
+    #[test]
+    fn replace_step_summary_block_first_write_preserves_existing_content() {
+        // Another tool may have written to GITHUB_STEP_SUMMARY first
+        // (e.g. an upstream cargo step). Don't truncate — append.
+        let existing = "## Upstream summary\nfoo\n";
+        let new_block = "<!-- bca-step-summary-begin -->\nbody\n<!-- bca-step-summary-end -->\n";
+        let out = replace_step_summary_block(existing, new_block);
+        assert!(out.starts_with("## Upstream summary"));
+        assert!(out.contains(new_block));
+    }
+
+    #[test]
+    fn replace_step_summary_block_replaces_existing_marker_block() {
+        // Retried GHA step: bca writes once, then bca writes again
+        // (because the step was retried). The second write replaces
+        // the first, leaving exactly ONE block in the file regardless
+        // of retry count.
+        let first = "<!-- bca-step-summary-begin -->\nfirst body\n<!-- bca-step-summary-end -->\n";
+        let second =
+            "<!-- bca-step-summary-begin -->\nsecond body\n<!-- bca-step-summary-end -->\n";
+        let out = replace_step_summary_block(first, second);
+        assert_eq!(out, second);
+        // Re-applying the same `second` block is a no-op (also load-
+        // bearing for retries: three retries should converge to
+        // exactly one block).
+        let out2 = replace_step_summary_block(&out, second);
+        assert_eq!(out2, second);
+    }
+
+    #[test]
+    fn replace_step_summary_block_preserves_content_outside_markers() {
+        let existing = "## Other tool\nleading\n\
+            <!-- bca-step-summary-begin -->\nold\n<!-- bca-step-summary-end -->\n\
+            ## More content\ntrailing\n";
+        let new_block = "<!-- bca-step-summary-begin -->\nnew\n<!-- bca-step-summary-end -->\n";
+        let out = replace_step_summary_block(existing, new_block);
+        assert!(out.starts_with("## Other tool\nleading\n"));
+        assert!(out.ends_with("## More content\ntrailing\n"));
+        assert!(out.contains("new\n"));
+        assert!(!out.contains("old\n"));
+    }
+
+    #[test]
+    fn write_step_summary_creates_and_then_replaces_on_retry() {
+        // End-to-end: write to a real tempfile, then write twice
+        // more (N=3 retries total), read back and confirm exactly
+        // one bca block remains regardless of retry count. Three
+        // retries exercise the fixed-point property the issue
+        // describes; N=2 alone would only show that one retry works.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("step-summary.md");
+        let pairs1 = vec![coverage_pair(violation_for("src/a.rs", "f", "cyclomatic"))];
+        write_step_summary(&path, &pairs1).expect("write 1");
+        let after_first = std::fs::read_to_string(&path).expect("read 1");
+        assert_eq!(
+            after_first.matches(STEP_SUMMARY_BEGIN_MARKER).count(),
+            1,
+            "expected exactly one begin marker after first write"
+        );
+
+        let pairs2 = vec![coverage_pair(violation_for("src/b.rs", "g", "cognitive"))];
+        write_step_summary(&path, &pairs2).expect("write 2");
+        let after_second = std::fs::read_to_string(&path).expect("read 2");
+        assert_eq!(
+            after_second.matches(STEP_SUMMARY_BEGIN_MARKER).count(),
+            1,
+            "retried write must replace, not stack (N=2)"
+        );
+        assert!(after_second.contains("src/b.rs"));
+        assert!(!after_second.contains("src/a.rs"));
+
+        // Third write with the same pairs as the second — fixed
+        // point: file byte-content must be identical to the
+        // after-second state. This proves the marker-replace logic
+        // converges, not just that it works once.
+        write_step_summary(&path, &pairs2).expect("write 3");
+        let after_third = std::fs::read_to_string(&path).expect("read 3");
+        assert_eq!(
+            after_third, after_second,
+            "third write with same input must be byte-identical (fixed point)"
+        );
+    }
+
+    #[test]
+    fn write_step_summary_bubbles_non_notfound_io_errors() {
+        // Permission denied (and other non-NotFound I/O errors) must
+        // bubble — silently swallowing them would let the caller emit
+        // a misleading "failed to append" diagnostic that hides the
+        // actual permission / FS problem.
+        //
+        // We simulate by giving `write_step_summary` a path that
+        // points *through* a regular file as if it were a directory
+        // (e.g. `/etc/hostname/foo`). The read succeeds with
+        // NotFound (parent is a file, not a dir), so this only tests
+        // the write-side error propagation. That's enough to confirm
+        // the function returns `Err` rather than silently succeeding.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let stub = dir.path().join("not-a-dir");
+        std::fs::write(&stub, "stub").expect("write stub");
+        let path = stub.join("child");
+        let pairs = vec![coverage_pair(violation_for("src/a.rs", "f", "cyclomatic"))];
+        assert!(
+            write_step_summary(&path, &pairs).is_err(),
+            "expected non-NotFound I/O error to bubble"
+        );
+    }
+
+    #[test]
+    fn escape_gfm_cell_escapes_pipe_and_collapses_newlines() {
+        // Path containing `|` (legal on Unix) would otherwise split
+        // the GFM cell into two columns and corrupt the table layout.
+        assert_eq!(escape_gfm_cell("a|b"), "a\\|b");
+        // Newlines inside a cell would also break the row; collapse
+        // to a single space so the table stays well-formed.
+        assert_eq!(escape_gfm_cell("a\nb\rc"), "a b c");
+    }
+
+    #[test]
+    fn escape_gfm_cell_escapes_backslash_before_pipe() {
+        // A literal `\` in a path must round-trip as `\` in the
+        // rendered cell. If we only escape `|`, then the input
+        // `a\|b` (literal backslash + pipe) becomes `a\\|b` — which
+        // GFM renders as `a\` followed by a column break, splitting
+        // the cell. Escaping `\` to `\\` first makes the same input
+        // become `a\\\|b`, which renders as the literal `a\|b`.
+        assert_eq!(escape_gfm_cell("a\\b"), "a\\\\b");
+        assert_eq!(escape_gfm_cell("a\\|b"), "a\\\\\\|b");
     }
 }

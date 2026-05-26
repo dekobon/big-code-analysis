@@ -374,6 +374,35 @@ not shown` line so the count stays visible.
 Pair this with `--since` (above) so the annotations point at the
 files in the PR, not the entire offender list.
 
+#### Step-summary markdown digest (`$GITHUB_STEP_SUMMARY`)
+
+GitHub Actions exposes `$GITHUB_STEP_SUMMARY` — a path to a markdown
+file that, when populated, renders as the step's summary view in the
+job UI. `bca check` appends a digest containing the per-file rollup
+table, a per-metric count breakdown, and the top-10 offenders by
+`value / limit` ratio whenever that env var is set, or when
+`--summary-file <path>` is passed explicitly.
+
+The digest is bracketed by HTML-comment markers (`<!-- bca-step-summary-begin -->`
+/ `<!-- /bca-step-summary-end -->`) so a retried step replaces (not
+stacks) the previous block — three retries converge to exactly one
+up-to-date digest. Content outside the markers (e.g. summaries
+written by other tools earlier in the same step) is preserved.
+
+```yaml
+- name: Threshold check with step-summary digest
+  run: |
+    bca --paths . --exclude-from .bcaignore check \
+        --config bca-thresholds.toml \
+        --baseline .bca-baseline.toml
+  # No flag needed — `$GITHUB_STEP_SUMMARY` is set automatically in GHA.
+```
+
+Local users can pipe the digest into any markdown file with
+`--summary-file <path>`. Empty input (clean run) still writes a
+"✓ No threshold violations." block so the step summary positively
+confirms the gate ran.
+
 Refresh after focused refactors:
 
 ```bash
