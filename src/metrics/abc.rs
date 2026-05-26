@@ -1737,16 +1737,36 @@ fn csharp_walk_for_conditions(node: &Node, stats: &mut Stats) {
             }
         }
         ArgumentList => csharp_count_unary_conditions(node, conds),
-        // Child 1: `if (cond) ...`, `while (cond) ...`, `return value;`.
-        IfStatement | WhileStatement | ReturnStatement => csharp_inspect_child(node, 1, conds),
+        // tree-sitter-c-sharp `if_statement` / `while_statement` shape:
+        // [`if`/`while`, `(`, condition, `)`, body, …]. The parens are
+        // anonymous string children, NOT a wrapping
+        // `parenthesized_expression` as in tree-sitter-java — so the
+        // condition lives at child(2). Targeting child(1) (the literal
+        // `(` token) was the #370 bug: every unary / bare-identifier
+        // condition silently scored 0. See issue #370.
+        IfStatement | WhileStatement => {
+            if let Some(condition) = node.child(2) {
+                csharp_count_condition(&condition, conds);
+            }
+        }
+        // tree-sitter-c-sharp `do_statement` shape:
+        // [`do`, body, `while`, `(`, condition, `)`, `;`]. The
+        // condition lives at child(4), not child(3) (which is the
+        // literal `(` token). Targeting child(3) was the second half
+        // of the #370 bug.
+        DoStatement => {
+            if let Some(condition) = node.child(4) {
+                csharp_count_condition(&condition, conds);
+            }
+        }
+        // `return value;` — child(1) is the value expression.
+        ReturnStatement => csharp_inspect_child(node, 1, conds),
         // Child 2: declarator / assignment RHS, lambda body
         // (`params => body`).
         crate::Csharp::VariableDeclarator
         | crate::Csharp::VariableDeclarator2
         | AssignmentExpression
         | LambdaExpression => csharp_inspect_child(node, 2, conds),
-        // Child 3: the `while (cond)` condition of `do { ... } while (...);`.
-        DoStatement => csharp_inspect_child(node, 3, conds),
         ConditionalExpression => csharp_walk_conditional(node, stats),
         ForStatement => csharp_walk_for_statement(node, stats),
         _ => {}
@@ -2179,6 +2199,19 @@ fn tcl_command_is_assignment(node: &Node, code: &[u8]) -> bool {
 fn csharp_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
     if let Some(child) = node.child(idx) {
         csharp_inspect_container(&child, conditions);
+    }
+}
+
+fn csharp_count_condition(condition: &Node, conditions: &mut f64) {
+    use Csharp::*;
+    let kind = condition.kind_id().into();
+    if matches!(kind, csharp_invocation_expr_kinds!()) || matches!(kind, Identifier | True | False)
+    {
+        *conditions += 1.;
+    } else if matches!(kind, csharp_paren_expr_kinds!())
+        || matches!(kind, csharp_prefix_unary_expr_kinds!())
+    {
+        csharp_inspect_container(condition, conditions);
     }
 }
 
@@ -3443,6 +3476,103 @@ mod tests {
             }",
             "foo.cs",
             |metric| insta::assert_json_snapshot!(metric.abc),
+        );
+    }
+
+    #[test]
+    fn csharp_if_bare_identifier_condition() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                void M(bool x) {
+                    if (x) { System.Console.WriteLine(\"a\"); }
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                // `if (x)` contributes 1 condition (bare identifier).
+                // `System.Console.WriteLine(...)` is the only call → 1 branch.
+                // `*_sum()` is what the public JSON serializes as the
+                // headline value (see `impl Serialize for Stats`).
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.branches_sum(), 1.0);
+                assert_eq!(metric.abc.assignments_sum(), 0.0);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_while_bare_identifier_condition() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                void M(bool x) {
+                    while (x) { x = false; }
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                // `while (x)` contributes 1 condition; `x = false` is 1 assignment.
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.assignments_sum(), 1.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_do_while_bare_identifier_condition() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                void M(bool x) {
+                    do { x = true; } while (x);
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                // `do { ... } while (x)` contributes 1 condition;
+                // `x = true` is 1 assignment.
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.assignments_sum(), 1.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_if_unary_not_condition() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                void M(bool x) {
+                    if (!x) { System.Console.WriteLine(\"a\"); }
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                // `if (!x)` contributes 1 condition via the
+                // PrefixUnaryExpression → csharp_inspect_container path.
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.branches_sum(), 1.0);
+                assert_eq!(metric.abc.assignments_sum(), 0.0);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_if_method_call_condition() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                void M(string s) {
+                    if (s.StartsWith(\"x\")) { System.Console.WriteLine(\"a\"); }
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                // `if (s.StartsWith("x"))` contributes 1 condition
+                // (InvocationExpression) plus 1 branch for the call itself,
+                // plus 1 branch for WriteLine.
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                assert_eq!(metric.abc.branches_sum(), 2.0);
+                assert_eq!(metric.abc.assignments_sum(), 0.0);
+            },
         );
     }
 
