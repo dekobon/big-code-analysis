@@ -504,7 +504,8 @@ fn mk_globset(elems: Vec<String>) -> Result<GlobSet, String> {
 
 // `act_on_file` is the per-file dispatch hub for the CLI. After
 // reading the file, deciding the language, and applying the
-// `skip_generated` filter, it forwards to the per-action
+// `skip_generated` filter (all factored out into
+// `validate_and_resolve_file`), it forwards to the per-action
 // `dispatch_*` helper that implements each `Action` variant. The
 // helpers are intentionally kept thin: each one is one screen of
 // code so a reader can follow exactly the path a given subcommand
@@ -518,44 +519,9 @@ fn mk_globset(elems: Vec<String>) -> Result<GlobSet, String> {
 // function-scope `#[allow(deprecated)]` keeps the helpers
 // readable without per-call-site attributes.
 fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
-    if let Some(counter) = &cfg.files_dispatched {
-        // Count every dispatched file, including those skipped below for
-        // empty content / unrecognized language. The user pointed at
-        // these files and the runner walked them — they count as "the
-        // input was non-empty" for the zero-files-matched check in
-        // `run_check`.
-        counter.fetch_add(1, Ordering::Relaxed);
-    }
-
-    let Some(source) = read_file_with_eol(&path)? else {
-        if cfg.warning {
-            eprintln!("warning: skipping empty file: {}", path.display());
-        }
+    let Some((path, source, language)) = validate_and_resolve_file(path, cfg)? else {
         return Ok(());
     };
-
-    // The generated-code skip runs before language detection so we don't
-    // pay parse cost for files we'll discard. It's a CLI-level filter
-    // (preproc has its own pipeline that genuinely needs every C/C++ file
-    // walked), so leave Action::PreprocProduce alone.
-    if cfg.skip_generated && !matches!(cfg.action, Action::PreprocProduce) && is_generated(&source)
-    {
-        if cfg.report_skipped || cfg.warning {
-            eprintln!("skipped (generated): {}", path.display());
-        }
-        return Ok(());
-    }
-
-    let Some(language) = cfg.language.or_else(|| guess_language(&source, &path).0) else {
-        if cfg.warning {
-            eprintln!(
-                "warning: skipping file with unrecognized language: {}",
-                path.display()
-            );
-        }
-        return Ok(());
-    };
-
     let pr = cfg.preproc.clone();
     match &cfg.action {
         Action::Dump => dispatch_dump(language, source, path, pr, cfg),
@@ -575,6 +541,54 @@ fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
         Action::Check => dispatch_check_file(language, source, path, pr, cfg),
         Action::PreprocProduce => dispatch_preproc(source, path, cfg),
     }
+}
+
+/// Apply the three pre-dispatch filters every CLI subcommand shares:
+/// bump the `files_dispatched` counter, skip empty files, skip
+/// generated files (unless we're producing preproc data — that
+/// pipeline genuinely needs every C/C++ file walked), and resolve
+/// the source language. Returns `Ok(None)` when the file should be
+/// skipped (logging the per-`cfg.warning` reason inline). Returns
+/// `Ok(Some((path, source, lang)))` to hand off to dispatch.
+fn validate_and_resolve_file(
+    path: PathBuf,
+    cfg: &Config,
+) -> std::io::Result<Option<(PathBuf, Vec<u8>, LANG)>> {
+    if let Some(counter) = &cfg.files_dispatched {
+        // Count every dispatched file, including those skipped below for
+        // empty content / unrecognized language. The user pointed at
+        // these files and the runner walked them — they count as "the
+        // input was non-empty" for the zero-files-matched check in
+        // `run_check`.
+        counter.fetch_add(1, Ordering::Relaxed);
+    }
+
+    let Some(source) = read_file_with_eol(&path)? else {
+        if cfg.warning {
+            eprintln!("warning: skipping empty file: {}", path.display());
+        }
+        return Ok(None);
+    };
+
+    if cfg.skip_generated && !matches!(cfg.action, Action::PreprocProduce) && is_generated(&source)
+    {
+        if cfg.report_skipped || cfg.warning {
+            eprintln!("skipped (generated): {}", path.display());
+        }
+        return Ok(None);
+    }
+
+    let Some(language) = cfg.language.or_else(|| guess_language(&source, &path).0) else {
+        if cfg.warning {
+            eprintln!(
+                "warning: skipping file with unrecognized language: {}",
+                path.display()
+            );
+        }
+        return Ok(None);
+    };
+
+    Ok(Some((path, source, language)))
 }
 
 
