@@ -92,9 +92,14 @@ fn write_error<W: Write>(writer: &mut W, record: &OffenderRecord) -> io::Result<
 /// Format adapter that XML-escapes attribute values. We escape the five
 /// XML predefined entities, emit numeric character references for TAB
 /// / LF / CR (which XML 1.0 §3.3.3 attribute-value normalization would
-/// otherwise collapse to a single space), and replace remaining C0
-/// controls with `?` so the output stays a well-formed XML 1.0 document
-/// (lossy but predictable).
+/// otherwise collapse to a single space), and replace any code point
+/// outside XML 1.0 §2.2's `Char` production (C0 controls minus TAB/LF/CR,
+/// and the U+FFFE / U+FFFF non-characters) with `?` so the output stays
+/// a well-formed XML 1.0 document (lossy but predictable).
+///
+/// Note: U+FDD0–U+FDEF are Unicode non-characters but are technically
+/// permitted by XML 1.0's `Char` production, so we pass them through —
+/// strict consumers that reject them are out of spec.
 struct XmlAttr<'a>(&'a str);
 
 impl std::fmt::Display for XmlAttr<'_> {
@@ -122,7 +127,14 @@ impl std::fmt::Display for XmlAttr<'_> {
                 '\t' => "&#x9;",
                 '\n' => "&#xA;",
                 '\r' => "&#xD;",
-                c if (c as u32) < 0x20 => "?",
+                // XML 1.0 §2.2's `Char` production forbids the remaining
+                // C0 controls (U+0000–U+001F minus TAB/LF/CR handled
+                // above) and the U+FFFE / U+FFFF non-characters even
+                // inside CDATA. quick-xml is lenient on reparse, but
+                // libxml2-based consumers (Jenkins, SonarQube) treat
+                // them as fatal. Substitute `?` to keep the document
+                // well-formed.
+                c if (c as u32) < 0x20 || matches!(c, '\u{FFFE}' | '\u{FFFF}') => "?",
                 c => c.encode_utf8(&mut buf),
             };
             f.write_str(escaped)?;
@@ -345,6 +357,55 @@ mod tests {
         }
         let roundtripped = roundtripped.expect("found <file name=...>");
         assert_eq!(roundtripped, "src/weird\npath\twith\rwhitespace.rs");
+    }
+
+    #[test]
+    fn xml_char_illegal_noncharacters_replaced_and_roundtrips() {
+        use quick_xml::events::Event;
+        use quick_xml::reader::Reader;
+
+        // XML 1.0 §2.2's Char production excludes U+FFFE and U+FFFF.
+        // libxml2-based consumers (Jenkins, SonarQube) reject documents
+        // containing them as fatal errors even though quick-xml is
+        // lenient on reparse. Both must be substituted with `?`, and the
+        // resulting document must round-trip through a strict-ish
+        // re-parse without yielding the original non-characters.
+        let r = OffenderRecord {
+            path: PathBuf::from("src/bad\u{FFFE}\u{FFFF}path.rs"),
+            function: None,
+            start_line: 1,
+            end_line: 1,
+            start_col: None,
+            metric: "weird\u{FFFE}\u{FFFF}metric".into(),
+            value: 1.0,
+            limit: 0.0,
+            severity: Severity::Warning,
+        };
+        let out = render(&[r]);
+
+        // Emitter side: neither non-character may appear literally.
+        assert!(
+            !out.contains('\u{FFFE}'),
+            "U+FFFE leaked into output: {out:?}"
+        );
+        assert!(
+            !out.contains('\u{FFFF}'),
+            "U+FFFF leaked into output: {out:?}"
+        );
+        // The substitute character must appear in both attribute values
+        // (two `?` per offending string).
+        assert!(out.contains("src/bad??path.rs"), "{out}");
+        assert!(out.contains("weird??metric"), "{out}");
+
+        // Parser side: the document must re-parse cleanly.
+        let mut reader = Reader::from_str(&out);
+        let mut buf = Vec::new();
+        while !matches!(
+            reader.read_event_into(&mut buf).expect("well-formed XML"),
+            Event::Eof
+        ) {
+            buf.clear();
+        }
     }
 
     #[test]
