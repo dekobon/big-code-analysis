@@ -1266,333 +1266,358 @@ impl Abc for BashCode {
     }
 }
 
+// ABC token-level helpers for Java. Each helper covers one of the four
+// categories ABC tracks (assignments / branches / conditions / walked
+// unary conditions). Each returns `true` when it owns the node so the
+// dispatcher in `impl Abc for JavaCode::compute` can short-circuit and
+// avoid re-matching the same kind across categories. The arms are
+// mutually exclusive in the source language so a short-circuit chain
+// reproduces the original `match` semantics bit-for-bit.
+
+// Shared helper: passes `node.child(idx)` to `java_inspect_container`.
+// The container helper is a no-op on kinds other than
+// `ParenthesizedExpression` / `!`-prefixed `UnaryExpression`, so no
+// `matches!` guard is needed at the call site.
+fn java_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
+    if let Some(child) = node.child(idx) {
+        java_inspect_container(&child, conditions);
+    }
+}
+
+// Counts assignment tokens and maintains the declaration-kind stack
+// used to suppress `=` inside `final`-marked declarations.
+fn java_count_token_assignment(node: &Node, stats: &mut Stats) -> bool {
+    use Java::*;
+    match node.kind_id().into() {
+        STAREQ | SLASHEQ | PERCENTEQ | DASHEQ | PLUSEQ | LTLTEQ | GTGTEQ | AMPEQ | PIPEEQ
+        | CARETEQ | GTGTGTEQ | PLUSPLUS | DASHDASH => {
+            stats.assignments += 1.;
+        }
+        FieldDeclaration | LocalVariableDeclaration => {
+            stats.declaration.push(DeclKind::Var);
+        }
+        Final => {
+            if let Some(DeclKind::Var) = stats.declaration.last() {
+                stats.declaration.push(DeclKind::Const);
+            }
+        }
+        SEMI => {
+            if let Some(DeclKind::Const | DeclKind::Var) = stats.declaration.last() {
+                stats.declaration.clear();
+            }
+        }
+        // Excludes constant declarations (top of stack == Const).
+        EQ => {
+            if stats
+                .declaration
+                .last()
+                .is_none_or(|decl| matches!(decl, DeclKind::Var))
+            {
+                stats.assignments += 1.;
+            }
+        }
+        _ => return false,
+    }
+    true
+}
+
+// Counts branch tokens: every method call or `new` allocation.
+fn java_count_token_branch(node: &Node, stats: &mut Stats) -> bool {
+    use Java::*;
+    if matches!(node.kind_id().into(), MethodInvocation | New) {
+        stats.branches += 1.;
+        return true;
+    }
+    false
+}
+
+// Counts condition tokens: comparison operators, control-flow keywords,
+// and `<` / `>` outside generic-type contexts.
+fn java_count_token_condition(node: &Node, stats: &mut Stats) -> bool {
+    use Java::*;
+    match node.kind_id().into() {
+        GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | Default | QMARK | Try | Catch => {
+            stats.conditions += 1.;
+        }
+        // Excludes `<` / `>` used for generic types (`Box<T>`).
+        GT | LT => {
+            if let Some(parent) = node.parent()
+                && !matches!(parent.kind_id().into(), TypeArguments)
+            {
+                stats.conditions += 1.;
+            }
+        }
+        _ => return false,
+    }
+    true
+}
+
+fn java_walk_for_conditions(node: &Node, stats: &mut Stats) {
+    use Java::*;
+    let conds = &mut stats.conditions;
+    match node.kind_id().into() {
+        // Unary conditions in elements separated by `&&` / `||`.
+        AMPAMP | PIPEPIPE => {
+            if let Some(parent) = node.parent() {
+                java_count_unary_conditions(&parent, conds);
+            }
+        }
+        // Unary conditions among method arguments.
+        ArgumentList => java_count_unary_conditions(node, conds),
+        // Child 1: `if (cond) ...`, `while (cond) ...`, `return value;`.
+        IfStatement | WhileStatement | ReturnStatement => java_inspect_child(node, 1, conds),
+        // Child 2: assignment / declarator RHS, lambda body
+        // (`params -> body`).
+        VariableDeclarator | AssignmentExpression | LambdaExpression => {
+            java_inspect_child(node, 2, conds);
+        }
+        // Child 3: the `while (cond)` condition of `do { ... } while (...);`.
+        DoStatement => java_inspect_child(node, 3, conds),
+        TernaryExpression => java_walk_ternary(node, stats),
+        ForStatement => java_walk_for_statement(node, stats),
+        _ => {}
+    }
+}
+
+fn java_walk_ternary(node: &Node, stats: &mut Stats) {
+    use Java::*;
+    let conds = &mut stats.conditions;
+    // Child 0: condition itself.
+    if let Some(condition) = node.child(0) {
+        match condition.kind_id().into() {
+            MethodInvocation | Identifier | True | False => *conds += 1.,
+            ParenthesizedExpression | UnaryExpression => {
+                java_inspect_container(&condition, conds);
+            }
+            _ => {}
+        }
+    }
+    // Children 2 and 4: the two branch expressions.
+    java_inspect_child(node, 2, conds);
+    java_inspect_child(node, 4, conds);
+}
+
+// Handles the `for (...)` multi-shape positional cascade: the loop
+// condition lives at child 3 when the initializer is a variable
+// declaration, otherwise at child 4 (split off by the `;` at child 3).
+fn java_walk_for_statement(node: &Node, stats: &mut Stats) {
+    use Java::*;
+    let Some(condition) = node.child(3) else {
+        return;
+    };
+    match condition.kind_id().into() {
+        // `for (i = 0; cond; ...)` — initializer is an expression, so
+        // the leading `;` sits at child 3 and the real condition at 4.
+        SEMI => {
+            if let Some(cond) = node.child(4) {
+                match cond.kind_id().into() {
+                    MethodInvocation | Identifier | True | False | SEMI | RPAREN => {
+                        stats.conditions += 1.;
+                    }
+                    ParenthesizedExpression | UnaryExpression => {
+                        java_inspect_container(&cond, &mut stats.conditions);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        MethodInvocation | Identifier | True | False => {
+            stats.conditions += 1.;
+        }
+        ParenthesizedExpression | UnaryExpression => {
+            java_inspect_container(&condition, &mut stats.conditions);
+        }
+        _ => {}
+    }
+}
+
 // Fitzpatrick, Jerry (1997). "Applying the ABC metric to C, C++ and Java". C++ Report.
 // Source: https://www.softwarerenovation.com/Articles.aspx
 // ABC Java rules: (page 8, figure 4)
 // ABC Java example: (page 15, listing 4)
 impl Abc for JavaCode {
+    // Short-circuit chain across four mutually-exclusive category
+    // helpers. Each helper returns `true` when it owns the node, so
+    // the dispatcher early-exits to avoid re-matching the same kind in
+    // a later helper. The original pre-refactor `match` enforced
+    // one-arm-per-kind by construction; this chain preserves the same
+    // semantics only as long as no node kind is matched by more than
+    // one helper. If you add a new arm covering a kind already matched
+    // by an earlier helper, the earlier helper's `return` will silently
+    // hide it — split the kinds across helpers explicitly instead.
     fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
-        use Java::*;
-
-        match node.kind_id().into() {
-            STAREQ | SLASHEQ | PERCENTEQ | DASHEQ | PLUSEQ | LTLTEQ | GTGTEQ | AMPEQ | PIPEEQ
-            | CARETEQ | GTGTGTEQ | PLUSPLUS | DASHDASH => {
-                stats.assignments += 1.;
-            }
-            FieldDeclaration | LocalVariableDeclaration => {
-                stats.declaration.push(DeclKind::Var);
-            }
-            Final => {
-                if let Some(DeclKind::Var) = stats.declaration.last() {
-                    stats.declaration.push(DeclKind::Const);
-                }
-            }
-            SEMI => {
-                if let Some(DeclKind::Const | DeclKind::Var) = stats.declaration.last() {
-                    stats.declaration.clear();
-                }
-            }
-            // Excludes constant declarations
-            EQ if stats
-                .declaration
-                .last()
-                .is_none_or(|decl| matches!(decl, DeclKind::Var)) =>
-            {
-                stats.assignments += 1.;
-            }
-            MethodInvocation | New => {
-                stats.branches += 1.;
-            }
-            GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | Default | QMARK | Try | Catch => {
-                stats.conditions += 1.;
-            }
-            GT | LT => {
-                // Excludes `<` and `>` used for generic types
-                if let Some(parent) = node.parent()
-                    && !matches!(parent.kind_id().into(), TypeArguments)
-                {
-                    stats.conditions += 1.;
-                }
-            }
-            // Counts unary conditions in elements separated by `&&` or `||` boolean operators
-            AMPAMP | PIPEPIPE => {
-                if let Some(parent) = node.parent() {
-                    java_count_unary_conditions(&parent, &mut stats.conditions);
-                }
-            }
-            // Counts unary conditions among method arguments
-            ArgumentList => {
-                java_count_unary_conditions(node, &mut stats.conditions);
-            }
-            // Counts unary conditions inside assignments
-            VariableDeclarator | AssignmentExpression => {
-                // The child node of index 2 contains the right operand of an assignment operation
-                if let Some(right_operand) = node.child(2)
-                    && matches!(
-                        right_operand.kind_id().into(),
-                        ParenthesizedExpression | UnaryExpression
-                    )
-                {
-                    java_inspect_container(&right_operand, &mut stats.conditions);
-                }
-            }
-            // Counts unary conditions inside if and while statements
-            IfStatement | WhileStatement => {
-                // The child node of index 1 contains the condition
-                if let Some(condition) = node.child(1)
-                    && matches!(condition.kind_id().into(), ParenthesizedExpression)
-                {
-                    java_inspect_container(&condition, &mut stats.conditions);
-                }
-            }
-            // Counts unary conditions do-while statements
-            DoStatement => {
-                // The child node of index 3 contains the condition
-                if let Some(condition) = node.child(3)
-                    && matches!(condition.kind_id().into(), ParenthesizedExpression)
-                {
-                    java_inspect_container(&condition, &mut stats.conditions);
-                }
-            }
-            // Counts unary conditions inside for statements
-            ForStatement => {
-                // The child node of index 3 contains the `condition` when
-                // the initialization expression is a variable declaration
-                // e.g. `for ( int i=0; `condition`; ... ) {}`
-                if let Some(condition) = node.child(3) {
-                    match condition.kind_id().into() {
-                        SEMI => {
-                            // The child node of index 4 contains the `condition` when
-                            // the initialization expression is not a variable declaration
-                            // e.g. `for ( i=0; `condition`; ... ) {}`
-                            if let Some(cond) = node.child(4) {
-                                match cond.kind_id().into() {
-                                    MethodInvocation | Identifier | True | False | SEMI
-                                    | RPAREN => {
-                                        stats.conditions += 1.;
-                                    }
-                                    ParenthesizedExpression | UnaryExpression => {
-                                        java_inspect_container(&cond, &mut stats.conditions);
-                                    }
-                                    _ => {}
-                                }
-                            }
-                        }
-                        MethodInvocation | Identifier | True | False => {
-                            stats.conditions += 1.;
-                        }
-                        ParenthesizedExpression | UnaryExpression => {
-                            java_inspect_container(&condition, &mut stats.conditions);
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            // Counts unary conditions inside return statements
-            ReturnStatement => {
-                // The child node of index 1 contains the return value
-                if let Some(value) = node.child(1)
-                    && matches!(
-                        value.kind_id().into(),
-                        ParenthesizedExpression | UnaryExpression
-                    )
-                {
-                    java_inspect_container(&value, &mut stats.conditions);
-                }
-            }
-            // Counts unary conditions inside implicit return statements in lambda expressions
-            LambdaExpression => {
-                // The child node of index 2 contains the return value
-                if let Some(value) = node.child(2)
-                    && matches!(
-                        value.kind_id().into(),
-                        ParenthesizedExpression | UnaryExpression
-                    )
-                {
-                    java_inspect_container(&value, &mut stats.conditions);
-                }
-            }
-            // Counts unary conditions inside ternary expressions
-            TernaryExpression => {
-                // The child node of index 0 contains the condition
-                if let Some(condition) = node.child(0) {
-                    match condition.kind_id().into() {
-                        MethodInvocation | Identifier | True | False => {
-                            stats.conditions += 1.;
-                        }
-                        ParenthesizedExpression | UnaryExpression => {
-                            java_inspect_container(&condition, &mut stats.conditions);
-                        }
-                        _ => {}
-                    }
-                }
-                // The child node of index 2 contains the first expression
-                if let Some(expression) = node.child(2)
-                    && matches!(
-                        expression.kind_id().into(),
-                        ParenthesizedExpression | UnaryExpression
-                    )
-                {
-                    java_inspect_container(&expression, &mut stats.conditions);
-                }
-                // The child node of index 4 contains the second expression
-                if let Some(expression) = node.child(4)
-                    && matches!(
-                        expression.kind_id().into(),
-                        ParenthesizedExpression | UnaryExpression
-                    )
-                {
-                    java_inspect_container(&expression, &mut stats.conditions);
-                }
-            }
-            _ => {}
+        if java_count_token_assignment(node, stats) {
+            return;
         }
+        if java_count_token_branch(node, stats) {
+            return;
+        }
+        if java_count_token_condition(node, stats) {
+            return;
+        }
+        java_walk_for_conditions(node, stats);
     }
 }
 
-// Groovy's ABC mirrors Java's directly because the dekobon Groovy
-// grammar shares Java's expression / statement vocabulary for the
-// shapes ABC cares about (assignments, branches, conditions).
-// Groovy-specific touches over Java:
-//   - `CommandChain` (parens-less calls like `println foo`) counts as
-//     a branch alongside `MethodInvocation` (#247).
-//   - `DoWhileStatement` (the new grammar's name for `do { } while`)
-//     replaces the prior `DoStatement` (which the amaanq grammar used).
-//   - Closures (`{ x -> ... }`) have block bodies — no implicit-return
-//     "single-expression arm" like a Java lambda, so the prior
-//     `LambdaExpression` arm is intentionally absent.
-//   - The dekobon grammar inlines the parens of `if (…)` / `while (…)`
-//     / `do { … } while (…)` as `(` / `)` token children rather than
-//     wrapping the condition in a `parenthesized_expression`, so the
-//     condition is at a different child index than under Java's
-//     grammar and must be inspected differently.
-impl Abc for GroovyCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
-        use Groovy::*;
+// ABC token-level helpers for Groovy. Mirrors the Java helper layout
+// (assignments / branches / conditions / walked) with the dekobon
+// Groovy grammar's specific deltas — `CommandChain` as a branch
+// alongside `MethodInvocation` (#247); `DoWhileStatement` replacing
+// Java's `DoStatement`; no `LambdaExpression` (Groovy closures take
+// block bodies, no implicit-return arm); and `if (…)` / `while (…)` /
+// `do { … } while (…)` parens inlined as token children rather than
+// wrapped in `parenthesized_expression`, so the condition sits at a
+// different child index and goes through `groovy_count_condition`.
 
-        match node.kind_id().into() {
-            STAREQ | SLASHEQ | PERCENTEQ | DASHEQ | PLUSEQ | LTLTEQ | GTGTEQ | AMPEQ | PIPEEQ
-            | CARETEQ | GTGTGTEQ | PLUSPLUS | DASHDASH => {
-                stats.assignments += 1.;
+// Groovy mirror of `java_inspect_child`: passes `node.child(idx)` to
+// `groovy_inspect_container`, which is a no-op on kinds other than
+// `ParenthesizedExpression` / `!`-prefixed `UnaryExpression`.
+fn groovy_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
+    if let Some(child) = node.child(idx) {
+        groovy_inspect_container(&child, conditions);
+    }
+}
+
+fn groovy_count_token_assignment(node: &Node, stats: &mut Stats) -> bool {
+    use Groovy::*;
+    match node.kind_id().into() {
+        STAREQ | SLASHEQ | PERCENTEQ | DASHEQ | PLUSEQ | LTLTEQ | GTGTEQ | AMPEQ | PIPEEQ
+        | CARETEQ | GTGTGTEQ | PLUSPLUS | DASHDASH => {
+            stats.assignments += 1.;
+        }
+        FieldDeclaration | LocalVariableDeclaration => {
+            stats.declaration.push(DeclKind::Var);
+        }
+        Final => {
+            if let Some(DeclKind::Var) = stats.declaration.last() {
+                stats.declaration.push(DeclKind::Const);
             }
-            FieldDeclaration | LocalVariableDeclaration => {
-                stats.declaration.push(DeclKind::Var);
+        }
+        SEMI => {
+            if let Some(DeclKind::Const | DeclKind::Var) = stats.declaration.last() {
+                stats.declaration.clear();
             }
-            Final => {
-                if let Some(DeclKind::Var) = stats.declaration.last() {
-                    stats.declaration.push(DeclKind::Const);
-                }
-            }
-            SEMI => {
-                if let Some(DeclKind::Const | DeclKind::Var) = stats.declaration.last() {
-                    stats.declaration.clear();
-                }
-            }
-            EQ if stats
+        }
+        EQ => {
+            if stats
                 .declaration
                 .last()
-                .is_none_or(|decl| matches!(decl, DeclKind::Var)) =>
+                .is_none_or(|decl| matches!(decl, DeclKind::Var))
             {
                 stats.assignments += 1.;
             }
-            MethodInvocation | CommandChain | New => {
-                stats.branches += 1.;
-            }
-            GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | Default | QMARK | Try | Catch => {
+        }
+        _ => return false,
+    }
+    true
+}
+
+fn groovy_count_token_branch(node: &Node, stats: &mut Stats) -> bool {
+    use Groovy::*;
+    if matches!(node.kind_id().into(), MethodInvocation | CommandChain | New) {
+        stats.branches += 1.;
+        return true;
+    }
+    false
+}
+
+fn groovy_count_token_condition(node: &Node, stats: &mut Stats) -> bool {
+    use Groovy::*;
+    match node.kind_id().into() {
+        GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | Default | QMARK | Try | Catch => {
+            stats.conditions += 1.;
+        }
+        // Excludes `<` / `>` used for generic types (e.g. `List<String>`).
+        GT | LT => {
+            if let Some(parent) = node.parent()
+                && !matches!(parent.kind_id().into(), TypeArguments)
+            {
                 stats.conditions += 1.;
             }
-            GT | LT => {
-                // Excludes `<` / `>` used for generic types (e.g.
-                // `List<String>`).
-                if let Some(parent) = node.parent()
-                    && !matches!(parent.kind_id().into(), TypeArguments)
-                {
-                    stats.conditions += 1.;
-                }
-            }
-            AMPAMP | PIPEPIPE => {
-                if let Some(parent) = node.parent() {
-                    groovy_count_unary_conditions(&parent, &mut stats.conditions);
-                }
-            }
-            ArgumentList => {
-                groovy_count_unary_conditions(node, &mut stats.conditions);
-            }
-            VariableDeclarator | AssignmentExpression => {
-                if let Some(right_operand) = node.child(2)
-                    && matches!(
-                        right_operand.kind_id().into(),
-                        ParenthesizedExpression | UnaryExpression
-                    )
-                {
-                    groovy_inspect_container(&right_operand, &mut stats.conditions);
-                }
-            }
-            IfStatement | WhileStatement => {
-                // dekobon `if_statement` / `while_statement` shape:
-                // [keyword, `(`, condition, `)`, body, …]. Condition
-                // lives at child index 2 (not 1 as under tree-sitter-
-                // java, where the parens come wrapped in a
-                // `parenthesized_expression`).
-                if let Some(condition) = node.child(2) {
-                    groovy_count_condition(&condition, &mut stats.conditions);
-                }
-            }
-            DoWhileStatement => {
-                // dekobon shape: [`do`, body, `while`, `(`, condition,
-                // `)`]. Condition is at child index 4.
-                if let Some(condition) = node.child(4) {
-                    groovy_count_condition(&condition, &mut stats.conditions);
-                }
-            }
-            ForStatement => {
-                // Two shapes: a present condition lives at child(3);
-                // an empty condition shows up as a bare `SEMI` token at
-                // child(3) with the next slot (child(4)) holding either
-                // the update expression or `;`/`)` for `for(;;)`-style
-                // empty-condition loops, which still count as a single
-                // condition slot.
-                if let Some(condition) = node.child(3) {
-                    if matches!(condition.kind_id().into(), SEMI) {
-                        if let Some(cond) = node.child(4) {
-                            if matches!(cond.kind_id().into(), SEMI | RPAREN) {
-                                stats.conditions += 1.;
-                            } else {
-                                groovy_count_condition(&cond, &mut stats.conditions);
-                            }
-                        }
-                    } else {
-                        groovy_count_condition(&condition, &mut stats.conditions);
-                    }
-                }
-            }
-            ReturnStatement => {
-                if let Some(value) = node.child(1)
-                    && matches!(
-                        value.kind_id().into(),
-                        ParenthesizedExpression | UnaryExpression
-                    )
-                {
-                    groovy_inspect_container(&value, &mut stats.conditions);
-                }
-            }
-            TernaryExpression => {
-                if let Some(condition) = node.child(0) {
-                    groovy_count_condition(&condition, &mut stats.conditions);
-                }
-                for branch_idx in [2, 4] {
-                    if let Some(expression) = node.child(branch_idx)
-                        && matches!(
-                            expression.kind_id().into(),
-                            ParenthesizedExpression | UnaryExpression
-                        )
-                    {
-                        groovy_inspect_container(&expression, &mut stats.conditions);
-                    }
-                }
-            }
-            _ => {}
         }
+        _ => return false,
+    }
+    true
+}
+
+fn groovy_walk_for_conditions(node: &Node, stats: &mut Stats) {
+    use Groovy::*;
+    let conds = &mut stats.conditions;
+    match node.kind_id().into() {
+        AMPAMP | PIPEPIPE => {
+            if let Some(parent) = node.parent() {
+                groovy_count_unary_conditions(&parent, conds);
+            }
+        }
+        ArgumentList => groovy_count_unary_conditions(node, conds),
+        VariableDeclarator | AssignmentExpression => groovy_inspect_child(node, 2, conds),
+        // dekobon `if_statement` / `while_statement` shape:
+        // [keyword, `(`, condition, `)`, body, …]. Condition lives at
+        // child index 2 (not 1 as under tree-sitter-java, where parens
+        // wrap the condition in a `parenthesized_expression`).
+        IfStatement | WhileStatement => {
+            if let Some(condition) = node.child(2) {
+                groovy_count_condition(&condition, conds);
+            }
+        }
+        // dekobon shape: [`do`, body, `while`, `(`, condition, `)`].
+        // Condition is at child index 4.
+        DoWhileStatement => {
+            if let Some(condition) = node.child(4) {
+                groovy_count_condition(&condition, conds);
+            }
+        }
+        ReturnStatement => groovy_inspect_child(node, 1, conds),
+        TernaryExpression => groovy_walk_ternary(node, stats),
+        ForStatement => groovy_walk_for_statement(node, stats),
+        _ => {}
+    }
+}
+
+fn groovy_walk_ternary(node: &Node, stats: &mut Stats) {
+    let conds = &mut stats.conditions;
+    if let Some(condition) = node.child(0) {
+        groovy_count_condition(&condition, conds);
+    }
+    groovy_inspect_child(node, 2, conds);
+    groovy_inspect_child(node, 4, conds);
+}
+
+// Two shapes: a present condition lives at child(3); an empty condition
+// shows up as a bare `SEMI` token at child(3) with the next slot
+// (child(4)) holding either the update expression or `;` / `)` for
+// `for(;;)`-style loops, which still count as a single condition slot.
+fn groovy_walk_for_statement(node: &Node, stats: &mut Stats) {
+    use Groovy::*;
+    let Some(condition) = node.child(3) else {
+        return;
+    };
+    if !matches!(condition.kind_id().into(), SEMI) {
+        groovy_count_condition(&condition, &mut stats.conditions);
+        return;
+    }
+    let Some(cond) = node.child(4) else { return };
+    if matches!(cond.kind_id().into(), SEMI | RPAREN) {
+        stats.conditions += 1.;
+    } else {
+        groovy_count_condition(&cond, &mut stats.conditions);
+    }
+}
+
+impl Abc for GroovyCode {
+    // See `impl Abc for JavaCode` for the short-circuit-chain rationale
+    // and the cross-helper-exclusivity invariant.
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+        if groovy_count_token_assignment(node, stats) {
+            return;
+        }
+        if groovy_count_token_branch(node, stats) {
+            return;
+        }
+        if groovy_count_token_condition(node, stats) {
+            return;
+        }
+        groovy_walk_for_conditions(node, stats);
     }
 }
 
@@ -1617,152 +1642,182 @@ fn groovy_count_condition(condition: &Node, conditions: &mut f64) {
     }
 }
 
-impl Abc for CsharpCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
-        use Csharp::*;
+// ABC token-level helpers for C#. Mirror of Java's helper layout with
+// C#-specific deltas: every aliased kind id is matched via the
+// `csharp_*_kinds!()` macros (lesson #2); `ObjectCreationExpression`
+// joins `InvocationExpression*` as a branch; the `<` / `>` parent
+// guard widens to `TypeArgumentList | TypeParameterList |
+// FunctionPointerType`; `ConditionalExpression` replaces Java's
+// `TernaryExpression`; `for_statement` exposes its condition via the
+// named `condition` field rather than positional index.
 
-        match node.kind_id().into() {
-            STAREQ | SLASHEQ | PERCENTEQ | DASHEQ | PLUSEQ | LTLTEQ | GTGTEQ | GTGTGTEQ | AMPEQ
-            | PIPEEQ | CARETEQ | QMARKQMARKEQ | PLUSPLUS | DASHDASH => {
+fn csharp_count_token_assignment(node: &Node, stats: &mut Stats) -> bool {
+    use Csharp::*;
+    match node.kind_id().into() {
+        STAREQ | SLASHEQ | PERCENTEQ | DASHEQ | PLUSEQ | LTLTEQ | GTGTEQ | GTGTGTEQ | AMPEQ
+        | PIPEEQ | CARETEQ | QMARKQMARKEQ | PLUSPLUS | DASHDASH => {
+            stats.assignments += 1.;
+        }
+        FieldDeclaration | LocalDeclarationStatement => {
+            stats.declaration.push(DeclKind::Var);
+        }
+        // C# `const` modifier marks a compile-time constant — exclude
+        // its initializer from the assignment count (matches Java's
+        // treatment of `final`).
+        Const => {
+            if let Some(DeclKind::Var) = stats.declaration.last() {
+                stats.declaration.push(DeclKind::Const);
+            }
+        }
+        SEMI => {
+            if let Some(DeclKind::Const | DeclKind::Var) = stats.declaration.last() {
+                stats.declaration.clear();
+            }
+        }
+        // Count `=` unless it's the initializer of a `const` declaration.
+        // `None` (outside any declaration) still counts.
+        EQ => {
+            if !matches!(stats.declaration.last(), Some(DeclKind::Const)) {
                 stats.assignments += 1.;
             }
-            FieldDeclaration | LocalDeclarationStatement => {
-                stats.declaration.push(DeclKind::Var);
+        }
+        _ => return false,
+    }
+    true
+}
+
+fn csharp_count_token_branch(node: &Node, stats: &mut Stats) -> bool {
+    use Csharp::*;
+    if matches!(
+        node.kind_id().into(),
+        crate::Csharp::InvocationExpression
+            | crate::Csharp::InvocationExpression2
+            | crate::Csharp::InvocationExpression3
+            | ObjectCreationExpression
+    ) {
+        stats.branches += 1.;
+        return true;
+    }
+    false
+}
+
+fn csharp_count_token_condition(node: &Node, stats: &mut Stats) -> bool {
+    use Csharp::*;
+    match node.kind_id().into() {
+        GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | Default | QMARK | Try | Catch => {
+            stats.conditions += 1.;
+        }
+        // Excludes `<` and `>` used as type-syntax delimiters: generic
+        // type arguments (`Dictionary<K, V>`), type parameter
+        // declarations (`class Foo<T> { }`), and the parameter-list
+        // delimiters of unsafe function-pointer types
+        // (`delegate*<int, int>`).
+        GT | LT => {
+            if let Some(parent) = node.parent()
+                && !matches!(
+                    parent.kind_id().into(),
+                    TypeArgumentList | TypeParameterList | FunctionPointerType
+                )
+            {
+                stats.conditions += 1.;
             }
-            // C# `const` modifier marks a compile-time constant — exclude
-            // its initializer from the assignment count (matches Java's
-            // treatment of `final`).
-            Const => {
-                if let Some(DeclKind::Var) = stats.declaration.last() {
-                    stats.declaration.push(DeclKind::Const);
-                }
+        }
+        _ => return false,
+    }
+    true
+}
+
+fn csharp_walk_for_conditions(node: &Node, stats: &mut Stats) {
+    use Csharp::*;
+    let conds = &mut stats.conditions;
+    match node.kind_id().into() {
+        AMPAMP | PIPEPIPE => {
+            if let Some(parent) = node.parent() {
+                csharp_count_unary_conditions(&parent, conds);
             }
-            SEMI => {
-                if let Some(DeclKind::Const | DeclKind::Var) = stats.declaration.last() {
-                    stats.declaration.clear();
-                }
-            }
-            // Count `=` as an assignment unless it's the initializer of a
-            // `const` declaration (those are constant bindings, not mutable
-            // assignments). `None` means we're outside any declaration —
-            // still count.
-            EQ if !matches!(stats.declaration.last(), Some(DeclKind::Const)) => {
-                stats.assignments += 1.;
-            }
+        }
+        ArgumentList => csharp_count_unary_conditions(node, conds),
+        // Child 1: `if (cond) ...`, `while (cond) ...`, `return value;`.
+        IfStatement | WhileStatement | ReturnStatement => csharp_inspect_child(node, 1, conds),
+        // Child 2: declarator / assignment RHS, lambda body
+        // (`params => body`).
+        crate::Csharp::VariableDeclarator
+        | crate::Csharp::VariableDeclarator2
+        | AssignmentExpression
+        | LambdaExpression => csharp_inspect_child(node, 2, conds),
+        // Child 3: the `while (cond)` condition of `do { ... } while (...);`.
+        DoStatement => csharp_inspect_child(node, 3, conds),
+        ConditionalExpression => csharp_walk_conditional(node, stats),
+        ForStatement => csharp_walk_for_statement(node, stats),
+        _ => {}
+    }
+}
+
+// `cond ? a : b` — children are [cond, ?, a, :, b].
+fn csharp_walk_conditional(node: &Node, stats: &mut Stats) {
+    use Csharp::*;
+    if let Some(condition) = node.child(0) {
+        match condition.kind_id().into() {
             crate::Csharp::InvocationExpression
             | crate::Csharp::InvocationExpression2
             | crate::Csharp::InvocationExpression3
-            | ObjectCreationExpression => {
-                stats.branches += 1.;
-            }
-            GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | Default | QMARK | Try | Catch => {
+            | Identifier
+            | True
+            | False => {
                 stats.conditions += 1.;
             }
-            GT | LT => {
-                // Excludes `<` and `>` used as type-syntax delimiters:
-                // generic type arguments (`Dictionary<K, V>`), type
-                // parameter declarations (`class Foo<T> { }`), and the
-                // parameter-list delimiters of unsafe function-pointer
-                // types (`delegate*<int, int>`).
-                if let Some(parent) = node.parent()
-                    && !matches!(
-                        parent.kind_id().into(),
-                        TypeArgumentList | TypeParameterList | FunctionPointerType
-                    )
-                {
-                    stats.conditions += 1.;
-                }
-            }
-            AMPAMP | PIPEPIPE => {
-                if let Some(parent) = node.parent() {
-                    csharp_count_unary_conditions(&parent, &mut stats.conditions);
-                }
-            }
-            ArgumentList => {
-                csharp_count_unary_conditions(node, &mut stats.conditions);
-            }
-            crate::Csharp::VariableDeclarator
-            | crate::Csharp::VariableDeclarator2
-            | AssignmentExpression => {
-                // Child 2 is the RHS of `lhs = rhs`.
-                inspect_csharp_child(node, 2, &mut stats.conditions);
-            }
-            IfStatement | WhileStatement => {
-                // Child 1 is the parenthesised condition: `if (cond) ...`.
-                if let Some(condition) = node.child(1)
-                    && matches!(condition.kind_id().into(), csharp_paren_expr_kinds!())
-                {
-                    csharp_inspect_container(&condition, &mut stats.conditions);
-                }
-            }
-            DoStatement => {
-                // `do { ... } while (cond);` — condition sits at child 3
-                // (children: `do`, body, `while`, `(cond)`, `;`).
-                if let Some(condition) = node.child(3)
-                    && matches!(condition.kind_id().into(), csharp_paren_expr_kinds!())
-                {
-                    csharp_inspect_container(&condition, &mut stats.conditions);
-                }
-            }
-            ReturnStatement => {
-                // Child 1 is the returned expression (child 0 is `return`).
-                inspect_csharp_child(node, 1, &mut stats.conditions);
-            }
-            LambdaExpression => {
-                // Child 2 is the lambda body for `params => body`.
-                inspect_csharp_child(node, 2, &mut stats.conditions);
-            }
-            ConditionalExpression => {
-                // `cond ? a : b` — children are [cond, ?, a, :, b].
-                if let Some(condition) = node.child(0) {
-                    match condition.kind_id().into() {
-                        crate::Csharp::InvocationExpression
-                        | crate::Csharp::InvocationExpression2
-                        | crate::Csharp::InvocationExpression3
-                        | Identifier
-                        | True
-                        | False => {
-                            stats.conditions += 1.;
-                        }
-                        crate::Csharp::ParenthesizedExpression
-                        | crate::Csharp::ParenthesizedExpression2
-                        | crate::Csharp::ParenthesizedExpression3
-                        | crate::Csharp::PrefixUnaryExpression
-                        | crate::Csharp::PrefixUnaryExpression2 => {
-                            csharp_inspect_container(&condition, &mut stats.conditions);
-                        }
-                        _ => {}
-                    }
-                }
-                inspect_csharp_child(node, 2, &mut stats.conditions);
-                inspect_csharp_child(node, 4, &mut stats.conditions);
-            }
-            // Counts unary / single-token conditions inside `for`
-            // statements. The C# grammar exposes the loop condition via
-            // the named `condition` field on `for_statement`, so we look
-            // it up by name rather than positional index (Java's arm
-            // relies on positional indices because its grammar does not
-            // name the field). Comparison-operator conditions like
-            // `i < n` are still counted by the standard `GT | LT | ...`
-            // arms — this arm only fires when the condition is a bare
-            // identifier, invocation, boolean literal, parenthesised
-            // expression, or `!`-prefixed unary expression.
-            ForStatement => {
-                if let Some(condition) = node.child_by_field_name("condition") {
-                    let kind = condition.kind_id().into();
-                    if matches!(kind, csharp_invocation_expr_kinds!())
-                        || matches!(kind, Identifier | BooleanLiteral)
-                    {
-                        stats.conditions += 1.;
-                    } else if matches!(kind, csharp_paren_expr_kinds!())
-                        || matches!(kind, csharp_prefix_unary_expr_kinds!())
-                    {
-                        csharp_inspect_container(&condition, &mut stats.conditions);
-                    }
-                }
+            crate::Csharp::ParenthesizedExpression
+            | crate::Csharp::ParenthesizedExpression2
+            | crate::Csharp::ParenthesizedExpression3
+            | crate::Csharp::PrefixUnaryExpression
+            | crate::Csharp::PrefixUnaryExpression2 => {
+                csharp_inspect_container(&condition, &mut stats.conditions);
             }
             _ => {}
         }
+    }
+    csharp_inspect_child(node, 2, &mut stats.conditions);
+    csharp_inspect_child(node, 4, &mut stats.conditions);
+}
+
+// Counts unary / single-token conditions inside `for` statements. The
+// C# grammar exposes the loop condition via the named `condition` field
+// on `for_statement`, so we look it up by name rather than positional
+// index. Comparison-operator conditions like `i < n` are still counted
+// by the standard `GT | LT | ...` arms — this only fires when the
+// condition is a bare identifier, invocation, boolean literal,
+// parenthesised expression, or `!`-prefixed unary expression.
+fn csharp_walk_for_statement(node: &Node, stats: &mut Stats) {
+    use Csharp::*;
+    let Some(condition) = node.child_by_field_name("condition") else {
+        return;
+    };
+    let kind = condition.kind_id().into();
+    if matches!(kind, csharp_invocation_expr_kinds!())
+        || matches!(kind, Identifier | BooleanLiteral)
+    {
+        stats.conditions += 1.;
+    } else if matches!(kind, csharp_paren_expr_kinds!())
+        || matches!(kind, csharp_prefix_unary_expr_kinds!())
+    {
+        csharp_inspect_container(&condition, &mut stats.conditions);
+    }
+}
+
+impl Abc for CsharpCode {
+    // See `impl Abc for JavaCode` for the short-circuit-chain rationale
+    // and the cross-helper-exclusivity invariant.
+    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+        if csharp_count_token_assignment(node, stats) {
+            return;
+        }
+        if csharp_count_token_branch(node, stats) {
+            return;
+        }
+        if csharp_count_token_condition(node, stats) {
+            return;
+        }
+        csharp_walk_for_conditions(node, stats);
     }
 }
 
@@ -2117,21 +2172,12 @@ fn tcl_command_is_assignment(node: &Node, code: &[u8]) -> bool {
     TCL_ASSIGNMENT_COMMANDS.contains(&word)
 }
 
-// Shared helper: if `node.child(idx)` is a parenthesised or `!`-prefixed
-// expression, descend into it to count any unary boolean condition.
-// Used by every C# Abc match arm whose condition sits at a known child
-// index (assignments, returns, lambdas, ternaries).
-fn inspect_csharp_child(node: &Node, idx: usize, conditions: &mut f64) {
-    if let Some(child) = node.child(idx)
-        && matches!(
-            child.kind_id().into(),
-            crate::Csharp::ParenthesizedExpression
-                | crate::Csharp::ParenthesizedExpression2
-                | crate::Csharp::ParenthesizedExpression3
-                | crate::Csharp::PrefixUnaryExpression
-                | crate::Csharp::PrefixUnaryExpression2
-        )
-    {
+// C# mirror of `java_inspect_child` / `groovy_inspect_child`: passes
+// `node.child(idx)` to `csharp_inspect_container`, which is a no-op on
+// kinds other than `csharp_paren_expr_kinds!()` / `!`-prefixed
+// `csharp_prefix_unary_expr_kinds!()`.
+fn csharp_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
+    if let Some(child) = node.child(idx) {
         csharp_inspect_container(&child, conditions);
     }
 }

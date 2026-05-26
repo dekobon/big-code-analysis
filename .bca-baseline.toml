@@ -1423,42 +1423,42 @@ path = "./src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 21807229.60636025
+value = 21374495.73820565
 
 [[entry]]
 path = "./src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 6761.0
+value = 6807.0
 
 [[entry]]
 path = "./src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 334.0
+value = 376.0
 
 [[entry]]
 path = "./src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "nexits"
-value = 19.0
+value = 42.0
 
 [[entry]]
 path = "./src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "nom"
-value = 520.0
+value = 540.0
 
 [[entry]]
 path = "./src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "wmc"
-value = 251.0
+value = 140.0
 
 [[entry]]
 path = "./src/metrics/abc.rs"
@@ -1501,97 +1501,6 @@ function = "compute"
 start_line = 777
 metric = "cyclomatic"
 value = 15.0
-
-[[entry]]
-path = "./src/metrics/abc.rs"
-function = "JavaCode"
-start_line = 1273
-metric = "halstead.effort"
-value = 163339.8408281898
-
-[[entry]]
-path = "./src/metrics/abc.rs"
-function = "compute"
-start_line = 1274
-metric = "abc"
-value = 55.036351623268054
-
-[[entry]]
-path = "./src/metrics/abc.rs"
-function = "compute"
-start_line = 1274
-metric = "cognitive"
-value = 42.0
-
-[[entry]]
-path = "./src/metrics/abc.rs"
-function = "compute"
-start_line = 1274
-metric = "cyclomatic"
-value = 48.0
-
-[[entry]]
-path = "./src/metrics/abc.rs"
-function = "compute"
-start_line = 1274
-metric = "halstead.effort"
-value = 155456.00053422095
-
-[[entry]]
-path = "./src/metrics/abc.rs"
-function = "GroovyCode"
-start_line = 1469
-metric = "halstead.effort"
-value = 111477.50561441446
-
-[[entry]]
-path = "./src/metrics/abc.rs"
-function = "compute"
-start_line = 1470
-metric = "cognitive"
-value = 40.0
-
-[[entry]]
-path = "./src/metrics/abc.rs"
-function = "compute"
-start_line = 1470
-metric = "cyclomatic"
-value = 37.0
-
-[[entry]]
-path = "./src/metrics/abc.rs"
-function = "compute"
-start_line = 1470
-metric = "halstead.effort"
-value = 111066.14950513619
-
-[[entry]]
-path = "./src/metrics/abc.rs"
-function = "CsharpCode"
-start_line = 1620
-metric = "halstead.effort"
-value = 114505.67389007508
-
-[[entry]]
-path = "./src/metrics/abc.rs"
-function = "compute"
-start_line = 1621
-metric = "cognitive"
-value = 26.0
-
-[[entry]]
-path = "./src/metrics/abc.rs"
-function = "compute"
-start_line = 1621
-metric = "cyclomatic"
-value = 36.0
-
-[[entry]]
-path = "./src/metrics/abc.rs"
-function = "compute"
-start_line = 1621
-metric = "halstead.effort"
-value = 109338.87519963777
 
 [[entry]]
 path = "./src/metrics/cognitive.rs"

@@ -35,6 +35,18 @@ for historical reference.
 
 ### Changed
 
+- ABC metric: refactored the Java / Groovy / C# `impl Abc::compute`
+  bodies into four mutually-exclusive category helpers
+  (`*_count_token_assignment`, `*_count_token_branch`,
+  `*_count_token_condition`, `*_walk_for_conditions`) plus
+  walk-ternary / walk-for-statement / inspect-child helpers per
+  language. Each `compute` is now a 4-statement short-circuit chain
+  at cyclomatic 4 (down from 48 / 38 / 36). Behaviour is preserved
+  bit-for-bit (228 abc unit tests pass, zero submodule snapshot
+  drift). Also renamed the pre-existing C# helper
+  `inspect_csharp_child` → `csharp_inspect_child` for naming parity
+  with the new `java_inspect_child` / `groovy_inspect_child`. Fixes
+  [#369](https://github.com/dekobon/big-code-analysis/issues/369).
 - Stability documentation re-baselined for the `1.x` line.
   `STABILITY.md`, the matching book page, the top-level README, the
   `CHANGELOG.md` caveat, `RELEASING.md` semver guidance, and the
