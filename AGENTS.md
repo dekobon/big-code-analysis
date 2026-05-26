@@ -151,7 +151,9 @@ default-features and `--all-features` flavours, `cargo test
 --workspace --all-features`), `cargo doc --no-deps --workspace
 --all-features` with `RUSTDOCFLAGS="-D warnings"`,
 `cargo +nightly udeps`, the markdown /
-TOML / shell / Makefile / GitHub Actions lint families, and the Python `ruff` lint /
+TOML / shell / Makefile / GitHub Actions lint families, the man-page
+drift gate (`cargo xtask` + `git diff --exit-code -- man/`, mirroring
+the `manpage` CI job), and the Python `ruff` lint /
 `ruff format` / `mypy --strict` + `pyright` / `maturin develop` +
 `pytest` stages for `big-code-analysis-py` (each Python stage is
 skipped with a clear "X not found" message when the corresponding

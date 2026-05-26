@@ -80,6 +80,32 @@ repos:
         entry: python3 check-snapshot-anchors.py
         pass_filenames: false
 
+      # Catch clap-vs-man-page drift before push. The
+      # `.github/workflows/ci.yml` `manpage` job (Regenerate, then
+      # `git diff --exit-code -- man/`) is the upstream backstop;
+      # this hook makes the same check available locally and via
+      # `pre-commit run --all-files`. The hook fails on drift and
+      # leaves the regenerated files in the working tree — same
+      # side effect CI runs into, accepted because man pages are
+      # generated artifacts.
+      #
+      # The `files:` filter covers every input that can change the
+      # generated `.1` output:
+      #   - clap definitions in the two CLI crates and xtask itself
+      #   - the binary version (which `clap_mangen` writes into
+      #     every page's `.TH` header) — propagated via the
+      #     lockstep version policy through every owned
+      #     Cargo.toml, so we trigger on any of those
+      #   - direct edits to `man/*.1`
+      # Cargo.lock is intentionally excluded — too noisy for a
+      # local hook; the CI `manpage` job catches dep-induced drift.
+      - id: manpages
+        name: manpages
+        language: system
+        files: '^(big-code-analysis-cli/(src/.*\.rs|Cargo\.toml)|big-code-analysis-web/(src/.*\.rs|Cargo\.toml)|xtask/(src/.*\.rs|Cargo\.toml)|Cargo\.toml|man/.*\.1)$'
+        entry: make manpages-check
+        pass_filenames: false
+
       # Lockstep version invariant — every owned crate and every
       # `=<v>` internal-dep pin must match the workspace version.
       # See RELEASING.md "Lockstep version policy".

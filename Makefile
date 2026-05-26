@@ -237,6 +237,30 @@ snapshot-anchors:
 	@echo "Checking insta snapshot anchors..."
 	@python3 $(BASE_DIR)check-snapshot-anchors.py
 
+# Regenerate the man pages under `man/` from the live clap schema.
+# Auto-fix flavour: `cargo xtask` rewrites every `.1` file so a
+# subsequent `git diff --exit-code -- man/` is clean. Used by
+# `_pc-manpages` so contributors can stage the regenerated output.
+manpages:
+	@echo "Regenerating man pages from clap schema..."
+	@cargo xtask
+
+# Regenerate-then-assert-clean drift gate. Like the CI `manpage`
+# job in `.github/workflows/ci.yml`, this recipe runs `cargo xtask`
+# (which rewrites `man/*.1` in place — the same side effect CI
+# accepts on its ephemeral runners) and then fails if the resulting
+# tree differs from the index. Used by `_ci-manpages` and
+# `_pc-manpages`. Locally, contributors with hand-edited `.1` files
+# will see those edits overwritten; man pages are generated
+# artifacts and should not be hand-edited.
+manpages-check:
+	@echo "Checking man pages match clap schema..."
+	@cargo xtask
+	@if ! git diff --exit-code -- man/; then \
+	  echo "ERROR: man pages drift from the clap schema. The regenerated files are already in your working tree — run 'git add man/' and commit alongside the clap change."; \
+	  exit 1; \
+	fi
+
 # Lockstep-version invariant: every owned crate and every internal
 # `=<v>` dep pin must equal `[workspace.package].version`. See
 # `RELEASING.md` "Lockstep version policy" and `check-versions.py`.
@@ -459,6 +483,7 @@ pre-commit:
 	  _pc-test \
 	  _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check \
 	  _pc-actionlint _pc-snapshot-anchors _pc-check-versions _pc-enums-check \
+	  _pc-manpages \
 	  _pc-py-fmt _pc-py-typecheck _pc-py-test
 	@echo "Pre-commit checks passed"
 
@@ -488,7 +513,7 @@ ci:
 # Dependency graph:
 #
 #   _pc-fmt
-#    ├── _pc-clippy → _pc-test → _pc-doc-check → _pc-udeps → _pc-py-test
+#    ├── _pc-clippy → _pc-test → _pc-doc-check → _pc-udeps → _pc-manpages → _pc-py-test
 #    ├── _pc-shellcheck
 #    ├── _pc-markdown-lint
 #    ├── _pc-toml-lint
@@ -558,6 +583,16 @@ _pc-check-versions: _pc-fmt
 _pc-enums-check: _pc-fmt
 	$(MAKE) enums-check
 
+# Man-page drift gate. Uses the verify flavour (`manpages-check`,
+# not `manpages`) so `make pre-commit` exits non-zero when man
+# pages drift — matching CI semantics. Chains after `_pc-udeps`
+# rather than `_pc-fmt` because `cargo xtask` shares the workspace
+# `target/` lock with the rest of the cargo pipeline; explicit
+# serialization is clearer (and faster) than letting cargo's lock
+# implicitly serialize parallel arms.
+_pc-manpages: _pc-udeps
+	$(MAKE) manpages-check
+
 # Python pre-commit stages. _pc-py-fmt auto-fixes (ruff format +
 # ruff check --fix); the typecheck and test stages are check-only
 # (they cannot reasonably auto-fix). _pc-py-fmt and _pc-py-typecheck
@@ -573,7 +608,7 @@ _pc-py-fmt: _pc-fmt
 _pc-py-typecheck: _pc-fmt
 	$(MAKE) py-typecheck
 
-_pc-py-test: _pc-udeps
+_pc-py-test: _pc-manpages
 	$(MAKE) py-test
 
 # ---------------------------------------------------------------------------
@@ -639,6 +674,12 @@ _ci-check-versions:
 _ci-enums-check:
 	$(MAKE) enums-check
 
+# Check-only man-page drift gate. Mirrors `.github/workflows/ci.yml`'s
+# `manpage` job so `make ci` produces the same verdict as the CI
+# workflow on the same tree state.
+_ci-manpages:
+	$(MAKE) manpages-check
+
 # Python CI stages — check-only versions of the py-* targets.
 # Mirror the _pc-py-* shape but without the auto-fix path.
 _ci-py-fmt-check:
@@ -653,15 +694,19 @@ _ci-py-typecheck:
 _ci-py-test:
 	$(MAKE) py-test
 
-# Sequential cargo pipeline for local `make ci`. udeps shares the cargo
-# target/ lock with the rest of the pipeline, so it is serialized here
-# rather than running in parallel.
+# Sequential cargo pipeline for local `make ci`. Every step here
+# touches the workspace `target/` lock, so they are serialized in
+# this single chain rather than fanned out in parallel.
+# _ci-manpages (`cargo xtask`) shares the same target/, so it is
+# the tail of this chain rather than a parallel arm of `ci:` —
+# parallel scheduling would just block on cargo's lock anyway.
 _ci-cargo-pipeline:
 	$(MAKE) _ci-clippy
 	$(MAKE) _ci-test
 	$(MAKE) _ci-build
 	$(MAKE) _ci-doc-check
 	$(MAKE) _ci-udeps
+	$(MAKE) _ci-manpages
 
 # ---------------------------------------------------------------------------
 # Release engineering

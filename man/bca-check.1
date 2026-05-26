@@ -4,7 +4,7 @@
 .SH NAME
 bca\-check \- Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed"
 .SH SYNOPSIS
-\fBbca\-check\fR [\fB\-\-threshold\fR] [\fB\-\-config\fR] [\fB\-\-no\-fail\fR] [\fB\-\-no\-suppress\fR] [\fB\-O\fR|\fB\-\-output\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-baseline\fR] [\fB\-\-write\-baseline\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+\fBbca\-check\fR [\fB\-\-threshold\fR] [\fB\-\-config\fR] [\fB\-\-no\-fail\fR] [\fB\-\-no\-suppress\fR] [\fB\-O\fR|\fB\-\-output\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-baseline\fR] [\fB\-\-write\-baseline\fR] [\fB\-\-no\-summary\fR] [\fB\-h\fR|\fB\-\-help\fR] 
 .SH DESCRIPTION
 Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed"
 .SH OPTIONS
@@ -48,6 +48,9 @@ Filter known offenders listed in this TOML baseline. A baselined function whose 
 .TP
 \fB\-\-write\-baseline\fR \fI<WRITE_BASELINE>\fR
 Walk the tree and write the current offender set to this path instead of failing. The resulting file pins today\*(Aqs metric values as the baseline; subsequent `\-\-baseline <path>` runs ratchet down from there. Conflicts with `\-\-baseline`, `\-\-output\-format`, and `\-\-output` — the baseline file is the output
+.TP
+\fB\-\-no\-summary\fR
+Skip the trailing per\-file rollup footer. The footer groups violations by file and cites the single worst\-ratio metric per file. Pass this when downstream tooling grep\-pipes the stderr stream and would be confused by the trailing summary block. Default: footer enabled
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help (see a summary with \*(Aq\-h\*(Aq)
