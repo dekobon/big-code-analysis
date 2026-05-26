@@ -3654,10 +3654,14 @@ mod tests {
         // bare `true` / `false` literal used as the condition of
         // `if` / `while` / `do` / `?:` in a `boolean_literal` node,
         // not the leaf `true` / `false` tokens. `csharp_count_condition`
-        // and `csharp_inspect_container` must therefore match
-        // `BooleanLiteral` (the wrapper), mirroring the existing
-        // `csharp_walk_for_statement` arm. Without that, every
-        // literal-condition statement scored 0 conditions.
+        // must therefore match `BooleanLiteral` (the wrapper),
+        // mirroring the existing `csharp_walk_for_statement` arm.
+        // Without that, every literal-condition statement scored 0
+        // conditions. The sibling `csharp_count_unary_conditions`
+        // arm is covered separately by
+        // `csharp_short_circuit_with_boolean_literal_operand` and
+        // `csharp_inspect_container` is covered by
+        // `csharp_declarations_with_conditions` (`!true` / `!false`).
         check_metrics::<CsharpParser>(
             "class A {
                 void M() {
@@ -3680,6 +3684,48 @@ mod tests {
                 assert_eq!(metric.abc.conditions_sum(), 6.0);
                 assert_eq!(metric.abc.branches_sum(), 2.0);
                 assert_eq!(metric.abc.assignments_sum(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_short_circuit_with_boolean_literal_operand() {
+        // Regression for #371 (companion to
+        // `csharp_if_while_boolean_literal_condition`): a bare
+        // `true` / `false` operand of `&&` / `||` lands in
+        // `csharp_count_unary_conditions`, which iterates the parent
+        // BinaryExpression's children. That helper must match the
+        // `BooleanLiteral` wrapper just like `csharp_count_condition`
+        // does — otherwise the operand silently scores zero. Mutation-
+        // verified: removing `BooleanLiteral` from the
+        // `csharp_count_unary_conditions` arm leaves every other test
+        // in the suite passing, so this is the only test guarding
+        // that helper's literal-operand path.
+        check_metrics::<CsharpParser>(
+            "class A {
+                void M(bool x) {
+                    if (x && true) { System.Console.WriteLine(\"a\"); }
+                    if (false || x) { System.Console.WriteLine(\"b\"); }
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                // `&&` and `||` themselves are NOT in
+                // `csharp_count_token_condition`'s match list — they
+                // route through `csharp_walk_for_conditions::AMPAMP|
+                // PIPEPIPE`, which calls
+                // `csharp_count_unary_conditions` on the parent
+                // BinaryExpression. Each invocation counts every
+                // child that matches the terminal-operand kinds and
+                // whose parent is a BinaryExpression. For
+                // `x && true`: 1 (Identifier x) + 1 (BooleanLiteral
+                // true) = 2. For `false || x`: 1 (BooleanLiteral
+                // false) + 1 (Identifier x) = 2. Total 4. Without
+                // the BooleanLiteral arm only the two Identifier
+                // counts would land, giving 2.
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.branches_sum(), 2.0);
+                assert_eq!(metric.abc.assignments_sum(), 0.0);
             },
         );
     }
