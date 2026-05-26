@@ -1065,17 +1065,28 @@ jobs:
           set -euo pipefail
           mkdir -p release
           # Every artefact's contents move to the top of release/.
-          # Duplicate file names across artefacts would collide, but
-          # our naming scheme (`big-code-analysis-<ver>-<target>.<ext>`,
+          # Our naming scheme
+          # (`big-code-analysis-<ver>-<target>.<ext>`,
           # `big-code-analysis-{cli,web}_<ver>...deb/rpm`,
-          # APKBUILD.<arch>) is collision-free by construction.
+          # APKBUILD.<arch>) is collision-free by construction, but
+          # the invariant is asserted here at CI time rather than
+          # trusted implicitly: any basename collision (future matrix
+          # typo, overlapping platform suffix) fails the job with an
+          # actionable `::error::` annotation instead of silently
+          # dropping the second artefact (issue #364).
           # release-notes.md is explicitly excluded — it's consumed by
           # the publish step as `body_path` and must not appear in
           # SHA256SUMS (it isn't attached as a release asset, so
           # verifiers running `sha256sum -c SHA256SUMS` would fail on
           # a missing file).
-          find incoming -type f ! -name 'release-notes.md' \
-            -exec cp -n {} release/ \;
+          while IFS= read -r -d '' f; do
+            base="$(basename "$f")"
+            if [ -e "release/$base" ]; then
+              echo "::error::flatten collision: $f overlaps release/$base" >&2
+              exit 1
+            fi
+            cp "$f" "release/$base"
+          done < <(find incoming -type f ! -name 'release-notes.md' -print0)
           ls -la release/
 
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable tip

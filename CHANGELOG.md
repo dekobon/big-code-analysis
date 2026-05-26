@@ -87,6 +87,18 @@ for historical reference.
   rewritten to capture-then-match so `pipefail` cannot flip them to
   the wrong branch on producer SIGPIPE. Fixes
   [#363](https://github.com/dekobon/big-code-analysis/issues/363).
+- `release.yml` `Flatten into release/` step now fails loudly on
+  basename collisions instead of silently dropping the second writer.
+  The previous `find … -exec cp -n {} release/ \;` relied on the
+  unenforced invariant that every matrix artefact has a distinct
+  basename; a future overlapping platform suffix or job-matrix typo
+  would have shipped a subset of the release with no CI signal
+  (the downstream `post-publish verify` job would only notice when a
+  `gh release download` came back empty for the missing triple).
+  The step now reads `find … -print0` into a NUL-delimited while
+  loop, checks for an existing target, and emits
+  `::error::flatten collision: …` before `exit 1`. Fixes
+  [#364](https://github.com/dekobon/big-code-analysis/issues/364).
 
 ## [1.1.0] - 2026-05-25
 
