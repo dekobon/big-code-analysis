@@ -128,7 +128,7 @@ self-scan-headroom: self-scan
 	@BCA_HEADROOM=$(BCA_HEADROOM) \
 	  BCA_THRESHOLDS=$(BCA_THRESHOLDS) \
 	  BCA_BASELINE=$(BCA_BASELINE) \
-	  $(PY) ./scripts/bca-headroom.py \
+	  $(PY) ./utils/bca-self-scan-headroom.py \
 	  $(BCA) $(BCA_BASE_ARGS)
 
 self-scan-write-baseline:
@@ -149,13 +149,13 @@ self-scan-write-baseline-headroom:
 	  BCA_THRESHOLDS=$(BCA_THRESHOLDS) \
 	  BCA_BASELINE=$(BCA_BASELINE) \
 	  BCA_HEADROOM_WRITE_BASELINE=$(BCA_BASELINE) \
-	  $(PY) ./scripts/bca-headroom.py \
+	  $(PY) ./utils/bca-self-scan-headroom.py \
 	  $(BCA) $(BCA_BASE_ARGS)
 ```
 
 <!-- markdownlint-enable MD010 -->
 
-The helper (`scripts/bca-headroom.py`) reads four env vars —
+The helper (`utils/bca-self-scan-headroom.py`) reads four env vars —
 `BCA_HEADROOM` (default `0.95`), `BCA_THRESHOLDS` (default
 `bca-thresholds.toml`), `BCA_BASELINE` (default `.bca-baseline.toml`),
 and the optional `BCA_HEADROOM_WRITE_BASELINE` switch — multiplies
@@ -287,7 +287,7 @@ self-scan-headroom: self-scan
     BCA_HEADROOM={{headroom}} \
         BCA_THRESHOLDS={{thresholds}} \
         BCA_BASELINE={{baseline}} \
-        {{py}} ./scripts/bca-headroom.py {{bca}} {{base_args}}
+        {{py}} ./utils/bca-self-scan-headroom.py {{bca}} {{base_args}}
 
 self-scan-write-baseline:
     {{bca}} {{base_args}} \
@@ -300,7 +300,7 @@ self-scan-write-baseline-headroom:
         BCA_THRESHOLDS={{thresholds}} \
         BCA_BASELINE={{baseline}} \
         BCA_HEADROOM_WRITE_BASELINE={{baseline}} \
-        {{py}} ./scripts/bca-headroom.py {{bca}} {{base_args}}
+        {{py}} ./utils/bca-self-scan-headroom.py {{bca}} {{base_args}}
 ```
 
 ## Skeleton: `package.json` scripts
@@ -316,9 +316,9 @@ Principle 1, all three skeletons should produce byte-identical
 {
   "scripts": {
     "self-scan": "bca --paths . --exclude-from .bcaignore --num-jobs ${BCA_NUM_JOBS:-4} check --config bca-thresholds.toml --baseline .bca-baseline.toml",
-    "self-scan-headroom": "npm run self-scan && python3 ./scripts/bca-headroom.py bca --paths . --exclude-from .bcaignore --num-jobs ${BCA_NUM_JOBS:-4}",
+    "self-scan-headroom": "npm run self-scan && python3 ./utils/bca-self-scan-headroom.py bca --paths . --exclude-from .bcaignore --num-jobs ${BCA_NUM_JOBS:-4}",
     "self-scan-write-baseline": "bca --paths . --exclude-from .bcaignore --num-jobs ${BCA_NUM_JOBS:-4} check --config bca-thresholds.toml --write-baseline .bca-baseline.toml",
-    "self-scan-write-baseline-headroom": "BCA_HEADROOM_WRITE_BASELINE=.bca-baseline.toml python3 ./scripts/bca-headroom.py bca --paths . --exclude-from .bcaignore --num-jobs ${BCA_NUM_JOBS:-4}"
+    "self-scan-write-baseline-headroom": "BCA_HEADROOM_WRITE_BASELINE=.bca-baseline.toml python3 ./utils/bca-self-scan-headroom.py bca --paths . --exclude-from .bcaignore --num-jobs ${BCA_NUM_JOBS:-4}"
   }
 }
 ```
@@ -418,7 +418,7 @@ except ImportError:  # pragma: no cover
 
 def main() -> int:
     if len(sys.argv) < 2:
-        print("usage: bca-headroom.py <bca-invocation...>", file=sys.stderr)
+        print("usage: bca-self-scan-headroom.py <bca-invocation...>", file=sys.stderr)
         return 64
 
     raw = os.environ.get("BCA_HEADROOM") or "0.95"  # treat '' as unset
