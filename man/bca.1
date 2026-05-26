@@ -1,10 +1,10 @@
 .ie \n(.g .ds Aq \(aq
 .el .ds Aq '
-.TH BCA 1  "big-code-analysis 1.0.0" "big-code-analysis Manual"
+.TH BCA 1  "big-code-analysis 1.1.0" "big-code-analysis Manual"
 .SH NAME
 bca \- Analyze source code.
 .SH SYNOPSIS
-\fBbca\fR [\fB\-p\fR|\fB\-\-paths\fR] [\fB\-I\fR|\fB\-\-include\fR] [\fB\-X\fR|\fB\-\-exclude\fR] [\fB\-j\fR|\fB\-\-num\-jobs\fR] [\fB\-l\fR|\fB\-\-language\-type\fR] [\fB\-\-ls\fR] [\fB\-\-le\fR] [\fB\-w\fR|\fB\-\-warning\fR] [\fB\-\-no\-skip\-generated\fR] [\fB\-\-report\-skipped\fR] [\fB\-\-preproc\-data\fR] [\fB\-\-paths\-from\fR] [\fB\-\-no\-ignore\fR] [\fB\-\-exclude\-tests\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] <\fIsubcommands\fR>
+\fBbca\fR [\fB\-p\fR|\fB\-\-paths\fR] [\fB\-I\fR|\fB\-\-include\fR] [\fB\-X\fR|\fB\-\-exclude\fR] [\fB\-j\fR|\fB\-\-num\-jobs\fR] [\fB\-l\fR|\fB\-\-language\-type\fR] [\fB\-\-ls\fR] [\fB\-\-le\fR] [\fB\-w\fR|\fB\-\-warning\fR] [\fB\-\-no\-skip\-generated\fR] [\fB\-\-report\-skipped\fR] [\fB\-\-preproc\-data\fR] [\fB\-\-paths\-from\fR] [\fB\-\-exclude\-from\fR] [\fB\-\-no\-ignore\fR] [\fB\-\-exclude\-tests\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] <\fIsubcommands\fR>
 .SH DESCRIPTION
 Analyze source code.
 .SH OPTIONS
@@ -44,6 +44,9 @@ Existing preprocessor\-data JSON to consume during C/C++ analysis. Use `bca prep
 .TP
 \fB\-\-paths\-from\fR \fI<PATHS_FROM>\fR
 Read newline\-separated input paths from a file. Use `\-` to read from stdin. Combined as a union with any `\-\-paths` values; globs still apply. Blank lines are skipped; `#` is treated as a path character (not a comment). To pass a file literally named `\-`, use `./\-`
+.TP
+\fB\-\-exclude\-from\fR \fI<EXCLUDE_FROM>\fR
+Read additional `\-\-exclude` glob patterns from a file (one per line, `.gitignore`\-style). Blank lines and lines whose first non\-whitespace character is `#` are skipped. Use `\-` to read from stdin; to pass a file literally named `\-`, use `./\-`. Patterns are unioned with any `\-\-exclude` values into a single deny\-set; order does not matter. Convention is a `.bcaignore` at the repo root, mirroring `.gitignore` / `.dockerignore`
 .TP
 \fB\-\-no\-ignore\fR
 Disable `.gitignore` / `.ignore` / global gitignore awareness when expanding directory seeds. Explicit file paths are always honored regardless of this flag
@@ -97,6 +100,6 @@ Print this message or the help of the given subcommand(s)
 Migrating from the flag\-style CLI? See the migration guide:
   big\-code\-analysis\-book/src/migration.md
 .SH VERSION
-v1.0.0
+v1.1.0
 .SH AUTHORS
 Calixte Denizet <cdenizet@mozilla.com>, Elijah Zupancic <elijah@zupancic.name>

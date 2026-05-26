@@ -8,7 +8,7 @@ metrics from a string of source code.
 ```toml
 # Cargo.toml
 [dependencies]
-big-code-analysis = "1.0.0"
+big-code-analysis = "1.1.0"
 ```
 
 The crate uses Rust edition 2024 and pins `rust-version = "1.94"`.

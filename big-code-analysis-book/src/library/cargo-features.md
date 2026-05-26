@@ -6,7 +6,7 @@ the default
 
 ```toml
 [dependencies]
-big-code-analysis = "1.0.0"
+big-code-analysis = "1.1.0"
 ```
 
 pulls every grammar in — matching the library's historical
@@ -24,7 +24,7 @@ A downstream service that only analyses Rust and TypeScript:
 
 ```toml
 [dependencies]
-big-code-analysis = { version = "1.0.0", default-features = false, features = ["rust", "typescript"] }
+big-code-analysis = { version = "1.1.0", default-features = false, features = ["rust", "typescript"] }
 ```
 
 The library still compiles, the `LANG` enum still has every

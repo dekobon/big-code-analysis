@@ -18,6 +18,8 @@ why no value stability is offered until `1.0`. Entries above the
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-05-25
+
 ### Added
 
 - `bca --exclude-from <FILE>` global flag reads `--exclude` glob
@@ -1810,10 +1812,10 @@ why no value stability is offered until `1.0`. Entries above the
   the blocking thread pool (`fix(web): track orphaned blocking
   tasks and reject when threshold exceeded`, commit `94c8141`).
 
-<!-- Release-cutter: when the v1.0.0 tag is created, retarget both
-links below at `v1.0.0` (Unreleased: `v1.0.0...HEAD`; 1.0.0:
-`007ee15...v1.0.0`). They currently point at `HEAD` so the
-comparison links resolve before the tag exists. -->
+<!-- Release-cutter: when a new vX.Y.Z tag is created, retarget the
+[Unreleased] link to `vX.Y.Z...HEAD` and add a `[X.Y.Z]:` line
+pointing at `<prev-tag>...vX.Y.Z`. -->
 
-[Unreleased]: https://github.com/dekobon/big-code-analysis/compare/HEAD...HEAD
-[1.0.0]: https://github.com/dekobon/big-code-analysis/compare/007ee15...HEAD
+[Unreleased]: https://github.com/dekobon/big-code-analysis/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/dekobon/big-code-analysis/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/dekobon/big-code-analysis/compare/007ee15...v1.0.0

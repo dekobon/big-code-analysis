@@ -14,7 +14,7 @@ To use this crate, add it to the `[dependencies]` section of your
 ``` toml
 [dependencies]
 tree-sitter = "0.26"
-bca-tree-sitter-tcl = "1.0"
+bca-tree-sitter-tcl = "1.1"
 ```
 
 Typically, you will use the [LANGUAGE][] constant to add this grammar
