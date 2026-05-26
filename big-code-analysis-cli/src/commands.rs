@@ -397,6 +397,22 @@ fn run_command_functions(globals: GlobalOpts, preproc: Option<Arc<PreprocResults
     run_walk(globals, cfg);
 }
 
+/// Shared `--output must be a directory` guard for the `metrics` and
+/// `ops` commands. Skips when no `--output-format` is set (then
+/// `--output` is silently ignored) or when no `--output` is passed.
+/// `command` names the subcommand for the error message.
+fn require_output_is_dir(have_format: bool, output: Option<&Path>, command: &str) {
+    if have_format
+        && let Some(out) = output
+        && out.exists()
+        && !out.is_dir()
+    {
+        die(format_args!(
+            "--output must be a directory for `{command}`"
+        ));
+    }
+}
+
 fn run_command_metrics(
     globals: GlobalOpts,
     args: StructuredArgs,
@@ -405,13 +421,7 @@ fn run_command_metrics(
     if matches!(args.output_format, Some(MetricsFormat::Cbor)) && args.output.is_none() {
         die(CBOR_STDOUT_ERROR);
     }
-    if args.output_format.is_some()
-        && let Some(ref out) = args.output
-        && out.exists()
-        && !out.is_dir()
-    {
-        die("--output must be a directory for `metrics`");
-    }
+    require_output_is_dir(args.output_format.is_some(), args.output.as_deref(), "metrics");
     let action = Action::Metrics {
         format: args.output_format,
         pretty: args.pretty,
@@ -436,13 +446,7 @@ fn run_command_ops(
             "CSV is not supported by `ops` because its column schema is metric-shaped; use `bca metrics --output-format <fmt>`",
         );
     }
-    if args.output_format.is_some()
-        && let Some(ref out) = args.output
-        && out.exists()
-        && !out.is_dir()
-    {
-        die("--output must be a directory for `ops`");
-    }
+    require_output_is_dir(args.output_format.is_some(), args.output.as_deref(), "ops");
     let action = Action::Ops {
         format: args.output_format,
         pretty: args.pretty,
