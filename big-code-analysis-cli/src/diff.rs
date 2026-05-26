@@ -221,33 +221,37 @@ fn collect_changed(base: &str) -> Result<HashSet<PathBuf>, String> {
             continue;
         }
         let joined = repo_root.join(line);
-        // Match the fallback discipline `canonicalize_for_match`
-        // uses on the lookup side. The successful-canonicalize case
-        // is the common one. For *other* errors (EACCES on a parent,
-        // ELOOP on a symlink cycle), we still insert the joined
-        // absolute form: the lookup side hits the same identity
-        // fallback for paths whose canonicalize fails for the same
-        // reason, so both sides converge instead of silently
-        // disagreeing. Only `NotFound` is dropped — a file deleted
-        // in the diff range has no on-disk counterpart for the
-        // walker to produce a violation against, so the entry is
-        // genuinely unreachable.
+        // The common (and tested) case is `Ok(canon)` — the lookup
+        // side's `canonicalize_for_match` produces the same canonical
+        // absolute, so the two sides match.
+        //
+        // `NotFound` is genuinely unreachable: the file was deleted
+        // in the diff range, so the walker cannot produce a violation
+        // against it. Drop without storing.
+        //
+        // Other errors (EACCES on a parent, ELOOP on a symlink cycle,
+        // transient EIO) are the audit's "hostile FS state" scenario.
+        // Storing the joined absolute form here is a *partial*
+        // mitigation: it converges with the lookup side only when
+        // the violation path is also absolute (e.g. user ran
+        // `--paths /abs/repo`). For relative-path invocations
+        // (`--paths .`, the documented CI form), the lookup side's
+        // identity fallback returns the relative `Violation::path`,
+        // so the joined absolute we store here still doesn't match.
+        // A thorough fix would join the lookup-side path to
+        // `repo_root` before canonicalize — wave 1 attempted exactly
+        // that and reverted because joining changed the production
+        // semantics for subdir invocations. Pragmatic compromise:
+        // store the joined form so the absolute-`--paths` case stays
+        // robust, accept that the relative-`--paths` case is best-
+        // effort under hostile FS state. The audit rated this
+        // "low severity (requires hostile/transient FS state)".
         match joined.canonicalize() {
             Ok(canon) => {
                 out.insert(canon);
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                // Deleted in the diff range — no surviving violation
-                // can point at it, so dropping is correct.
-            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(_) => {
-                // EACCES / ELOOP / EIO / etc. — the *lookup* side's
-                // `canonicalize_for_match` will fall back to the raw
-                // path too, so inserting the joined form here keeps
-                // the two sides in sync. Without this, a hostile or
-                // transient FS state on a touched file's parent
-                // would silently hide that violation under
-                // `--changed-only`.
                 out.insert(joined);
             }
         }
