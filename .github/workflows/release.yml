@@ -1179,6 +1179,10 @@ jobs:
             echo "::error::MINISIGN_SECRET_KEY not configured"
             exit 1
           fi
+          if [[ -z "${MINISIGN_PASSWORD:-}" ]]; then
+            echo "::error::MINISIGN_PASSWORD not configured"
+            exit 1
+          fi
           KEYFILE=$(mktemp)
           trap 'rm -f "$KEYFILE"' EXIT
           printf '%s' "$MINISIGN_SECRET" > "$KEYFILE"
