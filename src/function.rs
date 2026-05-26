@@ -83,17 +83,19 @@ fn dump_span(span: FunctionSpan, stdout: &mut dyn WriteColor, last: bool) -> std
     // `dump_span_ansi_layout_*` tests) while reducing nexits to two `?`
     // sites inside the loop and one trailing `Ok(())`.
     let prefix = if last { "   `- " } else { "   |- " };
-    let (label_color, label_intense, label_text) = if span.error {
-        (Color::Red, true, "error: ".to_string())
+    let (label_color, label_text) = if span.error {
+        (Color::Red, "error: ".to_string())
     } else {
-        (Color::Magenta, true, format!("{}: ", span.name))
+        (Color::Magenta, format!("{}: ", span.name))
     };
     let start = span.start_line.to_string();
     let end = format!("{}.\n", span.end_line);
 
+    // Only the label is intense; the other five segments use the
+    // non-intense `color()` setter.
     let segments: [(Color, bool, &str); 6] = [
         (Color::Blue, false, prefix),
-        (label_color, label_intense, &label_text),
+        (label_color, true, &label_text),
         (Color::Green, false, "from line "),
         (Color::White, false, &start),
         (Color::Green, false, " to line "),
