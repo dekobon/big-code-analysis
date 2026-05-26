@@ -31,12 +31,15 @@
 )]
 mod baseline;
 mod check_format;
+mod dispatch;
 mod format_util;
 mod formats;
 mod html_report;
 mod markdown_report;
 mod metric_catalog;
 mod thresholds;
+
+use dispatch::act_on_file;
 
 use std::collections::{BTreeMap, HashMap, hash_map};
 use std::ffi::OsString;
@@ -54,42 +57,31 @@ use globset::{Glob, GlobSet, GlobSetBuilder};
 use baseline::{Baseline, Coverage};
 use check_format::{AggregatedFormat, violation_to_offender};
 use format_util::MetricScalar;
-use formats::{CBOR_STDOUT_ERROR, MetricsDispatch, MetricsFormat, ReportFormat, dump_csv};
+use formats::{CBOR_STDOUT_ERROR, MetricsDispatch, MetricsFormat, ReportFormat};
 use html_report::generate_html_report;
-use markdown_report::{FunctionSummary, extract_summaries, generate_report};
+use markdown_report::{FunctionSummary, generate_report};
 use metric_catalog::{ListMetricsMode, write_metrics};
 use thresholds::{
     ThresholdConfig, ThresholdSet, Violation, parse_cli_threshold, render_violation_line,
 };
 
 use big_code_analysis::LANG;
-use big_code_analysis::ParserTrait;
+use big_code_analysis::{
+    ConcurrentRunner, Count, FilesData, MetricsOptions, PreprocResults, SuppressionPolicy,
+};
+use big_code_analysis::{fix_includes, get_from_ext, read_file, write_file};
 
-/// `expect` message used at every `action::<_>` call site below.
+/// `expect` message used at every `action::<_>` call site inside the
+/// extracted `dispatch` module. Kept in `lib.rs` so any module that
+/// terminates with `expect(FEATURES_PINNED)` can import the same
+/// string and the invariant lives in one place.
 ///
 /// The CLI pins `big-code-analysis` with `features = ["all-languages"]`,
 /// so a `LANG` value that reached this point must be enabled at compile
 /// time. Any future caller that loosens the feature pin must change
 /// this invariant explicitly.
-const FEATURES_PINNED: &str = "CLI pins big-code-analysis features = [\"all-languages\"]";
-use big_code_analysis::{
-    CommentRm, CommentRmCfg, ConcurrentRunner, Count, CountCfg, Dump, DumpCfg, FilesData, Find,
-    FindCfg, Function, FunctionCfg, Metrics, MetricsCfg, MetricsOptions, OpsCfg, OpsCode,
-    PreprocParser, PreprocResults, SuppressionPolicy,
-};
-// The CLI is the canonical path-based caller: `bca` walks a tree on
-// disk and naturally has a `&Path` for every file it processes, so
-// the deprecated path-positional shims (`get_function_spaces_with_options`)
-// are still the most direct entry point here. Migration to the new
-// `Source` / `analyze` API tracks issue #254's follow-up; for now,
-// scope the deprecation lint to this single import to keep the rest
-// of the file clean.
-#[allow(deprecated)]
-use big_code_analysis::get_function_spaces_with_options;
-use big_code_analysis::{
-    action, fix_includes, get_from_ext, get_ops, guess_language, is_generated, preprocess,
-    read_file, read_file_with_eol, write_file,
-};
+pub(crate) const FEATURES_PINNED: &str =
+    "CLI pins big-code-analysis features = [\"all-languages\"]";
 
 fn die(msg: impl Display) -> ! {
     eprintln!("Error: {msg}");
@@ -502,356 +494,6 @@ fn mk_globset(elems: Vec<String>) -> Result<GlobSet, String> {
         .map_err(|err| format!("failed to build glob set: {err}"))
 }
 
-// `act_on_file` is the per-file dispatch hub for the CLI. After
-// reading the file, deciding the language, and applying the
-// `skip_generated` filter (all factored out into
-// `validate_and_resolve_file`), it forwards to the per-action
-// `dispatch_*` helper that implements each `Action` variant. The
-// helpers are intentionally kept thin: each one is one screen of
-// code so a reader can follow exactly the path a given subcommand
-// takes without scrolling past nine unrelated arms.
-//
-// Every dispatch helper reaches the deprecated
-// `get_function_spaces_with_options` shim because the CLI is the
-// canonical path-based caller (it always holds the `&Path` for the
-// file it just read) and migration to `analyze(Source { ... }, ...)`
-// is tracked separately under issue #254's follow-up. The
-// function-scope `#[allow(deprecated)]` keeps the helpers
-// readable without per-call-site attributes.
-fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
-    let Some((path, source, language)) = validate_and_resolve_file(path, cfg)? else {
-        return Ok(());
-    };
-    let pr = cfg.preproc.clone();
-    match &cfg.action {
-        Action::Dump => dispatch_dump(language, source, path, pr, cfg),
-        Action::Metrics { format, pretty } => {
-            dispatch_metrics(language, source, path, pr, cfg, format.as_ref(), *pretty)
-        }
-        Action::Ops { format, pretty } => {
-            dispatch_ops(language, source, path, pr, cfg, format.as_ref(), *pretty)
-        }
-        Action::StripComments { in_place } => {
-            dispatch_strip_comments(language, source, path, pr, *in_place)
-        }
-        Action::Functions => dispatch_functions(language, source, path, pr),
-        Action::Find(filters) => dispatch_find(language, source, path, pr, cfg, filters),
-        Action::Count(filters) => dispatch_count(language, source, path, pr, cfg, filters),
-        Action::Report => dispatch_report(language, source, path, pr, cfg),
-        Action::Check => dispatch_check_file(language, source, path, pr, cfg),
-        Action::PreprocProduce => dispatch_preproc(source, path, cfg),
-    }
-}
-
-/// Apply the three pre-dispatch filters every CLI subcommand shares:
-/// bump the `files_dispatched` counter, skip empty files, skip
-/// generated files (unless we're producing preproc data — that
-/// pipeline genuinely needs every C/C++ file walked), and resolve
-/// the source language. Returns `Ok(None)` when the file should be
-/// skipped (logging the per-`cfg.warning` reason inline). Returns
-/// `Ok(Some((path, source, lang)))` to hand off to dispatch.
-fn validate_and_resolve_file(
-    path: PathBuf,
-    cfg: &Config,
-) -> std::io::Result<Option<(PathBuf, Vec<u8>, LANG)>> {
-    if let Some(counter) = &cfg.files_dispatched {
-        // Count every dispatched file, including those skipped below for
-        // empty content / unrecognized language. The user pointed at
-        // these files and the runner walked them — they count as "the
-        // input was non-empty" for the zero-files-matched check in
-        // `run_check`.
-        counter.fetch_add(1, Ordering::Relaxed);
-    }
-
-    let Some(source) = read_file_with_eol(&path)? else {
-        if cfg.warning {
-            eprintln!("warning: skipping empty file: {}", path.display());
-        }
-        return Ok(None);
-    };
-
-    if cfg.skip_generated && !matches!(cfg.action, Action::PreprocProduce) && is_generated(&source)
-    {
-        if cfg.report_skipped || cfg.warning {
-            eprintln!("skipped (generated): {}", path.display());
-        }
-        return Ok(None);
-    }
-
-    let Some(language) = cfg.language.or_else(|| guess_language(&source, &path).0) else {
-        if cfg.warning {
-            eprintln!(
-                "warning: skipping file with unrecognized language: {}",
-                path.display()
-            );
-        }
-        return Ok(None);
-    };
-
-    Ok(Some((path, source, language)))
-}
-
-
-#[allow(deprecated)]
-fn dispatch_dump(
-    language: LANG,
-    source: Vec<u8>,
-    path: PathBuf,
-    pr: Option<Arc<PreprocResults>>,
-    cfg: &Config,
-) -> std::io::Result<()> {
-    let dump_cfg = DumpCfg {
-        line_start: cfg.line_start,
-        line_end: cfg.line_end,
-    };
-    // The CLI pins the library's `all-languages` feature, so
-    // `LanguageDisabled` from `action::<T>` is unreachable; the
-    // `expect` documents that invariant.
-    action::<Dump>(&language, source, &path, pr, dump_cfg).expect(FEATURES_PINNED)
-}
-
-#[allow(deprecated)]
-fn dispatch_metrics(
-    language: LANG,
-    source: Vec<u8>,
-    path: PathBuf,
-    pr: Option<Arc<PreprocResults>>,
-    cfg: &Config,
-    format: Option<&MetricsFormat>,
-    pretty: bool,
-) -> std::io::Result<()> {
-    if let Some(fmt) = format {
-        if let Ok(space) =
-            get_function_spaces_with_options(&language, source, &path, pr, cfg.metrics_options())
-        {
-            match fmt.dispatch() {
-                MetricsDispatch::Generic(g) => {
-                    g.dump(space, path, cfg.output.as_ref(), pretty)?;
-                }
-                MetricsDispatch::Csv => {
-                    dump_csv(&space, path, cfg.output.as_ref())?;
-                }
-            }
-        }
-        Ok(())
-    } else {
-        let metrics_cfg = MetricsCfg::new(path).with_options(cfg.metrics_options());
-        let path = metrics_cfg.path.clone();
-        action::<Metrics>(&language, source, &path, pr, metrics_cfg).expect(FEATURES_PINNED)
-    }
-}
-
-#[allow(deprecated)]
-fn dispatch_ops(
-    language: LANG,
-    source: Vec<u8>,
-    path: PathBuf,
-    pr: Option<Arc<PreprocResults>>,
-    cfg: &Config,
-    format: Option<&MetricsFormat>,
-    pretty: bool,
-) -> std::io::Result<()> {
-    if let Some(fmt) = format {
-        if let Ok(ops) = get_ops(&language, source, &path, pr) {
-            // CSV is rejected upstream in `run()` for the Ops command,
-            // so the dispatch here is always Generic. The match is
-            // still exhaustive to keep the compiler honest if that
-            // upstream guard ever drifts.
-            match fmt.dispatch() {
-                MetricsDispatch::Generic(g) => {
-                    g.dump(ops, path, cfg.output.as_ref(), pretty)?;
-                }
-                MetricsDispatch::Csv => {}
-            }
-        }
-        Ok(())
-    } else {
-        let ops_cfg = OpsCfg { path };
-        let path = ops_cfg.path.clone();
-        action::<OpsCode>(&language, source, &path, pr, ops_cfg).expect(FEATURES_PINNED)
-    }
-}
-
-#[allow(deprecated)]
-fn dispatch_strip_comments(
-    language: LANG,
-    source: Vec<u8>,
-    path: PathBuf,
-    pr: Option<Arc<PreprocResults>>,
-    in_place: bool,
-) -> std::io::Result<()> {
-    let comment_cfg = CommentRmCfg { in_place, path };
-    let path = comment_cfg.path.clone();
-    // C++ comment removal goes through the dedicated Ccomment grammar
-    // even when the file's primary language is Cpp.
-    let lang = if language == LANG::Cpp {
-        LANG::Ccomment
-    } else {
-        language
-    };
-    action::<CommentRm>(&lang, source, &path, pr, comment_cfg).expect(FEATURES_PINNED)
-}
-
-#[allow(deprecated)]
-fn dispatch_functions(
-    language: LANG,
-    source: Vec<u8>,
-    path: PathBuf,
-    pr: Option<Arc<PreprocResults>>,
-) -> std::io::Result<()> {
-    let fn_cfg = FunctionCfg { path: path.clone() };
-    action::<Function>(&language, source, &path, pr, fn_cfg).expect(FEATURES_PINNED)
-}
-
-#[allow(deprecated)]
-fn dispatch_find(
-    language: LANG,
-    source: Vec<u8>,
-    path: PathBuf,
-    pr: Option<Arc<PreprocResults>>,
-    cfg: &Config,
-    filters: &Arc<[String]>,
-) -> std::io::Result<()> {
-    let find_cfg = FindCfg {
-        path: path.clone(),
-        filters: Arc::clone(filters),
-        line_start: cfg.line_start,
-        line_end: cfg.line_end,
-    };
-    action::<Find>(&language, source, &path, pr, find_cfg).expect(FEATURES_PINNED)
-}
-
-#[allow(deprecated)]
-fn dispatch_count(
-    language: LANG,
-    source: Vec<u8>,
-    path: PathBuf,
-    pr: Option<Arc<PreprocResults>>,
-    cfg: &Config,
-    filters: &Arc<[String]>,
-) -> std::io::Result<()> {
-    let stats = cfg
-        .count_lock
-        .clone()
-        .expect("Count handler initializes count_lock before dispatch");
-    let count_cfg = CountCfg {
-        filters: Arc::clone(filters),
-        stats,
-    };
-    action::<Count>(&language, source, &path, pr, count_cfg).expect(FEATURES_PINNED)
-}
-
-// Returns Result<()> for dispatch-table uniformity with sibling
-// helpers that do propagate I/O errors via `?` (e.g. `dispatch_metrics`).
-// The body never produces an `Err` itself.
-#[allow(deprecated, clippy::unnecessary_wraps)]
-fn dispatch_report(
-    language: LANG,
-    source: Vec<u8>,
-    path: PathBuf,
-    pr: Option<Arc<PreprocResults>>,
-    cfg: &Config,
-) -> std::io::Result<()> {
-    if let Ok(space) =
-        get_function_spaces_with_options(&language, source, &path, pr, cfg.metrics_options())
-        && let Some(ref tx) = cfg.markdown_tx
-        && !matches!(language, LANG::Preproc | LANG::Ccomment)
-    {
-        // Markdown reports are human-readable text and the downstream
-        // `FunctionSummary::file: String` is rendered into the report
-        // body, so non-UTF-8 paths cannot round-trip through this
-        // pipeline regardless of how we carry them upstream. Skip with
-        // a warning. The threshold pipeline (Action::Check) carries
-        // `&Path` end-to-end because its JSON/SARIF outputs can
-        // preserve raw bytes.
-        let Some(file_str) = path.to_str() else {
-            if cfg.warning {
-                eprintln!(
-                    "warning: skipping non-UTF-8 path in report: {}",
-                    path.display()
-                );
-            }
-            return Ok(());
-        };
-        let mut summaries = Vec::new();
-        extract_summaries(&space, file_str, language, &cfg.strip_prefix, &mut summaries);
-        let Ok(sender) = tx.lock() else {
-            if cfg.warning {
-                eprintln!(
-                    "warning: skipping {}: report channel lock poisoned",
-                    path.display()
-                );
-            }
-            return Ok(());
-        };
-        for s in summaries {
-            let _ = sender.send(s);
-        }
-    }
-    Ok(())
-}
-
-// Returns Result<()> for dispatch-table uniformity; never produces
-// an `Err` itself.
-#[allow(deprecated, clippy::unnecessary_wraps)]
-fn dispatch_check_file(
-    language: LANG,
-    source: Vec<u8>,
-    path: PathBuf,
-    pr: Option<Arc<PreprocResults>>,
-    cfg: &Config,
-) -> std::io::Result<()> {
-    if let Ok(space) =
-        get_function_spaces_with_options(&language, source, &path, pr, cfg.metrics_options())
-        && let (Some(set), Some(tx)) = (cfg.threshold_set.as_ref(), cfg.check_tx.as_ref())
-        && !matches!(language, LANG::Preproc | LANG::Ccomment)
-    {
-        // Pass the path through as `&Path` so non-UTF-8 bytes are
-        // preserved on each emitted `Violation`. Display / offender
-        // serialization decide their own lossy strategy at the output
-        // boundary; the threshold pipeline itself stays byte-faithful.
-        let mut violations = Vec::new();
-        set.evaluate_with_policy(&path, &space, cfg.suppression_policy, &mut violations);
-        if !violations.is_empty() {
-            let Ok(sender) = tx.lock() else {
-                if cfg.warning {
-                    eprintln!(
-                        "warning: skipping {}: check channel lock poisoned",
-                        path.display()
-                    );
-                }
-                return Ok(());
-            };
-            // Receiver lives until `run_check` drains `rx`, which
-            // happens only after `run_walk` joins all worker threads —
-            // so `send` cannot fail here. Use `let _` rather than
-            // `expect` to avoid panicking the worker pool on the
-            // (unreachable) drop path.
-            for v in violations {
-                let _ = sender.send(v);
-            }
-        }
-    }
-    Ok(())
-}
-
-// Returns Result<()> for dispatch-table uniformity; never produces
-// an `Err` itself.
-#[allow(clippy::unnecessary_wraps)]
-fn dispatch_preproc(source: Vec<u8>, path: PathBuf, cfg: &Config) -> std::io::Result<()> {
-    if let Some(preproc_lock) = &cfg.preproc_lock
-        && let Some(language) = guess_language(&source, &path).0
-        && language == LANG::Cpp
-    {
-        let mut results = preproc_lock.lock().expect("mutex not poisoned");
-        preprocess(
-            &PreprocParser::new(source, &path, None),
-            &path,
-            &mut results,
-        );
-    }
-    Ok(())
-}
 
 fn process_dir_path(all_files: &mut HashMap<String, Vec<PathBuf>>, path: &Path, cfg: &Config) {
     if !matches!(cfg.action, Action::PreprocProduce) {
