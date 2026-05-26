@@ -2190,26 +2190,6 @@ fn csharp_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
     }
 }
 
-// Counts a single boolean-context condition expression for
-// tree-sitter-c-sharp. Mirrors `groovy_count_condition`: the C#
-// grammar inlines `(` / `)` as anonymous token children of
-// `if_statement` / `while_statement` / `do_statement` (and the
-// `conditional_expression` ternary leaves its condition bare at
-// child(0)) rather than wrapping the condition in a
-// `parenthesized_expression`, so a bare identifier / boolean
-// literal / call contributes one condition directly. Parenthesised
-// and `!`-prefixed unary containers delegate to
-// `csharp_inspect_container`, which seeds
-// `has_boolean_content = true` from the known-boolean parent
-// (if/while/do/conditional). Binary / comparison expressions are
-// counted elsewhere via the `AMPAMP` / `PIPEPIPE` / `GT` / `LT` /
-// `EQEQ` token arms. See issue #370.
-//
-// `if/while` route here from child(2), `do-while` from child(4),
-// and the ternary's condition slot from child(0) — the C# grammar
-// reverses Java's `parenthesized_expression` wrapper convention, so
-// the index differs across the call sites but the kind-classifier
-// is the same.
 fn csharp_count_condition(condition: &Node, conditions: &mut f64) {
     use Csharp::*;
     let kind = condition.kind_id().into();
@@ -3579,6 +3559,40 @@ mod tests {
                 // — the unary `!` is the only path that sets the flag).
                 // → 2 conditions total. 1 branch from WriteLine().
                 assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.branches_sum(), 1.0);
+                assert_eq!(metric.abc.assignments_sum(), 0.0);
+            },
+        );
+    }
+
+
+    #[test]
+    fn csharp_if_double_parenthesized_condition() {
+        // Audit-tests follow-up: with only the
+        // `csharp_prefix_unary_expr_kinds!()` arm covered by
+        // `csharp_if_unary_not_condition`, the
+        // `csharp_paren_expr_kinds!()` delegation arm in
+        // `csharp_count_condition` was a pure dead-code candidate —
+        // disabling it caused zero existing tests to fail (verified
+        // 2026-05-26).
+        //
+        // `if ((x))` puts a `ParenthesizedExpression` at child(2) of
+        // the IfStatement (child(1) is the literal `(`, child(2) is
+        // the inner parenthesised expression, child(3) is the literal
+        // `)`). `csharp_count_condition` must route that case to
+        // `csharp_inspect_container`, which then sees parent =
+        // IfStatement, seeds `has_boolean_content = true`, walks to
+        // the inner Identifier, and counts it. A regression that
+        // removed the paren arm would silently score 0.
+        check_metrics::<CsharpParser>(
+            "class A {
+                void M(bool x) {
+                    if ((x)) { System.Console.WriteLine(\"a\"); }
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
                 assert_eq!(metric.abc.branches_sum(), 1.0);
                 assert_eq!(metric.abc.assignments_sum(), 0.0);
             },
