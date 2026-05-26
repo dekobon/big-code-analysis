@@ -10,11 +10,10 @@
     clippy::wildcard_imports
 )]
 
-use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::Serialize;
-use termcolor::{Color, ColorChoice, StandardStream, StandardStreamLock};
+use termcolor::{Color, ColorChoice, StandardStream, WriteColor};
 
 use crate::traits::*;
 
@@ -75,11 +74,7 @@ pub fn function<T: ParserTrait>(parser: &T) -> Vec<FunctionSpan> {
     spans
 }
 
-fn dump_span(
-    span: FunctionSpan,
-    stdout: &mut StandardStreamLock,
-    last: bool,
-) -> std::io::Result<()> {
+fn dump_span(span: FunctionSpan, stdout: &mut dyn WriteColor, last: bool) -> std::io::Result<()> {
     let pref = if last { "   `- " } else { "   |- " };
 
     color(stdout, Color::Blue)?;
@@ -106,13 +101,19 @@ fn dump_span(
     writeln!(stdout, "{}.", span.end_line)
 }
 
-fn dump_spans(spans: Vec<FunctionSpan>, path: PathBuf) -> std::io::Result<()> {
+// Generic over `WriteColor` so production passes a locked
+// `StandardStream` (colored stdout) and tests can capture the rendered
+// bytes via `termcolor::NoColor` over a `Vec<u8>`. The trait-object
+// alternative would also work; static dispatch is preferred here
+// because there is exactly one production caller and one test caller.
+fn dump_spans<W: WriteColor>(
+    spans: Vec<FunctionSpan>,
+    path: &Path,
+    stdout: &mut W,
+) -> std::io::Result<()> {
     if !spans.is_empty() {
-        let stdout = StandardStream::stdout(ColorChoice::Always);
-        let mut stdout = stdout.lock();
-
-        intense_color(&mut stdout, Color::Yellow)?;
-        writeln!(&mut stdout, "In file {}", path.display())?;
+        intense_color(stdout, Color::Yellow)?;
+        writeln!(stdout, "In file {}", path.display())?;
 
         // Consume `spans` by value: `dump_span` takes `FunctionSpan`
         // by value, so cloning to use `split_last` would allocate
@@ -120,9 +121,9 @@ fn dump_spans(spans: Vec<FunctionSpan>, path: PathBuf) -> std::io::Result<()> {
         // `spans.len() >= 1`, so `last_idx` is well-defined.
         let last_idx = spans.len() - 1;
         for (i, span) in spans.into_iter().enumerate() {
-            dump_span(span, &mut stdout, i == last_idx)?;
+            dump_span(span, stdout, i == last_idx)?;
         }
-        color(&mut stdout, Color::White)?;
+        color(stdout, Color::White)?;
     }
     Ok(())
 }
@@ -145,7 +146,9 @@ impl Callback for Function {
     type Cfg = FunctionCfg;
 
     fn call<T: ParserTrait>(cfg: Self::Cfg, parser: &T) -> Self::Res {
-        dump_spans(function(parser), cfg.path)
+        let stdout = StandardStream::stdout(ColorChoice::Always);
+        let mut stdout = stdout.lock();
+        dump_spans(function(parser), &cfg.path, &mut stdout)
     }
 }
 

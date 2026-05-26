@@ -25,7 +25,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::OnceLock;
 
 use regex::bytes::Regex;
-use termcolor::{Color, ColorSpec, StandardStreamLock, WriteColor};
+use termcolor::{Color, ColorSpec, WriteColor};
 
 use crate::langs::fake;
 use crate::langs::*;
@@ -644,13 +644,18 @@ fn min_distance_candidates(possibilities: &[PathBuf], current_path: &Path) -> Ve
     path_min.into_iter().cloned().collect()
 }
 
+// Accept `&mut dyn WriteColor` rather than `&mut StandardStreamLock` so
+// tests (e.g. `function::dump_span`) can substitute `termcolor::NoColor`
+// over a `Vec<u8>` to capture the rendered bytes. Production callers
+// continue to pass `&mut StandardStreamLock`, which unsized-coerces to
+// the trait object at the call site.
 #[inline]
-pub(crate) fn color(stdout: &mut StandardStreamLock, color: Color) -> std::io::Result<()> {
+pub(crate) fn color(stdout: &mut dyn WriteColor, color: Color) -> std::io::Result<()> {
     stdout.set_color(ColorSpec::new().set_fg(Some(color)))
 }
 
 #[inline]
-pub(crate) fn intense_color(stdout: &mut StandardStreamLock, color: Color) -> std::io::Result<()> {
+pub(crate) fn intense_color(stdout: &mut dyn WriteColor, color: Color) -> std::io::Result<()> {
     stdout.set_color(ColorSpec::new().set_fg(Some(color)).set_intense(true))
 }
 
