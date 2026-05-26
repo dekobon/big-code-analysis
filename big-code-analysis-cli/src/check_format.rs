@@ -105,6 +105,16 @@ pub(crate) const DEFAULT_GITHUB_ANNOTATION_CAP: usize = 10;
 /// `--github-annotations` is not passed explicitly.
 pub(crate) const GITHUB_ACTIONS_ENV: &str = "GITHUB_ACTIONS";
 
+/// `<owner>/<repo>` slug GitHub Actions sets on every workflow run.
+/// Combined with [`GITHUB_RUN_ID_ENV`] to build the artifact URL
+/// surfaced in the remediation footer.
+pub(crate) const GITHUB_REPOSITORY_ENV: &str = "GITHUB_REPOSITORY";
+
+/// Numeric workflow-run identifier GitHub Actions sets on every
+/// workflow run. Combined with [`GITHUB_REPOSITORY_ENV`] to build
+/// the artifact URL surfaced in the remediation footer.
+pub(crate) const GITHUB_RUN_ID_ENV: &str = "GITHUB_RUN_ID";
+
 pub(crate) fn write_github_annotations<'a, W, I>(
     w: &mut W,
     violations: I,
@@ -324,19 +334,11 @@ fn write_per_file_rollup(out: &mut String, pairs: &[(Violation, Option<Coverage>
     out.push_str("### Per-file rollup\n\n");
     out.push_str("| File | Violations | Worst metric | Value | Limit |\n");
     out.push_str("|------|-----------:|--------------|------:|------:|\n");
-    let mut by_path: BTreeMap<&Path, Vec<&Violation>> = BTreeMap::new();
-    for (v, _) in pairs {
-        by_path.entry(v.path.as_path()).or_default().push(v);
-    }
-    let mut rows: Vec<(usize, &Violation, String)> = by_path
-        .iter()
-        .filter_map(|(path, vs)| {
-            let worst = Violation::pick_worst(vs)?;
-            Some((vs.len(), worst, path.display().to_string()))
-        })
-        .collect();
-    rows.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.2.cmp(&b.2)));
-    for (count, worst, display) in rows {
+    // Reuse the shared grouping/pick-worst/sort helper so the
+    // stderr footer and the markdown rollup never disagree about
+    // which violation is "worst" for a given file or how rows are
+    // ordered.
+    for (count, worst, display, _path) in Violation::group_pairs_by_path(pairs) {
         let _ = writeln!(
             out,
             "| {} | {} | {} | {} | {} |",
@@ -870,21 +872,10 @@ mod tests {
         let remediation = "\n--- next steps ---\n* Detailed reports: bca-reports artifact\n* To refresh baseline: bca --paths . check --write-baseline .bca-baseline.toml\n";
         write_step_summary(&path, &pairs, Some(remediation)).expect("write 1");
         let after_first = std::fs::read_to_string(&path).expect("read 1");
-        // 4-backtick fence opens and closes inside the marker pair.
-        assert!(
-            after_first.contains("````text\n"),
-            "missing fenced opener, got:\n{after_first}"
-        );
-        assert!(
-            after_first.contains("\n````\n"),
-            "missing fenced closer, got:\n{after_first}"
-        );
-        assert!(
-            after_first.contains("--- next steps ---"),
-            "missing remediation banner, got:\n{after_first}"
-        );
-        // The fence must be INSIDE the marker pair — extract the
-        // `bca` block and verify the fence is bounded by it.
+        // 4-backtick fence opens AND closes inside the marker pair.
+        // Whole-file `contains` would let a regression that emitted
+        // the closer *after* the end marker still pass — bound the
+        // checks to the bca-managed block instead.
         let begin = after_first
             .find(STEP_SUMMARY_BEGIN_MARKER)
             .expect("begin marker");
@@ -894,8 +885,16 @@ mod tests {
         assert!(begin < end, "markers must be ordered");
         let block = &after_first[begin..end];
         assert!(
-            block.contains("````text"),
-            "fence must be inside the marker pair, got block:\n{block}"
+            block.contains("````text\n"),
+            "missing fenced opener inside marker block, got:\n{block}"
+        );
+        assert!(
+            block.contains("\n````\n"),
+            "missing fenced closer inside marker block (regression that emitted the closer outside the markers would slip past a whole-file `contains`), got:\n{block}"
+        );
+        assert!(
+            block.contains("--- next steps ---"),
+            "missing remediation banner inside marker block, got:\n{block}"
         );
 
         // Retry with the same remediation: file must be byte-

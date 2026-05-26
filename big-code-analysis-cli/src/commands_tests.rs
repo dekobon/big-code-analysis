@@ -155,41 +155,66 @@ fn apply_changed_only_passes_through_when_scope_missing() {
     // `--changed-only` is on without a resolvable scope, but if a
     // future refactor bypasses that check we want filtering to
     // degrade to a no-op rather than emit the empty set (which would
-    // green-light a broken CI gate).
+    // green-light a broken CI gate). The pure inner function returns
+    // a diagnostic the caller surfaces via stderr; assert on it here
+    // so a refactor that silences the warning fails the test.
     let pairs = vec![(violation("bca-test-synthetic-a.rs", "f", 20.0, 10.0), None)];
-    let kept = apply_changed_only(pairs, None, true);
-    assert_eq!(kept.len(), 1);
+    let outcome = apply_changed_only_inner(pairs, None, true);
+    assert_eq!(outcome.kept.len(), 1);
+    let diag = outcome.diagnostic.expect("expected diagnostic warning");
+    assert!(
+        diag.contains("--changed-only requested but no diff scope is available"),
+        "diagnostic should warn about the missing-scope footgun, got: {diag}"
+    );
 }
 
+#[cfg(unix)]
 #[test]
 fn apply_changed_only_matches_real_files_via_canonicalize() {
     // Pin the canonicalize-roundtrip with real on-disk files. Both
     // sides — the scope's `changed` set and `DiffScope::contains`'s
-    // lookup — call `Path::canonicalize`, which for absolute paths
-    // resolves symlinks and `.` / `..` components. This test uses
-    // absolute paths on both sides so the canonicalization step
-    // actually runs; the synthetic-relative-path tests above bypass
-    // the roundtrip via the missing-file identity fallback.
+    // lookup — call `Path::canonicalize`, which resolves symlinks and
+    // `.` / `..` components.
     //
-    // Production parity: `--paths /abs/dir` produces violations with
-    // absolute paths; this test mirrors that shape.
+    // **Load-bearing**: we route the violation path through a
+    // symlink (`dir/link/a.rs` where `link -> .`) so the *raw*
+    // violation path is structurally distinct from the canonical
+    // form stored in `scope.changed`. Without the symlink, the
+    // tempdir's canonical form already equals its raw form on Linux
+    // (`/tmp/.tmpXXX/...`), and the test would still pass even if
+    // `canonicalize_for_match` were the identity function — false-
+    // pass. The symlink forces the roundtrip to actually fire.
+    use std::os::unix::fs::symlink;
     let dir = tempfile::tempdir().expect("tempdir");
     let a = dir.path().join("a.rs");
     let b = dir.path().join("b.rs");
     std::fs::write(&a, "// a").expect("write a");
     std::fs::write(&b, "// b").expect("write b");
+    // Create a self-referential symlink `link -> .` so paths via
+    // `dir/link/a.rs` and `dir/a.rs` resolve to the same inode but
+    // differ structurally.
+    let link = dir.path().join("link");
+    symlink(".", &link).expect("symlink");
+    let via_link_a = link.join("a.rs");
+    let via_link_b = link.join("b.rs");
+    // Scope stores the canonical form (no `link/` segment).
     let scope = DiffScope {
         base: "main".to_string(),
         source: DiffSource::Explicit,
         changed: HashSet::from([a.canonicalize().expect("canon a")]),
     };
+    // Violation paths go through the symlink — raw form contains
+    // `link/`, canonical form does not. A bug that turned
+    // `canonicalize_for_match` into the identity function would
+    // store `…/link/a.rs` on the lookup side, miss the canonical
+    // `…/a.rs` in `changed`, and the test would fail.
     let pairs = vec![
         (
-            violation(a.to_str().expect("utf8 a"), "f", 20.0, 10.0),
+            violation(via_link_a.to_str().expect("utf8 a"), "f", 20.0, 10.0),
             None,
         ),
         (
-            violation(b.to_str().expect("utf8 b"), "g", 30.0, 10.0),
+            violation(via_link_b.to_str().expect("utf8 b"), "g", 30.0, 10.0),
             None,
         ),
     ];
@@ -197,9 +222,9 @@ fn apply_changed_only_matches_real_files_via_canonicalize() {
     assert_eq!(
         kept.len(),
         1,
-        "expected only a.rs to survive --changed-only; got {kept:?}"
+        "expected only a.rs (via the symlink) to survive --changed-only; got {kept:?}"
     );
-    assert_eq!(kept[0].0.path, a);
+    assert_eq!(kept[0].0.path, via_link_a);
 }
 
 #[test]
@@ -208,15 +233,21 @@ fn apply_changed_only_empty_scope_drops_all_violations_with_clean_exit() {
     // against a branch already squash-merged into main) used to be
     // a silent green-light — every violation dropped, exit 0, CI
     // happy. Now it's an explicit `bca:` log line and a deliberate
-    // empty return.
+    // empty return. Assert on the diagnostic so a refactor that
+    // silences the warning fails the test.
     let scope = DiffScope {
         base: "main".to_string(),
         source: DiffSource::Explicit,
         changed: HashSet::new(),
     };
     let pairs = vec![(violation("bca-test-synthetic-a.rs", "f", 20.0, 10.0), None)];
-    let kept = apply_changed_only(pairs, Some(&scope), true);
-    assert!(kept.is_empty());
+    let outcome = apply_changed_only_inner(pairs, Some(&scope), true);
+    assert!(outcome.kept.is_empty());
+    let diag = outcome.diagnostic.expect("expected diagnostic warning");
+    assert!(
+        diag.contains("diff scope is empty") && diag.contains("between main and HEAD"),
+        "diagnostic should name the empty scope explicitly, got: {diag}"
+    );
 }
 
 #[test]
@@ -406,19 +437,39 @@ fn refresh_baseline_command_shell_quotes_paths_with_spaces() {
 }
 
 #[test]
-fn artifact_link_falls_back_to_plain_text_without_gha_env() {
-    // No mutation of env vars in this test — the cargo-test process
-    // typically does not have GITHUB_REPOSITORY / GITHUB_RUN_ID set,
-    // so the fallback path is the natural state. If those vars
-    // happen to be set in the test env (rare), the assertion is
-    // skipped and the test reports as "ok" — the load-bearing
-    // behaviour is the SOME branch which is exercised by
-    // `format_remediation_block_contains_three_bullet_points`.
-    if std::env::var_os("GITHUB_REPOSITORY").is_some()
-        && std::env::var_os("GITHUB_RUN_ID").is_some()
-    {
-        return;
-    }
-    let link = artifact_link();
-    assert_eq!(link, "bca-reports artifact (uploaded to this run)");
+fn artifact_link_for_without_env_returns_plain_text() {
+    // Pin the NONE branch deterministically via the pure inner
+    // function. The previous version of this test read env directly
+    // and skipped when GHA env vars happened to be set — which
+    // inverted coverage on the workflow runner that actually
+    // exercises the SOME branch in production.
+    assert_eq!(
+        artifact_link_for(None, None),
+        "bca-reports artifact (uploaded to this run)"
+    );
+    // Empty-string env values (rare but observed) must also count
+    // as absent.
+    assert_eq!(
+        artifact_link_for(Some(String::new()), Some(String::new())),
+        "bca-reports artifact (uploaded to this run)"
+    );
+    // One-set / one-empty also falls through.
+    assert_eq!(
+        artifact_link_for(Some("dekobon/big-code-analysis".to_string()), None),
+        "bca-reports artifact (uploaded to this run)"
+    );
+}
+
+#[test]
+fn artifact_link_for_with_env_builds_run_url() {
+    // Pin the SOME branch — both env values present produces a
+    // clickable URL the user can paste into a browser.
+    let link = artifact_link_for(
+        Some("dekobon/big-code-analysis".to_string()),
+        Some("12345".to_string()),
+    );
+    assert_eq!(
+        link,
+        "bca-reports artifact at https://github.com/dekobon/big-code-analysis/actions/runs/12345"
+    );
 }

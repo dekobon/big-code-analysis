@@ -245,8 +245,33 @@ fn apply_changed_only(
     scope: Option<&diff::DiffScope>,
     changed_only: bool,
 ) -> Vec<(Violation, Option<Coverage>)> {
+    let outcome = apply_changed_only_inner(pairs, scope, changed_only);
+    if let Some(diag) = outcome.diagnostic {
+        eprintln!("{diag}");
+    }
+    outcome.kept
+}
+
+/// Result of [`apply_changed_only_inner`]: the filtered pairs plus
+/// an optional diagnostic string for the caller to surface. Extracted
+/// from the outer `apply_changed_only` so tests can pin the
+/// diagnostic shape (the "silent regression" guard the audit-tests
+/// pass would otherwise miss).
+struct ChangedOnlyOutcome {
+    kept: Vec<(Violation, Option<Coverage>)>,
+    diagnostic: Option<String>,
+}
+
+fn apply_changed_only_inner(
+    pairs: Vec<(Violation, Option<Coverage>)>,
+    scope: Option<&diff::DiffScope>,
+    changed_only: bool,
+) -> ChangedOnlyOutcome {
     if !changed_only {
-        return pairs;
+        return ChangedOnlyOutcome {
+            kept: pairs,
+            diagnostic: None,
+        };
     }
     let Some(scope) = scope else {
         // `resolve_diff_scope` fatal-errors when `--changed-only` is
@@ -257,12 +282,15 @@ fn apply_changed_only(
         // silently emit the empty set (which would green-light the
         // gate on a misconfigured CI), but log so the operator
         // notices.
-        eprintln!(
-            "bca: --changed-only requested but no diff scope is available; \
-             skipping filter (would-be programmer error — \
-             resolve_diff_scope should have fatal-errored)"
-        );
-        return pairs;
+        return ChangedOnlyOutcome {
+            kept: pairs,
+            diagnostic: Some(
+                "bca: --changed-only requested but no diff scope is available; \
+                 skipping filter (would-be programmer error — \
+                 resolve_diff_scope should have fatal-errored)"
+                    .to_string(),
+            ),
+        };
     };
     if scope.changed.is_empty() {
         // A resolved-but-empty scope (e.g. running `--since main` from
@@ -272,13 +300,16 @@ fn apply_changed_only(
         // which is exactly the "silent green-light" failure mode #359
         // was meant to prevent. Surface it explicitly so CI logs make
         // it obvious the gate ran but had nothing to check.
-        eprintln!(
+        let diag = format!(
             "bca: --changed-only: diff scope is empty (no files touched between {} and HEAD); \
              dropping {} violations and exiting clean",
             scope.base,
             pairs.len()
         );
-        return Vec::new();
+        return ChangedOnlyOutcome {
+            kept: Vec::new(),
+            diagnostic: Some(diag),
+        };
     }
     // Canonicalize once per unique raw path rather than once per
     // violation. Real-world inputs cluster heavily per file
@@ -296,10 +327,10 @@ fn apply_changed_only(
         })
         .collect();
     let dropped = before - kept.len();
-    if dropped > 0 {
-        eprintln!("bca: --changed-only dropped {dropped} violations from files outside diff scope");
-    }
-    kept
+    let diagnostic = (dropped > 0).then(|| {
+        format!("bca: --changed-only dropped {dropped} violations from files outside diff scope")
+    });
+    ChangedOnlyOutcome { kept, diagnostic }
 }
 
 fn emit_check_results(
@@ -422,18 +453,23 @@ fn format_remediation_block(globals: &GlobalOpts, args: &CheckArgs) -> Option<St
     Some(out)
 }
 
-/// Build the artifact link surfaced in the remediation block. On
-/// GitHub Actions both `$GITHUB_REPOSITORY` and `$GITHUB_RUN_ID` are
-/// set, producing a clickable URL to the failing run; outside GHA
-/// (local invocations, alternative CI) we fall back to the literal
-/// artifact name documented in `.github/workflows/pages.yml`.
 fn artifact_link() -> String {
-    let repo = std::env::var("GITHUB_REPOSITORY")
-        .ok()
-        .filter(|s| !s.is_empty());
-    let run_id = std::env::var("GITHUB_RUN_ID")
-        .ok()
-        .filter(|s| !s.is_empty());
+    artifact_link_for(
+        std::env::var(check_format::GITHUB_REPOSITORY_ENV).ok(),
+        std::env::var(check_format::GITHUB_RUN_ID_ENV).ok(),
+    )
+}
+
+/// Pure inner: render the artifact bullet given explicit env values
+/// (rather than reading them from the process environment). Extracted
+/// so tests can pin both the SOME and NONE branches without
+/// depending on whether the test process happens to have GHA env
+/// vars set. Empty strings are treated as absent — GitHub Actions
+/// does set these vars but the spec doesn't promise non-empty values
+/// on every event type.
+fn artifact_link_for(repo: Option<String>, run_id: Option<String>) -> String {
+    let repo = repo.filter(|s| !s.is_empty());
+    let run_id = run_id.filter(|s| !s.is_empty());
     match (repo, run_id) {
         (Some(repo), Some(run_id)) => {
             format!("bca-reports artifact at https://github.com/{repo}/actions/runs/{run_id}")
@@ -442,11 +478,6 @@ fn artifact_link() -> String {
     }
 }
 
-/// Build a copy-paste-safe `--write-baseline` invocation that mirrors
-/// the gate's resolved `--paths` / `--exclude` / `--exclude-from` /
-/// `--config` / `--baseline` so the user can refresh the baseline
-/// without having to reconstruct flags from memory. Hard-coding
-/// `--paths .` would be wrong for repos that scope scans differently.
 fn refresh_baseline_command(globals: &GlobalOpts, args: &CheckArgs) -> String {
     let mut cmd = String::from("bca");
     let paths: Vec<&Path> = if globals.paths.is_empty() {
@@ -459,7 +490,7 @@ fn refresh_baseline_command(globals: &GlobalOpts, args: &CheckArgs) -> String {
     };
     for p in &paths {
         cmd.push_str(" --paths ");
-        cmd.push_str(&shell_quote(&p.display().to_string()));
+        cmd.push_str(&shell_quote(&path_for_shell(p)));
     }
     for ex in &globals.exclude {
         cmd.push_str(" --exclude ");
@@ -467,24 +498,39 @@ fn refresh_baseline_command(globals: &GlobalOpts, args: &CheckArgs) -> String {
     }
     if let Some(p) = &globals.exclude_from {
         cmd.push_str(" --exclude-from ");
-        cmd.push_str(&shell_quote(&p.display().to_string()));
+        cmd.push_str(&shell_quote(&path_for_shell(p)));
     }
     cmd.push_str(" check");
     if let Some(p) = &args.config {
         cmd.push_str(" --config ");
-        cmd.push_str(&shell_quote(&p.display().to_string()));
+        cmd.push_str(&shell_quote(&path_for_shell(p)));
     }
     // `--baseline` and `--write-baseline` conflict in clap, so we
     // prefer the user's baseline path if they ran with it (the
     // refresh writes back to the same file). Fall back to the
     // documented default `.bca-baseline.toml`.
-    let baseline_path = args.baseline.as_deref().map_or_else(
-        || ".bca-baseline.toml".to_string(),
-        |p| p.display().to_string(),
-    );
+    let baseline_path = args
+        .baseline
+        .as_deref()
+        .map_or_else(|| ".bca-baseline.toml".to_string(), path_for_shell);
     cmd.push_str(" --write-baseline ");
     cmd.push_str(&shell_quote(&baseline_path));
     cmd
+}
+
+/// Render a path for inclusion in the copy-paste refresh command.
+/// The printed command is an *identifier* in the user's shell —
+/// running it must reach the same file `bca` walked. Non-UTF-8 paths
+/// cannot be expressed as a shell argument verbatim, so we surface
+/// them as a clearly-broken placeholder (`<non-UTF-8 path: …>`)
+/// rather than emit a `to_string_lossy` form that silently points at
+/// the wrong file. Per AGENTS.md, identifier paths use `to_str()`
+/// with explicit non-UTF-8 handling, not `path.display()`.
+fn path_for_shell(p: &Path) -> String {
+    p.to_str().map_or_else(
+        || format!("<non-UTF-8 path: {}>", p.display()),
+        str::to_string,
+    )
 }
 
 /// Shell-quote `s` for inclusion in the remediation block's
@@ -522,49 +568,23 @@ fn shell_quote(s: &str) -> String {
     out
 }
 
-/// One row in the per-file rollup footer. The display string is
-/// cached at construction time so the sort comparator does not
-/// recompute `path.display().to_string()` on every call (O(n²) on
-/// the path length otherwise).
 struct FooterRow<'a> {
     count: usize,
     worst: &'a Violation,
     display: String,
-    path: &'a PathBuf,
+    path: &'a Path,
 }
 
-/// Group `pairs` by raw `PathBuf` (preserving non-UTF-8 byte
-/// identity), pick the worst-ratio violation per file, and sort the
-/// resulting rows by violation count descending then path ascending.
-fn compute_footer_rows<'a>(pairs: &'a [(Violation, Option<Coverage>)]) -> Vec<FooterRow<'a>> {
-    // Group by raw PathBuf rather than `path.display()` to preserve
-    // non-UTF-8 byte identity. Two paths that differ only in invalid
-    // UTF-8 (`b"foo\xff.rs"` vs `b"foo\xfe.rs"`) would collapse to
-    // the same lossy display string but stay distinct here.
-    // `path.display()` is still used to *render* the footer row so
-    // it matches the per-violation stderr line format above.
-    let mut by_path: BTreeMap<&PathBuf, Vec<&Violation>> = BTreeMap::new();
-    for (v, _) in pairs {
-        by_path.entry(&v.path).or_default().push(v);
-    }
-    let mut rows: Vec<FooterRow<'a>> = by_path
-        .iter()
-        .filter_map(|(path, vs)| {
-            let worst = pick_worst(vs)?;
-            Some(FooterRow {
-                count: vs.len(),
-                worst,
-                display: path.display().to_string(),
-                path,
-            })
+fn compute_footer_rows(pairs: &[(Violation, Option<Coverage>)]) -> Vec<FooterRow<'_>> {
+    Violation::group_pairs_by_path(pairs)
+        .into_iter()
+        .map(|(count, worst, display, path)| FooterRow {
+            count,
+            worst,
+            display,
+            path,
         })
-        .collect();
-    rows.sort_by(|a, b| {
-        b.count
-            .cmp(&a.count)
-            .then_with(|| a.display.cmp(&b.display))
-    });
-    rows
+        .collect()
 }
 
 /// Emit each row in `rows`, propagating the first I/O error. Used
@@ -661,14 +681,6 @@ fn write_footer_row(
         MetricScalar(worst.limit),
         worst.start_line,
     )
-}
-
-/// Pick the worst violation in a slice. Thin wrapper around
-/// [`Violation::pick_worst`] kept for call-site readability —
-/// `pick_worst(vs)` in this module's stderr-footer code path reads
-/// the same as it did before the shared helper landed.
-fn pick_worst<'a>(vs: &[&'a Violation]) -> Option<&'a Violation> {
-    Violation::pick_worst(vs)
 }
 
 /// Parse `std::env::args_os()` and execute the selected `bca`

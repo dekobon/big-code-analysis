@@ -256,6 +256,24 @@ impl Violation {
                 .then_with(|| b.metric.cmp(a.metric))
         })
     }
+
+    pub(crate) fn group_pairs_by_path(
+        pairs: &[(Self, Option<crate::baseline::Coverage>)],
+    ) -> Vec<(usize, &Self, String, &Path)> {
+        let mut by_path: BTreeMap<&Path, Vec<&Self>> = BTreeMap::new();
+        for (v, _) in pairs {
+            by_path.entry(v.path.as_path()).or_default().push(v);
+        }
+        let mut rows: Vec<_> = by_path
+            .iter()
+            .filter_map(|(path, vs)| {
+                let worst = Self::pick_worst(vs)?;
+                Some((vs.len(), worst, path.display().to_string(), *path))
+            })
+            .collect();
+        rows.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.2.cmp(&b.2)));
+        rows
+    }
 }
 
 impl fmt::Display for Violation {
