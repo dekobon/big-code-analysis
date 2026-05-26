@@ -299,13 +299,24 @@ fn apply_changed_only_inner(
         // would otherwise silently drop every violation and exit 0,
         // which is exactly the "silent green-light" failure mode #359
         // was meant to prevent. Surface it explicitly so CI logs make
-        // it obvious the gate ran but had nothing to check.
-        let diag = format!(
-            "bca: --changed-only: diff scope is empty (no files touched between {} and HEAD); \
-             dropping {} violations and exiting clean",
-            scope.base,
-            pairs.len()
-        );
+        // it obvious the gate ran but had nothing to check. Branch on
+        // `pairs.is_empty()` so the wording matches reality: "dropping
+        // 0 violations" would suggest the gate suppressed something
+        // it did not, confusing a developer reading a clean PR log.
+        let diag = if pairs.is_empty() {
+            format!(
+                "bca: --changed-only: diff scope is empty (no files touched between {} and HEAD); \
+                 no violations to check and no files in diff scope",
+                scope.base,
+            )
+        } else {
+            format!(
+                "bca: --changed-only: diff scope is empty (no files touched between {} and HEAD); \
+                 dropping {} violations and exiting clean",
+                scope.base,
+                pairs.len()
+            )
+        };
         return ChangedOnlyOutcome {
             kept: Vec::new(),
             diagnostic: Some(diag),

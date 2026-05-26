@@ -295,34 +295,44 @@ fn compose_step_summary_block(
 /// `new_block`. When the markers are absent (first write, or a
 /// non-`bca`-managed file), append `new_block` to the end. Idempotent
 /// across retries: bca runs N+1 times → file contains exactly one
-/// up-to-date block, not N+1 stacked copies.
+/// up-to-date block, not N+1 stacked copies. Handles the orphan-BEGIN
+/// case (prior run killed mid-write leaving a BEGIN marker without a
+/// matching END) by splicing from BEGIN to EOF rather than appending,
+/// which would accumulate orphan markers across retries.
 fn replace_step_summary_block(existing: &str, new_block: &str) -> String {
-    if let Some(begin) = existing.find(STEP_SUMMARY_BEGIN_MARKER)
-        && let Some(end) = existing[begin..].find(STEP_SUMMARY_END_MARKER)
-    {
-        // `end` is relative to `begin`; absolute end-of-marker
-        // position is `begin + end + len(END_MARKER)`. Splice in the
-        // new block, preserving content outside the markers.
-        let end_abs = begin + end + STEP_SUMMARY_END_MARKER.len();
-        // Drop the trailing newline (if any) immediately after the
-        // end marker so we don't accumulate blank lines on repeated
-        // replacements.
-        let tail_start = if existing.as_bytes().get(end_abs) == Some(&b'\n') {
-            end_abs + 1
-        } else {
-            end_abs
-        };
-        let mut out = String::with_capacity(existing.len() + new_block.len());
-        out.push_str(&existing[..begin]);
+    let Some(begin) = existing.find(STEP_SUMMARY_BEGIN_MARKER) else {
+        // No BEGIN marker → first write or a non-`bca`-managed file.
+        // Append, ensuring a newline separates our block from any
+        // existing content.
+        let mut out = existing.to_string();
+        if !existing.is_empty() && !existing.ends_with('\n') {
+            out.push('\n');
+        }
         out.push_str(new_block);
-        out.push_str(&existing[tail_start..]);
         return out;
-    }
-    let mut out = existing.to_string();
-    if !existing.is_empty() && !existing.ends_with('\n') {
-        out.push('\n');
-    }
+    };
+    // BEGIN is present. Locate the matching END *after* it. If
+    // END is missing (prior bca run killed mid-write, OR a
+    // non-bca consumer corrupted the marker pair) we still need
+    // to converge to a single block; splice from BEGIN to EOF
+    // rather than fall through to the append branch, which would
+    // accumulate orphan BEGINs across retries.
+    let end_abs = match existing[begin..].find(STEP_SUMMARY_END_MARKER) {
+        Some(end) => begin + end + STEP_SUMMARY_END_MARKER.len(),
+        None => existing.len(),
+    };
+    // Drop the trailing newline (if any) immediately after the
+    // end marker so we don't accumulate blank lines on repeated
+    // replacements.
+    let tail_start = if existing.as_bytes().get(end_abs) == Some(&b'\n') {
+        end_abs + 1
+    } else {
+        end_abs
+    };
+    let mut out = String::with_capacity(existing.len() + new_block.len());
+    out.push_str(&existing[..begin]);
     out.push_str(new_block);
+    out.push_str(&existing[tail_start..]);
     out
 }
 
@@ -790,6 +800,43 @@ mod tests {
         assert!(out.ends_with("## More content\ntrailing\n"));
         assert!(out.contains("new\n"));
         assert!(!out.contains("old\n"));
+    }
+
+    #[test]
+    fn replace_step_summary_block_converges_in_one_retry_after_orphan_begin() {
+        // Regression: a prior bca run killed mid-write (SIGTERM, OOM,
+        // runner timeout) can leave the file with a BEGIN marker
+        // followed by partial content but NO END marker. Previously
+        // the function fell through to the append branch in that
+        // case, leaving the orphan BEGIN + partial body alongside
+        // the freshly-appended block — two BEGINs, one END, with
+        // stale content sandwiched between. The "exactly one block
+        // regardless of retry count" invariant was only restored on
+        // the *second* retry (find(BEGIN) returned the orphan, then
+        // find(END) succeeded). Splicing from BEGIN to EOF in the
+        // missing-END case makes a single retry converge.
+        let orphan = "prefix\n<!-- bca-step-summary-begin -->\npartial body\n";
+        let new_block = "<!-- bca-step-summary-begin -->\nnew\n<!-- bca-step-summary-end -->\n";
+        let out = replace_step_summary_block(orphan, new_block);
+        // Exactly one BEGIN, exactly one END, no stale `partial body`.
+        assert_eq!(
+            out.matches(STEP_SUMMARY_BEGIN_MARKER).count(),
+            1,
+            "expected exactly one BEGIN after retry, got:\n{out}"
+        );
+        assert_eq!(
+            out.matches(STEP_SUMMARY_END_MARKER).count(),
+            1,
+            "expected exactly one END after retry, got:\n{out}"
+        );
+        assert!(
+            !out.contains("partial body"),
+            "stale `partial body` from killed run must be discarded, got:\n{out}"
+        );
+        assert!(
+            out.starts_with("prefix\n"),
+            "content outside the bca block must survive, got:\n{out}"
+        );
     }
 
     #[test]

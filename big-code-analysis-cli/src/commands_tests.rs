@@ -248,6 +248,40 @@ fn apply_changed_only_empty_scope_drops_all_violations_with_clean_exit() {
         diag.contains("diff scope is empty") && diag.contains("between main and HEAD"),
         "diagnostic should name the empty scope explicitly, got: {diag}"
     );
+    // The N-violations branch must say "dropping N violations"; the
+    // empty-pairs branch (no violations at all + empty scope) gets a
+    // different wording so a clean PR log doesn't imply suppression.
+    assert!(
+        diag.contains("dropping 1 violations"),
+        "expected 'dropping N violations' wording for non-empty pairs, got: {diag}"
+    );
+}
+
+#[test]
+fn apply_changed_only_empty_scope_with_empty_pairs_uses_friendlier_wording() {
+    // Regression: when `--changed-only` is set, the scope resolves
+    // to empty, AND no upstream violations were produced, the old
+    // wording said "dropping 0 violations and exiting clean" — which
+    // implies the gate suppressed something it did not. A developer
+    // reading a clean PR log expecting silence would find this
+    // confusing. Branch the diagnostic on `pairs.is_empty()` so the
+    // empty-pairs message reads naturally.
+    let scope = DiffScope {
+        base: "main".to_string(),
+        source: DiffSource::Explicit,
+        changed: HashSet::new(),
+    };
+    let outcome = apply_changed_only_inner(Vec::new(), Some(&scope), true);
+    assert!(outcome.kept.is_empty());
+    let diag = outcome.diagnostic.expect("expected diagnostic note");
+    assert!(
+        diag.contains("no violations to check and no files in diff scope"),
+        "expected friendlier wording for empty-pairs + empty-scope, got: {diag}"
+    );
+    assert!(
+        !diag.contains("dropping 0 violations"),
+        "must NOT use 'dropping 0' wording in the empty-pairs branch, got: {diag}"
+    );
 }
 
 #[test]

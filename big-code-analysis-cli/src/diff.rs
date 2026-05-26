@@ -221,13 +221,35 @@ fn collect_changed(base: &str) -> Result<HashSet<PathBuf>, String> {
             continue;
         }
         let joined = repo_root.join(line);
-        // Canonicalize so the matching set sees the same absolute
-        // form `canonicalize_for_match` produces for `Violation::path`
-        // via the process CWD. Files that fail canonicalization
-        // (deleted in the range, broken symlinks) are silently
-        // dropped — they cannot match a surviving violation anyway.
-        if let Ok(canon) = joined.canonicalize() {
-            out.insert(canon);
+        // Match the fallback discipline `canonicalize_for_match`
+        // uses on the lookup side. The successful-canonicalize case
+        // is the common one. For *other* errors (EACCES on a parent,
+        // ELOOP on a symlink cycle), we still insert the joined
+        // absolute form: the lookup side hits the same identity
+        // fallback for paths whose canonicalize fails for the same
+        // reason, so both sides converge instead of silently
+        // disagreeing. Only `NotFound` is dropped — a file deleted
+        // in the diff range has no on-disk counterpart for the
+        // walker to produce a violation against, so the entry is
+        // genuinely unreachable.
+        match joined.canonicalize() {
+            Ok(canon) => {
+                out.insert(canon);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // Deleted in the diff range — no surviving violation
+                // can point at it, so dropping is correct.
+            }
+            Err(_) => {
+                // EACCES / ELOOP / EIO / etc. — the *lookup* side's
+                // `canonicalize_for_match` will fall back to the raw
+                // path too, so inserting the joined form here keeps
+                // the two sides in sync. Without this, a hostile or
+                // transient FS state on a touched file's parent
+                // would silently hide that violation under
+                // `--changed-only`.
+                out.insert(joined);
+            }
         }
     }
     Ok(out)

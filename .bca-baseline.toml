@@ -30,14 +30,14 @@ path = "./big-code-analysis-cli/src/check_format.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1823023.408834296
+value = 1884405.8092925358
 
 [[entry]]
 path = "./big-code-analysis-cli/src/check_format.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 933.0
+value = 980.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/check_format.rs"
@@ -58,7 +58,7 @@ path = "./big-code-analysis-cli/src/check_format.rs"
 function = "<file>"
 start_line = 1
 metric = "nom"
-value = 51.0
+value = 52.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/check_format.rs"
@@ -79,14 +79,14 @@ path = "./big-code-analysis-cli/src/commands.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1872877.332753743
+value = 1884752.4504815936
 
 [[entry]]
 path = "./big-code-analysis-cli/src/commands.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 938.0
+value = 949.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/commands.rs"
@@ -114,14 +114,14 @@ path = "./big-code-analysis-cli/src/diff.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 172857.12462874004
+value = 188643.0142867678
 
 [[entry]]
 path = "./big-code-analysis-cli/src/diff.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 320.0
+value = 342.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/diff.rs"
