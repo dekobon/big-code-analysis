@@ -284,7 +284,18 @@ reader looks at: which file has the most problems, and which metric
 is the loudest in that file. Pass `--no-summary` to suppress the
 footer for downstream tooling that grep-pipes the stderr stream.
 
-#### Diff-aware mode (`--since` / `--changed-only`)
+### Actionable failure output
+
+The four sub-sections below turn `bca check`'s failure output from
+"a wall of offender lines" into a stack of CI-aware presentations:
+which files in this PR tripped a threshold (`--since` /
+`--changed-only`), inline file-diff annotations
+(`--github-annotations`), a rendered step-summary digest
+(`$GITHUB_STEP_SUMMARY`), and a copy-paste-safe remediation block.
+Each is independent; mix and match per CI surface. A combined worked
+example is at the end of this group.
+
+### Diff-aware mode (`--since` / `--changed-only`)
 
 On a PR or push, the developer's first question is usually *which of
 my files in this change* tripped a threshold — not the whole-tree
@@ -348,7 +359,7 @@ diffs **baseline files** between two on-disk paths and reports
 added / removed / worsened / improved entries. `--since` diffs
 **source files** between two git refs.
 
-#### GitHub Actions inline annotations (`--github-annotations`)
+### GitHub Actions inline annotations (`--github-annotations`)
 
 The GHA UI renders `::error file=…,line=…,title=…::msg` workflow
 commands as inline annotations on the file-diff view — much more
@@ -374,7 +385,7 @@ not shown` line so the count stays visible.
 Pair this with `--since` (above) so the annotations point at the
 files in the PR, not the entire offender list.
 
-#### Step-summary markdown digest (`$GITHUB_STEP_SUMMARY`)
+### Step-summary markdown digest (`$GITHUB_STEP_SUMMARY`)
 
 GitHub Actions exposes `$GITHUB_STEP_SUMMARY` — a path to a markdown
 file that, when populated, renders as the step's summary view in the
@@ -403,7 +414,7 @@ Local users can pipe the digest into any markdown file with
 "✓ No threshold violations." block so the step summary positively
 confirms the gate ran.
 
-#### Remediation footer (always on)
+### Remediation footer (always on)
 
 When the gate finds violations, `bca check` emits a trailing
 `--- next steps ---` block on stderr (and inside the step-summary
@@ -441,6 +452,72 @@ byte-identical output, so spurious diffs only appear when offenders
 actually changed. See the [Baselines recipe](baselines.md) for the
 full adoption flow, PR-review heuristics, and the suppression
 composition rules.
+
+### Putting it all together
+
+The four flags above compose. For a PR-gate workflow, the
+recommended invocation is:
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    # `--since origin/<base>` resolves a merge-base. Default
+    # `fetch-depth: 1` makes that ref unreachable; `0` pulls the
+    # full history so the diff resolves.
+    fetch-depth: 0
+
+- name: Threshold gate (diff-aware + GHA UX)
+  run: |
+    bca --paths . --exclude-from .bcaignore check \
+        --config bca-thresholds.toml \
+        --baseline .bca-baseline.toml \
+        --since "origin/${{ github.base_ref }}"
+  # No `--github-annotations` or `--summary-file` flag needed:
+  # both auto-enable from `$GITHUB_ACTIONS == "true"` and
+  # `$GITHUB_STEP_SUMMARY`. The trailing remediation block is also
+  # auto-emitted.
+```
+
+What this gives you on a failing PR:
+
+1. **Per-violation stderr lines** — same shape as the legacy gate,
+   so existing grep tooling keeps working.
+2. **Per-file rollup footer** with `Files in this range:`
+   (touched in the PR) listed before `Other offenders:` — the
+   developer sees their own contributions first.
+3. **Inline GHA annotations** on the file-diff view, capped at 10
+   per metric with an overflow rollup.
+4. **Step-summary panel** with a rendered markdown digest (per-file
+   rollup, per-metric breakdown, top-10 offenders by ratio).
+5. **Trailing remediation block** naming the artifact, printing the
+   exact `--write-baseline` refresh invocation, and linking to the
+   Baselines recipe.
+
+Knobs:
+
+| Flag                        | Effect                                                      | Default                                                          |
+| --------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------------- |
+| `--since <ref>`             | Partition footer; auto-detect from env if omitted           | Off, auto-detect via `BCA_DIFF_BASE` / `GITHUB_BASE_REF` / `GITHUB_EVENT_BEFORE` |
+| `--changed-only`            | Drop violations outside the diff entirely                   | Off                                                              |
+| `--github-annotations`      | Emit `::error file=…::msg` workflow commands                | Off; auto-enabled when `$GITHUB_ACTIONS == "true"`               |
+| `--summary-file <path>`     | Append markdown digest                                      | Off; auto-detected via `$GITHUB_STEP_SUMMARY`                    |
+| `--no-remediation`          | Suppress the trailing `--- next steps ---` block            | Block emitted on failure                                         |
+
+Local users running `bca check` outside GHA see no change in
+default behaviour: none of the four features auto-enable without
+an env signal. To preview the GHA experience locally:
+
+```bash
+GITHUB_ACTIONS=true GITHUB_STEP_SUMMARY=/tmp/bca-summary.md \
+  BCA_DIFF_BASE=main \
+  bca --paths . --exclude-from .bcaignore check \
+      --config bca-thresholds.toml --baseline .bca-baseline.toml
+cat /tmp/bca-summary.md
+```
+
+For a non-GHA CI (GitLab, Buildkite, Jenkins), set the env vars
+your runner exposes (or pass the flags explicitly) and the same
+output paths fire.
 
 #### Offender-count delta against merge base (stopgap)
 

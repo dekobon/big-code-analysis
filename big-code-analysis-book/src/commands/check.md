@@ -204,6 +204,53 @@ bca --paths src/ check \
     --config bca-thresholds.toml --no-fail
 ```
 
+## Actionable failure output
+
+When `bca check` fails, five flags shape the failure stream so a
+developer skimming a CI log can see what tripped, where in their
+PR it tripped, and what to do next. Each flag is independent and
+all auto-detect from GitHub Actions env vars when present, so the
+common CI case needs zero explicit configuration.
+
+| Flag                       | Effect                                                                   | Auto-detect env                                                  |
+| -------------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------- |
+| `--since <ref>`            | Partition per-file footer into "Files in this range" + "Other offenders" | `BCA_DIFF_BASE`, `GITHUB_BASE_REF`, `GITHUB_EVENT_BEFORE`        |
+| `--changed-only`           | Drop violations outside the diff scope entirely                          | Requires a resolvable base (`--since` or one of the above)       |
+| `--github-annotations`     | Emit `::error file=…::msg` workflow commands for inline file annotations | `GITHUB_ACTIONS == "true"`                                       |
+| `--summary-file <path>`    | Append markdown digest (per-file rollup + breakdown + top-10 offenders)  | `GITHUB_STEP_SUMMARY`                                            |
+| `--no-remediation`         | Suppress the trailing `--- next steps ---` block                         | Block emitted on failure unless this flag is passed              |
+
+The per-violation stderr lines and the per-file rollup footer
+remain unchanged when none of the above are active, so existing
+CI tooling that grep-anchors on the legacy output keeps working.
+
+See the [CI integration recipe](../recipes/ci.md#actionable-failure-output)
+for worked examples — including a "putting it all together" GHA
+snippet that composes all five into one step — and the
+[Baselines recipe](../recipes/baselines.md) for the
+`--write-baseline` refresh flow the remediation block links to.
+
+### Diff-base auto-detection precedence
+
+When `--since` is omitted, `bca` consults env vars in this order:
+
+1. `BCA_DIFF_BASE` — explicit override hatch for local shells or
+   non-GHA CI runners.
+2. `GITHUB_BASE_REF` — set by GHA on `pull_request` events.
+   Expanded to `origin/<value>`; the runner is responsible for the
+   corresponding `git fetch` (`fetch-depth: 0` on `actions/checkout`).
+3. `GITHUB_EVENT_BEFORE` — set by GHA on `push` events to the SHA
+   at HEAD before the push. The all-zeroes sentinel (force push,
+   brand-new branch) is treated as no signal.
+
+Failing to resolve a base is non-fatal **unless `--changed-only`
+is passed**, in which case the gate dies — silently suppressing
+every violation under a misconfigured base would be the worst
+failure mode this feature exists to prevent. `--write-baseline`
+also conflicts with `--since` / `--changed-only` (a partial
+baseline would silently mask every offender outside the diff scope
+on the next full-tree run).
+
 ## CI example (GitHub Actions)
 
 ```yaml
