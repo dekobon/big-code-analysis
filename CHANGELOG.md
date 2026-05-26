@@ -169,9 +169,10 @@ for historical reference.
   actionable `::error::MINISIGN_PASSWORD not configured` annotation
   pattern used elsewhere. Fixes
   [#368](https://github.com/dekobon/big-code-analysis/issues/368).
-- ABC metric: doc comment above
-  `src/spaces.rs::compute_per_node` no longer claims the
-  metric-gating bit test is "AND-and-compare on a u16" — the
+- Metric dispatch: doc comment above
+  `src/spaces.rs::compute_per_node` (the per-node `compute` chain
+  that dispatches **every** metric, not just ABC) no longer claims
+  the metric-gating bit test is "AND-and-compare on a u16" — the
   `MetricSet` storage was widened from `u16` to `u32` in #339, and
   the explanatory parenthetical now references the `MetricSet`
   bitfield generically so the rationale survives any future
