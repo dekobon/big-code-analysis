@@ -6,7 +6,8 @@ or to a directory of structured files.
 > **Migrating?** This command replaces the pre-restructure `--metrics`
 > flag. The aggregated report previously selected with `-O markdown`
 > now lives under [`bca report`](report.md), and the CI/IDE offender
-> formats (Checkstyle, SARIF, clang-warning, msvc-warning) moved to
+> formats (Checkstyle, SARIF, code-climate, clang-warning,
+> msvc-warning) moved to
 > [`bca check --output-format <fmt>`](check.md). See the
 > [migration guide](../migration.md).
 
@@ -42,8 +43,9 @@ each one stays consistent with its data model:
 | [`bca report`](report.md)          | Aggregated quality dashboards   | Humans / PRs      |
 | [`bca check`](check.md)            | Threshold-violation reports     | CI / IDE          |
 
-The CI/IDE offender formats (Checkstyle, SARIF, clang-warning,
-msvc-warning) used to live on `bca metrics -O <fmt>`. They moved to
+The CI/IDE offender formats (Checkstyle, SARIF, code-climate,
+clang-warning, msvc-warning) used to live on `bca metrics -O <fmt>`.
+They moved to
 `bca check --output-format <fmt>` in #235 because their input is a
 list of threshold violations, not the per-file metric tree that the
 other formats above carry. See the

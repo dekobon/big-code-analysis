@@ -306,6 +306,56 @@ jobs:
 when offenders exist; remove it once you want a metric regression to
 fail the workflow.
 
+### GitLab Code Quality (Code Climate JSON)
+
+```bash
+bca --paths src/ check \
+    --threshold cyclomatic=15 \
+    --output-format code-climate \
+    --output gl-code-quality-report.json
+```
+
+The Code Climate writer emits a single JSON array of issue objects
+matching [GitLab's strict subset](https://docs.gitlab.com/ci/testing/code_quality/)
+of the upstream Code Climate engine spec — one entry per
+metric-threshold violation, no byte-order-mark, one trailing
+newline (empty input renders as `[]\n`). Each issue carries a
+namespaced `check_name` (`big-code-analysis/<metric>`), a stable
+SHA-256 `fingerprint` over `path \0 function \0 metric` (line- and
+value-insensitive so cosmetic edits still dedup in the MR widget),
+and a `severity` mapped from the value/threshold ratio onto
+GitLab's five-level enum: `≤ 1.5×` → `minor`, `≤ 2×` → `major`,
+`≤ 4×` → `critical`, `> 4×` → `blocker` (inverted for the `mi.*`
+family where lower is worse).
+
+To wire the artifact into GitLab's MR Code Quality widget:
+
+```yaml
+code_quality:
+  stage: quality
+  script:
+    - bca --paths "$CI_PROJECT_DIR" check
+          --config bca-thresholds.toml
+          --output-format code-climate
+          --output gl-code-quality-report.json
+          --no-fail
+  artifacts:
+    when: always
+    reports:
+      codequality: gl-code-quality-report.json
+    paths:
+      - gl-code-quality-report.json
+```
+
+See the
+[GitLab Code Quality widget recipe](../recipes/ci.md#gitlab-code-quality-widget)
+for the full pipeline (combined Code Climate + Checkstyle + Markdown
+report) and a local `jq` smoke check.
+
+`--no-fail` keeps the job green so the Code Quality report still
+uploads when offenders exist; remove it once you want a metric
+regression to fail the pipeline.
+
 ### Clang/GCC warning lines (editor quickfix and CI annotators)
 
 ```bash
