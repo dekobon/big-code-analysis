@@ -1136,9 +1136,20 @@ jobs:
           # — rather than the `./<name>` `find .` produces — keeps the
           # `awk '$2 == f'` filter in the verify job working without a
           # prefix-strip dance. See issue #351.
+          #
+          # `xargs -r` (`--no-run-if-empty`) prevents the GNU-xargs
+          # phantom-hash failure mode: without `-r`, empty input still
+          # invokes `sha256sum` once with no arguments, which reads
+          # stdin and emits the empty-string hash with filename `-`.
+          # The `[ -s SHA256SUMS ]` assert is a defense-in-depth gate
+          # for the same class of silent-failure path. See issue #365.
           find . -maxdepth 1 -type f ! -name 'SHA256SUMS*' -printf '%f\0' \
             | sort -z \
-            | xargs -0 sha256sum > SHA256SUMS
+            | xargs -0 -r sha256sum > SHA256SUMS
+          if [ ! -s SHA256SUMS ]; then
+            echo "::error::SHA256SUMS is empty — no release artefacts were found"
+            exit 1
+          fi
 
       - name: Install minisign
         run: sudo apt-get update && sudo apt-get install -y minisign
