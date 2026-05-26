@@ -407,9 +407,7 @@ fn require_output_is_dir(have_format: bool, output: Option<&Path>, command: &str
         && out.exists()
         && !out.is_dir()
     {
-        die(format_args!(
-            "--output must be a directory for `{command}`"
-        ));
+        die(format_args!("--output must be a directory for `{command}`"));
     }
 }
 
@@ -421,7 +419,11 @@ fn run_command_metrics(
     if matches!(args.output_format, Some(MetricsFormat::Cbor)) && args.output.is_none() {
         die(CBOR_STDOUT_ERROR);
     }
-    require_output_is_dir(args.output_format.is_some(), args.output.as_deref(), "metrics");
+    require_output_is_dir(
+        args.output_format.is_some(),
+        args.output.as_deref(),
+        "metrics",
+    );
     let action = Action::Metrics {
         format: args.output_format,
         pretty: args.pretty,
