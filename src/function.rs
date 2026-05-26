@@ -80,10 +80,6 @@ fn dump_span(
     stdout: &mut StandardStreamLock,
     last: bool,
 ) -> std::io::Result<()> {
-    /*if !span.error {
-        return Ok(());
-    }*/
-
     let pref = if last { "   `- " } else { "   |- " };
 
     color(stdout, Color::Blue)?;
@@ -116,7 +112,7 @@ fn dump_spans(spans: Vec<FunctionSpan>, path: PathBuf) -> std::io::Result<()> {
         let mut stdout = stdout.lock();
 
         intense_color(&mut stdout, Color::Yellow)?;
-        writeln!(&mut stdout, "In file {}", path.to_str().unwrap_or("..."))?;
+        writeln!(&mut stdout, "In file {}", path.display())?;
 
         // Consume `spans` by value: `dump_span` takes `FunctionSpan`
         // by value, so cloning to use `split_last` would allocate
