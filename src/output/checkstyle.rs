@@ -92,14 +92,22 @@ fn write_error<W: Write>(writer: &mut W, record: &OffenderRecord) -> io::Result<
 /// Format adapter that XML-escapes attribute values. We escape the five
 /// XML predefined entities, emit numeric character references for TAB
 /// / LF / CR (which XML 1.0 §3.3.3 attribute-value normalization would
-/// otherwise collapse to a single space), and replace any code point
-/// outside XML 1.0 §2.2's `Char` production (C0 controls minus TAB/LF/CR,
-/// and the U+FFFE / U+FFFF non-characters) with `?` so the output stays
-/// a well-formed XML 1.0 document (lossy but predictable).
+/// otherwise collapse to a single space), and replace with `?` every
+/// code point that is either:
 ///
-/// Note: U+FDD0–U+FDEF are Unicode non-characters but are technically
-/// permitted by XML 1.0's `Char` production, so we pass them through —
-/// strict consumers that reject them are out of spec.
+/// - Forbidden by XML 1.0 §2.2's `Char` production: C0 controls minus
+///   TAB/LF/CR, and the BMP non-characters `U+FFFE` / `U+FFFF`.
+/// - A supplementary-plane non-character (`U+nFFFE` / `U+nFFFF` for
+///   plane `n` in `1..=16`). These are technically permitted by XML
+///   1.0's `Char` production, but strict consumers (libxml2 in
+///   non-character-reject mode, Jenkins, SonarQube) treat them as
+///   fatal. Substituting them aligns the output with the strict
+///   consumer class without changing well-formedness for lenient
+///   parsers.
+///
+/// Note: `U+FDD0`–`U+FDEF` are Unicode non-characters but are
+/// permitted by XML 1.0's `Char` production and accepted by libxml2's
+/// strict mode, so we pass them through.
 struct XmlAttr<'a>(&'a str);
 
 impl std::fmt::Display for XmlAttr<'_> {
@@ -128,13 +136,17 @@ impl std::fmt::Display for XmlAttr<'_> {
                 '\n' => "&#xA;",
                 '\r' => "&#xD;",
                 // XML 1.0 §2.2's `Char` production forbids the remaining
-                // C0 controls (U+0000–U+001F minus TAB/LF/CR handled
-                // above) and the U+FFFE / U+FFFF non-characters even
-                // inside CDATA. quick-xml is lenient on reparse, but
-                // libxml2-based consumers (Jenkins, SonarQube) treat
-                // them as fatal. Substitute `?` to keep the document
-                // well-formed.
-                c if (c as u32) < 0x20 || matches!(c, '\u{FFFE}' | '\u{FFFF}') => "?",
+                // C0 controls (U+0000–U+001F minus TAB/LF/CR). We also
+                // substitute every plane-end non-character (`U+nFFFE` /
+                // `U+nFFFF` for plane `n` in `0..=16`) — the BMP pair
+                // is `Char`-illegal, the 32 supplementary-plane
+                // counterparts are permitted by the spec but rejected
+                // by strict libxml2-based consumers (Jenkins,
+                // SonarQube). The bitmask `(cp & 0xFFFF) >= 0xFFFE`
+                // catches all 34 plane-end non-characters in one test
+                // without touching `U+FDD0`–`U+FDEF` (which the spec
+                // and libxml2 both accept).
+                c if (c as u32) < 0x20 || ((c as u32) & 0xFFFF) >= 0xFFFE => "?",
                 c => c.encode_utf8(&mut buf),
             };
             f.write_str(escaped)?;
@@ -365,33 +377,37 @@ mod tests {
         use quick_xml::reader::Reader;
 
         // XML 1.0 §2.2's Char production excludes U+FFFE and U+FFFF.
-        // libxml2-based consumers (Jenkins, SonarQube) reject documents
-        // containing them as fatal errors even though quick-xml is
-        // lenient on reparse. Both must be substituted with `?`, and the
-        // resulting document must round-trip through a strict-ish
-        // re-parse without yielding the original non-characters.
+        // Strict libxml2-based consumers (Jenkins, SonarQube) reject
+        // them and every supplementary-plane non-character (U+nFFFE /
+        // U+nFFFF for plane n in 1..=16) as fatal errors. All 32
+        // plane-end non-characters must be substituted with `?`, and
+        // the resulting document must re-parse cleanly.
+        //
+        // The chosen inputs span both halves of the bitmask
+        // `(cp & 0xFFFF) >= 0xFFFE`:
+        //   path:   U+FFFE U+FFFF       (BMP)
+        //   metric: U+1FFFE U+10FFFF    (supplementary)
         let r = OffenderRecord {
             path: PathBuf::from("src/bad\u{FFFE}\u{FFFF}path.rs"),
             function: None,
             start_line: 1,
             end_line: 1,
             start_col: None,
-            metric: "weird\u{FFFE}\u{FFFF}metric".into(),
+            metric: "weird\u{1FFFE}\u{10FFFF}metric".into(),
             value: 1.0,
             limit: 0.0,
             severity: Severity::Warning,
         };
         let out = render(&[r]);
 
-        // Emitter side: neither non-character may appear literally.
-        assert!(
-            !out.contains('\u{FFFE}'),
-            "U+FFFE leaked into output: {out:?}"
-        );
-        assert!(
-            !out.contains('\u{FFFF}'),
-            "U+FFFF leaked into output: {out:?}"
-        );
+        // Emitter side: no non-character may appear literally.
+        for nc in ['\u{FFFE}', '\u{FFFF}', '\u{1FFFE}', '\u{10FFFF}'] {
+            assert!(
+                !out.contains(nc),
+                "non-character {:04X} leaked into output: {out:?}",
+                nc as u32,
+            );
+        }
         // The substitute character must appear in both attribute values
         // (two `?` per offending string).
         assert!(out.contains("src/bad??path.rs"), "{out}");
