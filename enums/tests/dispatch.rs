@@ -12,8 +12,13 @@
 //! Per-variant tests are deliberately verbose (one `#[test]` per
 //! variant) so the test name names the language and a reviewer can
 //! scan the file to verify each grammar binding. The final
-//! `coverage_*` tests use `Lang::into_enum_iter` to guarantee that
-//! every variant defined by `mk_langs!` was tested by name above.
+//! `coverage_*` test asserts only that `Lang::into_enum_iter().count()`
+//! matches `EXPECTED_LANG_VARIANT_COUNT` — a coarse drift guard that
+//! catches "variant added without bumping the constant" or vice
+//! versa, but not "variant renamed and the per-variant test was not
+//! renamed along with it." The exhaustive `match` in
+//! `mk_get_language!` (compile error on missing arm) is the
+//! stronger guard against the latter.
 
 use enums::{Lang, get_language, get_language_name};
 use tree_sitter::Language;

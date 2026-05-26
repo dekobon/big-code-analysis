@@ -89,7 +89,7 @@ help:
 	@echo "  actionlint                           Lint GitHub Actions workflows with actionlint"
 	@echo "  snapshot-anchors                     Block new bare insta snapshots"
 	@echo "  check-versions                       Enforce lockstep version invariant across owned crates"
-	@echo "  enums-check                          cargo clippy on workspace-excluded enums crate"
+	@echo "  enums-check                          cargo clippy + cargo test on workspace-excluded enums crate"
 	@echo "  lint                                 Run all linters"
 	@echo ""
 	@echo "Python bindings (big-code-analysis-py):"
@@ -260,11 +260,24 @@ check-versions:
 # lint floor as the workspace `clippy` job: rustc-level warnings plus the
 # clippy default group. The three `manual_is_ascii_check` sites that
 # previously blocked this (tracked as #166) have been fixed.
+#
+# Also runs `cargo test` on the same manifest because the workspace
+# `test` job (`cargo test --workspace`) skips this crate by exclusion,
+# leaving `enums/tests/dispatch.rs` and any other integration tests
+# unexecuted in CI / pre-commit. The dispatch test pins each `Lang`
+# variant to its expected backing grammar crate (issue #350); without
+# this runtime gate, an arm in `mk_get_language!` pointing at the wrong
+# grammar would compile cleanly and only fail when a developer
+# manually invoked `cargo test` against the enums manifest.
 enums-check:
 	@echo "Linting workspace-excluded enums crate..."
 	@RUSTFLAGS="-D warnings" cargo clippy \
 	  --manifest-path $(BASE_DIR)enums/Cargo.toml \
 	  --all-targets --locked -- -D warnings
+	@echo "Running tests for workspace-excluded enums crate..."
+	@cargo test \
+	  --manifest-path $(BASE_DIR)enums/Cargo.toml \
+	  --locked
 
 # ---------------------------------------------------------------------------
 # Python tooling (big-code-analysis-py)
