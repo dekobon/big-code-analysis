@@ -165,7 +165,12 @@ jobs:
             tree-sitter-ccomment/Cargo.toml)
           INDEX="https://index.crates.io/bc/a-/bca-tree-sitter-ccomment"
           BODY=$(curl -sfL "${INDEX}" 2>/dev/null || true)
-          if [ -n "${BODY}" ] && echo "${BODY}" | grep -q "\"vers\":\"${LEAF_VERSION}\""; then
+          # Substring-match via bash glob: no pipe (no SIGPIPE under
+          # pipefail) and no regex semantics (dots in the version
+          # string never match arbitrary chars). See leaf-publish step
+          # for the analogous pattern.
+          NEEDLE="\"vers\":\"${LEAF_VERSION}\""
+          if [[ "${BODY}" == *"${NEEDLE}"* ]]; then
             cargo publish -p big-code-analysis --dry-run --locked
           else
             echo "::notice::Skipping big-code-analysis dry-run: bca-tree-sitter-ccomment ${LEAF_VERSION} not yet on crates.io (bootstrap state). The publish-crates job will upload leaves first."
@@ -1079,14 +1084,32 @@ jobs:
           # SHA256SUMS (it isn't attached as a release asset, so
           # verifiers running `sha256sum -c SHA256SUMS` would fail on
           # a missing file).
+          # The `incoming/` precondition and post-loop `copied`
+          # assertion are required because process substitution
+          # (`< <(find …)`) does not propagate the producer's exit
+          # status to the parent shell, and `pipefail` does not cover
+          # input redirection — a missing incoming/ or zero matches
+          # would otherwise silently produce an empty release/ that
+          # the downstream SHA256SUMS/sign/publish steps would happily
+          # process.
+          if [ ! -d incoming ]; then
+            echo "::error::flatten: incoming/ directory not found — upstream artifact downloads must have failed"
+            exit 1
+          fi
+          copied=0
           while IFS= read -r -d '' f; do
             base="$(basename "$f")"
             if [ -e "release/$base" ]; then
-              echo "::error::flatten collision: $f overlaps release/$base" >&2
+              echo "::error::flatten collision: $f overlaps release/$base"
               exit 1
             fi
             cp "$f" "release/$base"
+            copied=$((copied + 1))
           done < <(find incoming -type f ! -name 'release-notes.md' -print0)
+          if [ "$copied" -eq 0 ]; then
+            echo "::error::flatten: 0 artefacts copied from incoming/ — upstream matrix produced no matching files"
+            exit 1
+          fi
           ls -la release/
 
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable tip
@@ -1387,11 +1410,15 @@ jobs:
               '/^\[package\]/{f=1; next} /^\[/{f=0} f && /^version *=/ {print $2; exit}' \
               "${d}/Cargo.toml")
             INDEX="https://index.crates.io/bc/a-/${NAME}"
-            # Capture-then-match (rather than `curl | grep -q`): under
-            # pipefail, an early `grep -q` exit can SIGPIPE curl and
-            # flip the `if` to the wrong branch on a published version.
+            # Substring-match via bash glob rather than `curl … | grep
+            # -q` or `printf '%s' "$BODY" | grep -q`: both pipelines
+            # SIGPIPE the producer when grep -q matches early, which
+            # under pipefail flips the `if` to the wrong branch. Glob
+            # matching also avoids regex semantics — dots in semver
+            # never accidentally match arbitrary chars.
             BODY=$(curl -sfL "${INDEX}" 2>/dev/null || true)
-            if [ -n "${BODY}" ] && printf '%s' "${BODY}" | grep -q "\"vers\":\"${LEAF_VERSION}\""; then
+            NEEDLE="\"vers\":\"${LEAF_VERSION}\""
+            if [[ "${BODY}" == *"${NEEDLE}"* ]]; then
               echo "${NAME} ${LEAF_VERSION} already on crates.io — skipping"
             else
               cargo publish --locked --manifest-path "${d}/Cargo.toml"
@@ -1408,9 +1435,10 @@ jobs:
           # than the HTML API, which has rate-limited and UA-gated our
           # runner in the past. Each line is one published version.
           INDEX="https://index.crates.io/bi/g-/big-code-analysis"
-          # Capture-then-match: see leaf-publish step for rationale.
+          # Bash-glob substring match: see leaf-publish step for rationale.
           BODY=$(curl -sfL "$INDEX" 2>/dev/null || true)
-          if [ -n "${BODY}" ] && printf '%s' "${BODY}" | grep -q "\"vers\":\"${VERSION}\""; then
+          NEEDLE="\"vers\":\"${VERSION}\""
+          if [[ "${BODY}" == *"${NEEDLE}"* ]]; then
             echo "big-code-analysis ${VERSION} already on crates.io — skipping"
           else
             cargo publish -p big-code-analysis --locked
@@ -1423,9 +1451,10 @@ jobs:
         run: |
           set -euo pipefail
           INDEX="https://index.crates.io/bi/g-/big-code-analysis-cli"
-          # Capture-then-match: see leaf-publish step for rationale.
+          # Bash-glob substring match: see leaf-publish step for rationale.
           BODY=$(curl -sfL "$INDEX" 2>/dev/null || true)
-          if [ -n "${BODY}" ] && printf '%s' "${BODY}" | grep -q "\"vers\":\"${VERSION}\""; then
+          NEEDLE="\"vers\":\"${VERSION}\""
+          if [[ "${BODY}" == *"${NEEDLE}"* ]]; then
             echo "big-code-analysis-cli ${VERSION} already on crates.io — skipping"
           else
             cargo publish -p big-code-analysis-cli --locked
@@ -1438,9 +1467,10 @@ jobs:
         run: |
           set -euo pipefail
           INDEX="https://index.crates.io/bi/g-/big-code-analysis-web"
-          # Capture-then-match: see leaf-publish step for rationale.
+          # Bash-glob substring match: see leaf-publish step for rationale.
           BODY=$(curl -sfL "$INDEX" 2>/dev/null || true)
-          if [ -n "${BODY}" ] && printf '%s' "${BODY}" | grep -q "\"vers\":\"${VERSION}\""; then
+          NEEDLE="\"vers\":\"${VERSION}\""
+          if [[ "${BODY}" == *"${NEEDLE}"* ]]; then
             echo "big-code-analysis-web ${VERSION} already on crates.io — skipping"
           else
             cargo publish -p big-code-analysis-web --locked

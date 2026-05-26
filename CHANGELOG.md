@@ -97,8 +97,20 @@ for historical reference.
   `gh release download` came back empty for the missing triple).
   The step now reads `find … -print0` into a NUL-delimited while
   loop, checks for an existing target, and emits
-  `::error::flatten collision: …` before `exit 1`. Fixes
+  `::error::flatten collision: …` before `exit 1`. The step also
+  asserts that `incoming/` exists and that at least one artefact was
+  copied — process substitution does not propagate find's exit
+  status and `pipefail` does not cover `< <(…)` redirection, so
+  without explicit guards an upstream artifact-download regression
+  would silently produce an empty release/. Fixes
   [#364](https://github.com/dekobon/big-code-analysis/issues/364).
+- `release.yml` crates.io publish skip-checks (preflight dry-run plus
+  the four publish steps) now substring-match the sparse-index body
+  via bash `[[ "$BODY" == *"$NEEDLE"* ]]` instead of `printf '%s'
+  "$BODY" | grep -q` / `echo "$BODY" | grep -q`. Glob matching has no
+  pipe (so no SIGPIPE risk under pipefail when grep -q exits early on
+  a large body) and no regex semantics (dots in semver versions never
+  match arbitrary characters). Code-review follow-up to #363.
 
 ## [1.1.0] - 2026-05-25
 
