@@ -123,6 +123,60 @@ for historical reference.
   pipe (so no SIGPIPE risk under pipefail when grep -q exits early on
   a large body) and no regex semantics (dots in semver versions never
   match arbitrary characters). Code-review follow-up to #363.
+- ABC metric: the tree-sitter-c-sharp condition walker now targets
+  the correct child index — child(2) for `if` / `while` and child(4)
+  for `do-while`, where the actual condition expression lives. The
+  pre-fix dispatch pointed at child(1) / child(3), which are the
+  literal `(` / `while` token children, so every bare-identifier or
+  `!`-prefixed unary C# condition silently scored zero. Comparison
+  operators continued to be counted via the GT / LT / EQEQ token
+  arms (which is why no existing test caught the bug). A new
+  `csharp_count_condition` helper mirrors the existing
+  `groovy_count_condition` shape and is now reused by
+  `csharp_walk_conditional` to keep the ternary classifier in sync.
+  Integration snapshots for C# files containing bare-identifier,
+  unary, or method-call conditions (`anonymous.cs`, `generics.cs`,
+  `strings.cs`) shift upward to reflect the corrected counts. Fixes
+  [#370](https://github.com/dekobon/big-code-analysis/issues/370).
+- `release.yml` `Compute SHA256SUMS` step now passes `-r`
+  (`--no-run-if-empty`) to `xargs` so empty input produces an empty
+  `SHA256SUMS` instead of GNU xargs's phantom empty-string hash
+  under filename `-`. A defense-in-depth `[ -s SHA256SUMS ]` assert
+  fails the step loudly with an `::error::` annotation when the
+  find pipeline produced no artefacts. Fixes
+  [#365](https://github.com/dekobon/big-code-analysis/issues/365).
+- `release.yml` `Compute tap/bucket SHA-256s` step now assigns each
+  `get` / `getzip` result to a local variable before emitting it to
+  `$GITHUB_OUTPUT`. `echo "X=$(get …)"` previously swallowed
+  command-substitution failures under `set -e` because `echo`'s
+  exit status (always 0) was the controlling one — a missing
+  tarball would silently render `X=` and publish empty SHA-256
+  placeholders into the Homebrew formula / Scoop manifest. Fixes
+  [#366](https://github.com/dekobon/big-code-analysis/issues/366).
+- `release.yml` `Generate CycloneDX SBOMs` step now uses a
+  `cp_no_clobber` helper that asserts `! [ -e "$dst" ]` before
+  copying. The three SBOM `cp` invocations had no collision guard,
+  so a future build artefact or SBOM rename sharing a basename
+  would have silently overwritten a flattened release file —
+  exactly the failure mode the flatten guard from #364 was added to
+  prevent. Fixes
+  [#367](https://github.com/dekobon/big-code-analysis/issues/367).
+- `release.yml` `Sign SHA256SUMS with minisign` step now applies a
+  symmetric `[[ -z "${MINISIGN_PASSWORD:-}" ]]` guard mirroring the
+  existing `MINISIGN_SECRET` check. An unset password previously
+  reached `printf | minisign` and surfaced as a cryptic
+  `Wrong password for that key` from minisign rather than the
+  actionable `::error::MINISIGN_PASSWORD not configured` annotation
+  pattern used elsewhere. Fixes
+  [#368](https://github.com/dekobon/big-code-analysis/issues/368).
+- ABC metric: doc comment above
+  `src/spaces.rs::compute_per_node` no longer claims the
+  metric-gating bit test is "AND-and-compare on a u16" — the
+  `MetricSet` storage was widened from `u16` to `u32` in #339, and
+  the explanatory parenthetical now references the `MetricSet`
+  bitfield generically so the rationale survives any future
+  widening. Fixes
+  [#348](https://github.com/dekobon/big-code-analysis/issues/348).
 
 ## [1.1.0] - 2026-05-25
 
