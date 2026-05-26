@@ -440,15 +440,18 @@ fn csharp_inspect_container(container_node: &Node, conditions: &mut f64) {
         node_kind = node.kind_id().into();
 
         // Found the innermost operand; count it if a boolean context
-        // was established up the chain.
+        // was established up the chain. The grammar wraps a bare
+        // `true` / `false` literal in a `boolean_literal` node
+        // (`BooleanLiteral`); the leaf `True` / `False` keyword
+        // tokens appear underneath that wrapper, so match the
+        // wrapper here. See issue #371.
         if matches!(
             node_kind,
             crate::Csharp::InvocationExpression
                 | crate::Csharp::InvocationExpression2
                 | crate::Csharp::InvocationExpression3
                 | Identifier
-                | True
-                | False
+                | BooleanLiteral
         ) {
             if has_boolean_content {
                 *conditions += 1.;
@@ -469,14 +472,17 @@ fn csharp_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             let node = cursor.node();
             let node_kind = node.kind_id().into();
 
+            // `BooleanLiteral` is the named wrapper the grammar
+            // emits for bare `true` / `false`; the leaf keyword
+            // tokens (`True` / `False`) appear underneath it, so
+            // match the wrapper here. See issue #371.
             if matches!(
                 node_kind,
                 crate::Csharp::InvocationExpression
                     | crate::Csharp::InvocationExpression2
                     | crate::Csharp::InvocationExpression3
                     | Identifier
-                    | True
-                    | False
+                    | BooleanLiteral
             ) && matches!(list_kind, BinaryExpression)
             {
                 *conditions += 1.;
@@ -2213,7 +2219,13 @@ fn csharp_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
 fn csharp_count_condition(condition: &Node, conditions: &mut f64) {
     use Csharp::*;
     let kind = condition.kind_id().into();
-    if matches!(kind, csharp_invocation_expr_kinds!()) || matches!(kind, Identifier | True | False)
+    // `BooleanLiteral` is the named wrapper the grammar emits for a
+    // bare `true` / `false` condition (mirrors the existing arm in
+    // `csharp_walk_for_statement`). The leaf `True` / `False`
+    // keyword tokens appear *underneath* that wrapper, never as the
+    // direct condition. See issue #371.
+    if matches!(kind, csharp_invocation_expr_kinds!())
+        || matches!(kind, Identifier | BooleanLiteral)
     {
         *conditions += 1.;
     } else if matches!(kind, csharp_paren_expr_kinds!())
@@ -3634,6 +3646,42 @@ mod tests {
                 assert_eq!(metric.abc.conditions_sum(), 1.0);
                 assert_eq!(metric.abc.branches_sum(), 2.0);
                 assert_eq!(metric.abc.assignments_sum(), 0.0);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_if_while_boolean_literal_condition() {
+        // Regression for #371: the tree-sitter-c-sharp grammar wraps a
+        // bare `true` / `false` literal used as the condition of
+        // `if` / `while` / `do` / `?:` in a `boolean_literal` node,
+        // not the leaf `true` / `false` tokens. `csharp_count_condition`
+        // and `csharp_inspect_container` must therefore match
+        // `BooleanLiteral` (the wrapper), mirroring the existing
+        // `csharp_walk_for_statement` arm. Without that, every
+        // literal-condition statement scored 0 conditions.
+        check_metrics::<CsharpParser>(
+            "class A {
+                void M() {
+                    if (true) { System.Console.WriteLine(\"a\"); }
+                    if (false) { System.Console.WriteLine(\"b\"); }
+                    while (true) { break; }
+                    do { break; } while (false);
+                    int t = true ? 1 : 0;
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                // Five literal-condition statements contribute 5
+                // `BooleanLiteral` conditions (one per if/if/while/
+                // do-while/ternary), plus the ternary's `?` token
+                // adds one more via `csharp_count_token_condition`
+                // → 6 total. The two `System.Console.WriteLine`
+                // calls contribute 2 branches; the `int t = …`
+                // initializer contributes 1 assignment.
+                assert_eq!(metric.abc.conditions_sum(), 6.0);
+                assert_eq!(metric.abc.branches_sum(), 2.0);
+                assert_eq!(metric.abc.assignments_sum(), 1.0);
             },
         );
     }

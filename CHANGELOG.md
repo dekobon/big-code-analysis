@@ -133,6 +133,20 @@ for historical reference.
   pipe (so no SIGPIPE risk under pipefail when grep -q exits early on
   a large body) and no regex semantics (dots in semver versions never
   match arbitrary characters). Code-review follow-up to #363.
+- ABC metric: the tree-sitter-c-sharp condition classifier in
+  `csharp_count_condition`, `csharp_inspect_container`, and
+  `csharp_count_unary_conditions` now matches the `BooleanLiteral`
+  wrapper node instead of the leaf `True` / `False` keyword tokens.
+  The grammar wraps a bare `true` / `false` used as the condition of
+  `if` / `while` / `do-while` / `?:` in a `boolean_literal` named
+  node; the leaf tokens never appear at that position, so every
+  literal-condition statement (`if (true)`, `while (false)`, `!true`,
+  `!false`, etc.) silently scored zero conditions. The for-loop
+  helper `csharp_walk_for_statement` was already correct, which
+  isolated the asymmetry to the if / while / do / ternary / unary
+  paths. Integration snapshots for `anonymous.cs`, `generics.cs`,
+  and `strings.cs` shift upward to reflect the corrected counts.
+  Fixes [#371](https://github.com/dekobon/big-code-analysis/issues/371).
 - ABC metric: the tree-sitter-c-sharp condition walker now targets
   the correct child index — child(2) for `if` / `while` and child(4)
   for `do-while`, where the actual condition expression lives. The
