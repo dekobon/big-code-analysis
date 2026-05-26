@@ -9,7 +9,7 @@
 //! All other CLI plumbing — argument types, the parallel walker, the
 //! legacy-hint scaffolding — lives in `lib.rs` / sibling submodules.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process;
@@ -23,6 +23,7 @@ use big_code_analysis::{fix_includes, write_file};
 
 use crate::baseline::{self, Coverage};
 use crate::check_format::violation_to_offender;
+use crate::diff;
 use crate::format_util::MetricScalar;
 use crate::formats::{CBOR_STDOUT_ERROR, MetricsDispatch, MetricsFormat, ReportFormat};
 use crate::html_report::generate_html_report;
@@ -35,13 +36,15 @@ use crate::{
     load_preproc_data, load_threshold_config, run_walk, write_atomic, write_stdout_or_die,
 };
 
-/// Drive the `check` subcommand as a five-stage pipeline:
-/// validate args + build thresholds → walk + sort → maybe write a
-/// baseline → filter against a loaded baseline → emit results and
-/// exit. Each stage is its own helper so the control flow reads
-/// top-down without nested decisions about which arm fires when.
+/// Drive the `check` subcommand as a six-stage pipeline:
+/// validate args + build thresholds → resolve diff scope (if any) →
+/// walk + sort → maybe write a baseline → filter against a loaded
+/// baseline → emit results and exit. Each stage is its own helper
+/// so the control flow reads top-down without nested decisions about
+/// which arm fires when.
 fn run_check(globals: GlobalOpts, args: CheckArgs, preproc: Option<Arc<PreprocResults>>) {
     let set = validate_and_build_thresholds(&args);
+    let scope = resolve_diff_scope(&args);
     let (violations, files_dispatched) = run_check_walk(globals, &args, preproc, set);
 
     if files_dispatched.load(Ordering::Relaxed) == 0 {
@@ -58,7 +61,8 @@ fn run_check(globals: GlobalOpts, args: CheckArgs, preproc: Option<Arc<PreprocRe
     }
 
     let pairs = filter_by_baseline(violations, args.baseline.as_deref());
-    let any_violations = emit_check_results(pairs, &args);
+    let pairs = apply_changed_only(pairs, scope.as_ref(), args.changed_only);
+    let any_violations = emit_check_results(pairs, &args, scope.as_ref());
 
     if any_violations && !args.no_fail {
         process::exit(2);
@@ -185,11 +189,121 @@ fn filter_by_baseline(
     kept
 }
 
+/// Resolve the diff scope for `--since` / `--changed-only` /
+/// auto-detected env vars. Behaviour:
+///
+/// - No flag, no env signal → `None`. The footer prints today's
+///   single-section listing; `--changed-only` is rejected at the
+///   top of the helper because it requires a scope.
+/// - Resolved scope (`ResolveOutcome::Ok`) → `Some(scope)`, surfaced
+///   in the footer banner and used to bucket touched-in-range rows.
+/// - Resolver hit an error (`ResolveOutcome::Failed`) → fatal when
+///   `--changed-only` is passed (otherwise the gate would silently
+///   suppress nothing), warning-only otherwise (the developer still
+///   sees the offender list, just without the touched-in-range
+///   partition).
+fn resolve_diff_scope(args: &CheckArgs) -> Option<diff::DiffScope> {
+    let outcome = diff::resolve_scope(args.since.as_deref());
+    match outcome {
+        diff::ResolveOutcome::Ok(scope) => Some(scope),
+        diff::ResolveOutcome::Disabled => {
+            if args.changed_only {
+                die("--changed-only requires --since <ref> or one of \
+                     BCA_DIFF_BASE / GITHUB_BASE_REF / GITHUB_EVENT_BEFORE \
+                     in the environment");
+            }
+            None
+        }
+        diff::ResolveOutcome::Failed { reason, source } => {
+            if args.changed_only {
+                die(format_args!(
+                    "--changed-only: failed to resolve diff base via {}: {reason}",
+                    source.label(),
+                ));
+            }
+            eprintln!(
+                "bca: --since/auto-detect via {} failed ({reason}); proceeding without diff scope",
+                source.label(),
+            );
+            None
+        }
+    }
+}
+
+fn apply_changed_only(
+    pairs: Vec<(Violation, Option<Coverage>)>,
+    scope: Option<&diff::DiffScope>,
+    changed_only: bool,
+) -> Vec<(Violation, Option<Coverage>)> {
+    if !changed_only {
+        return pairs;
+    }
+    let Some(scope) = scope else {
+        // `resolve_diff_scope` fatal-errors when `--changed-only` is
+        // set without a resolvable scope, so this branch is
+        // unreachable from the production `run_check` pipeline. It
+        // exists for tests and to defend against a future refactor
+        // that bypasses that gate — degrade to a no-op rather than
+        // silently emit the empty set (which would green-light the
+        // gate on a misconfigured CI), but log so the operator
+        // notices.
+        eprintln!(
+            "bca: --changed-only requested but no diff scope is available; \
+             skipping filter (would-be programmer error — \
+             resolve_diff_scope should have fatal-errored)"
+        );
+        return pairs;
+    };
+    if scope.changed.is_empty() {
+        // A resolved-but-empty scope (e.g. running `--since main` from
+        // a branch that has been merged/squashed into main locally, or
+        // a force-pushed branch where the diff base now equals HEAD)
+        // would otherwise silently drop every violation and exit 0,
+        // which is exactly the "silent green-light" failure mode #359
+        // was meant to prevent. Surface it explicitly so CI logs make
+        // it obvious the gate ran but had nothing to check.
+        eprintln!(
+            "bca: --changed-only: diff scope is empty (no files touched between {} and HEAD); \
+             dropping {} violations and exiting clean",
+            scope.base,
+            pairs.len()
+        );
+        return Vec::new();
+    }
+    // Canonicalize once per unique raw path rather than once per
+    // violation. Real-world inputs cluster heavily per file
+    // (a 50-violation run typically touches 5-10 files), so memoizing
+    // the `Path::canonicalize` syscall here turns O(violations)
+    // realpath(2) calls into O(unique files).
+    let mut in_scope: HashMap<PathBuf, bool> = HashMap::new();
+    let before = pairs.len();
+    let kept: Vec<_> = pairs
+        .into_iter()
+        .filter(|(v, _)| {
+            *in_scope
+                .entry(v.path.clone())
+                .or_insert_with(|| scope.contains(&v.path))
+        })
+        .collect();
+    let dropped = before - kept.len();
+    if dropped > 0 {
+        eprintln!("bca: --changed-only dropped {dropped} violations from files outside diff scope");
+    }
+    kept
+}
+
 /// Render the (optionally tagged) violations to stderr and, if
 /// `--output-format` is set, also emit the aggregated CI/IDE
-/// document. Returns `true` iff any violations were emitted, so the
-/// caller can decide the exit code without re-checking the pairs.
-fn emit_check_results(pairs: Vec<(Violation, Option<Coverage>)>, args: &CheckArgs) -> bool {
+/// document. `scope` is threaded into the summary footer so the
+/// per-file rollup can split "touched in this range" rows from the
+/// legacy offender list. Returns `true` iff any violations were
+/// emitted, so the caller can decide the exit code without
+/// re-checking the pairs.
+fn emit_check_results(
+    pairs: Vec<(Violation, Option<Coverage>)>,
+    args: &CheckArgs,
+    scope: Option<&diff::DiffScope>,
+) -> bool {
     // BrokenPipe on stderr (e.g. when piped to `head`) is the only
     // realistic write failure here; swallow it rather than die so the
     // exit-code contract is honored.
@@ -198,7 +312,7 @@ fn emit_check_results(pairs: Vec<(Violation, Option<Coverage>)>, args: &CheckArg
         let _ = writeln!(stderr, "{}", render_violation_line(v, tag.as_ref()));
     }
     if !args.no_summary && !pairs.is_empty() {
-        let _ = write_summary_footer(&mut stderr, &pairs);
+        let _ = write_summary_footer(&mut stderr, &pairs, scope);
     }
     drop(stderr);
 
@@ -218,66 +332,145 @@ fn emit_check_results(pairs: Vec<(Violation, Option<Coverage>)>, args: &CheckArg
     any_violations
 }
 
-/// Emit the per-file rollup footer to `stderr` after the per-violation
-/// lines. Groups violations by path, cites the single worst-ratio
-/// metric per file (`value / limit`), and sorts rows by violation count
-/// descending then path ascending.
-///
-/// The caller is responsible for skipping the call when `pairs` is
-/// empty or `--no-summary` is set; this function unconditionally writes
-/// the banner + at least one row when invoked.
-///
-/// `BrokenPipe` and similar transient write failures are propagated to
-/// the caller, which swallows them — the exit-code contract above is
-/// the source of truth for whether the gate passed.
-fn write_summary_footer(
-    w: &mut impl Write,
-    pairs: &[(Violation, Option<Coverage>)],
-) -> std::io::Result<()> {
+/// One row in the per-file rollup footer. The display string is
+/// cached at construction time so the sort comparator does not
+/// recompute `path.display().to_string()` on every call (O(n²) on
+/// the path length otherwise).
+struct FooterRow<'a> {
+    count: usize,
+    worst: &'a Violation,
+    display: String,
+    path: &'a PathBuf,
+}
+
+/// Group `pairs` by raw `PathBuf` (preserving non-UTF-8 byte
+/// identity), pick the worst-ratio violation per file, and sort the
+/// resulting rows by violation count descending then path ascending.
+fn compute_footer_rows<'a>(pairs: &'a [(Violation, Option<Coverage>)]) -> Vec<FooterRow<'a>> {
     // Group by raw PathBuf rather than `path.display()` to preserve
     // non-UTF-8 byte identity. Two paths that differ only in invalid
-    // UTF-8 (`b"foo\xff.rs"` vs `b"foo\xfe.rs"`) would collapse to the
-    // same lossy display string but stay distinct here. `path.display()`
-    // is still used to *render* the rendered footer row so it matches
-    // the per-violation stderr line format above.
+    // UTF-8 (`b"foo\xff.rs"` vs `b"foo\xfe.rs"`) would collapse to
+    // the same lossy display string but stay distinct here.
+    // `path.display()` is still used to *render* the footer row so
+    // it matches the per-violation stderr line format above.
     let mut by_path: BTreeMap<&PathBuf, Vec<&Violation>> = BTreeMap::new();
     for (v, _) in pairs {
         by_path.entry(&v.path).or_default().push(v);
     }
-
-    // Compute (count, worst-violation, display) per file. The display
-    // string is cached here so the sort below doesn't recompute
-    // `path.display().to_string()` on every comparator call (O(n²) on
-    // the path length otherwise).
-    let mut rows: Vec<(usize, &Violation, String)> = by_path
+    let mut rows: Vec<FooterRow<'a>> = by_path
         .iter()
         .filter_map(|(path, vs)| {
             let worst = pick_worst(vs)?;
-            Some((vs.len(), worst, path.display().to_string()))
+            Some(FooterRow {
+                count: vs.len(),
+                worst,
+                display: path.display().to_string(),
+                path,
+            })
         })
         .collect();
-    // Sort: violation count desc, then cached display string asc for
-    // stable equal-count ordering.
-    rows.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.2.cmp(&b.2)));
+    rows.sort_by(|a, b| {
+        b.count
+            .cmp(&a.count)
+            .then_with(|| a.display.cmp(&b.display))
+    });
+    rows
+}
 
-    writeln!(w)?;
-    writeln!(w, "--- summary ---")?;
-    for (count, worst, display) in rows {
-        let noun = if count == 1 {
-            "violation"
-        } else {
-            "violations"
-        };
-        writeln!(
-            w,
-            "{display}: {count} {noun} (worst: {} = {} vs limit {} at L{})",
-            worst.metric,
-            MetricScalar(worst.value),
-            MetricScalar(worst.limit),
-            worst.start_line,
-        )?;
+/// Emit each row in `rows`, propagating the first I/O error. Used
+/// by both the legacy single-section path and the per-bucket
+/// partitioned path so the row format stays in lockstep.
+fn emit_footer_rows(w: &mut impl Write, rows: &[FooterRow<'_>]) -> std::io::Result<()> {
+    for row in rows {
+        write_footer_row(w, row.count, row.worst, &row.display)?;
     }
     Ok(())
+}
+
+/// Emit the "Files in this range:" header followed by the touched
+/// rows. When the diff scope had no offenders in it, emit an
+/// explicit "(none — …)" line so the reader gets a positive "your
+/// change is clean" signal instead of having to compare both halves
+/// of the footer to confirm absence.
+fn write_in_range_section(
+    w: &mut impl Write,
+    scope: &diff::DiffScope,
+    in_range: &[FooterRow<'_>],
+) -> std::io::Result<()> {
+    writeln!(
+        w,
+        "Files in this range (diff base: {} via {}):",
+        scope.base,
+        scope.source.label()
+    )?;
+    if in_range.is_empty() {
+        writeln!(w, "  (none — no offenders in files touched by this diff)")?;
+    } else {
+        emit_footer_rows(w, in_range)?;
+    }
+    Ok(())
+}
+
+/// Emit the "Other offenders:" header followed by the legacy
+/// offender list (files not touched by the diff scope). Returns a
+/// clean `Ok(())` when `other` is empty so the caller need not gate
+/// the call — the section's heading would be misleading without
+/// rows below it.
+fn write_other_section(w: &mut impl Write, other: &[FooterRow<'_>]) -> std::io::Result<()> {
+    if other.is_empty() {
+        return Ok(());
+    }
+    writeln!(w)?;
+    writeln!(w, "Other offenders:")?;
+    emit_footer_rows(w, other)
+}
+
+fn write_summary_footer(
+    w: &mut impl Write,
+    pairs: &[(Violation, Option<Coverage>)],
+    scope: Option<&diff::DiffScope>,
+) -> std::io::Result<()> {
+    let rows = compute_footer_rows(pairs);
+    writeln!(w)?;
+    writeln!(w, "--- summary ---")?;
+    let Some(s) = scope else {
+        // Without a scope, today's single-section footer is
+        // byte-identical to the pre-#359 output. This is the
+        // load-bearing back-compat path for CI tooling that grep-
+        // anchors on the legacy footer shape.
+        return emit_footer_rows(w, &rows);
+    };
+    // With a scope, partition rows into "touched in this range" vs
+    // legacy offenders. `DiffScope::contains` canonicalises once per
+    // row group (already deduplicated by `compute_footer_rows`), so
+    // the partitioning is at worst O(unique files) realpath(2) calls.
+    let (in_range, other): (Vec<_>, Vec<_>) =
+        rows.into_iter().partition(|row| s.contains(row.path));
+    write_in_range_section(w, s, &in_range)?;
+    write_other_section(w, &other)
+}
+
+/// Render a single per-file footer row. Shared between the in-range
+/// and other-offenders sections so the formatting stays in lockstep.
+fn write_footer_row(
+    w: &mut impl Write,
+    count: usize,
+    worst: &Violation,
+    display: &str,
+) -> std::io::Result<()> {
+    let noun = if count == 1 {
+        "violation"
+    } else {
+        "violations"
+    };
+    writeln!(
+        w,
+        "{display}: {count} {noun} (worst: {} = {} vs limit {} at L{})",
+        worst.metric,
+        MetricScalar(worst.value),
+        MetricScalar(worst.limit),
+        worst.start_line,
+    )
 }
 
 /// Pick the worst violation in a slice by `value / limit` ratio. Ties
@@ -557,3 +750,7 @@ fn run_command_preproc(globals: GlobalOpts, args: PreprocArgs) {
         println!("{serialized}");
     }
 }
+
+#[cfg(test)]
+#[path = "commands_tests.rs"]
+mod tests;

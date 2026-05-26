@@ -284,6 +284,70 @@ reader looks at: which file has the most problems, and which metric
 is the loudest in that file. Pass `--no-summary` to suppress the
 footer for downstream tooling that grep-pipes the stderr stream.
 
+#### Diff-aware mode (`--since` / `--changed-only`)
+
+On a PR or push, the developer's first question is usually *which of
+my files in this change* tripped a threshold — not the whole-tree
+offender list. Two flags answer that:
+
+- `--since <ref>` partitions the per-file footer into a
+  "Files in this range:" section (offenders in files touched between
+  `<ref>` and `HEAD`) followed by "Other offenders:" (everything
+  else). Per-violation lines are unchanged so existing grep-anchored
+  tooling keeps working.
+- `--changed-only` drops violations from files outside the touched
+  set entirely. Use it for PR gates that should be terse.
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    # `--since origin/<base>` resolves a merge-base. The default
+    # `fetch-depth: 1` checkout makes that ref unreachable; `0`
+    # pulls the full history so the diff base resolves.
+    fetch-depth: 0
+- name: Threshold check with diff-aware footer
+  run: |
+    bca --paths . --exclude-from .bcaignore check \
+        --config bca-thresholds.toml \
+        --baseline .bca-baseline.toml \
+        --since "origin/${{ github.base_ref }}"
+```
+
+When `--since` is omitted, `bca` auto-detects the diff base from the
+environment in this precedence:
+
+1. `BCA_DIFF_BASE` — the explicit-override hatch. Use this from a
+   local shell or non-GHA CI runner to mimic the auto-detection.
+2. `GITHUB_BASE_REF` — set by GitHub Actions on `pull_request`
+   events. Expanded to `origin/<value>`; the runner is responsible
+   for the corresponding `git fetch`.
+3. `GITHUB_EVENT_BEFORE` — set by GitHub Actions on `push` events to
+   the SHA at HEAD before the push. The all-zeroes SHA (force push,
+   brand-new branch) is treated as no signal.
+
+Auto-detection failing — `git` missing, ref unresolvable, not a git
+checkout — is non-fatal without `--changed-only`: `bca` prints a
+warning and falls back to today's whole-tree footer. With
+`--changed-only`, the same failure is fatal so a misconfigured CI
+does not silently green-light by suppressing every violation.
+
+The "Files in this range:" banner names the resolved base and the
+signal that produced it, so a CI-log reader can verify the gate
+latched onto the expected ref:
+
+```text
+Files in this range (diff base: origin/main via GITHUB_BASE_REF):
+./src/a.rs: 1 violation (worst: cyclomatic = 11 vs limit 2 at L1)
+
+Other offenders:
+./src/b.rs: 1 violation (worst: cyclomatic = 11 vs limit 2 at L1)
+```
+
+This is distinct from `bca diff-baseline` (tracked in #382), which
+diffs **baseline files** between two on-disk paths and reports
+added / removed / worsened / improved entries. `--since` diffs
+**source files** between two git refs.
+
 Refresh after focused refactors:
 
 ```bash

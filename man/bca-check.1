@@ -4,7 +4,7 @@
 .SH NAME
 bca\-check \- Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed"
 .SH SYNOPSIS
-\fBbca\-check\fR [\fB\-\-threshold\fR] [\fB\-\-config\fR] [\fB\-\-no\-fail\fR] [\fB\-\-no\-suppress\fR] [\fB\-O\fR|\fB\-\-output\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-baseline\fR] [\fB\-\-write\-baseline\fR] [\fB\-\-no\-summary\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+\fBbca\-check\fR [\fB\-\-threshold\fR] [\fB\-\-config\fR] [\fB\-\-no\-fail\fR] [\fB\-\-no\-suppress\fR] [\fB\-O\fR|\fB\-\-output\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-baseline\fR] [\fB\-\-write\-baseline\fR] [\fB\-\-no\-summary\fR] [\fB\-\-since\fR] [\fB\-\-changed\-only\fR] [\fB\-h\fR|\fB\-\-help\fR] 
 .SH DESCRIPTION
 Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed"
 .SH OPTIONS
@@ -49,10 +49,16 @@ File path for the aggregated offender document. Stdout if omitted. Only meaningf
 Filter known offenders listed in this TOML baseline. A baselined function whose metric value has not worsened is suppressed; a worsened value (or any new offender) still fails. See the "Baselines" recipe in the book for the full adoption flow
 .TP
 \fB\-\-write\-baseline\fR \fI<WRITE_BASELINE>\fR
-Walk the tree and write the current offender set to this path instead of failing. The resulting file pins today\*(Aqs metric values as the baseline; subsequent `\-\-baseline <path>` runs ratchet down from there. Conflicts with `\-\-baseline`, `\-\-output\-format`, and `\-\-output` — the baseline file is the output
+Walk the tree and write the current offender set to this path instead of failing. The resulting file pins today\*(Aqs metric values as the baseline; subsequent `\-\-baseline <path>` runs ratchet down from there. Conflicts with `\-\-baseline`, `\-\-output\-format`, `\-\-output`, `\-\-since`, and `\-\-changed\-only` — diff\-scope filtering would write a *partial* baseline that the next non\-`\-\-changed\-only` run would treat as a complete snapshot, silently masking every offender outside the diff scope
 .TP
 \fB\-\-no\-summary\fR
 Skip the trailing per\-file rollup footer. The footer groups violations by file and cites the single worst\-ratio metric per file. Pass this when downstream tooling grep\-pipes the stderr stream and would be confused by the trailing summary block. Default: footer enabled
+.TP
+\fB\-\-since\fR \fI<SINCE>\fR
+Git ref to diff `HEAD` against. The set of files reported by `git diff \-\-name\-only <ref>...HEAD` is surfaced first in the summary footer under "Files in this range:", so a reader scanning a CI log sees their own contributions before the legacy offender list. Defaults to auto\-detection from `BCA_DIFF_BASE`, `GITHUB_BASE_REF` (PR runs), or `GITHUB_EVENT_BEFORE` (push runs), in that precedence
+.TP
+\fB\-\-changed\-only\fR
+Drop violations from files outside the `\-\-since`/auto\-detected touched set entirely (terser CI output for PR gates). Requires a resolvable diff base, either via `\-\-since` or one of the auto\-detected env vars; failing to resolve is fatal so a misconfigured CI does not silently turn the gate into a no\-op
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help (see a summary with \*(Aq\-h\*(Aq)

@@ -32,6 +32,7 @@
 mod baseline;
 mod check_format;
 mod commands;
+mod diff;
 mod dispatch;
 mod format_util;
 mod formats;
@@ -331,12 +332,15 @@ struct CheckArgs {
     /// instead of failing. The resulting file pins today's metric
     /// values as the baseline; subsequent `--baseline <path>` runs
     /// ratchet down from there. Conflicts with `--baseline`,
-    /// `--output-format`, and `--output` — the baseline file is the
-    /// output.
+    /// `--output-format`, `--output`, `--since`, and `--changed-only`
+    /// — diff-scope filtering would write a *partial* baseline that
+    /// the next non-`--changed-only` run would treat as a complete
+    /// snapshot, silently masking every offender outside the diff
+    /// scope.
     #[clap(
         long = "write-baseline",
         value_parser,
-        conflicts_with_all = ["baseline", "output_format", "output"],
+        conflicts_with_all = ["baseline", "output_format", "output", "since", "changed_only"],
     )]
     write_baseline: Option<PathBuf>,
     /// Skip the trailing per-file rollup footer. The footer groups
@@ -346,6 +350,22 @@ struct CheckArgs {
     /// Default: footer enabled.
     #[clap(long = "no-summary")]
     no_summary: bool,
+    /// Git ref to diff `HEAD` against. The set of files reported by
+    /// `git diff --name-only <ref>...HEAD` is surfaced first in the
+    /// summary footer under "Files in this range:", so a reader
+    /// scanning a CI log sees their own contributions before the
+    /// legacy offender list. Defaults to auto-detection from
+    /// `BCA_DIFF_BASE`, `GITHUB_BASE_REF` (PR runs), or
+    /// `GITHUB_EVENT_BEFORE` (push runs), in that precedence.
+    #[clap(long = "since")]
+    since: Option<String>,
+    /// Drop violations from files outside the `--since`/auto-detected
+    /// touched set entirely (terser CI output for PR gates). Requires
+    /// a resolvable diff base, either via `--since` or one of the
+    /// auto-detected env vars; failing to resolve is fatal so a
+    /// misconfigured CI does not silently turn the gate into a no-op.
+    #[clap(long = "changed-only")]
+    changed_only: bool,
 }
 
 #[derive(Args, Debug)]
