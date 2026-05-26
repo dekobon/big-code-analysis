@@ -37,35 +37,35 @@ path = "./big-code-analysis-cli/src/check_format.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1884405.8092925358
+value = 2162341.1593800117
 
 [[entry]]
 path = "./big-code-analysis-cli/src/check_format.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 980.0
+value = 1075.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/check_format.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 43.0
+value = 45.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/check_format.rs"
 function = "<file>"
 start_line = 1
 metric = "nexits"
-value = 6.0
+value = 7.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/check_format.rs"
 function = "<file>"
 start_line = 1
 metric = "nom"
-value = 52.0
+value = 55.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/check_format.rs"
@@ -86,14 +86,14 @@ path = "./big-code-analysis-cli/src/commands.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1884752.4504815936
+value = 1883418.7411561394
 
 [[entry]]
 path = "./big-code-analysis-cli/src/commands.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 949.0
+value = 974.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/commands.rs"
@@ -114,12 +114,12 @@ path = "./big-code-analysis-cli/src/commands.rs"
 function = "<file>"
 start_line = 1
 metric = "nom"
-value = 59.0
+value = 58.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/commands.rs"
 function = "emit_check_results"
-start_line = 347
+start_line = 353
 metric = "nargs"
 value = 7.0
 
@@ -128,28 +128,28 @@ path = "./big-code-analysis-cli/src/diff.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 188643.0142867678
+value = 207951.72598101114
 
 [[entry]]
 path = "./big-code-analysis-cli/src/diff.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 346.0
+value = 379.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/diff.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 17.0
+value = 18.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/diff.rs"
 function = "<file>"
 start_line = 1
 metric = "nexits"
-value = 10.0
+value = 11.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/dispatch.rs"

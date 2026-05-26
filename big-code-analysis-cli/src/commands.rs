@@ -322,11 +322,17 @@ fn apply_changed_only_inner(
             diagnostic: Some(diag),
         };
     }
-    // Canonicalize once per unique raw path rather than once per
-    // violation. Real-world inputs cluster heavily per file
-    // (a 50-violation run typically touches 5-10 files), so memoizing
-    // the `Path::canonicalize` syscall here turns O(violations)
-    // realpath(2) calls into O(unique files).
+    // Memoize `scope.contains` (which canonicalizes internally) by
+    // raw `v.path`. Real-world inputs cluster heavily per file
+    // (a 50-violation run typically touches 5-10 files), so this
+    // turns O(violations) realpath(2) calls into O(unique raw
+    // paths). Precondition: the walker must emit violation paths in
+    // a canonical-form-consistent style across one check run (it
+    // does — paths are always rooted at the same `--paths` seed
+    // and don't mix `./X` with `X`). If a future change introduces
+    // alias paths in a single run, two violations of the same file
+    // would each pay a separate canonicalize call — the cache would
+    // still be correct, just not optimal.
     let mut in_scope: HashMap<PathBuf, bool> = HashMap::new();
     let before = pairs.len();
     let kept: Vec<_> = pairs
@@ -501,7 +507,7 @@ fn refresh_baseline_command(globals: &GlobalOpts, args: &CheckArgs) -> String {
     };
     for p in &paths {
         cmd.push_str(" --paths ");
-        cmd.push_str(&shell_quote(&path_for_shell(p)));
+        cmd.push_str(&shell_quote_path(p));
     }
     for ex in &globals.exclude {
         cmd.push_str(" --exclude ");
@@ -509,39 +515,46 @@ fn refresh_baseline_command(globals: &GlobalOpts, args: &CheckArgs) -> String {
     }
     if let Some(p) = &globals.exclude_from {
         cmd.push_str(" --exclude-from ");
-        cmd.push_str(&shell_quote(&path_for_shell(p)));
+        cmd.push_str(&shell_quote_path(p));
     }
     cmd.push_str(" check");
     if let Some(p) = &args.config {
         cmd.push_str(" --config ");
-        cmd.push_str(&shell_quote(&path_for_shell(p)));
+        cmd.push_str(&shell_quote_path(p));
     }
     // `--baseline` and `--write-baseline` conflict in clap, so we
     // prefer the user's baseline path if they ran with it (the
     // refresh writes back to the same file). Fall back to the
     // documented default `.bca-baseline.toml`.
-    let baseline_path = args
-        .baseline
-        .as_deref()
-        .map_or_else(|| ".bca-baseline.toml".to_string(), path_for_shell);
     cmd.push_str(" --write-baseline ");
-    cmd.push_str(&shell_quote(&baseline_path));
+    match args.baseline.as_deref() {
+        Some(p) => cmd.push_str(&shell_quote_path(p)),
+        None => cmd.push_str(&shell_quote(".bca-baseline.toml")),
+    }
     cmd
 }
 
-/// Render a path for inclusion in the copy-paste refresh command.
-/// The printed command is an *identifier* in the user's shell —
-/// running it must reach the same file `bca` walked. Non-UTF-8 paths
-/// cannot be expressed as a shell argument verbatim, so we surface
-/// them as a clearly-broken placeholder (`<non-UTF-8 path: …>`)
-/// rather than emit a `to_string_lossy` form that silently points at
-/// the wrong file. Per AGENTS.md, identifier paths use `to_str()`
-/// with explicit non-UTF-8 handling, not `path.display()`.
-fn path_for_shell(p: &Path) -> String {
-    p.to_str().map_or_else(
+fn shell_quote_path(p: &Path) -> String {
+    // The printed command is an *identifier* in the user's shell —
+    // running it must reach the same file `bca` walked. Non-UTF-8
+    // paths cannot be expressed as a shell argument verbatim, so
+    // surface them as a clearly-broken placeholder rather than emit
+    // a `to_string_lossy` form that silently points at the wrong
+    // file (AGENTS.md: identifier paths use `to_str()` with explicit
+    // non-UTF-8 handling, not `path.display()`).
+    //
+    // The placeholder contains `<`, `>` and spaces, which force
+    // `shell_quote`'s slow path → single-quoted literal. Combining
+    // the to_str + quote here (instead of leaving callers to chain
+    // them) makes the discipline structural: a future caller can't
+    // accidentally `eprintln!("{}", path_for_shell(p))` and emit an
+    // unquoted `<non-UTF-8 path: …>` that bash would parse as input
+    // redirection.
+    let raw = p.to_str().map_or_else(
         || format!("<non-UTF-8 path: {}>", p.display()),
         str::to_string,
-    )
+    );
+    shell_quote(&raw)
 }
 
 /// Shell-quote `s` for inclusion in the remediation block's
@@ -651,7 +664,19 @@ fn write_summary_footer(
     pairs: &[(Violation, Option<Coverage>)],
     scope: Option<&diff::DiffScope>,
 ) -> std::io::Result<()> {
+    // The caller (`emit_check_results`) gates on `!pairs.is_empty()`,
+    // so `compute_footer_rows` should always return at least one
+    // row. Assert in debug builds so a future refactor that
+    // surfaces the footer on clean runs (e.g. for positive-
+    // confirmation symmetry with the step-summary "✓ No threshold
+    // violations" message) doesn't silently emit a dangling
+    // `Files in this range:` banner with no body.
     let rows = compute_footer_rows(pairs);
+    debug_assert!(
+        !rows.is_empty(),
+        "write_summary_footer called with no rows; \
+         caller must gate on !pairs.is_empty()"
+    );
     writeln!(w)?;
     writeln!(w, "--- summary ---")?;
     let Some(s) = scope else {

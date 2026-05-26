@@ -153,6 +153,22 @@ pub(crate) fn resolve_scope(since: Option<&str>) -> ResolveOutcome {
             None => return ResolveOutcome::Disabled,
         },
     };
+    // Refuse dash-leading bases up-front. Git's `--` separator only
+    // separates revs from paths, NOT options from positional args —
+    // so `git diff --name-only -x...HEAD --` still has git's parser
+    // looking at `-x` before it sees the `--`, producing an
+    // "unknown option" exit. Bailing here gives the caller a clean
+    // diagnostic that names the actual problem instead of a
+    // confusing git error.
+    if base.starts_with('-') {
+        return ResolveOutcome::Failed {
+            reason: format!(
+                "diff base {base:?} starts with `-`; git would parse it as an option. \
+                 Pass a plain ref (e.g. `main`, `origin/release`, a SHA) instead."
+            ),
+            source,
+        };
+    }
     match collect_changed(&base) {
         Ok(changed) => ResolveOutcome::Ok(DiffScope {
             base,
@@ -188,11 +204,17 @@ fn auto_detect_base() -> Option<(String, DiffSource)> {
     None
 }
 
-/// Return `Some(value)` for an env var that is set AND non-empty.
-/// GitHub Actions explicitly leaves `GITHUB_BASE_REF` set-but-empty
-/// on non-PR events, so a presence check is not enough.
 fn non_empty_env(name: &str) -> Option<String> {
-    env::var(name).ok().filter(|s| !s.is_empty())
+    // Trim leading/trailing whitespace. A `BCA_DIFF_BASE=' '` typo
+    // (or a CI runner that exports an env var with a trailing
+    // newline from a shell pipeline) would otherwise pass through
+    // and produce a refspec like `origin/ ` that git rejects with a
+    // confusing "bad revision" — better to fall through to the next
+    // signal in the ladder.
+    env::var(name)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 fn collect_changed(base: &str) -> Result<HashSet<PathBuf>, String> {
@@ -201,9 +223,14 @@ fn collect_changed(base: &str) -> Result<HashSet<PathBuf>, String> {
         // `-c core.quotePath=false` keeps non-ASCII filenames literal
         // (default behaviour C-quotes them with octal escapes, which
         // never canonicalize against the on-disk path). The trailing
-        // `--` separator prevents `base` from being parsed as a git
-        // option (e.g. `--upload-pack=…`) when the user-supplied ref
-        // happens to start with a dash.
+        // `--` separates revs from paths in git's grammar so the
+        // empty positional tail can't be misread as a path list when
+        // the working tree happens to contain a file named like the
+        // refspec. NOTE: `--` does NOT protect against dash-leading
+        // refs — `git diff -x...HEAD --` still has git's option
+        // parser scan `-x` before reaching `--`. `resolve_scope`
+        // refuses dash-leading bases up-front so we never reach this
+        // call with one.
         &[
             "-c",
             "core.quotePath=false",
@@ -308,20 +335,26 @@ impl GitError {
     }
 }
 
-/// Run `git <args>` and return its stdout decoded as UTF-8. Centralises
-/// the spawn / status / decode dance the two call sites otherwise
-/// duplicated. `cwd` is plumbed through so `collect_changed` can pin
-/// the working directory to the repo root without having to know
-/// what the user's CWD is.
 fn run_git(args: &[&str], cwd: Option<&Path>) -> Result<String, GitError> {
     let mut cmd = Command::new("git");
     cmd.args(args);
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
     }
-    let output = cmd
-        .output()
-        .map_err(|e| GitError::Spawn(format!("failed to invoke git: {e}")))?;
+    let output = cmd.output().map_err(|e| {
+        // Discriminate the common spawn failure modes so the
+        // diagnostic names the actionable problem instead of a
+        // generic "failed to invoke git". `NotFound` = git not on
+        // PATH (install git, or check the runner's container).
+        // `PermissionDenied` = git on PATH but exec blocked (CI
+        // policy / SELinux / mode bits).
+        let context = match e.kind() {
+            std::io::ErrorKind::NotFound => "git binary not found on PATH",
+            std::io::ErrorKind::PermissionDenied => "git binary on PATH but execution blocked",
+            _ => "failed to invoke git",
+        };
+        GitError::Spawn(format!("{context}: {e}"))
+    })?;
     if !output.status.success() {
         return Err(GitError::NonZero {
             stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),

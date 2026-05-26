@@ -280,7 +280,12 @@ fn compose_step_summary_block(
     // The 4-fence is a documented GFM idiom for exactly this case.
     if let Some(block) = remediation {
         out.push_str("\n````text\n");
-        out.push_str(block.trim_start_matches('\n'));
+        // Strip exactly one leading `\n` from the producer
+        // (`format_remediation_block` emits one), not all of them.
+        // `trim_start_matches('\n')` would greedily collapse any
+        // run of leading newlines, silently breaking a future
+        // producer that wants a blank line before the block.
+        out.push_str(block.strip_prefix('\n').unwrap_or(block));
         if !block.ends_with('\n') {
             out.push('\n');
         }
@@ -297,8 +302,9 @@ fn compose_step_summary_block(
 /// across retries: bca runs N+1 times → file contains exactly one
 /// up-to-date block, not N+1 stacked copies. Handles the orphan-BEGIN
 /// case (prior run killed mid-write leaving a BEGIN marker without a
-/// matching END) by splicing from BEGIN to EOF rather than appending,
-/// which would accumulate orphan markers across retries.
+/// matching END) by splicing to the next section boundary (or EOF)
+/// rather than appending, which would accumulate orphan markers
+/// across retries.
 fn replace_step_summary_block(existing: &str, new_block: &str) -> String {
     let Some(begin) = existing.find(STEP_SUMMARY_BEGIN_MARKER) else {
         // No BEGIN marker → first write or a non-`bca`-managed file.
@@ -311,15 +317,21 @@ fn replace_step_summary_block(existing: &str, new_block: &str) -> String {
         out.push_str(new_block);
         return out;
     };
-    // BEGIN is present. Locate the matching END *after* it. If
-    // END is missing (prior bca run killed mid-write, OR a
-    // non-bca consumer corrupted the marker pair) we still need
-    // to converge to a single block; splice from BEGIN to EOF
-    // rather than fall through to the append branch, which would
-    // accumulate orphan BEGINs across retries.
+    // BEGIN is present. Locate the matching END *after* it.
+    //
+    // END present → standard splice (BEGIN..end of END marker).
+    //
+    // END absent → orphan-BEGIN case (prior bca run killed mid-
+    // write). Naively splicing to EOF would converge on retry but
+    // would also EAT any legitimate content another tool wrote
+    // after the orphan (e.g. an upstream cargo step's summary
+    // following a bca crash). Bound the splice at the next
+    // section-like boundary instead — the first `\n## ` or
+    // `\n<!-- ` (not another bca BEGIN marker) after the orphan.
+    // If no such boundary exists, splice to EOF.
     let end_abs = match existing[begin..].find(STEP_SUMMARY_END_MARKER) {
         Some(end) => begin + end + STEP_SUMMARY_END_MARKER.len(),
-        None => existing.len(),
+        None => orphan_splice_end(existing, begin),
     };
     // Drop the trailing newline (if any) immediately after the
     // end marker so we don't accumulate blank lines on repeated
@@ -336,7 +348,36 @@ fn replace_step_summary_block(existing: &str, new_block: &str) -> String {
     out
 }
 
-/// "Per-file rollup" GFM table: file, violation count, worst metric
+/// Find the end position for the orphan-BEGIN splice. Scans from
+/// `begin` for the next plausible section boundary (`\n## ` heading
+/// or `\n<!-- ` HTML comment that is NOT another bca BEGIN); falls
+/// back to EOF when none exists. Without this bound, an upstream
+/// tool's content following a bca crash would be silently destroyed
+/// on the next bca run.
+fn orphan_splice_end(existing: &str, begin: usize) -> usize {
+    let after = &existing[begin + STEP_SUMMARY_BEGIN_MARKER.len()..];
+    let after_offset = begin + STEP_SUMMARY_BEGIN_MARKER.len();
+    let mut search = 0;
+    while let Some(rel) = after[search..].find('\n') {
+        let line_start = search + rel + 1;
+        let line = &after[line_start..];
+        // Another bca BEGIN — continue scanning past it so
+        // multiple orphan BEGINs collapse together rather than
+        // bound the splice at the second one.
+        if line.starts_with(STEP_SUMMARY_BEGIN_MARKER) {
+            search = line_start + STEP_SUMMARY_BEGIN_MARKER.len();
+            continue;
+        }
+        // `\n## ` (GFM h2 heading) or `\n<!-- ` (HTML comment from
+        // any non-bca producer) are clear section boundaries. Stop
+        // here — don't eat their content.
+        if line.starts_with("## ") || line.starts_with("<!-- ") {
+            return after_offset + line_start;
+        }
+        search = line_start;
+    }
+    existing.len()
+}
 /// (by ratio), worst value, worst limit. Sorted by count desc, then
 /// path asc.
 fn write_per_file_rollup(out: &mut String, pairs: &[(Violation, Option<Coverage>)]) {
@@ -836,6 +877,60 @@ mod tests {
         assert!(
             out.starts_with("prefix\n"),
             "content outside the bca block must survive, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn replace_step_summary_block_orphan_preserves_downstream_section() {
+        // Regression for the xhigh-review F1 finding: if another
+        // tool wrote a step-summary section AFTER a bca crash that
+        // left an orphan BEGIN, the prior splice-to-EOF strategy
+        // would silently destroy that downstream content on the
+        // next bca run. The orphan_splice_end heuristic bounds the
+        // splice at the next `\n## ` heading (or `\n<!-- ` HTML
+        // comment that is not another bca BEGIN), preserving
+        // legitimate following sections.
+        let mixed = "prefix\n<!-- bca-step-summary-begin -->\norphan body\n\
+                     ## Upstream cargo step\nimportant downstream content\n";
+        let new_block = "<!-- bca-step-summary-begin -->\nnew\n<!-- bca-step-summary-end -->\n";
+        let out = replace_step_summary_block(mixed, new_block);
+        assert!(
+            out.contains("## Upstream cargo step"),
+            "downstream section header must survive an orphan-BEGIN recovery, got:\n{out}"
+        );
+        assert!(
+            out.contains("important downstream content"),
+            "downstream section content must survive an orphan-BEGIN recovery, got:\n{out}"
+        );
+        assert!(
+            !out.contains("orphan body"),
+            "stale orphan body should still be discarded, got:\n{out}"
+        );
+        assert_eq!(
+            out.matches(STEP_SUMMARY_BEGIN_MARKER).count(),
+            1,
+            "expected exactly one BEGIN after retry, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn replace_step_summary_block_orphan_with_html_comment_downstream() {
+        // Same invariant as above but the downstream section starts
+        // with an HTML comment from another non-bca producer. The
+        // heuristic must distinguish "another tool's comment" from
+        // "another bca BEGIN" — the latter continues scanning, the
+        // former bounds the splice.
+        let mixed = "<!-- bca-step-summary-begin -->\norphan body\n\
+                     <!-- coverage-tool: 87% line coverage -->\n## Coverage\nbody\n";
+        let new_block = "<!-- bca-step-summary-begin -->\nnew\n<!-- bca-step-summary-end -->\n";
+        let out = replace_step_summary_block(mixed, new_block);
+        assert!(
+            out.contains("<!-- coverage-tool: 87% line coverage -->"),
+            "non-bca HTML comment must survive, got:\n{out}"
+        );
+        assert!(
+            out.contains("## Coverage"),
+            "downstream heading must survive, got:\n{out}"
         );
     }
 
