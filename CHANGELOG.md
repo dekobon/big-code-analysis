@@ -154,8 +154,13 @@ for historical reference.
   `!false`, etc.) silently scored zero conditions. The for-loop
   helper `csharp_walk_for_statement` was already correct, which
   isolated the asymmetry to the if / while / do / ternary / unary
-  paths. Integration snapshots for `anonymous.cs`, `generics.cs`,
-  and `strings.cs` shift upward to reflect the corrected counts.
+  paths. The inline
+  `csharp_declarations_with_conditions` snapshot rises from 2 to 4
+  conditions because `!true` / `!false` now correctly contribute;
+  the three C# integration fixtures (`anonymous.cs`, `generics.cs`,
+  `strings.cs`) contained no literal-condition statements that
+  this fix changes — their counts were already correct after the
+  #370 walker fix landed in submodule commit `630ba5be`.
   Fixes [#371](https://github.com/dekobon/big-code-analysis/issues/371).
 - ABC metric: the tree-sitter-c-sharp condition walker now targets
   the correct child index — child(2) for `if` / `while` and child(4)
