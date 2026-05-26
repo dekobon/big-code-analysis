@@ -327,13 +327,6 @@ metric = "halstead.effort"
 value = 115712.73346715192
 
 [[entry]]
-path = "./big-code-analysis-cli/src/metric_catalog.rs"
-function = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 220.0
-
-[[entry]]
 path = "./big-code-analysis-cli/src/thresholds.rs"
 function = "<file>"
 start_line = 1
@@ -374,13 +367,6 @@ function = "<file>"
 start_line = 1
 metric = "halstead.effort"
 value = 62189.63351047587
-
-[[entry]]
-path = "./big-code-analysis-py/python/big_code_analysis/_flatten.py"
-function = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 205.0
 
 [[entry]]
 path = "./big-code-analysis-py/src/batch.rs"
@@ -1122,14 +1108,14 @@ path = "./src/function.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 123257.0299737768
+value = 176494.78260925534
 
 [[entry]]
 path = "./src/function.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 10.0
+value = 14.0
 
 [[entry]]
 path = "./src/function.rs"

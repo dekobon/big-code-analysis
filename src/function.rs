@@ -75,41 +75,72 @@ pub fn function<T: ParserTrait>(parser: &T) -> Vec<FunctionSpan> {
 }
 
 fn dump_span(span: FunctionSpan, stdout: &mut dyn WriteColor, last: bool) -> std::io::Result<()> {
-    // Build the six (color, intense, text) segments once, then write them
+    // Build the six (color, intense, segment) entries once, then write them
     // in one loop. The original 25-line body called color() / intense_color()
     // and write!()/writeln!() in alternation, scattering 13 `?` exits across
     // the function — over the per-fn nexits cap. Collapsing into a table
     // keeps the rendered byte sequence identical (verified by the
-    // `dump_span_ansi_layout_*` tests) while reducing nexits to two `?`
-    // sites inside the loop and one trailing `Ok(())`.
+    // `dump_span_ansi_layout_*` tests).
+    //
+    // The `Seg` enum lets the dynamic chunks (span name, start/end
+    // line numbers) reach the writer via `write!` without intermediate
+    // heap allocations, matching the streaming form of the
+    // pre-refactor code.
     let prefix = if last { "   `- " } else { "   |- " };
-    let (label_color, label_text) = if span.error {
-        (Color::Red, "error: ".to_string())
+    let (label_color, label) = if span.error {
+        (Color::Red, Seg::Text("error: "))
     } else {
-        (Color::Magenta, format!("{}: ", span.name))
+        (Color::Magenta, Seg::NameColon(&span.name))
     };
-    let start = span.start_line.to_string();
-    let end = format!("{}.\n", span.end_line);
-
-    // Only the label is intense; the other five segments use the
-    // non-intense `color()` setter.
-    let segments: [(Color, bool, &str); 6] = [
-        (Color::Blue, false, prefix),
-        (label_color, true, &label_text),
-        (Color::Green, false, "from line "),
-        (Color::White, false, &start),
-        (Color::Green, false, " to line "),
-        (Color::White, false, &end),
+    // Only the label is intense; the other five entries use `color()`.
+    let segments: [(Color, bool, Seg<'_>); 6] = [
+        (Color::Blue, false, Seg::Text(prefix)),
+        (label_color, true, label),
+        (Color::Green, false, Seg::Text("from line ")),
+        (Color::White, false, Seg::Int(span.start_line)),
+        (Color::Green, false, Seg::Text(" to line ")),
+        (Color::White, false, Seg::IntDot(span.end_line)),
     ];
-    for (col, intense, text) in segments {
-        if intense {
-            intense_color(stdout, col)?;
-        } else {
-            color(stdout, col)?;
-        }
-        stdout.write_all(text.as_bytes())?;
+    for (col, intense, seg) in segments {
+        write_seg(stdout, col, intense, seg)?;
     }
     Ok(())
+}
+
+/// One segment of `dump_span`'s rendered output. The dynamic chunks
+/// (span name, line numbers) flow straight through `write!` to the
+/// writer — no intermediate `String` allocation.
+#[derive(Clone, Copy)]
+enum Seg<'a> {
+    /// Static text fragment (prefixes, " to line ", etc.).
+    Text(&'a str),
+    /// `start_line` rendered as a plain integer.
+    Int(usize),
+    /// `end_line` rendered as `<n>.\n` — the trailing punctuation and
+    /// newline that close the line.
+    IntDot(usize),
+    /// `<name>: ` — the span name followed by the colon-space label
+    /// separator. Used when the span is not an error.
+    NameColon(&'a str),
+}
+
+fn write_seg(
+    stdout: &mut dyn WriteColor,
+    col: Color,
+    intense: bool,
+    seg: Seg<'_>,
+) -> std::io::Result<()> {
+    if intense {
+        intense_color(stdout, col)?;
+    } else {
+        color(stdout, col)?;
+    }
+    match seg {
+        Seg::Text(s) => stdout.write_all(s.as_bytes()),
+        Seg::Int(n) => write!(stdout, "{n}"),
+        Seg::IntDot(n) => writeln!(stdout, "{n}."),
+        Seg::NameColon(s) => write!(stdout, "{s}: "),
+    }
 }
 
 // Trait-object writer so production passes a locked `StandardStream`
