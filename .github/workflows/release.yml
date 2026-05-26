@@ -1454,9 +1454,11 @@ jobs:
           # substring (e.g. a `.sig` or `.attestation.json` companion)
           # can't cause sha256sum -c to try to verify two files.
           # awk's $2==f is a fixed-string compare, so dots in the
-          # version aren't treated as regex wildcards.
+          # version aren't treated as regex wildcards. The sign-attest
+          # job emits SHA256SUMS lines with the `./` prefix that
+          # `sha256sum --recursive` produces; accept either form.
           awk -v f="big-code-analysis-${VERSION}-x86_64-unknown-linux-musl.tar.gz" \
-              '$2 == f' SHA256SUMS \
+              '$2 == f || $2 == "./" f' SHA256SUMS \
             | sha256sum -c
       - name: Verify SLSA provenance
         env:

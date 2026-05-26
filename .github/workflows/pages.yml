@@ -69,9 +69,9 @@ env:
   # bca self-scan: pinned to a published GitHub Release of this repo
   # so we eat our own dog food without paying cargo-install costs in
   # CI. Bump BCA_VERSION and BCA_SHA256 in the same commit.
-  BCA_VERSION: "1.0.0"
+  BCA_VERSION: "1.1.0"
   BCA_TARGET: "x86_64-unknown-linux-gnu"
-  BCA_SHA256: "b974b16c52d3295aeec0a0fc0de381025c55194dbdbe72a75cede91120470797"
+  BCA_SHA256: "f11c324fd80787e1a9edf99d3c1763980e035e51abb5479527b14b1e2f83e919"
 
 jobs:
   build-book:
