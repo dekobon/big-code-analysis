@@ -2536,28 +2536,28 @@ path = "./src/output/code_climate.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1117160.6466481367
+value = 1257044.5452770973
 
 [[entry]]
 path = "./src/output/code_climate.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 657.0
+value = 673.0
 
 [[entry]]
 path = "./src/output/code_climate.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 20.0
+value = 21.0
 
 [[entry]]
 path = "./src/output/code_climate.rs"
 function = "<file>"
 start_line = 1
 metric = "nom"
-value = 37.0
+value = 39.0
 
 [[entry]]
 path = "./src/output/csv.rs"

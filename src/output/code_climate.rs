@@ -43,6 +43,7 @@ use std::io::{self, Write};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
+use crate::output::numfmt::MessageMetric;
 use crate::output::offenders::{
     OffenderRecord, Severity, TOOL_ID, rule_description, warn_non_utf8_path,
 };
@@ -50,11 +51,9 @@ use crate::output::offenders::{
 /// Number of leading SHA-256 bytes retained in each fingerprint
 /// (matches the issue spec — 128 bits is enough to keep collision
 /// probability negligible for any realistic offender corpus while
-/// keeping the JSON artifact compact).
+/// keeping the JSON artifact compact). The hex-encoded width is
+/// `FINGERPRINT_BYTE_LEN * 2` chars (32) by construction.
 const FINGERPRINT_BYTE_LEN: usize = 16;
-/// Hex-encoded fingerprint length, derived from
-/// [`FINGERPRINT_BYTE_LEN`] (two hex chars per byte).
-const FINGERPRINT_HEX_LEN: usize = FINGERPRINT_BYTE_LEN * 2;
 
 /// Write a GitLab Code Climate JSON report for `offenders` to
 /// `writer`.
@@ -195,10 +194,10 @@ fn severity_band(metric: &str, value: f64, limit: f64, severity: Severity) -> &'
 /// metric value — both shift on cosmetic edits that should not
 /// re-surface a known violation.
 ///
-/// Truncated to [`FINGERPRINT_BYTE_LEN`] bytes
-/// ([`FINGERPRINT_HEX_LEN`] hex chars) per the issue spec.
-/// Byte-wise hex formatting preserves leading zeros (which a
-/// `format!("{:x}", u128)` rendering would silently drop).
+/// Truncated to [`FINGERPRINT_BYTE_LEN`] bytes per the issue spec
+/// (32 hex chars by construction). Leading-zero bytes are preserved
+/// by [`hex_lower_bytes`] (which a `format!("{:x}", u128)` rendering
+/// would silently drop).
 fn fingerprint(path: &str, function: Option<&str>, metric: &str) -> String {
     let mut h = Sha256::new();
     h.update(path.as_bytes());
@@ -207,11 +206,19 @@ fn fingerprint(path: &str, function: Option<&str>, metric: &str) -> String {
     h.update(b"\0");
     h.update(metric.as_bytes());
     let digest = h.finalize();
-    let mut out = String::with_capacity(FINGERPRINT_HEX_LEN);
-    for byte in &digest[..FINGERPRINT_BYTE_LEN] {
-        // write! to a String never fails; the Result is discarded
-        // intentionally rather than unwrapped to avoid an
-        // `expect` in non-test code.
+    hex_lower_bytes(&digest[..FINGERPRINT_BYTE_LEN])
+}
+
+/// Lowercase, zero-padded hex encoding of `bytes`. Extracted from
+/// [`fingerprint`] so the zero-padding invariant can be tested with
+/// synthetic byte sequences (including bytes < `0x10`) that the
+/// SHA-256 driver of `fingerprint` does not surface deterministically.
+fn hex_lower_bytes(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        // write! to a String is infallible; the Result is discarded
+        // intentionally rather than unwrapped to avoid an `expect`
+        // in non-test code.
         let _ = write!(&mut out, "{byte:02x}");
     }
     out
@@ -234,14 +241,25 @@ fn normalize_path(raw: &str) -> Option<String> {
     }
 }
 
-/// Build the GitLab `description` string. When the metric is known
-/// to [`rule_description`], prefix the long-form text; otherwise
-/// fall back to the terse `default_message`.
 fn build_description(record: &OffenderRecord) -> String {
-    match rule_description(&record.metric) {
-        Some(long_form) => format!("{long_form} {}", record.default_message()),
-        None => record.default_message(),
-    }
+    let Some(long_form) = rule_description(&record.metric) else {
+        return record.default_message();
+    };
+    // Single-allocation render: write the long-form prefix and the
+    // default-message components directly into one String instead of
+    // round-tripping through `record.default_message()` + `format!`.
+    let mut out = String::with_capacity(long_form.len() + record.metric.len() + 32);
+    out.push_str(long_form);
+    out.push(' ');
+    // SAFETY: writing to a String is infallible.
+    let _ = write!(
+        &mut out,
+        "{} {} exceeds limit {}",
+        record.metric,
+        MessageMetric(record.value),
+        MessageMetric(record.limit),
+    );
+    out
 }
 
 #[cfg(test)]
@@ -436,6 +454,10 @@ mod tests {
             severity_band("cyclomatic", f64::INFINITY, 10.0, Severity::Warning),
             "minor"
         );
+        assert_eq!(
+            severity_band("cyclomatic", f64::INFINITY, 10.0, Severity::Error),
+            "major"
+        );
     }
 
     #[test]
@@ -486,41 +508,35 @@ mod tests {
     }
 
     #[test]
-    fn fingerprint_format_is_zero_padded_lowercase_hex() {
-        // The byte-wise `{:02x}` format must zero-pad every byte to
-        // two chars. A regression that swapped it for `{:x}` (or for
-        // a `format!("{:x}", u128)` rewrite) would silently drop
-        // leading zeros on digest bytes < 0x10, producing
-        // shorter-than-FINGERPRINT_HEX_LEN strings.
-        //
-        // We cannot manufacture an arbitrary SHA-256 digest in test,
-        // so the leading-zero invariant is checked indirectly via the
-        // fixed-width length assertion. The five sample inputs below
-        // are picked so that at least one of their SHA-256 digests
-        // starts with a low byte — verified empirically by mutation
-        // (a `{:02x}` → `{:x}` swap in `fingerprint` fails this test).
-        // Rotating the sample set without re-verifying may regress
-        // the invariant's coverage.
-        let inputs = [
-            ("a", "cyclomatic"),
-            ("b", "cognitive"),
-            ("c", "loc.lloc"),
-            ("d", "mi.mi_original"),
-            ("longer_path/with/segments.rs", "halstead.volume"),
-        ];
-        for (path, metric) in inputs {
-            let fp = fingerprint(path, Some("fn"), metric);
-            assert_eq!(
-                fp.len(),
-                FINGERPRINT_HEX_LEN,
-                "fingerprint for {path}/{metric}: {fp}"
-            );
-            assert!(
-                fp.chars()
-                    .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()),
-                "fingerprint must be lowercase hex: {fp}"
-            );
-        }
+    fn hex_lower_bytes_pads_low_bytes_to_two_chars() {
+        // Deterministic, input-controlled check of the zero-padding
+        // invariant. A `{:02x}` → `{:x}` regression would render
+        // `0x00` as `"0"` (not `"00"`), shortening the output and
+        // failing the explicit string comparison below. The
+        // fingerprint pipeline cannot directly surface a digest with
+        // leading zero bytes, so this is the load-bearing test for
+        // the format spec used by `fingerprint`.
+        assert_eq!(
+            hex_lower_bytes(&[0x00, 0x01, 0x0f, 0x10, 0xab, 0xff]),
+            "00010f10abff",
+        );
+        // Empty input → empty output (preserves the `len * 2` invariant).
+        assert_eq!(hex_lower_bytes(&[]), "");
+        // Single zero byte.
+        assert_eq!(hex_lower_bytes(&[0x00]), "00");
+    }
+
+    #[test]
+    fn fingerprint_uses_full_truncation_width() {
+        // Lock the constant against drift. If `FINGERPRINT_BYTE_LEN`
+        // changes, the truncation width in fingerprints changes too;
+        // we want a loud failure rather than a silent shift.
+        let fp = fingerprint("a.rs", Some("fn"), "cyclomatic");
+        assert_eq!(fp.len(), FINGERPRINT_BYTE_LEN * 2);
+        assert!(
+            fp.chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase())
+        );
     }
 
     #[test]

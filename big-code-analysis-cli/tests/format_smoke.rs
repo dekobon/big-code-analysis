@@ -198,6 +198,13 @@ fn cli_check_code_climate_output_matches_gitlab_shape() {
                 "issue[{i}] missing required key {key:?}; entry was:\n{issue}",
             );
         }
+        let description = issue["description"]
+            .as_str()
+            .expect("description is a string");
+        assert!(
+            !description.is_empty(),
+            "issue[{i}] description must not be empty (GitLab MR widget would render a blank row)",
+        );
         let severity = issue["severity"].as_str().expect("severity is a string");
         assert!(
             SEVERITY_ENUM.contains(&severity),
