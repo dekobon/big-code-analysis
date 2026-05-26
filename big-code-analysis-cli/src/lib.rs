@@ -366,6 +366,17 @@ struct CheckArgs {
     /// misconfigured CI does not silently turn the gate into a no-op.
     #[clap(long = "changed-only")]
     changed_only: bool,
+    /// Emit GitHub Actions `::error file=…,line=…,title=…::msg`
+    /// workflow commands per violation so the GHA UI renders them as
+    /// inline annotations on the file-diff view. Additive to the
+    /// human-readable stderr stream — annotations ride on top, they
+    /// don't replace it. Auto-enabled when `$GITHUB_ACTIONS == "true"`.
+    /// Capped at 10 per metric (GitHub Actions surfaces at most 10
+    /// errors per step in the UI); overflow rolls up to one
+    /// `::error::N more <metric> violations not shown` line per
+    /// affected metric so the count is still visible.
+    #[clap(long = "github-annotations")]
+    github_annotations: bool,
 }
 
 #[derive(Args, Debug)]

@@ -348,6 +348,32 @@ diffs **baseline files** between two on-disk paths and reports
 added / removed / worsened / improved entries. `--since` diffs
 **source files** between two git refs.
 
+#### GitHub Actions inline annotations (`--github-annotations`)
+
+The GHA UI renders `::error file=…,line=…,title=…::msg` workflow
+commands as inline annotations on the file-diff view — much more
+discoverable than scrolling the raw job log. `bca check` emits one
+per violation when `--github-annotations` is passed, and auto-enables
+when `$GITHUB_ACTIONS == "true"` (set by every GHA workflow step).
+
+The annotations ride on top of the existing per-violation human
+stream — both are emitted. To avoid exhausting GitHub's
+10-error-per-step UI quota, annotations are capped at 10 per metric;
+overflow rolls up to a single `::error::N more <metric> violations
+not shown` line so the count stays visible.
+
+```yaml
+- name: Threshold check with inline annotations
+  run: |
+    bca --paths . --exclude-from .bcaignore check \
+        --config bca-thresholds.toml \
+        --baseline .bca-baseline.toml
+  # No `--github-annotations` flag needed — auto-enabled in GHA.
+```
+
+Pair this with `--since` (above) so the annotations point at the
+files in the PR, not the entire offender list.
+
 Refresh after focused refactors:
 
 ```bash

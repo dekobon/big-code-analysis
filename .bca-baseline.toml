@@ -30,26 +30,33 @@ path = "./big-code-analysis-cli/src/check_format.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 126346.67979869932
+value = 504293.87092377094
+
+[[entry]]
+path = "./big-code-analysis-cli/src/check_format.rs"
+function = "<file>"
+start_line = 1
+metric = "loc.sloc"
+value = 444.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/check_format.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 13.0
+value = 22.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/check_format.rs"
 function = "AggregatedFormat"
-start_line = 53
+start_line = 54
 metric = "nargs"
 value = 9.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/check_format.rs"
 function = "dump"
-start_line = 68
+start_line = 69
 metric = "nargs"
 value = 8.0
 
@@ -58,21 +65,21 @@ path = "./big-code-analysis-cli/src/commands.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1464022.4212711374
+value = 1549236.6591811413
 
 [[entry]]
 path = "./big-code-analysis-cli/src/commands.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 756.0
+value = 773.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/commands.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 84.0
+value = 86.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/commands.rs"
@@ -86,7 +93,7 @@ path = "./big-code-analysis-cli/src/commands.rs"
 function = "<file>"
 start_line = 1
 metric = "nom"
-value = 50.0
+value = 52.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/diff.rs"
@@ -261,14 +268,14 @@ path = "./big-code-analysis-cli/src/lib.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1341384.5296677875
+value = 1346079.8945792508
 
 [[entry]]
 path = "./big-code-analysis-cli/src/lib.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 949.0
+value = 960.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/lib.rs"
@@ -366,21 +373,21 @@ path = "./big-code-analysis-cli/src/thresholds.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 381236.1446806442
+value = 389927.3140067357
 
 [[entry]]
 path = "./big-code-analysis-cli/src/thresholds.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 428.0
+value = 447.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/thresholds.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 43.0
+value = 44.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/thresholds.rs"
@@ -394,7 +401,7 @@ path = "./big-code-analysis-cli/src/thresholds.rs"
 function = "<file>"
 start_line = 1
 metric = "nom"
-value = 39.0
+value = 40.0
 
 [[entry]]
 path = "./big-code-analysis-py/python/big_code_analysis/_flatten.py"

@@ -206,6 +206,26 @@ pub(crate) struct Violation {
     pub(crate) limit: f64,
 }
 
+impl Violation {
+    /// Render the trailing portion of [`Display`] that *excludes* the
+    /// `<path>:<start>-<end>: ` prefix — i.e. `<function>: <metric> =
+    /// <value> (limit <limit>)`. The full Display form is built by
+    /// concatenating the path/line prefix with this tail; emitters
+    /// that already carry the path and line out-of-band (GitHub
+    /// Actions annotations, JSON output via `OffenderRecord`) reuse
+    /// this method so their message body stays in lockstep with the
+    /// human stderr line.
+    pub(crate) fn summary_tail(&self) -> String {
+        format!(
+            "{}: {} = {} (limit {})",
+            self.function,
+            self.metric,
+            MetricScalar(self.value),
+            MetricScalar(self.limit),
+        )
+    }
+}
+
 impl fmt::Display for Violation {
     /// Stable, parseable single-line format:
     /// `<path>:<start>-<end>: <function>: <metric> = <value> (limit <limit>)`.
@@ -214,17 +234,16 @@ impl fmt::Display for Violation {
         // substitution); acceptable here because Display is the
         // human-facing stderr line, not an identifier. The raw bytes
         // are preserved on `self.path` itself for downstream
-        // structured consumers.
+        // structured consumers (offender records, GitHub Actions
+        // annotations) which call `path.to_str()` with explicit
+        // non-UTF-8 handling instead.
         write!(
             f,
-            "{}:{}-{}: {}: {} = {} (limit {})",
+            "{}:{}-{}: {}",
             self.path.display(),
             self.start_line,
             self.end_line,
-            self.function,
-            self.metric,
-            MetricScalar(self.value),
-            MetricScalar(self.limit),
+            self.summary_tail(),
         )
     }
 }

@@ -22,7 +22,7 @@ use big_code_analysis::{Count, PreprocResults, SuppressionPolicy};
 use big_code_analysis::{fix_includes, write_file};
 
 use crate::baseline::{self, Coverage};
-use crate::check_format::violation_to_offender;
+use crate::check_format::{self, violation_to_offender};
 use crate::diff;
 use crate::format_util::MetricScalar;
 use crate::formats::{CBOR_STDOUT_ERROR, MetricsDispatch, MetricsFormat, ReportFormat};
@@ -292,13 +292,6 @@ fn apply_changed_only(
     kept
 }
 
-/// Render the (optionally tagged) violations to stderr and, if
-/// `--output-format` is set, also emit the aggregated CI/IDE
-/// document. `scope` is threaded into the summary footer so the
-/// per-file rollup can split "touched in this range" rows from the
-/// legacy offender list. Returns `true` iff any violations were
-/// emitted, so the caller can decide the exit code without
-/// re-checking the pairs.
 fn emit_check_results(
     pairs: Vec<(Violation, Option<Coverage>)>,
     args: &CheckArgs,
@@ -313,6 +306,19 @@ fn emit_check_results(
     }
     if !args.no_summary && !pairs.is_empty() {
         let _ = write_summary_footer(&mut stderr, &pairs, scope);
+    }
+    if github_annotations_enabled(args) && !pairs.is_empty() {
+        // Emit annotations *after* the human stream + summary footer
+        // so a reader tailing the CI log sees the contiguous
+        // human-readable block first. The GHA log viewer scrapes
+        // `::error…` lines wherever they appear and renders them as
+        // inline annotations on the file-diff view regardless of
+        // position.
+        let _ = check_format::write_github_annotations(
+            &mut stderr,
+            pairs.iter().map(|(v, _)| v),
+            check_format::DEFAULT_GITHUB_ANNOTATION_CAP,
+        );
     }
     drop(stderr);
 
@@ -330,6 +336,17 @@ fn emit_check_results(
             .unwrap_or_else(|e| die(format_args!("failed to write {}: {e}", fmt.name())));
     }
     any_violations
+}
+
+/// Decide whether GitHub Actions `::error` annotations should be
+/// emitted. The explicit `--github-annotations` flag wins; otherwise
+/// fall back to auto-detection via `$GITHUB_ACTIONS == "true"`, the
+/// signal GHA sets inside every workflow step. Mirrors the
+/// auto-detect ladder in the diff resolver so the two CI-presentation
+/// behaviours stay in lockstep.
+fn github_annotations_enabled(args: &CheckArgs) -> bool {
+    args.github_annotations
+        || std::env::var(check_format::GITHUB_ACTIONS_ENV).as_deref() == Ok("true")
 }
 
 /// One row in the per-file rollup footer. The display string is

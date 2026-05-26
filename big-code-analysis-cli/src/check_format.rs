@@ -21,6 +21,7 @@
 //! `bca check` run (or `--no-fail` run on a clean tree) still emits
 //! valid output that consumers can ingest unchanged.
 
+use std::collections::BTreeMap;
 use std::fs::{File, create_dir_all};
 use std::io::Write;
 use std::path::Path;
@@ -86,6 +87,101 @@ impl AggregatedFormat {
             }
         }
     }
+}
+
+/// Default annotation cap per metric. GitHub Actions surfaces at most
+/// 10 errors / 10 warnings / 10 notices per step in the UI, so a
+/// 400-violation run would exhaust the quota and silently drop
+/// everything past the first ten. Capping at this value per metric
+/// keeps each metric visible while leaving headroom under the
+/// step-level cap (most failing runs trip one or two distinct
+/// metrics, not the full N-metric list).
+pub(crate) const DEFAULT_GITHUB_ANNOTATION_CAP: usize = 10;
+
+/// Env var GitHub Actions sets to `"true"` inside every workflow
+/// step. Used to auto-enable annotation emission when
+/// `--github-annotations` is not passed explicitly.
+pub(crate) const GITHUB_ACTIONS_ENV: &str = "GITHUB_ACTIONS";
+
+pub(crate) fn write_github_annotations<'a, W, I>(
+    w: &mut W,
+    violations: I,
+    cap: usize,
+) -> std::io::Result<()>
+where
+    W: Write,
+    I: IntoIterator<Item = &'a Violation>,
+{
+    let mut counts: BTreeMap<&'static str, usize> = BTreeMap::new();
+    let mut overflow: BTreeMap<&'static str, usize> = BTreeMap::new();
+    for v in violations {
+        let n = counts.entry(v.metric).or_insert(0);
+        *n += 1;
+        if *n <= cap {
+            // Non-UTF-8 paths cannot be expressed as identifiers in
+            // GitHub Actions annotation properties (`file=...`), since
+            // the GHA UI uses the byte sequence to locate the source
+            // file on disk and the workflow-command protocol carries
+            // text only. Skip the annotation rather than emit a lossy
+            // path that would point at the wrong file; the per-
+            // violation human stderr line still names the file via
+            // `path.display()`, and the project's AGENTS.md rule
+            // ("never `to_string_lossy` on identifier paths") is
+            // satisfied.
+            let Some(path_str) = v.path.to_str() else {
+                continue;
+            };
+            writeln!(
+                w,
+                "::error file={path},line={start},endLine={end},title={title}::{msg}",
+                path = escape_gha(path_str, GhaSlot::Property),
+                start = v.start_line,
+                end = v.end_line,
+                title = escape_gha(v.metric, GhaSlot::Property),
+                msg = escape_gha(&v.summary_tail(), GhaSlot::Message),
+            )?;
+        } else {
+            *overflow.entry(v.metric).or_insert(0) += 1;
+        }
+    }
+    for (metric, n) in overflow {
+        writeln!(
+            w,
+            "::error::{n} more {metric} violations not shown — see full log"
+        )?;
+    }
+    Ok(())
+}
+
+/// Percent-encode characters GitHub Actions reserves inside a
+/// workflow-command property value (`key=value` slot) or a message
+/// body (after `::`). The two slots reserve overlapping but distinct
+/// sets — see [`GhaSlot`]. Reference:
+/// <https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#example-setting-an-error-message>.
+fn escape_gha(s: &str, slot: GhaSlot) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '%' => out.push_str("%25"),
+            '\r' => out.push_str("%0D"),
+            '\n' => out.push_str("%0A"),
+            ':' if matches!(slot, GhaSlot::Property) => out.push_str("%3A"),
+            ',' if matches!(slot, GhaSlot::Property) => out.push_str("%2C"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
+/// Which workflow-command slot a value will land in. Properties (the
+/// `key=value` pairs between the command name and `::`) reserve `:`
+/// and `,` in addition to the universal `%`/`\r`/`\n`; message bodies
+/// (after `::`) allow `:` and `,` literally because GHA's parser only
+/// honours the *first* `::` after the command name as the separator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GhaSlot {
+    Property,
+    Message,
 }
 
 pub(crate) fn violation_to_offender(v: Violation) -> OffenderRecord {
@@ -194,5 +290,155 @@ mod tests {
         let offender = violation_to_offender(v);
         assert_eq!(offender.path, path);
         assert_eq!(offender.path.as_os_str().as_encoded_bytes(), raw_bytes);
+    }
+
+    // --- GitHub Actions annotation tests ---
+
+    fn violation_for(path: &str, function: &str, metric: &'static str) -> Violation {
+        Violation {
+            path: std::path::PathBuf::from(path),
+            start_line: 10,
+            end_line: 42,
+            function: function.to_string(),
+            metric,
+            value: 17.0,
+            limit: 5.0,
+        }
+    }
+
+    #[test]
+    fn write_github_annotations_emits_one_line_per_violation() {
+        let vs = [
+            violation_for("src/a.rs", "foo", "cyclomatic"),
+            violation_for("src/b.rs", "bar", "cognitive"),
+        ];
+        let mut buf = Vec::new();
+        write_github_annotations(&mut buf, vs.iter(), 10).expect("write");
+        let out = String::from_utf8(buf).expect("utf8");
+        let expected = "::error file=src/a.rs,line=10,endLine=42,title=cyclomatic::foo: cyclomatic = 17 (limit 5)\n\
+            ::error file=src/b.rs,line=10,endLine=42,title=cognitive::bar: cognitive = 17 (limit 5)\n";
+        assert_eq!(out, expected);
+    }
+
+    #[test]
+    fn write_github_annotations_caps_per_metric_with_overflow_rollup() {
+        // 12 cyclomatic violations + 1 cognitive. With cap = the
+        // documented default we expect 10 cyclomatic annotations, 1
+        // cognitive annotation, and a single overflow line
+        // accounting for the 2 extras (12 − 10).
+        let mut vs: Vec<Violation> = (0..12)
+            .map(|i| violation_for(&format!("c{i}.rs"), "f", "cyclomatic"))
+            .collect();
+        vs.push(violation_for("g.rs", "g", "cognitive"));
+        let mut buf = Vec::new();
+        write_github_annotations(&mut buf, vs.iter(), DEFAULT_GITHUB_ANNOTATION_CAP)
+            .expect("write");
+        let out = String::from_utf8(buf).expect("utf8");
+        // Anchor on `title=cyclomatic::f:` (function name boundary)
+        // so a regression that mis-spelled the title as
+        // `cyclomaticxyz::` would not still satisfy the prefix
+        // count. See lesson #6.
+        let cyclomatic_lines = out.matches("title=cyclomatic::f:").count();
+        assert_eq!(cyclomatic_lines, 10, "expected 10 capped cyclomatic lines");
+        let cognitive_lines = out.matches("title=cognitive::g:").count();
+        assert_eq!(cognitive_lines, 1, "uncapped cognitive line missing");
+        assert!(
+            out.contains("::error::2 more cyclomatic violations not shown — see full log"),
+            "missing overflow line for cyclomatic; got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn write_github_annotations_percent_escapes_property_metacharacters() {
+        // GitHub Actions reserves `:`, `,`, `%`, `\r`, `\n` inside
+        // property values (key=value). A Windows-style absolute path
+        // (`C:\src`) triggers the `:` encode path; a `%` in the
+        // function name triggers the message-side `%` encode (which
+        // would silently lose precision if the wrong helper were
+        // wired into the message slot). The message body keeps `:`
+        // literal (GHA's message-side contract).
+        let v = Violation {
+            path: std::path::PathBuf::from("C:\\src/100%/file.rs"),
+            start_line: 1,
+            end_line: 1,
+            function: "f%encoded".to_string(),
+            metric: "cyclomatic",
+            value: 17.0,
+            limit: 5.0,
+        };
+        let mut buf = Vec::new();
+        write_github_annotations(&mut buf, std::iter::once(&v), DEFAULT_GITHUB_ANNOTATION_CAP)
+            .expect("write");
+        let out = String::from_utf8(buf).expect("utf8");
+        // `:` percent-encoded to %3A in the property, `%` to %25.
+        assert!(
+            out.contains("file=C%3A\\src/100%25/file.rs,"),
+            "expected property-encoded path, got:\n{out}"
+        );
+        // Message body: `%` encoded to `%25`, `:` kept literal. This
+        // pins both the message-side encode and the message-side
+        // literal-`:` invariant in one assertion.
+        assert!(
+            out.contains("::f%25encoded: cyclomatic = 17 (limit 5)"),
+            "expected message-body %-encode AND literal `:`, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn escape_gha_property_encodes_all_reserved_characters() {
+        assert_eq!(
+            escape_gha("a%b:c,d\re\nf", GhaSlot::Property),
+            "a%25b%3Ac%2Cd%0De%0Af"
+        );
+    }
+
+    #[test]
+    fn escape_gha_message_keeps_colon_and_comma_literal() {
+        // Per the GHA contract, message bodies allow `:` and `,`
+        // literally — only `%`, `\r`, `\n` must be encoded.
+        assert_eq!(
+            escape_gha("a:b,c%d\re\nf", GhaSlot::Message),
+            "a:b,c%25d%0De%0Af"
+        );
+    }
+
+    #[test]
+    fn write_github_annotations_emits_nothing_for_empty_input() {
+        let mut buf = Vec::new();
+        write_github_annotations(&mut buf, std::iter::empty(), DEFAULT_GITHUB_ANNOTATION_CAP)
+            .expect("write");
+        assert!(buf.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_github_annotations_skips_non_utf8_paths() {
+        // Annotation paths are identifiers in GitHub's UI (the renderer
+        // looks the file up on disk by the byte sequence), so we
+        // forbid `to_string_lossy` here and skip non-UTF-8 entries
+        // rather than emit a corrupted file= value. The per-violation
+        // human stderr line still names the file via `path.display()`.
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+        use std::path::PathBuf;
+
+        let path = PathBuf::from(OsString::from_vec(b"weird-\xff.rs".to_vec()));
+        let v = Violation {
+            path,
+            start_line: 1,
+            end_line: 1,
+            function: "f".to_string(),
+            metric: "cyclomatic",
+            value: 17.0,
+            limit: 5.0,
+        };
+        let mut buf = Vec::new();
+        write_github_annotations(&mut buf, std::iter::once(&v), DEFAULT_GITHUB_ANNOTATION_CAP)
+            .expect("write");
+        assert!(
+            buf.is_empty(),
+            "expected non-UTF-8 path to be skipped, got: {}",
+            String::from_utf8_lossy(&buf)
+        );
     }
 }
