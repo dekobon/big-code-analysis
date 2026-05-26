@@ -51,14 +51,14 @@ path = "./big-code-analysis-cli/src/commands.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1077938.172529049
+value = 1078428.590259954
 
 [[entry]]
 path = "./big-code-analysis-cli/src/commands.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 557.0
+value = 559.0
 
 [[entry]]
 path = "./big-code-analysis-cli/src/commands.rs"

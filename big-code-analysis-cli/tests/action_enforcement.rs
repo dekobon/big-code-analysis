@@ -132,3 +132,57 @@ fn ops_rejects_csv_format_at_runtime() {
         .stderr(predicate::str::contains("not supported by `ops`"))
         .stderr(predicate::str::contains("metric-shaped"));
 }
+
+/// `bca metrics -O <fmt> -o <existing-file>` must die: the per-file
+/// formats expect a directory output target so each input file gets its
+/// own output sibling. Pointing at a file (an existing non-directory)
+/// is a configuration error caught by `require_output_is_dir`.
+#[test]
+fn metrics_rejects_non_directory_output() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file_path = dir.path().join("not_a_dir.json");
+    std::fs::write(&file_path, b"").expect("seed file");
+
+    cli()
+        .args([
+            "metrics",
+            "-O",
+            "json",
+            "--paths",
+            ".",
+            "-o",
+            file_path.to_str().expect("utf8"),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "--output must be a directory for `metrics`",
+        ));
+}
+
+/// Symmetric check for `ops`. The guard is shared via the
+/// `require_output_is_dir` helper; this test pins the per-command error
+/// message so a refactor that swaps the wrong command name into the
+/// shared helper's `format_args!` would fail loudly.
+#[test]
+fn ops_rejects_non_directory_output() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file_path = dir.path().join("not_a_dir.json");
+    std::fs::write(&file_path, b"").expect("seed file");
+
+    cli()
+        .args([
+            "ops",
+            "-O",
+            "json",
+            "--paths",
+            ".",
+            "-o",
+            file_path.to_str().expect("utf8"),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "--output must be a directory for `ops`",
+        ));
+}
