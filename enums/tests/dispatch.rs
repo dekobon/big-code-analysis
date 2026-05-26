@@ -190,20 +190,15 @@ const EXPECTED_LANG_VARIANT_COUNT: usize = 21;
 
 #[test]
 fn coverage_every_lang_variant_is_dispatched() {
-    let variants: Vec<Lang> = Lang::into_enum_iter().collect();
+    // The count is the load-bearing drift guard. Per-variant `#[test]`
+    // functions above already pin each variant's grammar and name —
+    // there's no need to re-iterate here. (`mk_get_language!` and
+    // `mk_get_language_name!` are exhaustive matches, so a missing
+    // arm is a compile error, not a runtime panic.)
     assert_eq!(
-        variants.len(),
+        Lang::into_enum_iter().count(),
         EXPECTED_LANG_VARIANT_COUNT,
         "Lang variant count drifted; add a per-variant test in this file \
          and bump EXPECTED_LANG_VARIANT_COUNT to match"
     );
-
-    // Sanity check that `get_language` and `get_language_name` do not
-    // panic on any variant and that the name round-trips through
-    // `stringify!` (i.e. matches the camel-cased variant identifier).
-    for lang in variants {
-        let name = get_language_name(&lang);
-        assert!(!name.is_empty(), "{lang:?} has empty name");
-        let _ = get_language(&lang);
-    }
 }
