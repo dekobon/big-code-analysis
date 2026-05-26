@@ -52,14 +52,21 @@ the [`bca` CLI](../commands/index.html) is faster to wire up.
 - [Error handling](error-handling.md) — what `Result<FuncSpace, MetricsError>`
   means today and how to turn it into a useful diagnostic.
 - [Stability and versioning](stability.md) — what you can and
-  cannot rely on across `0.x` versions.
+  cannot rely on across the `1.x` line.
 
-## A note on API churn
+## A note on API stability
 
-The library is pre-`1.0`. Several entry points named in this
-section will be renamed or replaced as the library DX umbrella
-(tracked under [issue #250]) lands. Each page calls out which
-sub-issue will change it and how. Until those land, every example
-below compiles against the current published crate.
+The library is on the `1.x` line and ships under a written
+[stability contract](stability.md): the shape of the public API
+is held stable across patch and minor bumps, and breaking changes
+are reserved for the next major bump. Every example in this
+section compiles against the current published crate and is
+expected to keep compiling across `1.x` without edits.
 
-[issue #250]: https://github.com/dekobon/big-code-analysis/issues/250
+Metric *values* may still drift across minor bumps when a grammar
+pin moves or a metric definition is fixed — see
+[STABILITY.md § What is stable in value][stability-value] for the
+carve-out. Each drift is called out in the changelog entry that
+introduces it.
+
+[stability-value]: https://github.com/dekobon/big-code-analysis/blob/main/STABILITY.md#what-is-stable-in-value

@@ -56,10 +56,20 @@ and `cargo run -p big-code-analysis-web --`.
 
 ## Editing principles
 
-- This is a published library (`big-code-analysis` on crates.io). Treat
-  `lib.rs` re-exports, public traits (`ParserTrait`, `LanguageInfo`, etc.),
-  and public types (`Metrics`, `FuncSpace`, language enums) as a stable API
-  surface — break them only with an intentional version bump.
+- This is a published `1.x` library (`big-code-analysis` on crates.io)
+  with a written stability contract in [`STABILITY.md`](./STABILITY.md).
+  Treat `lib.rs` re-exports, public traits (`ParserTrait`,
+  `LanguageInfo`, etc.), and public types (`Metrics`, `FuncSpace`,
+  language enums) as a stable API surface. Within `1.x`, additive
+  changes belong under a minor bump; breaking shape changes are
+  reserved for `2.0` and must be planned deliberately — never slip a
+  SemVer break into a patch or minor release. Public-API changes
+  must be cross-referenced against `STABILITY.md` and recorded in
+  the `## [Unreleased]` section of `CHANGELOG.md`; if the change is
+  a source-level break that must wait for `2.0`, mark the entry
+  **(breaking)** and note that it is deferred to the next major
+  bump (the release-prep commit then moves the entry into the
+  appropriate version section).
 - For code files: prefer LSP / symbol-level editing
   (`replace_symbol_body`, `insert_before/after_symbol`) over line-based
   edits when available. Read the file (or use a symbol overview) before

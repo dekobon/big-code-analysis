@@ -6,15 +6,18 @@ The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.
 and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html)
 from the fork onwards.
 
-Pre-1.0 caveat: while in `0.x`, the public Rust API surface
-(`big-code-analysis` library re-exports, the `bca` CLI argument grammar,
-and the `bca-web` REST schema) may change between minor versions. Breaking
-changes are marked with **(breaking)** in the entries below.
+Stability note: the crate is on the `1.x` line. The public Rust
+API surface (`big-code-analysis` library re-exports, the `bca` CLI
+argument grammar, and the `bca-web` REST schema) is held stable
+across patch and minor bumps; breaking shape changes are reserved
+for the next major bump and will appear under **(breaking)** in
+the `2.0.0` section. Metric *values* may still drift across minor
+bumps when a grammar pin moves or a metric definition is fixed —
+each drift is called out in the entry that introduces it.
 
-The written stability contract starts at the `[Unreleased]` line below;
-see [STABILITY.md](./STABILITY.md) for what is held stable in shape and
-why no value stability is offered until `1.0`. Entries above the
-`[Unreleased]` heading describe pre-policy behaviour.
+See [STABILITY.md](./STABILITY.md) for the full contract. Entries
+in `0.x` sections below describe pre-policy behaviour and are kept
+for historical reference.
 
 ## [Unreleased]
 
@@ -32,6 +35,20 @@ why no value stability is offered until `1.0`. Entries above the
 
 ### Changed
 
+- Stability documentation re-baselined for the `1.x` line.
+  `STABILITY.md`, the matching book page, the top-level README, the
+  `CHANGELOG.md` caveat, `RELEASING.md` semver guidance, and the
+  agentic instructions in `AGENTS.md` were rewritten to spell out
+  the `1.x` contract: shape stability across patch and minor
+  bumps, breaking shape changes reserved for the next major bump,
+  and the metric-value drift carve-out preserved with per-release
+  changelog notes. Notable policy decisions captured in this
+  refresh: the `metrics` / `metrics_with_options` deprecation
+  window (originally tagged for removal after one minor release
+  when introduced at `0.0.26`) is extended to the full `1.x`
+  lifetime — downstream code that took the original wording at
+  face value has already migrated, and the shim stays in place
+  until `2.0`. No source changes.
 - `dump_spans` (internal) now writes into an injected
   `WriteColor` writer instead of constructing `StandardStream`
   internally, so its last-prefix-marking branch is observable in

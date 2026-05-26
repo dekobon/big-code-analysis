@@ -483,17 +483,26 @@ but committing the regenerated pages keeps the gate green between
 release-prep and tag push. Same rule applies any time a CLI flag is
 added or renamed — not just at release time.
 
-Pick the version using semver. While the workspace is in `0.x`, the
-public Rust API surface (`big-code-analysis` library re-exports, the
-`bca` CLI argument grammar, and the `bca-web` REST schema) may change
-between minor versions; mark breaking changes with **(breaking)** in
-the CHANGELOG entry.
+Pick the version using semver. The workspace is on the `1.x` line
+and ships under the [STABILITY.md][stability] contract: the public
+Rust API surface (`big-code-analysis` library re-exports, the `bca`
+CLI argument grammar, and the `bca-web` REST schema) is held stable
+across patch and minor bumps. Additive shape changes (new items,
+new `LANG` / `MetricsError` variants, new language features) belong
+under a minor bump. Breaking shape changes are reserved for the
+next major bump and must be called out under **(breaking)** in the
+CHANGELOG entry for that release; do not slip a SemVer break into a
+patch or minor bump. Metric value drift from a grammar pin move or
+a metric-definition fix remains allowed under patch and minor bumps
+and must be listed in the entry that introduces it.
+
+[stability]: ./STABILITY.md
 
 Commit the version bump together with the changelog move (see below)
 so the release-prep commit is a single, self-contained change:
 
 ```text
-chore(release): prepare v0.1.0
+chore(release): prepare v1.2.0
 ```
 
 ## Pre-release checklist
@@ -532,13 +541,13 @@ tagging should be the release-prep commit.
 
 ## Cutting a stable release
 
-Pick a semver version (e.g. `0.1.0`). The tag is the version prefixed
+Pick a semver version (e.g. `1.2.0`). The tag is the version prefixed
 with `v`.
 
 ```bash
 # From a clean main checkout at the release-prep commit:
-git tag -a v0.1.0 -m "v0.1.0"
-git push origin v0.1.0
+git tag -a v1.2.0 -m "v1.2.0"
+git push origin v1.2.0
 ```
 
 That's it — the push of the tag triggers `release.yml`. Watch it in
@@ -553,8 +562,8 @@ gh run list --workflow=Release
 ## Cutting a pre-release
 
 Pre-release tags match `vX.Y.Z-<suffix>` where `<suffix>` is
-`[A-Za-z][0-9]*` — e.g. `v0.1.0-rc1`, `v0.1.0-beta2`,
-`v0.1.0-alpha3`. **Do not use dotted forms like `v0.1.0-rc.1`**:
+`[A-Za-z][0-9]*` — e.g. `v1.2.0-rc1`, `v1.2.0-beta2`,
+`v1.2.0-alpha3`. **Do not use dotted forms like `v1.2.0-rc.1`**:
 Alpine's abuild grammar rejects dots in the pre-release suffix.
 
 The preflight classifier sets `prerelease=true` for any suffix, which:

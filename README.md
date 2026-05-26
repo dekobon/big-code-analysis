@@ -57,11 +57,14 @@ about metrics, nodes, and other general data provided by this software.
 ## Using as a library
 
 `big-code-analysis` is published on crates.io and can be embedded
-directly. The crate is currently pre-`1.0`, so the API surface
-(both shape and metric values) is still in flux — see
-[STABILITY.md](./STABILITY.md) for the versioning contract, MSRV
-policy, escape hatches, and what we do and do not promise across
-minor and patch bumps.
+directly. The crate is on the `1.x` line and ships under a written
+stability contract: the public API surface is held stable across
+patch and minor bumps, and breaking shape changes are reserved for
+the next major bump. Metric *values* may still drift across minor
+bumps when a grammar pin moves or a metric definition is fixed —
+see [STABILITY.md](./STABILITY.md) for the full versioning contract,
+MSRV policy, escape hatches, and exactly what we do and do not
+promise within `1.x`.
 
 For task-oriented walkthroughs — quick start, in-memory analysis,
 walking `FuncSpace` results, and error handling — see the
