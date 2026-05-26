@@ -403,6 +403,30 @@ Local users can pipe the digest into any markdown file with
 "✓ No threshold violations." block so the step summary positively
 confirms the gate ran.
 
+#### Remediation footer (always on)
+
+When the gate finds violations, `bca check` emits a trailing
+`--- next steps ---` block on stderr (and inside the step-summary
+digest from above):
+
+```text
+--- next steps ---
+* Detailed reports: bca-reports artifact at https://github.com/<owner>/<repo>/actions/runs/<run-id>
+* To refresh baseline: bca --paths . --exclude-from .bcaignore check --config bca-thresholds.toml --write-baseline .bca-baseline.toml
+* Adoption guide: https://dekobon.github.io/big-code-analysis/recipes/baselines.html
+```
+
+The refresh invocation mirrors the gate's resolved `--paths`,
+`--exclude`, `--exclude-from`, `--config`, and `--baseline` so a
+first-time reader of a failing CI log can copy-paste it verbatim.
+The artifact URL is derived from `$GITHUB_REPOSITORY` and
+`$GITHUB_RUN_ID` when both are present (always true in GHA); local
+runs fall back to the literal name `bca-reports artifact (uploaded
+to this run)`.
+
+Suppress the block with `--no-remediation` for downstream tooling
+that grep-pipes stderr.
+
 Refresh after focused refactors:
 
 ```bash

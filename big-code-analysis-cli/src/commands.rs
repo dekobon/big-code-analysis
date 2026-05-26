@@ -36,15 +36,15 @@ use crate::{
     load_preproc_data, load_threshold_config, run_walk, write_atomic, write_stdout_or_die,
 };
 
-/// Drive the `check` subcommand as a six-stage pipeline:
-/// validate args + build thresholds → resolve diff scope (if any) →
-/// walk + sort → maybe write a baseline → filter against a loaded
-/// baseline → emit results and exit. Each stage is its own helper
-/// so the control flow reads top-down without nested decisions about
-/// which arm fires when.
 fn run_check(globals: GlobalOpts, args: CheckArgs, preproc: Option<Arc<PreprocResults>>) {
     let set = validate_and_build_thresholds(&args);
     let scope = resolve_diff_scope(&args);
+    // Clone globals for the remediation builder: `run_check_walk`
+    // consumes `globals` by value (it passes through to `run_walk`
+    // which spawns worker threads with ownership), but
+    // `format_remediation_block` needs the resolved `--paths` /
+    // `--exclude` set to compose a copy-paste-safe refresh command.
+    let globals_for_remediation = globals.clone();
     let (violations, files_dispatched) = run_check_walk(globals, &args, preproc, set);
 
     if files_dispatched.load(Ordering::Relaxed) == 0 {
@@ -62,9 +62,19 @@ fn run_check(globals: GlobalOpts, args: CheckArgs, preproc: Option<Arc<PreprocRe
 
     let pairs = filter_by_baseline(violations, args.baseline.as_deref());
     let pairs = apply_changed_only(pairs, scope.as_ref(), args.changed_only);
-    let any_violations = emit_check_results(pairs, &args, scope.as_ref());
+    let any_violations = !pairs.is_empty();
+    // Build the remediation block ONLY when we have something to
+    // remediate. Empty pairs (clean run) get no trailing block —
+    // there is no baseline to refresh and no artifact worth pointing
+    // at.
+    let remediation = if any_violations {
+        format_remediation_block(&globals_for_remediation, &args)
+    } else {
+        None
+    };
+    let emitted = emit_check_results(pairs, &args, scope.as_ref(), remediation.as_deref());
 
-    if any_violations && !args.no_fail {
+    if emitted && !args.no_fail {
         process::exit(2);
     }
 }
@@ -296,6 +306,7 @@ fn emit_check_results(
     pairs: Vec<(Violation, Option<Coverage>)>,
     args: &CheckArgs,
     scope: Option<&diff::DiffScope>,
+    remediation: Option<&str>,
 ) -> bool {
     // BrokenPipe on stderr (e.g. when piped to `head`) is the only
     // realistic write failure here; swallow it rather than die so the
@@ -320,6 +331,13 @@ fn emit_check_results(
             check_format::DEFAULT_GITHUB_ANNOTATION_CAP,
         );
     }
+    // The remediation block is the final thing on stderr — a reader
+    // skimming a CI log sees it as the natural "what now?" answer
+    // immediately after the failure evidence. Skipped when the
+    // caller passed `None` (clean run, or `--no-remediation`).
+    if let Some(block) = remediation {
+        let _ = write!(stderr, "{block}");
+    }
     drop(stderr);
 
     // Append the markdown digest to `$GITHUB_STEP_SUMMARY` (or the
@@ -329,7 +347,7 @@ fn emit_check_results(
     // logged but never affect the exit-code contract — the
     // step-summary panel is informational.
     if let Some(path) = step_summary_path(args)
-        && let Err(e) = check_format::write_step_summary(&path, &pairs)
+        && let Err(e) = check_format::write_step_summary(&path, &pairs, remediation)
     {
         eprintln!(
             "bca: failed to append step summary to {}: {e}",
@@ -373,6 +391,135 @@ fn step_summary_path(args: &CheckArgs) -> Option<PathBuf> {
         return Some(p.clone());
     }
     std::env::var_os(check_format::GITHUB_STEP_SUMMARY_ENV).map(PathBuf::from)
+}
+
+fn format_remediation_block(globals: &GlobalOpts, args: &CheckArgs) -> Option<String> {
+    use std::fmt::Write as _;
+    if args.no_remediation {
+        return None;
+    }
+    let mut out = String::from("\n--- next steps ---\n");
+    let _ = writeln!(out, "* Detailed reports: {}", artifact_link());
+    let _ = writeln!(
+        out,
+        "* To refresh baseline: {}",
+        refresh_baseline_command(globals, args)
+    );
+    // The refresh command mirrors path filters (`--paths`,
+    // `--exclude`, `--exclude-from`, `--config`, `--baseline`) but
+    // intentionally omits selectors that don't affect baseline
+    // composition (`--num-jobs`) and ones that would bloat the
+    // common-case command (`--include`, `--language-type`,
+    // `--paths-from`, `--exclude-tests`). Surface the omission so a
+    // user with a non-trivial scope re-adds them rather than
+    // assuming the printed command is complete.
+    out.push_str(
+        "  (mirrors path filters only — re-add any --include / --language-type / --exclude-tests / --paths-from flags as needed)\n",
+    );
+    out.push_str(
+        "* Adoption guide: https://dekobon.github.io/big-code-analysis/recipes/baselines.html\n",
+    );
+    Some(out)
+}
+
+/// Build the artifact link surfaced in the remediation block. On
+/// GitHub Actions both `$GITHUB_REPOSITORY` and `$GITHUB_RUN_ID` are
+/// set, producing a clickable URL to the failing run; outside GHA
+/// (local invocations, alternative CI) we fall back to the literal
+/// artifact name documented in `.github/workflows/pages.yml`.
+fn artifact_link() -> String {
+    let repo = std::env::var("GITHUB_REPOSITORY")
+        .ok()
+        .filter(|s| !s.is_empty());
+    let run_id = std::env::var("GITHUB_RUN_ID")
+        .ok()
+        .filter(|s| !s.is_empty());
+    match (repo, run_id) {
+        (Some(repo), Some(run_id)) => {
+            format!("bca-reports artifact at https://github.com/{repo}/actions/runs/{run_id}")
+        }
+        _ => "bca-reports artifact (uploaded to this run)".to_string(),
+    }
+}
+
+/// Build a copy-paste-safe `--write-baseline` invocation that mirrors
+/// the gate's resolved `--paths` / `--exclude` / `--exclude-from` /
+/// `--config` / `--baseline` so the user can refresh the baseline
+/// without having to reconstruct flags from memory. Hard-coding
+/// `--paths .` would be wrong for repos that scope scans differently.
+fn refresh_baseline_command(globals: &GlobalOpts, args: &CheckArgs) -> String {
+    let mut cmd = String::from("bca");
+    let paths: Vec<&Path> = if globals.paths.is_empty() {
+        // Default-when-absent — mirror the walker's `expand_seed_paths`
+        // fallback so the printed command behaves identically to a
+        // pathless invocation.
+        vec![Path::new(".")]
+    } else {
+        globals.paths.iter().map(PathBuf::as_path).collect()
+    };
+    for p in &paths {
+        cmd.push_str(" --paths ");
+        cmd.push_str(&shell_quote(&p.display().to_string()));
+    }
+    for ex in &globals.exclude {
+        cmd.push_str(" --exclude ");
+        cmd.push_str(&shell_quote(ex));
+    }
+    if let Some(p) = &globals.exclude_from {
+        cmd.push_str(" --exclude-from ");
+        cmd.push_str(&shell_quote(&p.display().to_string()));
+    }
+    cmd.push_str(" check");
+    if let Some(p) = &args.config {
+        cmd.push_str(" --config ");
+        cmd.push_str(&shell_quote(&p.display().to_string()));
+    }
+    // `--baseline` and `--write-baseline` conflict in clap, so we
+    // prefer the user's baseline path if they ran with it (the
+    // refresh writes back to the same file). Fall back to the
+    // documented default `.bca-baseline.toml`.
+    let baseline_path = args.baseline.as_deref().map_or_else(
+        || ".bca-baseline.toml".to_string(),
+        |p| p.display().to_string(),
+    );
+    cmd.push_str(" --write-baseline ");
+    cmd.push_str(&shell_quote(&baseline_path));
+    cmd
+}
+
+/// Shell-quote `s` for inclusion in the remediation block's
+/// copy-paste command. Uses single-quoting for simplicity: every
+/// character is literal inside `'...'` except `'` itself, which we
+/// escape via `'\''`. ASCII-safe and POSIX-compatible.
+///
+/// **POSIX-only**: This quoting is correct for bash / zsh / dash /
+/// sh, which is what GitHub Actions runs every step in. It is NOT
+/// safe for `cmd.exe` or PowerShell — a Windows user copy-pasting
+/// the refresh command from a Windows CI log would need to
+/// re-escape. The remediation block is a GHA/POSIX-CI feature by
+/// design; Windows-host CI is out of scope.
+fn shell_quote(s: &str) -> String {
+    // Fast path: identifiers / paths without metacharacters need no
+    // quoting at all. Keeping them unquoted makes the copy-paste
+    // command read naturally for the common case.
+    if !s.is_empty()
+        && s.chars().all(|c| {
+            c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | ':' | '=' | ',' | '@')
+        })
+    {
+        return s.to_string();
+    }
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('\'');
+    for ch in s.chars() {
+        if ch == '\'' {
+            out.push_str("'\\''");
+        } else {
+            out.push(ch);
+        }
+    }
+    out.push('\'');
+    out
 }
 
 /// One row in the per-file rollup footer. The display string is

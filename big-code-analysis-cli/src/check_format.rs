@@ -212,17 +212,17 @@ pub(crate) const STEP_SUMMARY_BEGIN_MARKER: &str = "<!-- bca-step-summary-begin 
 pub(crate) const STEP_SUMMARY_END_MARKER: &str = "<!-- bca-step-summary-end -->";
 
 /// Append (or replace, on retry) a markdown digest of the violations
-/// to `path`. The block contains the same per-file rollup `--no-summary`
-/// surfaces on stderr, plus a per-metric count breakdown and a
-/// top-N-offenders table sorted by `value / limit` ratio. Empty
-/// input still writes a "✓ no violations" block so the developer
-/// sees positive confirmation in the step summary even on clean
-/// runs.
+/// to `path`. The block contains the per-file rollup, per-metric
+/// breakdown, top-N offenders by ratio, and the trailing
+/// remediation block (when provided). Empty input still writes a
+/// "✓ no violations" block so the developer sees positive
+/// confirmation in the step summary even on clean runs.
 pub(crate) fn write_step_summary(
     path: &Path,
     pairs: &[(Violation, Option<Coverage>)],
+    remediation: Option<&str>,
 ) -> std::io::Result<()> {
-    let new_block = compose_step_summary_block(pairs);
+    let new_block = compose_step_summary_block(pairs, remediation);
     // First-write (file does not yet exist) is the common case in
     // GHA workflows; treat NotFound as an empty starting state.
     // Other I/O errors (permission denied, mid-FS error) must bubble
@@ -239,9 +239,15 @@ pub(crate) fn write_step_summary(
 }
 
 /// Compose the bracketed markdown block. Always idempotent for the
-/// same `pairs` (no timestamps, no random IDs), so two consecutive
-/// runs over the same offenders produce byte-identical output.
-fn compose_step_summary_block(pairs: &[(Violation, Option<Coverage>)]) -> String {
+/// same `(pairs, remediation)` input (no timestamps, no random IDs),
+/// so two consecutive runs over the same offenders produce
+/// byte-identical output. This is the load-bearing invariant for
+/// `replace_step_summary_block`'s retry semantics.
+fn compose_step_summary_block(
+    pairs: &[(Violation, Option<Coverage>)],
+    remediation: Option<&str>,
+) -> String {
+    use std::fmt::Write as _;
     let mut out = String::new();
     out.push_str(STEP_SUMMARY_BEGIN_MARKER);
     out.push('\n');
@@ -249,13 +255,26 @@ fn compose_step_summary_block(pairs: &[(Violation, Option<Coverage>)]) -> String
     if pairs.is_empty() {
         out.push_str("✓ No threshold violations.\n");
     } else {
-        use std::fmt::Write as _;
         let _ = writeln!(out, "**Total violations:** {}\n", pairs.len());
         write_per_file_rollup(&mut out, pairs);
         out.push('\n');
         write_metric_breakdown(&mut out, pairs);
         out.push('\n');
         write_top_offenders(&mut out, pairs, STEP_SUMMARY_TOP_OFFENDERS);
+    }
+    // Embed the remediation block (when present) inside the marker
+    // pair so retries replace it along with the rest of the digest.
+    // Use a 4-backtick fence so a path / repo name / refresh-command
+    // value containing an embedded triple-backtick (legal on Linux,
+    // exotic but possible) does not break out of the code block.
+    // The 4-fence is a documented GFM idiom for exactly this case.
+    if let Some(block) = remediation {
+        out.push_str("\n````text\n");
+        out.push_str(block.trim_start_matches('\n'));
+        if !block.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str("````\n");
     }
     out.push_str(STEP_SUMMARY_END_MARKER);
     out.push('\n');
@@ -684,8 +703,8 @@ mod tests {
             coverage_pair(violation_for("src/a.rs", "f", "cyclomatic")),
             coverage_pair(violation_for("src/b.rs", "g", "cognitive")),
         ];
-        let a = compose_step_summary_block(&pairs);
-        let b = compose_step_summary_block(&pairs);
+        let a = compose_step_summary_block(&pairs, None);
+        let b = compose_step_summary_block(&pairs, None);
         assert_eq!(a, b);
     }
 
@@ -695,7 +714,7 @@ mod tests {
             coverage_pair(violation_for("src/a.rs", "f", "cyclomatic")),
             coverage_pair(violation_for("src/b.rs", "g", "cognitive")),
         ];
-        let out = compose_step_summary_block(&pairs);
+        let out = compose_step_summary_block(&pairs, None);
         assert!(out.starts_with(STEP_SUMMARY_BEGIN_MARKER));
         assert!(out.trim_end().ends_with(STEP_SUMMARY_END_MARKER));
         assert!(out.contains("## `bca check`: threshold violations"));
@@ -714,7 +733,7 @@ mod tests {
 
     #[test]
     fn compose_step_summary_block_empty_input_writes_clean_message() {
-        let out = compose_step_summary_block(&[]);
+        let out = compose_step_summary_block(&[], None);
         assert!(out.starts_with(STEP_SUMMARY_BEGIN_MARKER));
         assert!(out.contains("✓ No threshold violations."));
         // Don't emit empty rollup / breakdown sections — the
@@ -781,7 +800,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("step-summary.md");
         let pairs1 = vec![coverage_pair(violation_for("src/a.rs", "f", "cyclomatic"))];
-        write_step_summary(&path, &pairs1).expect("write 1");
+        write_step_summary(&path, &pairs1, None).expect("write 1");
         let after_first = std::fs::read_to_string(&path).expect("read 1");
         assert_eq!(
             after_first.matches(STEP_SUMMARY_BEGIN_MARKER).count(),
@@ -790,7 +809,7 @@ mod tests {
         );
 
         let pairs2 = vec![coverage_pair(violation_for("src/b.rs", "g", "cognitive"))];
-        write_step_summary(&path, &pairs2).expect("write 2");
+        write_step_summary(&path, &pairs2, None).expect("write 2");
         let after_second = std::fs::read_to_string(&path).expect("read 2");
         assert_eq!(
             after_second.matches(STEP_SUMMARY_BEGIN_MARKER).count(),
@@ -804,7 +823,7 @@ mod tests {
         // point: file byte-content must be identical to the
         // after-second state. This proves the marker-replace logic
         // converges, not just that it works once.
-        write_step_summary(&path, &pairs2).expect("write 3");
+        write_step_summary(&path, &pairs2, None).expect("write 3");
         let after_third = std::fs::read_to_string(&path).expect("read 3");
         assert_eq!(
             after_third, after_second,
@@ -831,9 +850,64 @@ mod tests {
         let path = stub.join("child");
         let pairs = vec![coverage_pair(violation_for("src/a.rs", "f", "cyclomatic"))];
         assert!(
-            write_step_summary(&path, &pairs).is_err(),
+            write_step_summary(&path, &pairs, None).is_err(),
             "expected non-NotFound I/O error to bubble"
         );
+    }
+
+    #[test]
+    fn write_step_summary_with_remediation_embeds_fenced_block_and_replaces_on_retry() {
+        // End-to-end coverage of the wave-4 integration path: the
+        // remediation block must land inside the marker pair (so
+        // retries replace it along with the rest of the digest),
+        // inside a 4-backtick fenced code block (so embedded
+        // triple-backticks in paths / refresh commands cannot
+        // escape), and the whole file must remain idempotent across
+        // a retry that supplies the same `Some(remediation)` value.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("step-summary.md");
+        let pairs = vec![coverage_pair(violation_for("src/a.rs", "f", "cyclomatic"))];
+        let remediation = "\n--- next steps ---\n* Detailed reports: bca-reports artifact\n* To refresh baseline: bca --paths . check --write-baseline .bca-baseline.toml\n";
+        write_step_summary(&path, &pairs, Some(remediation)).expect("write 1");
+        let after_first = std::fs::read_to_string(&path).expect("read 1");
+        // 4-backtick fence opens and closes inside the marker pair.
+        assert!(
+            after_first.contains("````text\n"),
+            "missing fenced opener, got:\n{after_first}"
+        );
+        assert!(
+            after_first.contains("\n````\n"),
+            "missing fenced closer, got:\n{after_first}"
+        );
+        assert!(
+            after_first.contains("--- next steps ---"),
+            "missing remediation banner, got:\n{after_first}"
+        );
+        // The fence must be INSIDE the marker pair — extract the
+        // `bca` block and verify the fence is bounded by it.
+        let begin = after_first
+            .find(STEP_SUMMARY_BEGIN_MARKER)
+            .expect("begin marker");
+        let end = after_first
+            .find(STEP_SUMMARY_END_MARKER)
+            .expect("end marker");
+        assert!(begin < end, "markers must be ordered");
+        let block = &after_first[begin..end];
+        assert!(
+            block.contains("````text"),
+            "fence must be inside the marker pair, got block:\n{block}"
+        );
+
+        // Retry with the same remediation: file must be byte-
+        // identical (fixed point).
+        write_step_summary(&path, &pairs, Some(remediation)).expect("write 2");
+        let after_second = std::fs::read_to_string(&path).expect("read 2");
+        assert_eq!(
+            after_first, after_second,
+            "second write with same input must be byte-identical (fixed point)"
+        );
+        // Exactly one begin marker survives.
+        assert_eq!(after_second.matches(STEP_SUMMARY_BEGIN_MARKER).count(), 1);
     }
 
     #[test]

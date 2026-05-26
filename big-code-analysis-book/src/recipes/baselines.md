@@ -144,6 +144,20 @@ When `.bca-baseline.toml` contains only `version = 2` and no entries,
 drop the `--baseline` flag from CI and delete the file. The thresholds
 now stand on their own.
 
+### Remediation footer
+
+When the gate finds violations, `bca check` emits a trailing
+`--- next steps ---` block on stderr (and inside the
+`$GITHUB_STEP_SUMMARY` digest) that names the artifact, prints a
+copy-paste-safe `--write-baseline` refresh invocation, and links
+back to this recipe. The refresh invocation mirrors the gate's
+resolved `--paths` / `--exclude` / `--exclude-from` / `--config` /
+`--baseline` arguments, so a first-time reader of a failing CI log
+can refresh the baseline without leaving the page.
+
+Suppress the block with `--no-remediation` if downstream tooling
+grep-pipes the stderr stream and the trailing block confuses it.
+
 ## Composition with suppression markers
 
 `--write-baseline` already excludes any function silenced by a

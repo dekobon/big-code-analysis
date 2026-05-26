@@ -128,7 +128,7 @@ pub struct Cli {
     command: Command,
 }
 
-#[derive(Args, Debug, Default)]
+#[derive(Args, Debug, Default, Clone)]
 struct GlobalOpts {
     /// Input files or directories to analyze.
     #[clap(long, short, value_parser, global = true)]
@@ -387,6 +387,15 @@ struct CheckArgs {
     /// replaces (not stacks) the previous digest.
     #[clap(long = "summary-file", value_parser)]
     summary_file: Option<PathBuf>,
+    /// Suppress the trailing "--- next steps ---" remediation block
+    /// that names the artifact, prints a copy-paste-safe
+    /// `--write-baseline` refresh invocation, and links to the
+    /// Baselines recipe. By default the block is emitted on
+    /// failure (and in `$GITHUB_STEP_SUMMARY` when present) so a
+    /// first-time reader of a failing CI log can see what to do
+    /// next without leaving the page.
+    #[clap(long = "no-remediation")]
+    no_remediation: bool,
 }
 
 #[derive(Args, Debug)]

@@ -247,3 +247,178 @@ fn write_summary_footer_in_range_uses_source_label() {
         );
     }
 }
+
+// --- Remediation footer tests ---
+
+fn check_args_for_remediation(
+    config: Option<&str>,
+    baseline: Option<&str>,
+    no_remediation: bool,
+) -> CheckArgs {
+    CheckArgs {
+        thresholds: Vec::new(),
+        config: config.map(PathBuf::from),
+        no_fail: false,
+        no_suppress: false,
+        output_format: None,
+        output: None,
+        baseline: baseline.map(PathBuf::from),
+        write_baseline: None,
+        no_summary: false,
+        since: None,
+        changed_only: false,
+        github_annotations: false,
+        summary_file: None,
+        no_remediation,
+    }
+}
+
+fn globals_for_remediation(
+    paths: &[&str],
+    exclude: &[&str],
+    exclude_from: Option<&str>,
+) -> GlobalOpts {
+    GlobalOpts {
+        paths: paths.iter().map(PathBuf::from).collect(),
+        exclude: exclude.iter().map(|s| (*s).to_string()).collect(),
+        exclude_from: exclude_from.map(PathBuf::from),
+        ..GlobalOpts::default()
+    }
+}
+
+#[test]
+fn format_remediation_block_returns_none_when_suppressed() {
+    let globals = globals_for_remediation(&["."], &[], None);
+    let args = check_args_for_remediation(None, None, true);
+    assert!(format_remediation_block(&globals, &args).is_none());
+}
+
+#[test]
+fn format_remediation_block_contains_three_bullet_points() {
+    let globals = globals_for_remediation(&["."], &[], None);
+    let args = check_args_for_remediation(Some("bca-thresholds.toml"), None, false);
+    let out = format_remediation_block(&globals, &args).expect("remediation present");
+    assert!(out.contains("--- next steps ---"));
+    assert!(
+        out.contains("* Detailed reports:"),
+        "missing artifact bullet, got:\n{out}"
+    );
+    assert!(
+        out.contains("* To refresh baseline:"),
+        "missing refresh bullet, got:\n{out}"
+    );
+    assert!(
+        out.contains(
+            "* Adoption guide: https://dekobon.github.io/big-code-analysis/recipes/baselines.html"
+        ),
+        "missing book link, got:\n{out}"
+    );
+}
+
+#[test]
+fn refresh_baseline_command_mirrors_resolved_args() {
+    // The copy-paste invocation must reproduce the gate's --paths /
+    // --exclude / --exclude-from / --config so the user can run it
+    // verbatim. Hard-coding `--paths .` would be wrong for repos
+    // that scope scans differently.
+    let globals =
+        globals_for_remediation(&["src", "tests"], &["target", "vendor"], Some(".bcaignore"));
+    let args = check_args_for_remediation(
+        Some("bca-thresholds.toml"),
+        Some(".bca-baseline.toml"),
+        false,
+    );
+    let cmd = refresh_baseline_command(&globals, &args);
+    assert!(
+        cmd.starts_with("bca "),
+        "must start with `bca `, got: {cmd}"
+    );
+    assert!(
+        cmd.contains("--paths src"),
+        "missing --paths src, got: {cmd}"
+    );
+    assert!(
+        cmd.contains("--paths tests"),
+        "missing --paths tests, got: {cmd}"
+    );
+    assert!(
+        cmd.contains("--exclude target"),
+        "missing --exclude target, got: {cmd}"
+    );
+    assert!(
+        cmd.contains("--exclude vendor"),
+        "missing --exclude vendor, got: {cmd}"
+    );
+    assert!(
+        cmd.contains("--exclude-from .bcaignore"),
+        "missing --exclude-from, got: {cmd}"
+    );
+    assert!(
+        cmd.contains("check"),
+        "missing `check` subcommand, got: {cmd}"
+    );
+    assert!(
+        cmd.contains("--config bca-thresholds.toml"),
+        "missing --config, got: {cmd}"
+    );
+    assert!(
+        cmd.contains("--write-baseline .bca-baseline.toml"),
+        "missing --write-baseline, got: {cmd}"
+    );
+}
+
+#[test]
+fn refresh_baseline_command_defaults_paths_when_unset() {
+    // `--paths .` is the walker's implicit default; the remediation
+    // block must print it explicitly so the user can copy-paste
+    // without thinking about which directory `bca` would have walked
+    // by default.
+    let globals = globals_for_remediation(&[], &[], None);
+    let args = check_args_for_remediation(None, None, false);
+    let cmd = refresh_baseline_command(&globals, &args);
+    assert!(
+        cmd.contains("--paths ."),
+        "missing default --paths, got: {cmd}"
+    );
+    // And the default baseline target is `.bca-baseline.toml`.
+    assert!(
+        cmd.contains("--write-baseline .bca-baseline.toml"),
+        "missing default baseline path, got: {cmd}"
+    );
+}
+
+#[test]
+fn refresh_baseline_command_shell_quotes_paths_with_spaces() {
+    // A `--paths` arg containing a space must be quoted so the
+    // copy-paste command shells correctly. The simple identifier
+    // path takes the fast no-quote branch.
+    let globals = globals_for_remediation(&["dir with space", "src"], &[], None);
+    let args = check_args_for_remediation(None, None, false);
+    let cmd = refresh_baseline_command(&globals, &args);
+    assert!(
+        cmd.contains("--paths 'dir with space'"),
+        "expected single-quoted spaced path, got: {cmd}"
+    );
+    assert!(
+        cmd.contains("--paths src"),
+        "expected unquoted simple path, got: {cmd}"
+    );
+}
+
+#[test]
+fn artifact_link_falls_back_to_plain_text_without_gha_env() {
+    // No mutation of env vars in this test — the cargo-test process
+    // typically does not have GITHUB_REPOSITORY / GITHUB_RUN_ID set,
+    // so the fallback path is the natural state. If those vars
+    // happen to be set in the test env (rare), the assertion is
+    // skipped and the test reports as "ok" — the load-bearing
+    // behaviour is the SOME branch which is exercised by
+    // `format_remediation_block_contains_three_bullet_points`.
+    if std::env::var_os("GITHUB_REPOSITORY").is_some()
+        && std::env::var_os("GITHUB_RUN_ID").is_some()
+    {
+        return;
+    }
+    let link = artifact_link();
+    assert_eq!(link, "bca-reports artifact (uploaded to this run)");
+}

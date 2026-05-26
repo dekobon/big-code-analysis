@@ -4,7 +4,7 @@
 .SH NAME
 bca\-check \- Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed"
 .SH SYNOPSIS
-\fBbca\-check\fR [\fB\-\-threshold\fR] [\fB\-\-config\fR] [\fB\-\-no\-fail\fR] [\fB\-\-no\-suppress\fR] [\fB\-O\fR|\fB\-\-output\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-baseline\fR] [\fB\-\-write\-baseline\fR] [\fB\-\-no\-summary\fR] [\fB\-\-since\fR] [\fB\-\-changed\-only\fR] [\fB\-\-github\-annotations\fR] [\fB\-\-summary\-file\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+\fBbca\-check\fR [\fB\-\-threshold\fR] [\fB\-\-config\fR] [\fB\-\-no\-fail\fR] [\fB\-\-no\-suppress\fR] [\fB\-O\fR|\fB\-\-output\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-baseline\fR] [\fB\-\-write\-baseline\fR] [\fB\-\-no\-summary\fR] [\fB\-\-since\fR] [\fB\-\-changed\-only\fR] [\fB\-\-github\-annotations\fR] [\fB\-\-summary\-file\fR] [\fB\-\-no\-remediation\fR] [\fB\-h\fR|\fB\-\-help\fR] 
 .SH DESCRIPTION
 Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed"
 .SH OPTIONS
@@ -65,6 +65,9 @@ Emit GitHub Actions `::error file=…,line=…,title=…::msg` workflow commands
 .TP
 \fB\-\-summary\-file\fR \fI<SUMMARY_FILE>\fR
 File path to append a markdown digest of the violations to — per\-file rollup table, per\-metric breakdown, and top\-N offenders by `value / limit` ratio. Mirrors the format `bca report markdown` produces so a reader skimming the GHA step\-summary panel sees a familiar table layout. When this flag is omitted, auto\-detect via `$GITHUB_STEP_SUMMARY`. The block is bracketed by HTML\-comment markers so a retried step replaces (not stacks) the previous digest
+.TP
+\fB\-\-no\-remediation\fR
+Suppress the trailing "\-\-\- next steps \-\-\-" remediation block that names the artifact, prints a copy\-paste\-safe `\-\-write\-baseline` refresh invocation, and links to the Baselines recipe. By default the block is emitted on failure (and in `$GITHUB_STEP_SUMMARY` when present) so a first\-time reader of a failing CI log can see what to do next without leaving the page
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help (see a summary with \*(Aq\-h\*(Aq)
