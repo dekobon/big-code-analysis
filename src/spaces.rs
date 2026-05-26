@@ -942,12 +942,12 @@ pub fn metrics_with_options<'a, T: ParserTrait>(
 
 // Per-node metric dispatch. Each `compute` call is paired with a bit
 // check against the caller's selection. The bit tests are cheap
-// (single AND-and-compare on a u16) and an unselected metric saves
-// both the call overhead and any per-node text-slice / token-table
-// work the metric does internally — Halstead in particular owns
-// `HalsteadMaps` allocations and is the headline cost saving for
-// `with_only(&[Metric::Loc])`. Extracted from `metrics_inner` so the
-// walker stays under clippy's 100-line ceiling.
+// (single AND-and-compare on the `MetricSet` bitfield) and an
+// unselected metric saves both the call overhead and any per-node
+// text-slice / token-table work the metric does internally — Halstead
+// in particular owns `HalsteadMaps` allocations and is the headline
+// cost saving for `with_only(&[Metric::Loc])`. Extracted from
+// `metrics_inner` so the walker stays under clippy's 100-line ceiling.
 #[inline]
 fn compute_per_node<'a, T: ParserTrait>(
     state: &mut State<'a>,
