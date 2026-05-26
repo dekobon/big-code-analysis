@@ -77,6 +77,16 @@ for historical reference.
   downstream `post-publish verify` job matches without `./` prefix
   gymnastics. Fixes
   [#351](https://github.com/dekobon/big-code-analysis/issues/351).
+- `release.yml` `run:` blocks now use `set -euo pipefail` instead of
+  `set -eu`, so a producer failure mid-pipe no longer silently masks
+  as success. The canonical risk was the SHA256SUMS producer
+  (`find … | sort -z | xargs -0 sha256sum > SHA256SUMS`), where a
+  pre-`xargs` failure would have left an empty checksum file that the
+  signing step would then attest. The `llvm-objcopy --version | head`
+  call and the four `curl … | grep -q` crates.io index lookups are
+  rewritten to capture-then-match so `pipefail` cannot flip them to
+  the wrong branch on producer SIGPIPE. Fixes
+  [#363](https://github.com/dekobon/big-code-analysis/issues/363).
 
 ## [1.1.0] - 2026-05-25
 
