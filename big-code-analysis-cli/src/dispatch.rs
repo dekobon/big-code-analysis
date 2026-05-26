@@ -20,7 +20,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use big_code_analysis::{LANG, ParserTrait};
 #[allow(deprecated)]
 use big_code_analysis::get_function_spaces_with_options;
 use big_code_analysis::{
@@ -28,6 +27,7 @@ use big_code_analysis::{
     Metrics, MetricsCfg, OpsCfg, OpsCode, PreprocParser, PreprocResults, action, get_ops,
     guess_language, is_generated, preprocess, read_file_with_eol,
 };
+use big_code_analysis::{LANG, ParserTrait};
 
 use crate::formats::{MetricsDispatch, MetricsFormat, dump_csv};
 use crate::markdown_report::extract_summaries;
@@ -288,7 +288,13 @@ fn dispatch_report(
             return Ok(());
         };
         let mut summaries = Vec::new();
-        extract_summaries(&space, file_str, language, &cfg.strip_prefix, &mut summaries);
+        extract_summaries(
+            &space,
+            file_str,
+            language,
+            &cfg.strip_prefix,
+            &mut summaries,
+        );
         let Ok(sender) = tx.lock() else {
             if cfg.warning {
                 eprintln!(

@@ -65,7 +65,6 @@ fn run_check(globals: GlobalOpts, args: CheckArgs, preproc: Option<Arc<PreprocRe
     }
 }
 
-
 /// Validate `--output` / `--output-format` pairing, merge the
 /// `--config` and `--threshold` flag inputs, and build the
 /// `ThresholdSet`. Dies if no thresholds were configured. Returns
@@ -149,8 +148,8 @@ fn run_check_walk(
 fn write_check_baseline(violations: Vec<Violation>, path: &Path) {
     let file = baseline::from_violations(violations);
     let entry_count = file.entries.len();
-    let text = baseline::render(&file)
-        .unwrap_or_else(|e| die(format_args!("serialize baseline: {e}")));
+    let text =
+        baseline::render(&file).unwrap_or_else(|e| die(format_args!("serialize baseline: {e}")));
     write_atomic(path, text.as_bytes()).unwrap_or_else(|e| die_io("write baseline", path, e));
     eprintln!(
         "bca: wrote {entry_count} baseline entries to {}",
@@ -357,7 +356,6 @@ pub fn run() {
     }
 }
 
-
 /// Parse the CLI from `std::env::args_os`, emitting a legacy-CLI
 /// migration hint to stderr when the failure looks like it came from
 /// the pre-restructure flag shape (`-d` instead of `dump`, `-O
@@ -456,11 +454,7 @@ fn run_command_ops(
     run_walk(globals, cfg);
 }
 
-fn run_command_report(
-    globals: GlobalOpts,
-    args: ReportArgs,
-    preproc: Option<Arc<PreprocResults>>,
-) {
+fn run_command_report(globals: GlobalOpts, args: ReportArgs, preproc: Option<Arc<PreprocResults>>) {
     if let Some(ref output) = args.output {
         if output.exists() && output.is_dir() {
             die("--output must be a file path for `report`");

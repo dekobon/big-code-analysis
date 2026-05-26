@@ -211,8 +211,8 @@ fn report_with_top_and_strip_prefix() {
 
 #[test]
 fn report_html_with_top_and_strip_prefix() {
-    let cli = parse(&["report", "html", "--top", "10", "--strip-prefix", "/x/"])
-        .expect("flags parse");
+    let cli =
+        parse(&["report", "html", "--top", "10", "--strip-prefix", "/x/"]).expect("flags parse");
     match cli.command {
         Command::Report(args) => {
             assert_eq!(args.format, ReportFormat::Html);

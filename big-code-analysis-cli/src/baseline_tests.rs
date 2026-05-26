@@ -8,13 +8,7 @@
 use super::*;
 use std::path::PathBuf;
 
-fn v(
-    path: &str,
-    function: &str,
-    start_line: usize,
-    metric: &'static str,
-    value: f64,
-) -> Violation {
+fn v(path: &str, function: &str, start_line: usize, metric: &'static str, value: f64) -> Violation {
     Violation {
         path: PathBuf::from(path),
         start_line,
@@ -83,7 +77,10 @@ fn parse_rejects_higher_version() {
 
 #[test]
 fn parse_rejects_missing_version() {
-    let err = parse("[[entry]]\npath=\"a\"\nfunction=\"f\"\nstart_line=1\nmetric=\"cyclomatic\"\nvalue=1.0\n").unwrap_err();
+    let err = parse(
+        "[[entry]]\npath=\"a\"\nfunction=\"f\"\nstart_line=1\nmetric=\"cyclomatic\"\nvalue=1.0\n",
+    )
+    .unwrap_err();
     assert!(err.contains("missing version field"), "msg: {err}");
 }
 
@@ -207,13 +204,7 @@ fn baseline_with(entries: Vec<BaselineEntry>) -> Baseline {
     Baseline::from_str(&text).expect("parse")
 }
 
-fn entry(
-    path: &str,
-    function: &str,
-    start_line: usize,
-    metric: &str,
-    value: f64,
-) -> BaselineEntry {
+fn entry(path: &str, function: &str, start_line: usize, metric: &str, value: f64) -> BaselineEntry {
     BaselineEntry {
         path: path.to_string(),
         function: function.to_string(),

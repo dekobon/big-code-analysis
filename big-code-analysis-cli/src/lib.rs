@@ -492,7 +492,6 @@ fn mk_globset(elems: Vec<String>) -> Result<GlobSet, String> {
         .map_err(|err| format!("failed to build glob set: {err}"))
 }
 
-
 fn process_dir_path(all_files: &mut HashMap<String, Vec<PathBuf>>, path: &Path, cfg: &Config) {
     if !matches!(cfg.action, Action::PreprocProduce) {
         return;

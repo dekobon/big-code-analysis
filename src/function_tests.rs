@@ -149,7 +149,10 @@ fn dump_span_ansi_layout_non_error_branch() {
     // the gap-must-contain-escape check.
     let out = dump_span_ansi(make_span("hello", 1, 5), false);
 
-    assert!(out.starts_with("\x1b["), "must begin with a color escape: {out:?}");
+    assert!(
+        out.starts_with("\x1b["),
+        "must begin with a color escape: {out:?}"
+    );
     assert!(out.ends_with("5.\n"), "trailing newline missing: {out:?}");
     assert_segments_in_order(
         &out,
@@ -171,7 +174,10 @@ fn dump_span_ansi_layout_error_branch() {
     };
     let out = dump_span_ansi(span, true);
 
-    assert!(out.starts_with("\x1b["), "must begin with a color escape: {out:?}");
+    assert!(
+        out.starts_with("\x1b["),
+        "must begin with a color escape: {out:?}"
+    );
     assert!(out.ends_with("8.\n"), "trailing newline missing: {out:?}");
     assert!(
         !out.contains("should-not-appear"),
