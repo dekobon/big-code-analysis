@@ -17,12 +17,13 @@ The repository is a Cargo workspace:
 | `big-code-analysis-cli` | `big-code-analysis-cli/` | CLI for invoking the library on files / trees |
 | `big-code-analysis-py` | `big-code-analysis-py/` (excluded from default-members; needs Python headers + maturin) | PyO3 Python bindings |
 | `big-code-analysis-web` | `big-code-analysis-web/` | REST API server wrapping the library |
+| `xtask` | `xtask/` (excluded from default-members) | Build-time helper that renders man pages from the live clap definitions (see `man/`) |
 | `enums` | `enums/` (excluded from default workspace) | Code-generation helper for language enums |
 
 Vendored / path-dependent grammar crates also live in the repo:
 `tree-sitter-ccomment`, `tree-sitter-mozcpp`, `tree-sitter-mozjs`,
-`tree-sitter-preproc`. External grammar crates are pinned with `=X.Y.Z`
-versions in the root `Cargo.toml`.
+`tree-sitter-preproc`, `tree-sitter-tcl`. External grammar crates are
+pinned with `=X.Y.Z` versions in the root `Cargo.toml`.
 
 The default branch is **`main`**.
 
@@ -39,9 +40,10 @@ and `cargo run -p big-code-analysis-web --`.
   `src/macros.rs`, and `src/c_macro.rs` generate the shared structure. A
   bug in one language module typically exists in several — fix all
   affected siblings together.
-- `src/metrics/` — individual metric implementations: `cognitive.rs`,
-  `cyclomatic.rs`, `halstead.rs`, `loc.rs`, `mi.rs`, `nargs.rs`, `nom.rs`,
-  `npa.rs`, `npm.rs`, `abc.rs`, `exit.rs`, `wmc.rs`.
+- `src/metrics/` — individual metric implementations: `abc.rs`,
+  `cognitive.rs`, `cyclomatic.rs`, `exit.rs`, `halstead.rs`, `loc.rs`,
+  `mi.rs`, `nargs.rs`, `nom.rs`, `npa.rs`, `npm.rs`, `tokens.rs`,
+  `wmc.rs`.
 - `src/output/` — JSON / YAML / TOML / CBOR serializers for metric output.
 - `src/parser.rs`, `src/node.rs`, `src/spaces.rs`, `src/checker.rs`,
   `src/getter.rs`, `src/alterator.rs`, `src/traits.rs` — core AST plumbing.

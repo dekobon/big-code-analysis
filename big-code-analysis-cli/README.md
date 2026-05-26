@@ -28,9 +28,10 @@ file, with command-specific options as needed.
 
 | Command | Purpose |
 | --- | --- |
-| `metrics` | Per-file metric output (`-O json/yaml/toml/cbor`, `-o DIR`). |
+| `metrics` | Per-file metric output (`-O cbor/csv/json/toml/yaml`, `-o DIR`). |
 | `ops` | Per-file operand/operator output (same formats as `metrics`). |
-| `report <FORMAT>` | Aggregated report. `markdown` today; `html` reserved. |
+| `report <FORMAT>` | Aggregated report (`markdown` or `html`). |
+| `check` | Check per-function metrics against thresholds; exits 2 on threshold violations. |
 | `dump` | AST dump to stdout. |
 | `find <NODE>...` | Find nodes of one or more types. |
 | `count <NODE>...` | Count nodes of one or more types. |

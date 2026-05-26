@@ -23,7 +23,7 @@ This tool can be used to:
 - Call **big-code-analysis** API
 - Print nodes and metrics information
 - Export metrics in different formats
-- Generate a Markdown quality-metrics report (`-O markdown`)
+- Generate a Markdown or HTML quality-metrics report (`bca report markdown` / `bca report html`)
 
 In addition, we provide a **bca-web** tool to use the library through a REST API.
 
