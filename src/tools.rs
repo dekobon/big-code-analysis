@@ -645,7 +645,7 @@ fn min_distance_candidates(possibilities: &[PathBuf], current_path: &Path) -> Ve
 }
 
 // Accept `&mut dyn WriteColor` rather than `&mut StandardStreamLock` so
-// tests (e.g. `function::dump_span`) can substitute `termcolor::NoColor`
+// tests (e.g. `function::dump_spans`) can substitute `termcolor::NoColor`
 // over a `Vec<u8>` to capture the rendered bytes. Production callers
 // continue to pass `&mut StandardStreamLock`, which unsized-coerces to
 // the trait object at the call site.

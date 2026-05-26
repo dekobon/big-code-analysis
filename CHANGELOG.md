@@ -18,20 +18,17 @@ why no value stability is offered until `1.0`. Entries above the
 
 ## [Unreleased]
 
-### Fixed
+### Added
 
-- Checkstyle output (`bca metrics --output-format checkstyle`) now
-  substitutes the XML 1.0 `Char`-illegal non-characters `U+FFFE` and
-  `U+FFFF` with `?` in attribute values, matching the existing
-  C0-control handling. Strict XML consumers (libxml2-based parsers,
-  Jenkins, SonarQube) previously rejected documents containing those
-  code points as fatal errors. Fixes
-  [#349](https://github.com/dekobon/big-code-analysis/issues/349).
-- `release.yml` `Compute SHA256SUMS` step now records bare basenames
-  via `find -printf '%f\0'` instead of `./`-prefixed paths, so the
-  downstream `post-publish verify` job matches without `./` prefix
-  gymnastics. Fixes
-  [#351](https://github.com/dekobon/big-code-analysis/issues/351).
+- `enums/tests/dispatch.rs` (new) pins every `Lang` variant to its
+  expected backing tree-sitter grammar crate via per-variant
+  integration tests for `get_language` and `get_language_name`,
+  catching the Cpp→mozcpp class of drift bug (fixed in
+  [#344](https://github.com/dekobon/big-code-analysis/issues/344))
+  at `cargo test` time rather than first-dispatch panic. The new
+  test suite runs under `make enums-check` (extended in this
+  release) so pre-commit and CI gate on it. Fixes
+  [#350](https://github.com/dekobon/big-code-analysis/issues/350).
 
 ### Changed
 
@@ -42,16 +39,27 @@ why no value stability is offered until `1.0`. Entries above the
   [#343](https://github.com/dekobon/big-code-analysis/issues/343)
   now assert on rendered output instead of `is_ok()`. Fixes
   [#352](https://github.com/dekobon/big-code-analysis/issues/352).
+- `make enums-check` now also runs `cargo test` on the
+  workspace-excluded `enums` crate so the new dispatch tests
+  (and any future tests) execute in pre-commit and CI rather than
+  being compile-only.
 
-### Tests
+### Fixed
 
-- `enums/tests/dispatch.rs` (new) pins every `Lang` variant to its
-  expected backing tree-sitter grammar crate via per-variant
-  integration tests for `get_language` and `get_language_name`,
-  catching the Cpp→mozcpp class of drift bug (fixed in
-  [#344](https://github.com/dekobon/big-code-analysis/issues/344))
-  at test time rather than first-dispatch panic. Fixes
-  [#350](https://github.com/dekobon/big-code-analysis/issues/350).
+- Checkstyle output (`bca metrics --output-format checkstyle`) now
+  substitutes plane-end Unicode non-characters (`U+FFFE`, `U+FFFF`,
+  and every supplementary-plane counterpart `U+nFFFE` / `U+nFFFF`
+  for plane `n` in `1..=16`) with `?` in attribute values, matching
+  the existing C0-control handling. The BMP pair is forbidden by
+  XML 1.0 §2.2's `Char` production; the 32 supplementary-plane
+  non-characters are permitted by the spec but rejected by strict
+  libxml2-based consumers (Jenkins, SonarQube). Fixes
+  [#349](https://github.com/dekobon/big-code-analysis/issues/349).
+- `release.yml` `Compute SHA256SUMS` step now records bare basenames
+  via `find -printf '%f\0'` instead of `./`-prefixed paths, so the
+  downstream `post-publish verify` job matches without `./` prefix
+  gymnastics. Fixes
+  [#351](https://github.com/dekobon/big-code-analysis/issues/351).
 
 ## [1.1.0] - 2026-05-25
 
