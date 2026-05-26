@@ -2190,6 +2190,26 @@ fn csharp_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
     }
 }
 
+// Counts a single boolean-context condition expression for
+// tree-sitter-c-sharp. Mirrors `groovy_count_condition`: the C#
+// grammar inlines `(` / `)` as anonymous token children of
+// `if_statement` / `while_statement` / `do_statement` (and the
+// `conditional_expression` ternary leaves its condition bare at
+// child(0)) rather than wrapping the condition in a
+// `parenthesized_expression`, so a bare identifier / boolean
+// literal / call contributes one condition directly. Parenthesised
+// and `!`-prefixed unary containers delegate to
+// `csharp_inspect_container`, which seeds
+// `has_boolean_content = true` from the known-boolean parent
+// (if/while/do/conditional). Binary / comparison expressions are
+// counted elsewhere via the `AMPAMP` / `PIPEPIPE` / `GT` / `LT` /
+// `EQEQ` token arms. See issue #370.
+//
+// `if/while` route here from child(2), `do-while` from child(4),
+// and the ternary's condition slot from child(0) — the C# grammar
+// reverses Java's `parenthesized_expression` wrapper convention, so
+// the index differs across the call sites but the kind-classifier
+// is the same.
 fn csharp_count_condition(condition: &Node, conditions: &mut f64) {
     use Csharp::*;
     let kind = condition.kind_id().into();
@@ -3564,7 +3584,6 @@ mod tests {
             },
         );
     }
-
 
     #[test]
     fn csharp_if_double_parenthesized_condition() {
