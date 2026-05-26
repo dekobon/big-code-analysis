@@ -142,9 +142,18 @@ impl Callback for Function {
     type Cfg = FunctionCfg;
 
     fn call<T: ParserTrait>(cfg: Self::Cfg, parser: &T) -> Self::Res {
+        // Skip the stdout lock entirely when the parser produced no
+        // function spans (the common case for config / data files in
+        // a whole-repo run). `dump_spans` still self-guards for the
+        // same case so it can be called from tests that pass an
+        // empty Vec directly.
+        let spans = function(parser);
+        if spans.is_empty() {
+            return Ok(());
+        }
         let stdout = StandardStream::stdout(ColorChoice::Always);
         let mut stdout = stdout.lock();
-        dump_spans(function(parser), &cfg.path, &mut stdout)
+        dump_spans(spans, &cfg.path, &mut stdout)
     }
 }
 
