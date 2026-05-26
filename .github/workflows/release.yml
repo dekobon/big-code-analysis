@@ -1122,10 +1122,25 @@ jobs:
       - name: Generate CycloneDX SBOMs
         run: |
           set -euo pipefail
+          # SBOM copies must hold the same no-collision invariant as the
+          # flatten step above. The current SBOM basenames are
+          # collision-free with `incoming/` artefacts by construction,
+          # but a future rename or a new build artefact sharing one of
+          # those basenames would silently overwrite the flattened
+          # release file. Fail loudly instead of letting `cp` clobber.
+          # See issue #367.
+          cp_no_clobber() {
+            local src="$1" dst="$2"
+            if [ -e "$dst" ]; then
+              echo "::error::SBOM cp collision: $src overlaps $dst"
+              exit 1
+            fi
+            cp "$src" "$dst"
+          }
           cargo cyclonedx --format json --all --describe crate --spec-version 1.5
-          cp big-code-analysis.cdx.json release/
-          cp big-code-analysis-cli/big-code-analysis-cli.cdx.json release/
-          cp big-code-analysis-web/big-code-analysis-web.cdx.json release/
+          cp_no_clobber big-code-analysis.cdx.json release/big-code-analysis.cdx.json
+          cp_no_clobber big-code-analysis-cli/big-code-analysis-cli.cdx.json release/big-code-analysis-cli.cdx.json
+          cp_no_clobber big-code-analysis-web/big-code-analysis-web.cdx.json release/big-code-analysis-web.cdx.json
 
       - name: Compute SHA256SUMS
         working-directory: release
