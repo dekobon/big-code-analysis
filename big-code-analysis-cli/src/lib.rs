@@ -1113,9 +1113,43 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     })
 }
 
-/// Drive the `check` subcommand: build the threshold set, walk the
-/// source tree, drain violations, and exit 0 / 2 per the contract.
+/// Drive the `check` subcommand as a five-stage pipeline:
+/// validate args + build thresholds → walk + sort → maybe write a
+/// baseline → filter against a loaded baseline → emit results and
+/// exit. Each stage is its own helper so the control flow reads
+/// top-down without nested decisions about which arm fires when.
 fn run_check(globals: GlobalOpts, args: CheckArgs, preproc: Option<Arc<PreprocResults>>) {
+    let set = validate_and_build_thresholds(&args);
+    let (violations, files_dispatched) = run_check_walk(globals, &args, preproc, set);
+
+    if files_dispatched.load(Ordering::Relaxed) == 0 {
+        // No files survived `--paths` expansion + `--include`/`--exclude`
+        // filtering. Treat this as a tool error (exit 1), not a clean
+        // pass (exit 0): a typo in `--paths` would otherwise silently
+        // green-light CI.
+        die("bca check: no input files matched; check --paths, --include, --exclude");
+    }
+
+    if let Some(path) = args.write_baseline.as_deref() {
+        write_check_baseline(violations, path);
+        return;
+    }
+
+    let pairs = filter_by_baseline(violations, args.baseline.as_deref());
+    let any_violations = emit_check_results(pairs, &args);
+
+    if any_violations && !args.no_fail {
+        process::exit(2);
+    }
+}
+
+
+/// Validate `--output` / `--output-format` pairing, merge the
+/// `--config` and `--threshold` flag inputs, and build the
+/// `ThresholdSet`. Dies if no thresholds were configured. Returns
+/// the set wrapped in `Arc` so it can be cloned into each walker
+/// worker's `Config`.
+fn validate_and_build_thresholds(args: &CheckArgs) -> Arc<ThresholdSet> {
     // Validate --output / --output-format pairing before the walk so
     // a misconfigured invocation fails fast instead of after a full
     // parse. `--output` without `--output-format` is silently ignored
@@ -1139,33 +1173,38 @@ fn run_check(globals: GlobalOpts, args: CheckArgs, preproc: Option<Arc<PreprocRe
         .map(load_threshold_config)
         .unwrap_or_default();
     // CLI flags override config values for the same metric name.
-    for (name, limit) in args.thresholds {
-        merged.insert(name, limit);
+    for (name, limit) in &args.thresholds {
+        merged.insert(name.clone(), *limit);
     }
     let set = ThresholdSet::build(&merged).unwrap_or_else(|e| die(e));
     if set.is_empty() {
         die("no thresholds configured; pass --threshold or --config");
     }
-    let set = Arc::new(set);
+    Arc::new(set)
+}
 
+/// Run the parallel walker with a check-flavoured `Config`, collect
+/// every emitted `Violation`, and sort them by `(path, start_line,
+/// metric)` so CI diff tooling sees identical output across runs over
+/// the same tree. Returns the sorted vector plus the
+/// `files_dispatched` counter so the caller can detect the "no inputs
+/// matched" case.
+fn run_check_walk(
+    globals: GlobalOpts,
+    args: &CheckArgs,
+    preproc: Option<Arc<PreprocResults>>,
+    set: Arc<ThresholdSet>,
+) -> (Vec<Violation>, Arc<AtomicUsize>) {
     let (tx, rx) = std::sync::mpsc::channel();
     let files_dispatched = Arc::new(AtomicUsize::new(0));
     let cfg = Config {
-        threshold_set: Some(Arc::clone(&set)),
+        threshold_set: Some(set),
         check_tx: Some(Mutex::new(tx)),
         files_dispatched: Some(Arc::clone(&files_dispatched)),
         suppression_policy: SuppressionPolicy::from_no_suppress(args.no_suppress),
         ..Config::new(Action::Check, &globals, preproc)
     };
     run_walk(globals, cfg);
-
-    if files_dispatched.load(Ordering::Relaxed) == 0 {
-        // No files survived `--paths` expansion + `--include`/`--exclude`
-        // filtering. Treat this as a tool error (exit 1), not a clean
-        // pass (exit 0): a typo in `--paths` would otherwise silently
-        // green-light CI.
-        die("bca check: no input files matched; check --paths, --include, --exclude");
-    }
 
     // Workers have all joined by the time `run_walk` returns, so the
     // sender side is dropped and `rx.into_iter()` terminates cleanly.
@@ -1180,43 +1219,56 @@ fn run_check(globals: GlobalOpts, args: CheckArgs, preproc: Option<Arc<PreprocRe
             .then(a.metric.cmp(b.metric))
     });
 
-    if let Some(path) = args.write_baseline {
-        let file = baseline::from_violations(violations);
-        let entry_count = file.entries.len();
-        let text = baseline::render(&file)
-            .unwrap_or_else(|e| die(format_args!("serialize baseline: {e}")));
-        write_atomic(&path, text.as_bytes()).unwrap_or_else(|e| die_io("write baseline", &path, e));
-        eprintln!(
-            "bca: wrote {entry_count} baseline entries to {}",
-            path.display()
-        );
-        return;
-    }
+    (violations, files_dispatched)
+}
 
-    // Classify each violation against the baseline (when present).
-    // The kept list carries `(Violation, Option<Coverage>)` so the
-    // stderr renderer can attach a `[new]` / `[regr +N%]` tag.
-    // Without `--baseline`, `Option<Coverage>` is `None` and the
-    // renderer emits the exact pre-tag line format byte-identically.
-    let pairs: Vec<(Violation, Option<Coverage>)> = if let Some(path) = args.baseline.as_deref() {
-        let baseline = load_baseline(path);
-        let before = violations.len();
-        let kept: Vec<_> = violations
-            .into_iter()
-            .filter_map(|v| match baseline.classify(&v) {
-                Coverage::Covered { .. } => None,
-                c => Some((v, Some(c))),
-            })
-            .collect();
-        let filtered = before - kept.len();
-        if filtered > 0 {
-            eprintln!("bca: filtered {filtered} violations via baseline");
-        }
-        kept
-    } else {
-        violations.into_iter().map(|v| (v, None)).collect()
+/// Serialize and write the collected violations as a baseline TOML
+/// file. Used by the `--write-baseline` early-exit branch.
+fn write_check_baseline(violations: Vec<Violation>, path: &Path) {
+    let file = baseline::from_violations(violations);
+    let entry_count = file.entries.len();
+    let text = baseline::render(&file)
+        .unwrap_or_else(|e| die(format_args!("serialize baseline: {e}")));
+    write_atomic(path, text.as_bytes()).unwrap_or_else(|e| die_io("write baseline", path, e));
+    eprintln!(
+        "bca: wrote {entry_count} baseline entries to {}",
+        path.display()
+    );
+}
+
+/// Classify each violation against the optional `--baseline` file.
+/// The kept list carries `(Violation, Option<Coverage>)` so the
+/// stderr renderer can attach a `[new]` / `[regr +N%]` tag. Without
+/// `--baseline`, `Option<Coverage>` is `None` and the renderer emits
+/// the exact pre-tag line format byte-identically.
+fn filter_by_baseline(
+    violations: Vec<Violation>,
+    baseline_path: Option<&Path>,
+) -> Vec<(Violation, Option<Coverage>)> {
+    let Some(path) = baseline_path else {
+        return violations.into_iter().map(|v| (v, None)).collect();
     };
+    let baseline = load_baseline(path);
+    let before = violations.len();
+    let kept: Vec<_> = violations
+        .into_iter()
+        .filter_map(|v| match baseline.classify(&v) {
+            Coverage::Covered { .. } => None,
+            c => Some((v, Some(c))),
+        })
+        .collect();
+    let filtered = before - kept.len();
+    if filtered > 0 {
+        eprintln!("bca: filtered {filtered} violations via baseline");
+    }
+    kept
+}
 
+/// Render the (optionally tagged) violations to stderr and, if
+/// `--output-format` is set, also emit the aggregated CI/IDE
+/// document. Returns `true` iff any violations were emitted, so the
+/// caller can decide the exit code without re-checking the pairs.
+fn emit_check_results(pairs: Vec<(Violation, Option<Coverage>)>, args: &CheckArgs) -> bool {
     // BrokenPipe on stderr (e.g. when piped to `head`) is the only
     // realistic write failure here; swallow it rather than die so the
     // exit-code contract is honored.
@@ -1232,7 +1284,7 @@ fn run_check(globals: GlobalOpts, args: CheckArgs, preproc: Option<Arc<PreprocRe
     // Emit the aggregated CI/IDE document if requested. Empty input
     // produces a well-formed but offender-free document, which CI
     // consumers can ingest unchanged on clean runs. The exit-code
-    // contract below is unaffected by this branch.
+    // contract is unaffected by this branch.
     let any_violations = !pairs.is_empty();
     if let Some(fmt) = args.output_format {
         let offenders: Vec<_> = pairs
@@ -1242,10 +1294,7 @@ fn run_check(globals: GlobalOpts, args: CheckArgs, preproc: Option<Arc<PreprocRe
         fmt.dump(&offenders, args.output.as_deref())
             .unwrap_or_else(|e| die(format_args!("failed to write {}: {e}", fmt.name())));
     }
-
-    if any_violations && !args.no_fail {
-        process::exit(2);
-    }
+    any_violations
 }
 
 /// Emit the per-file rollup footer to `stderr` after the per-violation
