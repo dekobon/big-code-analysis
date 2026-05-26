@@ -803,8 +803,8 @@ fn parse_output_format_value(args: &[String]) -> Option<&str> {
 }
 
 /// Scan `args` for `-O <offender>` / `--output-format <offender>` /
-/// `--output-format=<offender>` against the four moved formats (any
-/// variant of [`AggregatedFormat`]) and build a migration hint
+/// `--output-format=<offender>` against the moved offender formats
+/// (any variant of [`AggregatedFormat`]) and build a migration hint
 /// pointing at `bca check`. Returns `None` when no offender format
 /// is found, so the caller can fall through to clap's own error.
 fn offender_format_migration_hint(args: &[String]) -> Option<String> {
@@ -837,7 +837,7 @@ fn legacy_hint(argv: impl IntoIterator<Item = OsString>) -> Option<String> {
     // args that happen to look like old flags (e.g. `find --dump`
     // where the user intended `--dump` as a positional node-type
     // value). The one exception is `bca metrics|ops --output-format
-    // <offender>` — the four offender formats moved to `bca check`
+    // <offender>` — the offender formats moved to `bca check`
     // (issue #235) and the user still needs a one-line pointer at
     // the new home.
     if let Some(sub) = args.iter().find(|a| SUBCOMMANDS.contains(&a.as_str())) {

@@ -36,6 +36,7 @@
 //! that pipe through `jq` see a well-formed document even when no
 //! offenders triggered.
 
+use std::borrow::Cow;
 use std::fmt::Write as _;
 use std::io::{self, Write};
 
@@ -165,6 +166,10 @@ fn severity_band(metric: &str, value: f64, limit: f64, severity: Severity) -> &'
         Severity::Warning => "minor",
         Severity::Error => "major",
     };
+    // Filter ill-defined inputs BEFORE choosing the ratio direction:
+    // a future refactor that moves the metric-family check above this
+    // guard would let `mi.*` reach the inverted ratio with `value <=
+    // 0.0` and divide-by-zero. Keep the guards here.
     if !value.is_finite() || !limit.is_finite() || limit <= 0.0 || value <= 0.0 {
         return fallback();
     }
@@ -212,15 +217,16 @@ fn fingerprint(path: &str, function: Option<&str>, metric: &str) -> String {
     out
 }
 
-/// Normalize an OS-provided path string into GitLab's expected
-/// shape: forward slashes only (Windows runners emit `\\`), no
-/// leading `./` (GitLab docs forbid it). Returns `None` when the
-/// result is empty — caller skips the offender with a warning.
 fn normalize_path(raw: &str) -> Option<String> {
-    let with_forward = raw.replace('\\', "/");
-    let stripped = with_forward
-        .strip_prefix("./")
-        .map_or(with_forward.as_str(), |s| s);
+    // Avoid a transient String allocation on the no-backslash path
+    // (the typical Linux-CI case). The `replace` allocation only
+    // pays for itself when there's actually a backslash to swap.
+    let normalized: Cow<'_, str> = if raw.contains('\\') {
+        Cow::Owned(raw.replace('\\', "/"))
+    } else {
+        Cow::Borrowed(raw)
+    };
+    let stripped = normalized.strip_prefix("./").unwrap_or(&normalized);
     if stripped.is_empty() {
         None
     } else {
@@ -480,11 +486,21 @@ mod tests {
     }
 
     #[test]
-    fn fingerprint_preserves_leading_zero_bytes() {
-        // The byte-wise hex impl must produce "0X" for digest bytes < 0x10.
-        // We can't directly construct a digest that starts with 0x00, but
-        // we can assert that every fingerprint in a sample emits exactly
-        // 32 characters (which would not hold if leading zeros were dropped).
+    fn fingerprint_format_is_zero_padded_lowercase_hex() {
+        // The byte-wise `{:02x}` format must zero-pad every byte to
+        // two chars. A regression that swapped it for `{:x}` (or for
+        // a `format!("{:x}", u128)` rewrite) would silently drop
+        // leading zeros on digest bytes < 0x10, producing
+        // shorter-than-FINGERPRINT_HEX_LEN strings.
+        //
+        // We cannot manufacture an arbitrary SHA-256 digest in test,
+        // so the leading-zero invariant is checked indirectly via the
+        // fixed-width length assertion. The five sample inputs below
+        // are picked so that at least one of their SHA-256 digests
+        // starts with a low byte — verified empirically by mutation
+        // (a `{:02x}` → `{:x}` swap in `fingerprint` fails this test).
+        // Rotating the sample set without re-verifying may regress
+        // the invariant's coverage.
         let inputs = [
             ("a", "cyclomatic"),
             ("b", "cognitive"),
@@ -628,7 +644,14 @@ mod tests {
         let r = rec("a.rs", "cyclomatic", 17.0, 15.0);
         let mut buf = Vec::new();
         write_code_climate(&[r], &mut buf).expect("writing to Vec is infallible");
-        assert_eq!(buf[0], b'[', "first byte must be '[', not a BOM");
-        assert_ne!(buf[0], 0xEF, "no UTF-8 BOM allowed");
+        // GitLab's parser rejects a UTF-8 BOM (EF BB BF) at the start
+        // of the artifact, so check the full three-byte prefix rather
+        // than just the first byte — the latter would still admit a
+        // future regression that emits only the leading `EF`.
+        assert!(
+            !buf.starts_with(&[0xEF, 0xBB, 0xBF]),
+            "code-climate output must not start with a UTF-8 BOM"
+        );
+        assert_eq!(buf[0], b'[', "first byte must be the opening bracket");
     }
 }

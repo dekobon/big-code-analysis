@@ -148,7 +148,7 @@ fn check_accepts_checkstyle_output_format() {
 #[test]
 fn check_rejects_per_file_format_as_output_format() {
     // Per-file formats (json, csv, ...) live on `bca metrics`;
-    // `bca check` only accepts the four offender formats.
+    // `bca check` only accepts the offender formats.
     assert!(
         parse(&[
             "check",
