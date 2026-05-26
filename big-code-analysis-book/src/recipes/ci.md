@@ -341,16 +341,14 @@ strictly more precise and is the recommended approach.
 
 #### Self-scan threshold gate (local mirror of the CI gate)
 
-The big-code-analysis repository runs its own threshold gate as the
-[`bca self-scan`](https://github.com/dekobon/big-code-analysis/blob/main/.github/workflows/pages.yml)
-job. That job fires only after push, which is too late if a refactor
-silently nudged a metric past its limit. The repo's `Makefile`
-exposes two targets that mirror the gate locally — both are wired
-into `make pre-commit` and `make ci` and into
-`.pre-commit-config.yaml`, so they run before every commit. The
-hard tier reproduces the CI `Threshold gate` step exactly; the
-soft tier has no CI counterpart and is a local-only early-warning
-gate.
+CI's threshold gate fires only after push, which is too late if a
+refactor silently nudged a metric past its limit. The
+`big-code-analysis` repo's
+[`Makefile`](https://github.com/dekobon/big-code-analysis/blob/main/Makefile)
+exposes four targets that mirror the CI gate (the
+[`Threshold gate` step in `.github/workflows/pages.yml`](https://github.com/dekobon/big-code-analysis/blob/main/.github/workflows/pages.yml))
+locally and add a second tier at 95% of every limit so encroachment
+is caught a commit or two before the hard gate trips:
 
 ```bash
 make self-scan                            # hard gate, 100% of bca-thresholds.toml
@@ -359,7 +357,7 @@ make self-scan-write-baseline             # refresh baseline at hard thresholds
 make self-scan-write-baseline-headroom    # refresh baseline at soft thresholds
 ```
 
-The hard gate is the exact CI invocation:
+The hard tier is exactly what CI runs; expanded, it is:
 
 ```bash
 cargo run --quiet --release -p big-code-analysis-cli -- \
@@ -369,40 +367,32 @@ cargo run --quiet --release -p big-code-analysis-cli -- \
     --baseline .bca-baseline.toml
 ```
 
-The soft gate (`make self-scan-headroom`) scales every limit in
-`bca-thresholds.toml` by `BCA_HEADROOM` (default `0.95`) and runs
-the same baseline-ratcheted check. Existing offenders absorbed by
-`.bca-baseline.toml` stay quiet; only functions that have crept
-into the 95-100% band of a limit without being baselined fail it.
-That window gives a one-or-two-commit lead time:
+Both tiers consume the same `bca-thresholds.toml` and the same
+`.bca-baseline.toml`; the soft tier just runs the hard recipe
+with every threshold value multiplied by `BCA_HEADROOM`. Both
+exit `0` clean, `2` on any threshold violation, `1` on tool
+error — the soft tier is a real gate, not advisory, so do not
+wrap `make self-scan-headroom` in `|| true`. All four targets
+are wired into `make pre-commit`, `make ci`, and
+`.pre-commit-config.yaml`, with `self-scan-headroom: self-scan`
+as a Make prerequisite so the hard tier always reports a true
+regression before the soft tier reports near-limit headroom.
 
-- `BCA_HEADROOM=0.90 make self-scan-headroom` — widen the band
-  to see what's coming further out (fails on anything ≥ 90%).
-- `BCA_HEADROOM=0.99 make self-scan-headroom` — tighten to the
-  last 1% before the hard limit.
+`BCA_HEADROOM=0.90 make self-scan-headroom` widens the band;
+`BCA_HEADROOM=0.99` tightens it to the last 1%. When the soft
+tier fires, absorb the offender into the baseline with
+`make self-scan-write-baseline-headroom` (which records every
+offender at the scaled thresholds — strictly a superset of the
+hard-tier offenders).
 
-When the soft gate fires, decide explicitly:
-
-1. **Refactor** the offender below the soft line. Same workflow as
-   any other clippy / cyclomatic regression.
-2. **Raise the limit** in `bca-thresholds.toml` — leave a why-comment
-   above the bumped key, as already established in that file's
-   header. Re-run `make self-scan-headroom` to confirm the new
-   value covers the offender with room to spare.
-3. **Baseline the offender** with `make self-scan-write-baseline`
-   (hard tier) or `make self-scan-write-baseline-headroom` (soft
-   tier) when the value is legitimate (e.g. a parser dispatch arm
-   whose width matches the grammar it covers). Use the soft-tier
-   variant when launching the gate or after widening
-   `BCA_HEADROOM` — it records every offender at the scaled
-   thresholds, which is strictly a superset of the hard-tier
-   offenders. Commit the resulting diff in `.bca-baseline.toml`
-   in the same PR.
-
-The hard gate is non-negotiable. The soft gate is also a real
-gate (exit 2), so contributors cannot ignore the early warning —
-adjusting `BCA_HEADROOM` changes the soft tier without code
-changes. Both tiers consume the same `.bca-baseline.toml`.
+The pattern (hard tier mirroring CI + soft tier as early-warning
+band, both ratcheted by the same baseline) is project-agnostic —
+the [Local threshold gates recipe](local-gates.md) documents the
+underlying principles, drop-in Makefile / `just` / `package.json`
+skeletons, and the helper script that scales thresholds, so you
+can adopt the same workflow in your own repo. The generic recipe
+uses the same `BCA_*` env-var names as the Makefile above, so
+overrides like `BCA_HEADROOM=0.90` work identically across both.
 
 ## GitLab CI
 

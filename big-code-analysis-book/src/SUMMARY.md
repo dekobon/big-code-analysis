@@ -15,6 +15,7 @@
   - [Quality reports](recipes/quality-reports.md)
   - [CI integration](recipes/ci.md)
   - [Baselines](recipes/baselines.md)
+  - [Local threshold gates](recipes/local-gates.md)
   - [AST queries](recipes/ast-queries.md)
   - [Exporting metric data](recipes/exporting-data.md)
   - [Driving the REST API](recipes/rest-api.md)

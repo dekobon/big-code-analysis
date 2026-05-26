@@ -12,6 +12,10 @@ The recipes are grouped by goal:
 - [CI integration](ci.md) — wire `bca check` and `bca report` into
   GitHub Actions and GitLab CI, including the baseline / ratchet
   pattern and the Code Quality widget path.
+- [Local threshold gates](local-gates.md) — mirror the CI threshold
+  gate on a developer machine with a two-tier (hard + headroom)
+  Makefile / `just` / `pre-commit` pattern, so regressions never
+  reach the pull request.
 - [AST queries](ast-queries.md) — search for syntactic constructs,
   count node types, dump trees, and detect parse errors.
 - [Exporting metric data](exporting-data.md) — emit structured output
