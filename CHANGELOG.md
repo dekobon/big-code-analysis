@@ -23,6 +23,39 @@ for historical reference.
 
 ### Added
 
+- `bca check` actionable failure output (umbrella
+  [#356](https://github.com/dekobon/big-code-analysis/issues/356)
+  now complete):
+  - `--since <ref>` / `--changed-only` diff-aware mode: the
+    summary footer surfaces "Files in this range:" (offenders in
+    files touched between the diff base and `HEAD`) before the
+    legacy offender list; `--changed-only` drops out-of-range
+    rows entirely for terser PR-gate output. Auto-detects the
+    diff base from `BCA_DIFF_BASE`, `GITHUB_BASE_REF`, or
+    `GITHUB_EVENT_BEFORE` in that precedence. Pass
+    `-c core.quotePath=false` to git so non-ASCII filenames
+    survive the canonicalize roundtrip. Fixes
+    [#359](https://github.com/dekobon/big-code-analysis/issues/359).
+  - `--github-annotations` (auto-enabled when
+    `$GITHUB_ACTIONS == "true"`) emits `::error file=…,line=…,
+    title=…::msg` workflow commands so the GHA UI renders
+    inline annotations on the file-diff view. Capped at 10 per
+    metric with an overflow rollup line so a 400-violation run
+    cannot exhaust GitHub's 10-error-per-step UI quota. Fixes
+    [#360](https://github.com/dekobon/big-code-analysis/issues/360).
+  - `$GITHUB_STEP_SUMMARY` markdown digest (or
+    `--summary-file <path>`) — per-file rollup, per-metric
+    breakdown, top-10 offenders by ratio. Bracketed by
+    HTML-comment markers so a retried step replaces (not stacks)
+    the previous block. Fixes
+    [#361](https://github.com/dekobon/big-code-analysis/issues/361).
+  - Trailing `--- next steps ---` remediation block on stderr
+    (and inside the step-summary digest) names the artifact,
+    prints a copy-paste-safe `--write-baseline` refresh
+    invocation that mirrors the gate's resolved path filters,
+    and links to the Baselines recipe. Suppress with
+    `--no-remediation`. Fixes
+    [#362](https://github.com/dekobon/big-code-analysis/issues/362).
 - `bca check --output-format code-climate` (new) emits GitLab Code
   Climate JSON directly into the MR Code Quality widget, replacing
   the previous third-party Checkstyle→Code-Climate converter recipe.
