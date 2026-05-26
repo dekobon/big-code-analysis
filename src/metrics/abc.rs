@@ -440,11 +440,9 @@ fn csharp_inspect_container(container_node: &Node, conditions: &mut f64) {
         node_kind = node.kind_id().into();
 
         // Found the innermost operand; count it if a boolean context
-        // was established up the chain. The grammar wraps a bare
-        // `true` / `false` literal in a `boolean_literal` node
-        // (`BooleanLiteral`); the leaf `True` / `False` keyword
-        // tokens appear underneath that wrapper, so match the
-        // wrapper here. See issue #371.
+        // was established up the chain. `BooleanLiteral` is the
+        // grammar's named wrapper for `true` / `false` — see the
+        // doc comment on `csharp_count_condition` (issue #371).
         if matches!(
             node_kind,
             crate::Csharp::InvocationExpression
@@ -472,10 +470,9 @@ fn csharp_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             let node = cursor.node();
             let node_kind = node.kind_id().into();
 
-            // `BooleanLiteral` is the named wrapper the grammar
-            // emits for bare `true` / `false`; the leaf keyword
-            // tokens (`True` / `False`) appear underneath it, so
-            // match the wrapper here. See issue #371.
+            // `BooleanLiteral` is the grammar's named wrapper for
+            // `true` / `false` — see the doc comment on
+            // `csharp_count_condition` (issue #371).
             if matches!(
                 node_kind,
                 crate::Csharp::InvocationExpression
@@ -2216,14 +2213,15 @@ fn csharp_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
 // reverses Java's `parenthesized_expression` wrapper convention, so
 // the index differs across the call sites but the kind-classifier
 // is the same.
+//
+// The boolean-literal arm matches `BooleanLiteral` (the named
+// `boolean_literal` wrapper), not the leaf `True` / `False`
+// keyword tokens which only appear *underneath* that wrapper.
+// `csharp_inspect_container` and `csharp_count_unary_conditions`
+// follow the same convention. See issue #371.
 fn csharp_count_condition(condition: &Node, conditions: &mut f64) {
     use Csharp::*;
     let kind = condition.kind_id().into();
-    // `BooleanLiteral` is the named wrapper the grammar emits for a
-    // bare `true` / `false` condition (mirrors the existing arm in
-    // `csharp_walk_for_statement`). The leaf `True` / `False`
-    // keyword tokens appear *underneath* that wrapper, never as the
-    // direct condition. See issue #371.
     if matches!(kind, csharp_invocation_expr_kinds!())
         || matches!(kind, Identifier | BooleanLiteral)
     {

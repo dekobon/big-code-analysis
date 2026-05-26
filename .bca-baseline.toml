@@ -1430,7 +1430,7 @@ path = "./src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 7047.0
+value = 7045.0
 
 [[entry]]
 path = "./src/metrics/abc.rs"
@@ -1498,7 +1498,7 @@ value = 21.0
 [[entry]]
 path = "./src/metrics/abc.rs"
 function = "compute"
-start_line = 783
+start_line = 780
 metric = "cyclomatic"
 value = 15.0
 
