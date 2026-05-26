@@ -108,7 +108,17 @@ impl Baseline {
         }
         let mut by_key = HashMap::with_capacity(file.entries.len());
         for e in file.entries {
-            if !e.value.is_finite() {
+            // Skip non-finite and negative values. Non-finite is the
+            // pre-existing defense against hand-edited files (TOML's
+            // parser also rejects nan/inf). Negative is the same idea
+            // for the rendered-tag path: `format_regressed_tag` divides
+            // by `recorded` to compute `+N%`, and a negative `recorded`
+            // produces a double-signed `[regr +-N%]` tag. Metric
+            // extractors never emit negative values, so the only way
+            // an entry can be negative is hand-editing — silently
+            // drop and treat the entry as if missing (the violation
+            // will surface as `New`).
+            if !e.value.is_finite() || e.value < 0.0 {
                 continue;
             }
             by_key.insert(
@@ -124,19 +134,54 @@ impl Baseline {
         Ok(Self { by_key })
     }
 
-    /// `true` iff there's an entry for this violation's identity AND
-    /// the current value has not worsened past the recorded baseline.
-    pub(crate) fn covers(&self, v: &Violation) -> bool {
+    /// Classify a violation against the baseline. The three states
+    /// drive both the filter (`Covered` drops, `Regressed` / `New`
+    /// keep) and the stderr tag prefix in `run_check`. Keeping the
+    /// recorded value on the kept variant means the renderer can
+    /// compute the `+N%` regression magnitude without re-keying.
+    ///
+    /// NaN current values are classified as `Regressed` rather than
+    /// `Covered`: a NaN metric is degenerate (typically a Halstead
+    /// edge case on trivial functions) and falling through to the
+    /// `<=` arm would silently mark it covered because `NaN <= x` is
+    /// false. The explicit guard makes the intent obvious at the
+    /// call site, and the renderer keys off `value.is_nan()` to emit
+    /// `[regr NaN]` instead of dividing by `recorded`.
+    pub(crate) fn classify(&self, v: &Violation) -> Coverage {
         let key = Key {
             path: normalize_path(&v.path),
             function: v.function.clone(),
             start_line: v.start_line,
             metric: v.metric.to_string(),
         };
-        self.by_key
-            .get(&key)
-            .is_some_and(|&baseline| v.value <= baseline)
+        match self.by_key.get(&key) {
+            None => Coverage::New,
+            Some(&recorded) if v.value.is_nan() => Coverage::Regressed { recorded },
+            Some(&recorded) if v.value <= recorded => Coverage::Covered { recorded },
+            Some(&recorded) => Coverage::Regressed { recorded },
+        }
     }
+}
+
+/// Outcome of comparing a single violation against the loaded baseline.
+///
+/// `Covered` drops the violation from the kept set (the function has
+/// not worsened past its recorded value, and we're explicitly tolerating
+/// it as ratchet-down tech debt). `Regressed` and `New` keep the
+/// violation and carry enough information for the stderr renderer to
+/// prefix a `[regr +N%]` / `[new]` tag at emit time.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Coverage {
+    /// Baseline entry exists and current value has not worsened.
+    /// `recorded` is the value pinned in the baseline file.
+    Covered { recorded: f64 },
+    /// Baseline entry exists but the current value has worsened.
+    /// `recorded` is the prior value; the renderer subtracts to
+    /// compute the regression magnitude.
+    Regressed { recorded: f64 },
+    /// No baseline entry for this `(path, function, start_line, metric)`
+    /// tuple — the violation is new since the baseline was written.
+    New,
 }
 
 /// Build a `BaselineFile` from a list of violations. Skips entries
@@ -341,6 +386,7 @@ pub(crate) fn percent_encode_wtf16(units: impl IntoIterator<Item = u16>) -> Stri
 }
 
 #[cfg(test)]
+#[allow(clippy::float_cmp)] // Test asserts compare bit-exact baseline values.
 mod tests {
     use super::*;
     use std::path::PathBuf;
@@ -385,7 +431,28 @@ mod tests {
         let reloaded = parse(&rendered).expect("reload");
         assert_eq!(reloaded.by_key.len(), 2);
         let v_now = v("src/a.rs", "foo", 10, "cyclomatic", 5.0);
-        assert!(reloaded.covers(&v_now));
+        assert!(matches!(
+            reloaded.classify(&v_now),
+            Coverage::Covered { recorded } if recorded == 5.0
+        ));
+    }
+
+    #[test]
+    fn parse_drops_negative_values() {
+        // Hand-edited baselines with negative `value` entries are
+        // silently dropped, matching the non-finite defence above.
+        // The `from_str` filter prevents `format_regressed_tag` from
+        // emitting a double-signed `[regr +-N%]` tag for a corrupted
+        // baseline.
+        let toml = "version = 2\n[[entry]]\npath=\"a\"\nfunction=\"f\"\nstart_line=1\nmetric=\"cyclomatic\"\nvalue=-10.0\n";
+        let b = parse(toml).expect("parse");
+        assert_eq!(b.by_key.len(), 0);
+        // The corresponding violation classifies as `New`, not Covered
+        // or Regressed, because the entry was dropped at parse time.
+        assert!(matches!(
+            b.classify(&v("a", "f", 1, "cyclomatic", 5.0)),
+            Coverage::New
+        ));
     }
 
     #[test]
@@ -429,9 +496,9 @@ mod tests {
         .expect("parse");
         assert_eq!(b.by_key.len(), 1);
         // No violation will ever have metric = "imaginary" (it's not in
-        // the registry), so covers() always returns false for real input.
+        // the registry), so classify() always returns New for real input.
         let v_real = v("a", "f", 1, "cyclomatic", 1.0);
-        assert!(!b.covers(&v_real));
+        assert!(matches!(b.classify(&v_real), Coverage::New));
     }
 
     #[test]
@@ -540,53 +607,125 @@ mod tests {
     }
 
     #[test]
-    fn covers_at_exact_baseline() {
+    fn classify_at_exact_baseline_is_covered() {
         let b = baseline_with(vec![entry("a", "f", 1, "cyclomatic", 5.0)]);
-        assert!(b.covers(&v("a", "f", 1, "cyclomatic", 5.0)));
+        // Equality is covered, not regressed. This pins the `<=` boundary;
+        // a mutation flipping `<=` to `<` would classify this as Regressed.
+        assert!(matches!(
+            b.classify(&v("a", "f", 1, "cyclomatic", 5.0)),
+            Coverage::Covered { recorded } if recorded == 5.0
+        ));
     }
 
     #[test]
-    fn covers_below_baseline() {
+    fn classify_below_baseline_is_covered() {
         let b = baseline_with(vec![entry("a", "f", 1, "cyclomatic", 5.0)]);
-        assert!(b.covers(&v("a", "f", 1, "cyclomatic", 3.0)));
+        assert!(matches!(
+            b.classify(&v("a", "f", 1, "cyclomatic", 3.0)),
+            Coverage::Covered { recorded } if recorded == 5.0
+        ));
     }
 
     #[test]
-    fn covers_rejects_worsened() {
+    fn classify_worsened_is_regressed() {
         let b = baseline_with(vec![entry("a", "f", 1, "cyclomatic", 5.0)]);
-        assert!(!b.covers(&v("a", "f", 1, "cyclomatic", 6.0)));
+        assert!(matches!(
+            b.classify(&v("a", "f", 1, "cyclomatic", 6.0)),
+            Coverage::Regressed { recorded } if recorded == 5.0
+        ));
     }
 
     #[test]
-    fn covers_rejects_different_path() {
+    fn classify_different_path_is_new() {
         let b = baseline_with(vec![entry("a", "f", 1, "cyclomatic", 5.0)]);
-        assert!(!b.covers(&v("b", "f", 1, "cyclomatic", 5.0)));
+        assert!(matches!(
+            b.classify(&v("b", "f", 1, "cyclomatic", 5.0)),
+            Coverage::New
+        ));
     }
 
     #[test]
-    fn covers_rejects_different_function() {
+    fn classify_different_function_is_new() {
         let b = baseline_with(vec![entry("a", "f", 1, "cyclomatic", 5.0)]);
-        assert!(!b.covers(&v("a", "g", 1, "cyclomatic", 5.0)));
+        assert!(matches!(
+            b.classify(&v("a", "g", 1, "cyclomatic", 5.0)),
+            Coverage::New
+        ));
     }
 
     #[test]
-    fn covers_rejects_different_start_line() {
+    fn classify_different_start_line_is_new() {
         let b = baseline_with(vec![entry("a", "f", 1, "cyclomatic", 5.0)]);
-        assert!(!b.covers(&v("a", "f", 2, "cyclomatic", 5.0)));
+        assert!(matches!(
+            b.classify(&v("a", "f", 2, "cyclomatic", 5.0)),
+            Coverage::New
+        ));
     }
 
     #[test]
-    fn covers_rejects_different_metric() {
+    fn classify_different_metric_is_new() {
         let b = baseline_with(vec![entry("a", "f", 1, "cyclomatic", 5.0)]);
-        assert!(!b.covers(&v("a", "f", 1, "cognitive", 5.0)));
+        assert!(matches!(
+            b.classify(&v("a", "f", 1, "cognitive", 5.0)),
+            Coverage::New
+        ));
     }
 
     #[test]
-    fn covers_normalizes_filter_path() {
+    fn classify_normalizes_filter_path() {
         // Baseline entry uses forward slashes; filter side passes a
         // path with backslashes. They should match after normalization.
         let b = baseline_with(vec![entry("src/a.rs", "f", 1, "cyclomatic", 5.0)]);
-        assert!(b.covers(&v("src\\a.rs", "f", 1, "cyclomatic", 5.0)));
+        assert!(matches!(
+            b.classify(&v("src\\a.rs", "f", 1, "cyclomatic", 5.0)),
+            Coverage::Covered { .. }
+        ));
+    }
+
+    #[test]
+    fn classify_nan_value_with_entry_is_regressed() {
+        // NaN current values can occur on degenerate Halstead inputs.
+        // Without the explicit NaN guard in classify(), `NaN <= recorded`
+        // is false → the violation would fall to the trailing
+        // Regressed arm anyway, but the guard makes the intent loud
+        // and lets the renderer key off is_nan() to emit `[regr NaN]`.
+        let b = baseline_with(vec![entry("a", "f", 1, "cyclomatic", 5.0)]);
+        assert!(matches!(
+            b.classify(&v("a", "f", 1, "cyclomatic", f64::NAN)),
+            Coverage::Regressed { recorded } if recorded == 5.0
+        ));
+    }
+
+    #[test]
+    fn classify_zero_recorded_regression_carries_zero() {
+        // Edge case for the [regr from 0] renderer branch: a baseline
+        // can record 0.0 when a metric was zero at write time. The
+        // classifier still produces Regressed; the renderer handles
+        // the divide-by-zero in `+N%`.
+        let b = baseline_with(vec![entry("a", "f", 1, "cyclomatic", 0.0)]);
+        let coverage = b.classify(&v("a", "f", 1, "cyclomatic", 5.0));
+        match coverage {
+            Coverage::Regressed { recorded } => {
+                assert_eq!(recorded.to_bits(), 0.0_f64.to_bits());
+            }
+            other => panic!("expected Regressed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classify_recorded_round_trips_bit_exactly() {
+        // The renderer relies on `recorded` being the same f64 bits
+        // as the stored entry — anything else would shift the rendered
+        // percentage by a ULP on float-fragile metrics.
+        let recorded = 1.234_567_890_123_456_7_f64;
+        let b = baseline_with(vec![entry("a", "f", 1, "halstead.volume", recorded)]);
+        let coverage = b.classify(&v("a", "f", 1, "halstead.volume", recorded * 2.0));
+        match coverage {
+            Coverage::Regressed { recorded: got } => {
+                assert_eq!(got.to_bits(), recorded.to_bits());
+            }
+            other => panic!("expected Regressed, got {other:?}"),
+        }
     }
 
     // -- non-UTF-8 path identity ------------------------------------------
@@ -817,13 +956,13 @@ mod tests {
             limit: 1.0,
         };
 
-        // Baseline contains only `path_a`. `covers(violation_b)` would
-        // wrongly return true if both non-UTF-8 paths normalized to
-        // the same lossy key.
+        // Baseline contains only `path_a`. classify(violation_b) would
+        // wrongly return Covered if both non-UTF-8 paths normalized
+        // to the same lossy key.
         let file = from_violations(vec![violation_a.clone()]);
         let rendered = render(&file).expect("render");
         let b = Baseline::from_str(&rendered).expect("parse");
-        assert!(b.covers(&violation_a));
-        assert!(!b.covers(&violation_b));
+        assert!(matches!(b.classify(&violation_a), Coverage::Covered { .. }));
+        assert!(matches!(b.classify(&violation_b), Coverage::New));
     }
 }

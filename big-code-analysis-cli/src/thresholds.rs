@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use big_code_analysis::{CodeMetrics, FuncSpace, MetricKind, SpaceKind, SuppressionPolicy};
 use serde::Deserialize;
 
+use crate::baseline::Coverage;
 use crate::format_util::MetricScalar;
 
 /// Static registry entry: stable threshold name -> scalar extractor.
@@ -226,6 +227,59 @@ impl fmt::Display for Violation {
             MetricScalar(self.limit),
         )
     }
+}
+
+/// Render a stderr line for one violation, optionally prefixed with a
+/// `[new]` / `[regr +N%]` tag derived from baseline classification.
+///
+/// When `tag` is `None` the output is byte-identical to
+/// `format!("{v}")` — this is the load-bearing backward-compat invariant
+/// for invocations without `--baseline`. CI tooling that grep-anchors on
+/// the start-of-line path keeps working unchanged.
+///
+/// When `tag` is `Some(coverage)`, the tag and a single space are
+/// prepended. Covered violations never reach this function (they are
+/// filtered out before emit), so only `Coverage::New` and
+/// `Coverage::Regressed` produce output here.
+pub(crate) fn render_violation_line(v: &Violation, tag: Option<&Coverage>) -> String {
+    match tag {
+        // `Covered` is filtered out before reaching the renderer; the
+        // arm here is a defensive fallback that emits an unprefixed
+        // line rather than panicking or silently dropping a real
+        // violation if a future refactor misroutes one.
+        None | Some(Coverage::Covered { .. }) => format!("{v}"),
+        Some(Coverage::New) => format!("[new] {v}"),
+        Some(Coverage::Regressed { recorded }) => {
+            format!("{} {v}", format_regressed_tag(*recorded, v.value))
+        }
+    }
+}
+
+/// Format the `[regr ...]` tag for a regression. Cases:
+/// - `value.is_nan()` → `[regr NaN]` (degenerate Halstead metrics).
+/// - `recorded == 0.0` → `[regr from 0]` (avoid divide-by-zero;
+///   percent is undefined).
+/// - `pct > 9999` → `[regr +>9999%]` (cap; 100× the baseline is
+///   already screaming-loud, exact number adds nothing).
+/// - else → `[regr +N%]` with N rounded to nearest integer.
+fn format_regressed_tag(recorded: f64, value: f64) -> String {
+    if value.is_nan() {
+        return "[regr NaN]".to_string();
+    }
+    if recorded == 0.0 {
+        return "[regr from 0]".to_string();
+    }
+    let pct = ((value - recorded) / recorded * 100.0).round();
+    if pct > 9999.0 {
+        return "[regr +>9999%]".to_string();
+    }
+    // `{:.0}` formats the rounded float with zero decimal digits, so
+    // we avoid an f64-to-int cast that clippy flags as possibly
+    // truncating. `pct` is finite (caller filtered NaN and zero
+    // `recorded`), bounded above by 9999 here, and bounded below by 0
+    // because the classifier only emits Regressed when
+    // `value > recorded`.
+    format!("[regr +{pct:.0}%]")
 }
 
 /// Resolve the function-slot token for a violation line. Top-level
@@ -705,5 +759,111 @@ mod tests {
             "tokens violation must survive SuppressionScope::All",
         );
         assert_eq!(out[0].metric, "tokens");
+    }
+
+    // -- render_violation_line --------------------------------------------
+
+    fn sample_violation() -> Violation {
+        Violation {
+            path: PathBuf::from("src/foo.rs"),
+            start_line: 10,
+            end_line: 20,
+            function: "do_thing".to_string(),
+            metric: "cyclomatic",
+            value: 30.0,
+            limit: 10.0,
+        }
+    }
+
+    #[test]
+    fn render_no_tag_byte_identical_to_display() {
+        // Load-bearing backward-compat invariant: invocations without
+        // --baseline must continue emitting the exact same stderr line
+        // shape as today. CI tooling grep-anchors on the leading path.
+        let v = sample_violation();
+        assert_eq!(render_violation_line(&v, None), format!("{v}"));
+    }
+
+    #[test]
+    fn render_new_tag_prefixes_line() {
+        let v = sample_violation();
+        let out = render_violation_line(&v, Some(&Coverage::New));
+        assert!(out.starts_with("[new] "), "got: {out}");
+        // The rest of the line is unchanged.
+        assert_eq!(out.strip_prefix("[new] ").unwrap(), format!("{v}"));
+    }
+
+    #[test]
+    fn render_regressed_integer_percent() {
+        let v = sample_violation();
+        // recorded 20, value 30 → +50%
+        let out = render_violation_line(&v, Some(&Coverage::Regressed { recorded: 20.0 }));
+        assert!(out.starts_with("[regr +50%] "), "got: {out}");
+    }
+
+    #[test]
+    fn render_regressed_rounds_half_to_nearest_even_or_away() {
+        // Halstead can produce values that round to a nearby integer;
+        // we use f64::round (half-away-from-zero) — pin the boundary.
+        let mut v = sample_violation();
+        v.value = 100.5;
+        let out = render_violation_line(&v, Some(&Coverage::Regressed { recorded: 100.0 }));
+        // (100.5 - 100) / 100 * 100 = 0.5 → rounds to 1.
+        assert!(out.starts_with("[regr +1%] "), "got: {out}");
+    }
+
+    #[test]
+    fn render_regressed_caps_above_9999_percent() {
+        // recorded 1, value 1e6 → ratio 999900 → cap at "+>9999%".
+        let mut v = sample_violation();
+        v.value = 1_000_000.0;
+        let out = render_violation_line(&v, Some(&Coverage::Regressed { recorded: 1.0 }));
+        assert!(out.starts_with("[regr +>9999%] "), "got: {out}");
+    }
+
+    #[test]
+    fn render_regressed_at_9999_percent_boundary() {
+        // 9999% exactly must NOT be capped — the cap applies *above* 9999.
+        // Pick values that compute to exactly pct = 9999.0 in f64:
+        //   recorded = 100, value = 10099
+        //   (10099 - 100) / 100 * 100 = 9999.0   (all values exact in f64)
+        // This pins both the cap threshold *and* the inclusivity of the
+        // `>` operator: a mutation flipping `>` to `>=` would cap at this
+        // input and emit `[regr +>9999%]`, failing the assertion.
+        let mut v = sample_violation();
+        v.value = 10099.0;
+        let out = render_violation_line(&v, Some(&Coverage::Regressed { recorded: 100.0 }));
+        assert!(out.starts_with("[regr +9999%] "), "got: {out}");
+    }
+
+    #[test]
+    fn render_regressed_with_zero_recorded() {
+        // Avoid divide-by-zero; render `[regr from 0]` instead.
+        let v = sample_violation();
+        let out = render_violation_line(&v, Some(&Coverage::Regressed { recorded: 0.0 }));
+        assert!(out.starts_with("[regr from 0] "), "got: {out}");
+    }
+
+    #[test]
+    fn render_regressed_with_nan_value() {
+        // Degenerate Halstead inputs can produce NaN; render
+        // `[regr NaN]` rather than crashing on `NaN.round()` (which is
+        // NaN; cast to i64 saturates to 0 — would emit `+0%`, misleading).
+        let mut v = sample_violation();
+        v.value = f64::NAN;
+        let out = render_violation_line(&v, Some(&Coverage::Regressed { recorded: 5.0 }));
+        assert!(out.starts_with("[regr NaN] "), "got: {out}");
+    }
+
+    #[test]
+    fn render_covered_falls_back_to_unprefixed() {
+        // Covered violations are filtered out before reaching the
+        // renderer in production. This test pins the defensive
+        // fallback so a future refactor that accidentally pipes
+        // Covered to the renderer doesn't crash or emit a misleading
+        // tag — it just renders the unprefixed line.
+        let v = sample_violation();
+        let out = render_violation_line(&v, Some(&Coverage::Covered { recorded: 30.0 }));
+        assert_eq!(out, format!("{v}"));
     }
 }

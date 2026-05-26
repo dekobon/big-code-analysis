@@ -517,3 +517,158 @@ fn check_runs_with_num_jobs_separator() {
         .assert()
         .success();
 }
+
+// -- Per-file summary footer (issue #356 sub-deliverable A) -------------
+
+/// Function with cyclomatic == 2 (one branch). Lower-ratio violation
+/// when threshold = 1: ratio = 2.
+const ONE_BRANCH_RUST: &str = r#"
+pub fn pick(n: i32) -> &'static str {
+    if n > 0 { "pos" } else { "non-pos" }
+}
+"#;
+
+#[test]
+fn summary_footer_emitted_by_default() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+
+    cli()
+        .args(["--paths", &path, "check", "--threshold", "cyclomatic=1"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("--- summary ---"))
+        .stderr(predicate::str::contains("1 violation (worst:"));
+}
+
+#[test]
+fn summary_footer_suppressed_by_no_summary() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+
+    cli()
+        .args([
+            "--paths",
+            &path,
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--no-summary",
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("--- summary ---").not());
+}
+
+#[test]
+fn summary_skipped_for_clean_run() {
+    // No violations → no footer. Clean stderr stays empty so CI
+    // tooling that asserts on "no output ⇒ clean" keeps working.
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
+
+    cli()
+        .args(["--paths", &path, "check", "--threshold", "cyclomatic=10"])
+        .assert()
+        .success()
+        .stderr(predicate::str::is_empty());
+}
+
+#[test]
+fn summary_pluralizes_count() {
+    // Three files with one violation each → each row reads
+    // "1 violation" (singular).
+    let dir = TempDir::new().unwrap();
+    let p1 = write_fixture(&dir, "a.rs", BRANCHY_RUST);
+    let p2 = write_fixture(&dir, "b.rs", BRANCHY_RUST);
+    let p3 = write_fixture(&dir, "c.rs", BRANCHY_RUST);
+
+    cli()
+        .args([
+            "--paths",
+            &p1,
+            "--paths",
+            &p2,
+            "--paths",
+            &p3,
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("1 violation (worst:"))
+        // Anchor with the leading `": "` from the format
+        // `<path>: <N> violations` so a future fixture emitting
+        // "11 violations" cannot false-match the substring "1 violations".
+        .stderr(predicate::str::contains(": 1 violations").not());
+}
+
+#[test]
+fn summary_worst_metric_uses_max_ratio() {
+    // One file violating two thresholds:
+    //   cyclomatic = 5 vs limit 4    → ratio 1.25
+    //   cyclomatic = 5 vs limit 1    → ratio 5     (worst)
+    // We can't impose two limits on the same metric, so use two
+    // distinct metrics: cyclomatic (ratio 5/1=5) vs nargs (ratio
+    // unsatisfied because the function has 1 arg). Use loc.sloc
+    // instead — BRANCHY_RUST is ~12 lines so loc.sloc=12 vs limit 100
+    // wouldn't trigger. Pick limits that cross both:
+    //   cyclomatic = 5 vs 1  → ratio 5     (worst, max ratio)
+    //   loc.sloc   = ~12 vs 11 → ratio ~1.09
+    // The footer must cite cyclomatic as worst.
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+
+    cli()
+        .args([
+            "--paths",
+            &path,
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--threshold",
+            "loc.sloc=11",
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("(worst: cyclomatic ="));
+}
+
+#[test]
+fn summary_sorts_by_count_desc() {
+    // File `a.rs` violates two thresholds (count=2); file `b.rs`
+    // violates one (count=1). The footer must list a.rs before b.rs.
+    let dir = TempDir::new().unwrap();
+    let a = write_fixture(&dir, "a.rs", BRANCHY_RUST); // 1 fn, 2 metrics violated
+    let b = write_fixture(&dir, "b.rs", ONE_BRANCH_RUST); // 1 fn, 1 metric violated
+
+    let output = cli()
+        .args([
+            "--paths",
+            &a,
+            "--paths",
+            &b,
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--threshold",
+            "loc.sloc=8",
+        ])
+        .assert()
+        .code(2)
+        .get_output()
+        .stderr
+        .clone();
+    let stderr = String::from_utf8(output).unwrap();
+    let summary_start = stderr
+        .find("--- summary ---")
+        .expect("summary banner present");
+    let summary = &stderr[summary_start..];
+    let a_pos = summary.find(&a).expect("a.rs in summary");
+    let b_pos = summary.find(&b).expect("b.rs in summary");
+    assert!(
+        a_pos < b_pos,
+        "a.rs (2 violations) must precede b.rs (1 violation); got:\n{summary}",
+    );
+}

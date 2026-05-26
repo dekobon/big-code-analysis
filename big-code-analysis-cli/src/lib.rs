@@ -51,13 +51,16 @@ use std::thread::available_parallelism;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 
-use baseline::Baseline;
+use baseline::{Baseline, Coverage};
 use check_format::{AggregatedFormat, violation_to_offender};
+use format_util::MetricScalar;
 use formats::{CBOR_STDOUT_ERROR, MetricsDispatch, MetricsFormat, ReportFormat, dump_csv};
 use html_report::generate_html_report;
 use markdown_report::{FunctionSummary, extract_summaries, generate_report};
 use metric_catalog::{ListMetricsMode, write_metrics};
-use thresholds::{ThresholdConfig, ThresholdSet, Violation, parse_cli_threshold};
+use thresholds::{
+    ThresholdConfig, ThresholdSet, Violation, parse_cli_threshold, render_violation_line,
+};
 
 use big_code_analysis::LANG;
 use big_code_analysis::ParserTrait;
@@ -345,6 +348,13 @@ struct CheckArgs {
         conflicts_with_all = ["baseline", "output_format", "output"],
     )]
     write_baseline: Option<PathBuf>,
+    /// Skip the trailing per-file rollup footer. The footer groups
+    /// violations by file and cites the single worst-ratio metric per
+    /// file. Pass this when downstream tooling grep-pipes the stderr
+    /// stream and would be confused by the trailing summary block.
+    /// Default: footer enabled.
+    #[clap(long = "no-summary")]
+    no_summary: bool,
 }
 
 #[derive(Args, Debug)]
@@ -1099,12 +1109,20 @@ fn run_check(globals: GlobalOpts, args: CheckArgs, preproc: Option<Arc<PreprocRe
         return;
     }
 
-    let violations: Vec<Violation> = if let Some(path) = args.baseline.as_deref() {
+    // Classify each violation against the baseline (when present).
+    // The kept list carries `(Violation, Option<Coverage>)` so the
+    // stderr renderer can attach a `[new]` / `[regr +N%]` tag.
+    // Without `--baseline`, `Option<Coverage>` is `None` and the
+    // renderer emits the exact pre-tag line format byte-identically.
+    let pairs: Vec<(Violation, Option<Coverage>)> = if let Some(path) = args.baseline.as_deref() {
         let baseline = load_baseline(path);
         let before = violations.len();
-        let kept: Vec<Violation> = violations
+        let kept: Vec<_> = violations
             .into_iter()
-            .filter(|v| !baseline.covers(v))
+            .filter_map(|v| match baseline.classify(&v) {
+                Coverage::Covered { .. } => None,
+                c => Some((v, Some(c))),
+            })
             .collect();
         let filtered = before - kept.len();
         if filtered > 0 {
@@ -1112,30 +1130,127 @@ fn run_check(globals: GlobalOpts, args: CheckArgs, preproc: Option<Arc<PreprocRe
         }
         kept
     } else {
-        violations
+        violations.into_iter().map(|v| (v, None)).collect()
     };
 
     // BrokenPipe on stderr (e.g. when piped to `head`) is the only
     // realistic write failure here; swallow it rather than die so the
     // exit-code contract is honored.
     let mut stderr = std::io::stderr().lock();
-    for v in &violations {
-        let _ = writeln!(stderr, "{v}");
+    for (v, tag) in &pairs {
+        let _ = writeln!(stderr, "{}", render_violation_line(v, tag.as_ref()));
     }
+    if !args.no_summary && !pairs.is_empty() {
+        let _ = write_summary_footer(&mut stderr, &pairs);
+    }
+    drop(stderr);
 
     // Emit the aggregated CI/IDE document if requested. Empty input
     // produces a well-formed but offender-free document, which CI
     // consumers can ingest unchanged on clean runs. The exit-code
     // contract below is unaffected by this branch.
-    let any_violations = !violations.is_empty();
+    let any_violations = !pairs.is_empty();
     if let Some(fmt) = args.output_format {
-        let offenders: Vec<_> = violations.into_iter().map(violation_to_offender).collect();
+        let offenders: Vec<_> = pairs
+            .into_iter()
+            .map(|(v, _)| violation_to_offender(v))
+            .collect();
         fmt.dump(&offenders, args.output.as_deref())
             .unwrap_or_else(|e| die(format_args!("failed to write {}: {e}", fmt.name())));
     }
 
     if any_violations && !args.no_fail {
         process::exit(2);
+    }
+}
+
+/// Emit the per-file rollup footer to `stderr` after the per-violation
+/// lines. Groups violations by path, cites the single worst-ratio
+/// metric per file (`value / limit`), and sorts rows by violation count
+/// descending then path ascending.
+///
+/// The caller is responsible for skipping the call when `pairs` is
+/// empty or `--no-summary` is set; this function unconditionally writes
+/// the banner + at least one row when invoked.
+///
+/// `BrokenPipe` and similar transient write failures are propagated to
+/// the caller, which swallows them — the exit-code contract above is
+/// the source of truth for whether the gate passed.
+fn write_summary_footer(
+    w: &mut impl Write,
+    pairs: &[(Violation, Option<Coverage>)],
+) -> std::io::Result<()> {
+    // Group by raw PathBuf rather than `path.display()` to preserve
+    // non-UTF-8 byte identity. Two paths that differ only in invalid
+    // UTF-8 (`b"foo\xff.rs"` vs `b"foo\xfe.rs"`) would collapse to the
+    // same lossy display string but stay distinct here. `path.display()`
+    // is still used to *render* the rendered footer row so it matches
+    // the per-violation stderr line format above.
+    let mut by_path: BTreeMap<&PathBuf, Vec<&Violation>> = BTreeMap::new();
+    for (v, _) in pairs {
+        by_path.entry(&v.path).or_default().push(v);
+    }
+
+    // Compute (count, worst-violation, display) per file. The display
+    // string is cached here so the sort below doesn't recompute
+    // `path.display().to_string()` on every comparator call (O(n²) on
+    // the path length otherwise).
+    let mut rows: Vec<(usize, &Violation, String)> = by_path
+        .iter()
+        .filter_map(|(path, vs)| {
+            let worst = pick_worst(vs)?;
+            Some((vs.len(), worst, path.display().to_string()))
+        })
+        .collect();
+    // Sort: violation count desc, then cached display string asc for
+    // stable equal-count ordering.
+    rows.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.2.cmp(&b.2)));
+
+    writeln!(w)?;
+    writeln!(w, "--- summary ---")?;
+    for (count, worst, display) in rows {
+        let noun = if count == 1 {
+            "violation"
+        } else {
+            "violations"
+        };
+        writeln!(
+            w,
+            "{display}: {count} {noun} (worst: {} = {} vs limit {} at L{})",
+            worst.metric,
+            MetricScalar(worst.value),
+            MetricScalar(worst.limit),
+            worst.start_line,
+        )?;
+    }
+    Ok(())
+}
+
+/// Pick the worst violation in a slice by `value / limit` ratio. Ties
+/// break by larger absolute value, then by metric name ascending.
+/// Limits of `0.0` saturate to `f64::INFINITY` so a "no value
+/// permitted" threshold dominates ratio comparison without triggering
+/// NaN from `value / 0.0`.
+///
+/// Returns `None` only if the slice is empty. In `write_summary_footer`
+/// the slice can't be empty in practice — `BTreeMap::entry(...).or_default()
+/// .push(v)` guarantees at least one element per key — but expressing
+/// "non-empty slice" in the type system isn't worth the ceremony, so
+/// the caller propagates the `None` via `?` instead.
+fn pick_worst<'a>(vs: &[&'a Violation]) -> Option<&'a Violation> {
+    vs.iter().copied().max_by(|a, b| {
+        ratio(a)
+            .total_cmp(&ratio(b))
+            .then_with(|| a.value.total_cmp(&b.value))
+            .then_with(|| b.metric.cmp(a.metric))
+    })
+}
+
+fn ratio(v: &Violation) -> f64 {
+    if v.limit > 0.0 {
+        v.value / v.limit
+    } else {
+        f64::INFINITY
     }
 }
 

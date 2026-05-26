@@ -270,6 +270,24 @@ A new offender not in the baseline still fails. An improved function
 passes silently and stays in the baseline until the next
 `--write-baseline` refresh.
 
+Each surviving violation in the stderr stream is prefixed with a tag
+so a developer can tell at a glance whether they are looking at a
+brand-new offender or a known one that has worsened:
+
+- `[new]` — no baseline entry for this function / metric.
+- `[regr +N%]` — current value exceeds the recorded baseline by `N`
+  percent. Special forms: `[regr from 0]` when the baseline value
+  was zero, `[regr +>9999%]` when the regression exceeds 100× the
+  baseline, `[regr NaN]` when the current value is NaN.
+
+After the per-violation lines the stderr stream emits a per-file
+rollup footer with the format `<path>: <count> violations (worst:
+<metric> = <value> vs limit <limit> at L<start>)`, sorted by
+violation count descending. This is intended to be the first thing a
+reader looks at: which file has the most problems, and which metric
+is the loudest in that file. Pass `--no-summary` to suppress the
+footer for downstream tooling that grep-pipes the stderr stream.
+
 Refresh after focused refactors:
 
 ```bash

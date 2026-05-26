@@ -776,3 +776,100 @@ fn clean_tree_write_baseline_produces_empty_versioned_file() {
     assert!(content.contains("version = 2"));
     assert!(!content.contains("[[entry]]"));
 }
+
+// -- Coverage tagging (issue #356 sub-deliverable B) ---------------------
+
+#[test]
+fn regressed_violation_carries_tag_prefix() {
+    // Write a baseline at cyclomatic = 5; replace source with the
+    // 7-branch version; the regressed line must carry `[regr +N%]`.
+    let dir = TempDir::new().unwrap();
+    let src_path = write_file(&dir, "branchy.rs", BRANCHY_RUST);
+    let baseline = dir.path().join("baseline.toml");
+
+    cli()
+        .args([
+            "--paths",
+            src_path.to_str().unwrap(),
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--write-baseline",
+            baseline.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    fs::write(&src_path, WORSER_RUST).unwrap();
+
+    cli()
+        .args([
+            "--paths",
+            src_path.to_str().unwrap(),
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--baseline",
+            baseline.to_str().unwrap(),
+        ])
+        .assert()
+        .code(2)
+        // (7-5)/5*100 = 40, rounded → +40%
+        .stderr(predicate::str::contains("[regr +40%] "));
+}
+
+#[test]
+fn new_violation_carries_new_tag() {
+    // Baseline omits a new file; its violation must be tagged `[new]`.
+    let dir = TempDir::new().unwrap();
+    let src = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let baseline = dir.path().join("baseline.toml");
+
+    cli()
+        .args([
+            "--paths",
+            &src,
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--write-baseline",
+            baseline.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let new_src = write_fixture(&dir, "extra.rs", BRANCHY_RUST);
+
+    cli()
+        .args([
+            "--paths",
+            new_src.as_str(),
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--baseline",
+            baseline.to_str().unwrap(),
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("[new] "));
+}
+
+#[test]
+fn no_baseline_emits_unprefixed_lines() {
+    // Backward-compatibility invariant: without --baseline the
+    // stderr line format is byte-identical to today. No `[new]` /
+    // `[regr` prefix may appear on the violation line.
+    let dir = TempDir::new().unwrap();
+    let src = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+
+    cli()
+        .args(["--paths", &src, "check", "--threshold", "cyclomatic=1"])
+        .assert()
+        .code(2)
+        // The violation line must contain the function name and metric,
+        // and must NOT carry a bracket tag prefix.
+        .stderr(predicate::str::contains("classify: cyclomatic ="))
+        .stderr(predicate::str::contains("[new]").not())
+        .stderr(predicate::str::contains("[regr").not());
+}

@@ -99,6 +99,45 @@ appear when actual offenders changed.
   `--write-baseline` after the function got worse. Treat the same as
   "baseline grew" — surface the change in review.
 
+### Reading the gate output
+
+A failing `bca check --baseline` run prefixes each surviving violation
+with a tag and follows the list with a per-file rollup:
+
+```text
+bca: filtered 422 violations via baseline
+[regr +60%] src/foo.rs:1-865: <file>: halstead.effort = 1557107.72 (limit 50000)
+[new] src/bar.rs:506-747: act_on_file: cognitive = 63 (limit 25)
+...
+
+--- summary ---
+src/foo.rs: 5 violations (worst: halstead.effort = 1557107.72 vs limit 50000 at L1)
+src/bar.rs: 4 violations (worst: cognitive = 63 vs limit 25 at L506)
+```
+
+Tag prefixes:
+
+- `[new]` — no baseline entry for this `(path, function, start_line,
+  metric)` tuple. The violation is new since the baseline was written.
+- `[regr +N%]` — the baseline contains a recorded value and the
+  current value is `N%` higher. Cases:
+  - `[regr from 0]` when the recorded value is `0.0` and a non-zero
+    percentage would divide by zero.
+  - `[regr +>9999%]` caps once the regression exceeds 100× the
+    baseline value.
+  - `[regr NaN]` when the current metric value is NaN (degenerate
+    Halstead inputs on trivial functions).
+
+Tags only appear when `--baseline` is passed; without it the line
+format is byte-identical to the no-baseline default. CI tooling that
+grep-pipes the stderr stream can suppress the trailing summary with
+`--no-summary`.
+
+The summary footer groups violations by file, cites the single worst
+metric per file (max `value / limit` ratio), and sorts rows by
+violation count descending then path ascending. It is the fastest way
+to read a long offender list and spot which file to start with.
+
 ### 6. Retire the baseline
 
 When `.bca-baseline.toml` contains only `version = 2` and no entries,
