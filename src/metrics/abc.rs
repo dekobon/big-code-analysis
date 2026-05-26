@@ -2190,6 +2190,26 @@ fn csharp_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
     }
 }
 
+// Counts a single boolean-context condition expression for
+// tree-sitter-c-sharp. Mirrors `groovy_count_condition`: the C#
+// grammar inlines `(` / `)` as anonymous token children of
+// `if_statement` / `while_statement` / `do_statement` (and the
+// `conditional_expression` ternary leaves its condition bare at
+// child(0)) rather than wrapping the condition in a
+// `parenthesized_expression`, so a bare identifier / boolean
+// literal / call contributes one condition directly. Parenthesised
+// and `!`-prefixed unary containers delegate to
+// `csharp_inspect_container`, which seeds
+// `has_boolean_content = true` from the known-boolean parent
+// (if/while/do/conditional). Binary / comparison expressions are
+// counted elsewhere via the `AMPAMP` / `PIPEPIPE` / `GT` / `LT` /
+// `EQEQ` token arms. See issue #370.
+//
+// `if/while` route here from child(2), `do-while` from child(4),
+// and the ternary's condition slot from child(0) — the C# grammar
+// reverses Java's `parenthesized_expression` wrapper convention, so
+// the index differs across the call sites but the kind-classifier
+// is the same.
 fn csharp_count_condition(condition: &Node, conditions: &mut f64) {
     use Csharp::*;
     let kind = condition.kind_id().into();
@@ -3527,17 +3547,38 @@ mod tests {
 
     #[test]
     fn csharp_if_unary_not_condition() {
+        // Two cases share one test:
+        //
+        //   if (!x) { … }  — IfStatement is a known-boolean parent, so
+        //   the unary `!` arm in `csharp_inspect_container` is *one of
+        //   two* ways `has_boolean_content` gets set to true (the parent
+        //   seed sets it before the `!` does). A regression that broke
+        //   only the `is_not` branch wouldn't show up here.
+        //
+        //   return !x;  — ReturnStatement is *not* in the boolean-context
+        //   seed list (BinaryExpression | IfStatement | WhileStatement |
+        //   DoStatement | ForStatement | ConditionalExpression). So the
+        //   `!` wrapper is the *only* path that sets
+        //   `has_boolean_content = true`. Asserting the `return !x;`
+        //   case isolates the unary-unwrap logic from the parent-seed
+        //   path.
         check_metrics::<CsharpParser>(
             "class A {
                 void M(bool x) {
                     if (!x) { System.Console.WriteLine(\"a\"); }
                 }
+                bool N(bool x) {
+                    return !x;
+                }
             }",
             "foo.cs",
             |metric| {
-                // `if (!x)` contributes 1 condition via the
-                // PrefixUnaryExpression → csharp_inspect_container path.
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                // `if (!x)` contributes 1 condition (PrefixUnaryExpression
+                // path with parent IfStatement seeding has_boolean_content).
+                // `return !x;` contributes 1 condition (parent doesn't seed
+                // — the unary `!` is the only path that sets the flag).
+                // → 2 conditions total. 1 branch from WriteLine().
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
                 assert_eq!(metric.abc.branches_sum(), 1.0);
                 assert_eq!(metric.abc.assignments_sum(), 0.0);
             },
