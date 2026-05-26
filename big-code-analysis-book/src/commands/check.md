@@ -324,7 +324,9 @@ namespaced `check_name` (`big-code-analysis/<metric>`), a stable
 SHA-256 `fingerprint` over `path \0 function \0 metric` (line- and
 value-insensitive so cosmetic edits still dedup in the MR widget),
 and a `severity` mapped from the value/threshold ratio onto
-GitLab's five-level enum: `≤ 1.5×` → `minor`, `≤ 2×` → `major`,
+GitLab's five-level enum (`info`, `minor`, `major`, `critical`,
+`blocker`; `bca` never emits `info` — a threshold violation always
+lands at `minor` or higher): `≤ 1.5×` → `minor`, `≤ 2×` → `major`,
 `≤ 4×` → `critical`, `> 4×` → `blocker` (inverted for the `mi.*`
 family where lower is worse).
 
