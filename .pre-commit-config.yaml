@@ -126,6 +126,56 @@ repos:
         entry: make enums-check
         pass_filenames: false
 
+      # bca self-scan threshold gate (hard tier). Mirrors the
+      # `Threshold gate` step in .github/workflows/pages.yml. The
+      # hook fails when any function regresses past
+      # `bca-thresholds.toml` minus the `.bca-baseline.toml`
+      # ratchet. When you intentionally bump a limit, edit
+      # `bca-thresholds.toml` with a why-comment in the same commit;
+      # when you intentionally accept new offenders, run
+      # `make self-scan-write-baseline` and commit the resulting
+      # diff. `files` mirrors the inputs that can change the gate's
+      # verdict — analysed Rust source, the threshold config, the
+      # baseline itself, and `.bcaignore` — and `exclude` matches
+      # the directories `.bcaignore` already filters out so the
+      # hook does not re-fire for changes the gate already skips.
+      - id: bca-self-scan
+        name: bca-self-scan
+        language: system
+        files: '(\.rs$|^bca-thresholds\.toml$|^\.bca-baseline\.toml$|^\.bcaignore$)'
+        # Mirrors `.bcaignore` so the hook does not fire for `.rs`
+        # edits in paths the gate already excludes (vendored grammars,
+        # tests, generated trees, docs/, packaging/, utils/, man/,
+        # examples/ anywhere in the tree). Keep this list aligned with
+        # `.bcaignore` — if either drifts the hook either fires for
+        # nothing or misses real input changes.
+        exclude: '^(tree-sitter-[^/]+/|tests/|.*/tests/|.*_tests\.rs$|enums/|big-code-analysis-book/|docs/|packaging/|utils/|xtask/|generate-grammars/|man/|abuild-keys/|.*/examples/)'
+        entry: make self-scan
+        pass_filenames: false
+
+      # bca self-scan threshold gate (soft tier). Scales every
+      # threshold in `bca-thresholds.toml` by `BCA_HEADROOM`
+      # (default 0.95) and runs the same baseline-ratcheted check.
+      # Fails when a function has crept into the 95-100% band of
+      # any limit without being baselined — gives a one-or-two-
+      # commit lead time to either refactor or raise the limit
+      # before the hard gate trips. Override with
+      # `BCA_HEADROOM=0.90 pre-commit run bca-self-scan-headroom`
+      # to widen the band.
+      - id: bca-self-scan-headroom
+        name: bca-self-scan-headroom
+        language: system
+        files: '(\.rs$|^bca-thresholds\.toml$|^\.bca-baseline\.toml$|^\.bcaignore$)'
+        # Mirrors `.bcaignore` so the hook does not fire for `.rs`
+        # edits in paths the gate already excludes (vendored grammars,
+        # tests, generated trees, docs/, packaging/, utils/, man/,
+        # examples/ anywhere in the tree). Keep this list aligned with
+        # `.bcaignore` — if either drifts the hook either fires for
+        # nothing or misses real input changes.
+        exclude: '^(tree-sitter-[^/]+/|tests/|.*/tests/|.*_tests\.rs$|enums/|big-code-analysis-book/|docs/|packaging/|utils/|xtask/|generate-grammars/|man/|abuild-keys/|.*/examples/)'
+        entry: make self-scan-headroom
+        pass_filenames: false
+
       # Strict rustdoc gate (broken intra-doc links, links into private
       # items, etc.). Wired here in addition to `make pre-commit` /
       # `make ci` so the `pre-commit run --all-files` invocation path

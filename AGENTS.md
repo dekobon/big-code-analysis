@@ -153,7 +153,13 @@ default-features and `--all-features` flavours, `cargo test
 `cargo +nightly udeps`, the markdown /
 TOML / shell / Makefile / GitHub Actions lint families, the man-page
 drift gate (`cargo xtask` + `git diff --exit-code -- man/`, mirroring
-the `manpage` CI job), and the Python `ruff` lint /
+the `manpage` CI job), the bca self-scan threshold gate at both
+tiers (`make self-scan` mirroring the `Threshold gate` step in
+`.github/workflows/pages.yml`, plus `make self-scan-headroom`
+which scales every limit by `BCA_HEADROOM` — default `0.95` — so
+functions encroaching into the 95-100% band fail before the hard
+gate trips; `make self-scan-write-baseline` refreshes
+`.bca-baseline.toml`), and the Python `ruff` lint /
 `ruff format` / `mypy --strict` + `pyright` / `maturin develop` +
 `pytest` stages for `big-code-analysis-py` (each Python stage is
 skipped with a clear "X not found" message when the corresponding

@@ -50,7 +50,7 @@ FIND_EXCLUDE   := $(foreach dir,$(EXCLUDE_DIRS),! -path './$(dir)/*')
 # warnings on `$(2)`, e.g. $(call find-by-ext,md,).
 find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name "*.$(1)" -type f $(FIND_EXCLUDE))
 
-.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors check-versions enums-check lint clippy udeps insta-review insta-accept clean install install-cli install-web doc doc-open doc-check book book-serve book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local py-fmt py-fmt-check py-lint py-typecheck py-test _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-check-versions _pc-enums-check _pc-py-fmt _pc-py-typecheck _pc-py-test _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-check-versions _ci-enums-check _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test
+.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors check-versions enums-check self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom lint clippy udeps insta-review insta-accept clean install install-cli install-web doc doc-open doc-check book book-serve book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local py-fmt py-fmt-check py-lint py-typecheck py-test _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-check-versions _pc-enums-check _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-check-versions _ci-enums-check _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test
 
 # Default target
 help:
@@ -90,6 +90,10 @@ help:
 	@echo "  snapshot-anchors                     Block new bare insta snapshots"
 	@echo "  check-versions                       Enforce lockstep version invariant across owned crates"
 	@echo "  enums-check                          cargo clippy + cargo test on workspace-excluded enums crate"
+	@echo "  self-scan                            bca threshold gate against this repo (hard: 100%)"
+	@echo "  self-scan-headroom                   bca threshold gate (soft: BCA_HEADROOM, default 0.95)"
+	@echo "  self-scan-write-baseline             Refresh .bca-baseline.toml at the hard thresholds"
+	@echo "  self-scan-write-baseline-headroom    Refresh .bca-baseline.toml at the soft thresholds"
 	@echo "  lint                                 Run all linters"
 	@echo ""
 	@echo "Python bindings (big-code-analysis-py):"
@@ -304,6 +308,75 @@ enums-check:
 	  --locked
 
 # ---------------------------------------------------------------------------
+# bca self-scan threshold gate
+#
+# Re-runs the CI threshold gate against the in-tree bca binary.
+# Mirrors the `Threshold gate (baseline-ratcheted)` step in
+# .github/workflows/pages.yml. We build from source on purpose:
+# any in-progress change to metric computation is reflected in the
+# values we gate on. When pages.yml bumps the pinned release
+# binary, the two invocations re-sync.
+#
+# Two tiers:
+#
+#   self-scan            hard gate (limits as configured in
+#                        bca-thresholds.toml; absorbed by
+#                        .bca-baseline.toml). Mirrors CI.
+#
+#   self-scan-headroom   soft gate. Scales every limit by
+#                        BCA_HEADROOM (default 0.95) and runs the
+#                        same baseline-ratcheted check, so new
+#                        functions encroaching into the 95-100%
+#                        band fail before they would trip the hard
+#                        gate. Set BCA_HEADROOM=0.90 to widen the
+#                        band, 0.99 to tighten it.
+#
+# Refresh the baseline (after an intentional regression or after
+# raising a limit):
+#
+#   self-scan-write-baseline   refreshes .bca-baseline.toml in place.
+#
+# IMPORTANT: --paths . MUST be used (not --paths $(BASE_DIR)) — the
+# baseline file's keys are recorded with `./`-prefixed paths and
+# diverging from that form silently misses every entry. See the
+# header comment in bca-thresholds.toml.
+# ---------------------------------------------------------------------------
+SELF_SCAN_BCA := cargo run --quiet --release -p big-code-analysis-cli --
+SELF_SCAN_BASE_ARGS := --paths . --exclude-from .bcaignore \
+  --num-jobs $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+
+self-scan:
+	@echo "bca self-scan (hard gate)..."
+	@$(SELF_SCAN_BCA) $(SELF_SCAN_BASE_ARGS) \
+	  check \
+	  --config bca-thresholds.toml \
+	  --baseline .bca-baseline.toml
+
+self-scan-headroom:
+	@echo "bca self-scan (soft gate, BCA_HEADROOM=$${BCA_HEADROOM:-0.95})..."
+	@python3 $(BASE_DIR)utils/bca-self-scan-headroom.py \
+	  $(SELF_SCAN_BCA) $(SELF_SCAN_BASE_ARGS)
+
+self-scan-write-baseline:
+	@echo "Refreshing .bca-baseline.toml from current offenders..."
+	@$(SELF_SCAN_BCA) $(SELF_SCAN_BASE_ARGS) \
+	  check \
+	  --config bca-thresholds.toml \
+	  --write-baseline .bca-baseline.toml
+
+# Refresh `.bca-baseline.toml` against the SOFT thresholds
+# (`bca-thresholds.toml` scaled by BCA_HEADROOM, default 0.95).
+# Records every current offender at the soft tier — strictly a
+# superset of the hard-tier offenders. Use this when launching the
+# soft gate or after raising BCA_HEADROOM so the baseline absorbs
+# the new headroom band rather than firing on every commit.
+self-scan-write-baseline-headroom:
+	@echo "Refreshing .bca-baseline.toml from current soft-tier offenders (BCA_HEADROOM=$${BCA_HEADROOM:-0.95})..."
+	@BCA_HEADROOM_WRITE_BASELINE=.bca-baseline.toml \
+	  python3 $(BASE_DIR)utils/bca-self-scan-headroom.py \
+	  $(SELF_SCAN_BCA) $(SELF_SCAN_BASE_ARGS)
+
+# ---------------------------------------------------------------------------
 # Python tooling (big-code-analysis-py)
 #
 # Targets gracefully no-op when the corresponding tool is absent —
@@ -484,6 +557,7 @@ pre-commit:
 	  _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check \
 	  _pc-actionlint _pc-snapshot-anchors _pc-check-versions _pc-enums-check \
 	  _pc-manpages \
+	  _pc-self-scan _pc-self-scan-headroom \
 	  _pc-py-fmt _pc-py-typecheck _pc-py-test
 	@echo "Pre-commit checks passed"
 
@@ -513,7 +587,8 @@ ci:
 # Dependency graph:
 #
 #   _pc-fmt
-#    ├── _pc-clippy → _pc-test → _pc-doc-check → _pc-udeps → _pc-manpages → _pc-py-test
+#    ├── _pc-clippy → _pc-test → _pc-doc-check → _pc-udeps → _pc-manpages
+#    │                → _pc-self-scan → _pc-self-scan-headroom → _pc-py-test
 #    ├── _pc-shellcheck
 #    ├── _pc-markdown-lint
 #    ├── _pc-toml-lint
@@ -525,6 +600,13 @@ ci:
 #    ├── _pc-py-fmt
 #    └── _pc-py-typecheck
 #
+# _pc-self-scan and _pc-self-scan-headroom both invoke
+# `cargo run --release -p big-code-analysis-cli`, which holds the
+# workspace `target/` lock for the release-profile build, so they
+# serialize into the cargo chain after _pc-manpages rather than
+# fanning out in parallel. The hard tier runs first so a regression
+# is named before the soft tier reports near-limit headroom.
+#
 # _pc-enums-check runs cargo on `enums/Cargo.toml`, which has its own
 # `target/` (the crate is workspace-excluded), so it does NOT share the
 # `target/` lock with the workspace cargo chain and is safe to run in
@@ -535,10 +617,12 @@ ci:
 # — so they run in parallel with the cargo pipeline.
 #
 # _pc-py-test runs `maturin develop` against the workspace target/, so
-# it MUST chain after _pc-udeps (the end of the cargo lock-holding
-# pipeline) rather than fanning out in parallel. Fanning out caused
-# implicit serialization via cargo's lock anyway and obscured the true
-# wall-clock cost.
+# it MUST chain after the tail of the cargo lock-holding pipeline
+# (currently _pc-self-scan-headroom) rather than fanning out in
+# parallel. Fanning out caused implicit serialization via cargo's
+# lock anyway and obscured the true wall-clock cost. When a new
+# cargo-lock-holding stage is added, extend this chain at the tail
+# (and update the dependency graph comment above) — do not parallelise.
 #
 # Do not invoke _pc-* targets directly; use `make pre-commit`.
 # ---------------------------------------------------------------------------
@@ -593,6 +677,17 @@ _pc-enums-check: _pc-fmt
 _pc-manpages: _pc-udeps
 	$(MAKE) manpages-check
 
+# bca self-scan tiers. Both build with `cargo run --release` against
+# the workspace target/, so they chain after _pc-manpages (the
+# tail of the workspace cargo chain) rather than fanning out in
+# parallel. The hard gate runs before the soft gate so a regression
+# beyond the configured limit surfaces first.
+_pc-self-scan: _pc-manpages
+	$(MAKE) self-scan
+
+_pc-self-scan-headroom: _pc-self-scan
+	$(MAKE) self-scan-headroom
+
 # Python pre-commit stages. _pc-py-fmt auto-fixes (ruff format +
 # ruff check --fix); the typecheck and test stages are check-only
 # (they cannot reasonably auto-fix). _pc-py-fmt and _pc-py-typecheck
@@ -608,7 +703,7 @@ _pc-py-fmt: _pc-fmt
 _pc-py-typecheck: _pc-fmt
 	$(MAKE) py-typecheck
 
-_pc-py-test: _pc-manpages
+_pc-py-test: _pc-self-scan-headroom
 	$(MAKE) py-test
 
 # ---------------------------------------------------------------------------
@@ -622,6 +717,7 @@ _pc-py-test: _pc-manpages
 #   1. _ci-fmt-check (sequential, must pass before anything else)
 #   2. parallel:
 #      _ci-cargo-pipeline: clippy → test → build → doc-check → udeps
+#                          → manpages → self-scan → self-scan-headroom
 #      _ci-shellcheck, _ci-markdown-lint, _ci-toml-lint, _ci-makefile-check,
 #      _ci-actionlint, _ci-snapshot-anchors, _ci-check-versions,
 #      _ci-enums-check
@@ -680,6 +776,17 @@ _ci-enums-check:
 _ci-manpages:
 	$(MAKE) manpages-check
 
+# bca self-scan tiers under `make ci`. Same shape as the _pc-
+# counterparts; chained into _ci-cargo-pipeline (not parallelised)
+# because both run `cargo run --release` against the shared
+# workspace target/. Mirrors `.github/workflows/pages.yml`'s
+# `Threshold gate` step.
+_ci-self-scan:
+	$(MAKE) self-scan
+
+_ci-self-scan-headroom:
+	$(MAKE) self-scan-headroom
+
 # Python CI stages — check-only versions of the py-* targets.
 # Mirror the _pc-py-* shape but without the auto-fix path.
 _ci-py-fmt-check:
@@ -697,9 +804,14 @@ _ci-py-test:
 # Sequential cargo pipeline for local `make ci`. Every step here
 # touches the workspace `target/` lock, so they are serialized in
 # this single chain rather than fanned out in parallel.
-# _ci-manpages (`cargo xtask`) shares the same target/, so it is
-# the tail of this chain rather than a parallel arm of `ci:` —
-# parallel scheduling would just block on cargo's lock anyway.
+# _ci-manpages (`cargo xtask`), _ci-self-scan, and
+# _ci-self-scan-headroom all share the same target/, so they are
+# chained at the tail of this pipeline rather than fanned out as
+# parallel arms of `ci:` — parallel scheduling would just block on
+# cargo's lock anyway. When adding a new cargo-target-touching
+# step, extend the tail here and also extend the
+# `_pc-self-scan-headroom → _pc-py-test` chain on the pre-commit
+# side.
 _ci-cargo-pipeline:
 	$(MAKE) _ci-clippy
 	$(MAKE) _ci-test
@@ -707,6 +819,8 @@ _ci-cargo-pipeline:
 	$(MAKE) _ci-doc-check
 	$(MAKE) _ci-udeps
 	$(MAKE) _ci-manpages
+	$(MAKE) _ci-self-scan
+	$(MAKE) _ci-self-scan-headroom
 
 # ---------------------------------------------------------------------------
 # Release engineering
