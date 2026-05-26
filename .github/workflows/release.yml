@@ -1093,7 +1093,12 @@ jobs:
         working-directory: release
         run: |
           set -eu
-          find . -maxdepth 1 -type f ! -name 'SHA256SUMS*' -print0 \
+          # `-printf '%f\0'` emits the bare basename (GNU find extension,
+          # available on the ubuntu-latest runner). Recording basenames
+          # — rather than the `./<name>` `find .` produces — keeps the
+          # `awk '$2 == f'` filter in the verify job working without a
+          # prefix-strip dance. See issue #351.
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS*' -printf '%f\0' \
             | sort -z \
             | xargs -0 sha256sum > SHA256SUMS
 
@@ -1454,9 +1459,10 @@ jobs:
           # substring (e.g. a `.sig` or `.attestation.json` companion)
           # can't cause sha256sum -c to try to verify two files.
           # awk's $2==f is a fixed-string compare, so dots in the
-          # version aren't treated as regex wildcards. The sign-attest
-          # job emits SHA256SUMS lines with the `./` prefix that
-          # `sha256sum --recursive` produces; accept either form.
+          # version aren't treated as regex wildcards. After #351
+          # the sign-attest job emits bare basenames; the `./` arm
+          # is defense in depth for hand-generated SHA256SUMS or a
+          # producer that reverts to `find . ... -print0`.
           awk -v f="big-code-analysis-${VERSION}-x86_64-unknown-linux-musl.tar.gz" \
               '$2 == f || $2 == "./" f' SHA256SUMS \
             | sha256sum -c
