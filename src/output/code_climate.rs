@@ -46,6 +46,15 @@ use crate::output::offenders::{
     OffenderRecord, Severity, TOOL_ID, rule_description, warn_non_utf8_path,
 };
 
+/// Number of leading SHA-256 bytes retained in each fingerprint
+/// (matches the issue spec — 128 bits is enough to keep collision
+/// probability negligible for any realistic offender corpus while
+/// keeping the JSON artifact compact).
+const FINGERPRINT_BYTE_LEN: usize = 16;
+/// Hex-encoded fingerprint length, derived from
+/// [`FINGERPRINT_BYTE_LEN`] (two hex chars per byte).
+const FINGERPRINT_HEX_LEN: usize = FINGERPRINT_BYTE_LEN * 2;
+
 /// Write a GitLab Code Climate JSON report for `offenders` to
 /// `writer`.
 ///
@@ -181,9 +190,10 @@ fn severity_band(metric: &str, value: f64, limit: f64, severity: Severity) -> &'
 /// metric value — both shift on cosmetic edits that should not
 /// re-surface a known violation.
 ///
-/// Truncated to 16 bytes (32 hex chars) per the issue spec. Byte-wise
-/// hex formatting preserves leading zeros (which a `format!("{:x}",
-/// u128)` rendering would silently drop).
+/// Truncated to [`FINGERPRINT_BYTE_LEN`] bytes
+/// ([`FINGERPRINT_HEX_LEN`] hex chars) per the issue spec.
+/// Byte-wise hex formatting preserves leading zeros (which a
+/// `format!("{:x}", u128)` rendering would silently drop).
 fn fingerprint(path: &str, function: Option<&str>, metric: &str) -> String {
     let mut h = Sha256::new();
     h.update(path.as_bytes());
@@ -192,8 +202,8 @@ fn fingerprint(path: &str, function: Option<&str>, metric: &str) -> String {
     h.update(b"\0");
     h.update(metric.as_bytes());
     let digest = h.finalize();
-    let mut out = String::with_capacity(32);
-    for byte in &digest[..16] {
+    let mut out = String::with_capacity(FINGERPRINT_HEX_LEN);
+    for byte in &digest[..FINGERPRINT_BYTE_LEN] {
         // write! to a String never fails; the Result is discarded
         // intentionally rather than unwrapped to avoid an
         // `expect` in non-test code.
@@ -484,7 +494,11 @@ mod tests {
         ];
         for (path, metric) in inputs {
             let fp = fingerprint(path, Some("fn"), metric);
-            assert_eq!(fp.len(), 32, "fingerprint for {path}/{metric}: {fp}");
+            assert_eq!(
+                fp.len(),
+                FINGERPRINT_HEX_LEN,
+                "fingerprint for {path}/{metric}: {fp}"
+            );
             assert!(
                 fp.chars()
                     .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()),
