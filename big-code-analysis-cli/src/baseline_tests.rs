@@ -20,8 +20,18 @@ fn v(path: &str, function: &str, start_line: usize, metric: &'static str, value:
     }
 }
 
+/// Canonical empty anchor for unit tests: the violation path is keyed
+/// as-passed without prepending a synthetic CWD. Real callers always
+/// derive their anchor via [`anchor_for`] from the baseline file path,
+/// but for the in-memory tests in this file an empty anchor preserves
+/// the pre-#376 semantics of "key on the literal path string the test
+/// supplied" while still exercising the new lexical normalisation.
+fn test_anchor() -> &'static Path {
+    Path::new("")
+}
+
 fn parse(text: &str) -> Result<Baseline, String> {
-    Baseline::from_str(text)
+    Baseline::from_str(text, test_anchor())
 }
 
 // -- parsing / loading -------------------------------------------------
@@ -34,10 +44,13 @@ fn parse_minimal_version_only() {
 
 #[test]
 fn parse_round_trip_preserves_entries() {
-    let original = from_violations(vec![
-        v("src/a.rs", "foo", 10, "cyclomatic", 5.0),
-        v("src/b.rs", "bar", 20, "cognitive", 7.0),
-    ]);
+    let original = from_violations(
+        vec![
+            v("src/a.rs", "foo", 10, "cyclomatic", 5.0),
+            v("src/b.rs", "bar", 20, "cognitive", 7.0),
+        ],
+        test_anchor(),
+    );
     let rendered = render(&original).expect("render");
     let reloaded = parse(&rendered).expect("reload");
     assert_eq!(reloaded.by_key.len(), 2);
@@ -100,6 +113,38 @@ fn parse_rejects_malformed_value() {
 }
 
 #[test]
+fn parse_accepts_legacy_v2_and_re_canonicalizes() {
+    // v2 baselines pre-date the anchor-relative key form from
+    // issue #376. The loader runs each legacy entry's path through
+    // the v3 pipeline so a v2 entry keyed `./src/a.rs` still matches
+    // a violation reported as `src/a.rs` under the new canonical
+    // form. The migration is best-effort — ASCII-clean paths migrate
+    // transparently; pre-encoded non-ASCII paths may double-encode
+    // and need a `--write-baseline` refresh.
+    let b = parse(
+        "version = 2\n[[entry]]\npath=\"./src/a.rs\"\nfunction=\"f\"\nstart_line=1\nmetric=\"cyclomatic\"\nvalue=5.0\n",
+    )
+    .expect("parse");
+    assert_eq!(b.by_key.len(), 1);
+    assert!(matches!(
+        b.classify(&v("src/a.rs", "f", 1, "cyclomatic", 5.0)),
+        Coverage::Covered { recorded } if recorded == 5.0
+    ));
+}
+
+#[test]
+fn parse_rejects_below_legacy_minimum() {
+    // v1 is below LEGACY_MIN_VERSION (2) — its percent-encoding
+    // semantics differ enough that silent migration would
+    // mis-key non-ASCII paths.
+    let err = parse("version = 1\n").unwrap_err();
+    assert!(
+        err.contains("regenerate") || err.contains("upgrade bca"),
+        "msg: {err}"
+    );
+}
+
+#[test]
 fn parse_silently_ignores_unknown_metric() {
     // An entry naming a metric that no extractor exists for parses
     // cleanly; it just never matches anything (no extractor produces
@@ -128,12 +173,15 @@ fn parse_silently_ignores_unknown_fields() {
 
 #[test]
 fn from_violations_skips_non_finite() {
-    let file = from_violations(vec![
-        v("a", "f", 1, "cyclomatic", f64::NAN),
-        v("a", "g", 2, "cyclomatic", f64::INFINITY),
-        v("a", "h", 3, "cyclomatic", f64::NEG_INFINITY),
-        v("a", "i", 4, "cyclomatic", 5.0),
-    ]);
+    let file = from_violations(
+        vec![
+            v("a", "f", 1, "cyclomatic", f64::NAN),
+            v("a", "g", 2, "cyclomatic", f64::INFINITY),
+            v("a", "h", 3, "cyclomatic", f64::NEG_INFINITY),
+            v("a", "i", 4, "cyclomatic", 5.0),
+        ],
+        test_anchor(),
+    );
     assert_eq!(file.entries.len(), 1);
     assert_eq!(file.entries[0].function, "i");
 }
@@ -157,7 +205,7 @@ fn from_violations_deterministic_order() {
         v("src/a.rs", "a", 10, "cyclomatic", 5.0),
         v("src/a.rs", "a", 99, "cyclomatic", 6.0),
     ];
-    let file = from_violations(unsorted);
+    let file = from_violations(unsorted, test_anchor());
     assert_eq!(file.entries[0].path, "src/a.rs");
     assert_eq!(file.entries[0].start_line, 10);
     assert_eq!(file.entries[0].function, "a");
@@ -180,8 +228,8 @@ fn from_violations_byte_equal_across_two_calls() {
         v("src/a.rs", "foo", 10, "cyclomatic", 5.0),
         v("src/b.rs", "bar", 20, "cognitive", 7.0),
     ];
-    let a = render(&from_violations(input.clone())).expect("render a");
-    let b = render(&from_violations(input)).expect("render b");
+    let a = render(&from_violations(input.clone(), test_anchor())).expect("render a");
+    let b = render(&from_violations(input, test_anchor())).expect("render b");
     assert_eq!(a, b);
 }
 
@@ -189,7 +237,10 @@ fn from_violations_byte_equal_across_two_calls() {
 fn path_normalized_forward_slash_on_serialize() {
     // Construct a Violation with a backslash path directly (so the
     // test passes on any host).
-    let file = from_violations(vec![v("a\\b\\c.rs", "f", 1, "cyclomatic", 5.0)]);
+    let file = from_violations(
+        vec![v("a\\b\\c.rs", "f", 1, "cyclomatic", 5.0)],
+        test_anchor(),
+    );
     assert_eq!(file.entries[0].path, "a/b/c.rs");
 }
 
@@ -201,7 +252,7 @@ fn baseline_with(entries: Vec<BaselineEntry>) -> Baseline {
         entries,
     };
     let text = render(&file).expect("render");
-    Baseline::from_str(&text).expect("parse")
+    Baseline::from_str(&text, test_anchor()).expect("parse")
 }
 
 fn entry(path: &str, function: &str, start_line: usize, metric: &str, value: f64) -> BaselineEntry {
@@ -336,6 +387,62 @@ fn classify_recorded_round_trips_bit_exactly() {
     }
 }
 
+// -- anchor + lexical normalisation (issue #376) ----------------------
+
+#[test]
+fn lexical_normalize_folds_curdir_and_parent() {
+    assert_eq!(lexical_normalize(Path::new("./a/b")), Path::new("a/b"));
+    assert_eq!(lexical_normalize(Path::new("a/./b")), Path::new("a/b"));
+    assert_eq!(lexical_normalize(Path::new("a/b/../c")), Path::new("a/c"));
+    assert_eq!(
+        lexical_normalize(Path::new("a/b/c/../../d")),
+        Path::new("a/d")
+    );
+}
+
+#[test]
+fn lexical_normalize_preserves_escaping_parents() {
+    // `..` past every accumulated Normal component is preserved so
+    // an entry that genuinely lives one level above the anchor
+    // (e.g., a sibling-crate analysis) still has an identity.
+    assert_eq!(lexical_normalize(Path::new("../a")), Path::new("../a"));
+    assert_eq!(lexical_normalize(Path::new("a/../../b")), Path::new("../b"));
+}
+
+#[cfg(unix)]
+#[test]
+fn anchor_for_strips_baseline_filename() {
+    let dir = std::env::temp_dir().join("bca-anchor-test");
+    let _ = std::fs::create_dir_all(&dir);
+    let baseline = dir.join("baseline.toml");
+    assert_eq!(anchor_for(&baseline), dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn normalize_path_canonicalises_against_anchor() {
+    // Three distinct typings of the same file under one anchor must
+    // collapse to the same key.
+    let anchor = Path::new("/repo");
+    let key_dot = normalize_path(anchor, Path::new("/repo/src/foo.rs"));
+    let key_rel = normalize_path(anchor, Path::new("src/./foo.rs"));
+    let key_parent = normalize_path(anchor, Path::new("src/x/../foo.rs"));
+    assert_eq!(key_dot, "src/foo.rs");
+    assert_eq!(key_rel, "src/foo.rs");
+    assert_eq!(key_parent, "src/foo.rs");
+}
+
+#[cfg(unix)]
+#[test]
+fn normalize_path_outside_anchor_uses_absolute_form() {
+    // A path that isn't under the anchor keeps its absolute form
+    // rather than degrading to `../` chains. Legitimate use case:
+    // a baseline at the repo root recording offenders from a
+    // sibling vendored crate kept outside the tree.
+    let key = normalize_path(Path::new("/repo"), Path::new("/elsewhere/file.rs"));
+    assert_eq!(key, "/elsewhere/file.rs");
+}
+
 // -- non-UTF-8 path identity ------------------------------------------
 
 #[test]
@@ -344,11 +451,20 @@ fn normalize_path_utf8_unchanged_for_unreserved_ascii() {
     // path components) must round-trip untouched. Non-UTF-8
     // encoding shenanigans must not leak into ordinary inputs (no
     // unexpected percent escapes, no extra markers).
-    assert_eq!(normalize_path(Path::new("src/foo.rs")), "src/foo.rs");
-    assert_eq!(normalize_path(Path::new("crates/a/b.rs")), "crates/a/b.rs");
+    assert_eq!(
+        normalize_path(test_anchor(), Path::new("src/foo.rs")),
+        "src/foo.rs"
+    );
+    assert_eq!(
+        normalize_path(test_anchor(), Path::new("crates/a/b.rs")),
+        "crates/a/b.rs"
+    );
     // Backslashes are still normalized to forward slashes for the
     // UTF-8 path so that cross-OS baselines match.
-    assert_eq!(normalize_path(Path::new("a\\b\\c.rs")), "a/b/c.rs");
+    assert_eq!(
+        normalize_path(test_anchor(), Path::new("a\\b\\c.rs")),
+        "a/b/c.rs"
+    );
 }
 
 #[test]
@@ -356,8 +472,14 @@ fn normalize_path_utf8_escapes_percent() {
     // `%` must be escaped in the UTF-8 fast path so it cannot collide
     // with a non-UTF-8 byte's `%XX` escape. See `normalize_path_utf8_
     // non_utf8_byte_no_collision` for the actual collision check.
-    assert_eq!(normalize_path(Path::new("foo%FF.rs")), "foo%25FF.rs");
-    assert_eq!(normalize_path(Path::new("a%b%c.rs")), "a%25b%25c.rs");
+    assert_eq!(
+        normalize_path(test_anchor(), Path::new("foo%FF.rs")),
+        "foo%25FF.rs"
+    );
+    assert_eq!(
+        normalize_path(test_anchor(), Path::new("a%b%c.rs")),
+        "a%25b%25c.rs"
+    );
 }
 
 #[cfg(unix)]
@@ -374,8 +496,8 @@ fn normalize_path_utf8_percent_vs_non_utf8_byte_no_collision() {
 
     let utf8 = Path::new("foo%FF.rs");
     let non_utf8 = PathBuf::from(OsStr::from_bytes(b"foo\xff.rs"));
-    let key_utf8 = normalize_path(utf8);
-    let key_non_utf8 = normalize_path(&non_utf8);
+    let key_utf8 = normalize_path(test_anchor(), utf8);
+    let key_non_utf8 = normalize_path(test_anchor(), &non_utf8);
     assert_eq!(key_utf8, "foo%25FF.rs");
     assert_eq!(key_non_utf8, "foo%FF.rs");
     assert_ne!(key_utf8, key_non_utf8);
@@ -394,8 +516,8 @@ fn baseline_key_preserves_non_utf8_identity() {
     // violations from path B.
     let a = PathBuf::from("src").join(OsStr::from_bytes(b"bad-\xff\xfe.rs"));
     let b = PathBuf::from("src").join(OsStr::from_bytes(b"bad-\xfe\xff.rs"));
-    let key_a = normalize_path(&a);
-    let key_b = normalize_path(&b);
+    let key_a = normalize_path(test_anchor(), &a);
+    let key_b = normalize_path(test_anchor(), &b);
     assert_ne!(key_a, key_b);
     // The encoded keys are valid UTF-8 (required by TOML) and
     // contain only ASCII bytes after percent-encoding.
@@ -526,8 +648,8 @@ fn baseline_key_preserves_non_utf16_identity_on_windows() {
     ];
     let path_a = PathBuf::from(OsString::from_wide(&a_units));
     let path_b = PathBuf::from(OsString::from_wide(&b_units));
-    let key_a = normalize_path(&path_a);
-    let key_b = normalize_path(&path_b);
+    let key_a = normalize_path(test_anchor(), &path_a);
+    let key_b = normalize_path(test_anchor(), &path_b);
     assert_ne!(key_a, key_b);
     assert!(key_a.is_ascii());
     assert!(key_b.is_ascii());
@@ -567,9 +689,9 @@ fn baseline_covers_distinguishes_non_utf8_paths() {
     // Baseline contains only `path_a`. classify(violation_b) would
     // wrongly return Covered if both non-UTF-8 paths normalized
     // to the same lossy key.
-    let file = from_violations(vec![violation_a.clone()]);
+    let file = from_violations(vec![violation_a.clone()], test_anchor());
     let rendered = render(&file).expect("render");
-    let b = Baseline::from_str(&rendered).expect("parse");
+    let b = Baseline::from_str(&rendered, test_anchor()).expect("parse");
     assert!(matches!(b.classify(&violation_a), Coverage::Covered { .. }));
     assert!(matches!(b.classify(&violation_b), Coverage::New));
 }

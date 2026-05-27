@@ -306,7 +306,7 @@ pub fn classify(n: i32) -> &'static str {
         .stderr(predicate::str::contains("wrote 0 baseline entries"));
 
     let content = fs::read_to_string(&baseline).unwrap();
-    assert!(content.contains("version = 2"));
+    assert!(content.contains("version = 3"));
     assert!(!content.contains("[[entry]]"));
 }
 
@@ -773,7 +773,7 @@ fn clean_tree_write_baseline_produces_empty_versioned_file() {
         .stderr(predicate::str::contains("wrote 0 baseline entries"));
 
     let content = fs::read_to_string(&baseline).unwrap();
-    assert!(content.contains("version = 2"));
+    assert!(content.contains("version = 3"));
     assert!(!content.contains("[[entry]]"));
 }
 
@@ -872,4 +872,155 @@ fn no_baseline_emits_unprefixed_lines() {
         .stderr(predicate::str::contains("classify: cyclomatic ="))
         .stderr(predicate::str::contains("[new]").not())
         .stderr(predicate::str::contains("[regr").not());
+}
+
+// -- Path canonicalisation (issue #376) -----------------------------------
+
+/// Run the same `bca check --write-baseline` against the same tree
+/// using two different `--paths` forms (`.` vs. the absolute repo
+/// path) from the same working directory. The acceptance criterion
+/// in #376 is that both invocations produce byte-identical TOML —
+/// path keys must be anchor-relative, not dependent on the form the
+/// user typed.
+#[test]
+fn write_baseline_byte_equal_across_paths_forms() {
+    let dir = TempDir::new().unwrap();
+    write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let baseline_rel = dir.path().join("baseline_rel.toml");
+    let baseline_abs = dir.path().join("baseline_abs.toml");
+    let abs_paths = dir.path().to_str().unwrap().to_string();
+
+    // Form A: --paths . (relative to CWD = tempdir).
+    cli()
+        .current_dir(dir.path())
+        .args([
+            "--paths",
+            ".",
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--write-baseline",
+            baseline_rel.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Form B: --paths /abs/tempdir (absolute).
+    cli()
+        .current_dir(dir.path())
+        .args([
+            "--paths",
+            &abs_paths,
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--write-baseline",
+            baseline_abs.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let a = fs::read_to_string(&baseline_rel).unwrap();
+    let b = fs::read_to_string(&baseline_abs).unwrap();
+    assert_eq!(
+        a, b,
+        "baselines written from `.` vs absolute `--paths` must match byte-for-byte"
+    );
+    // Sanity: the recorded path is anchor-relative ("branchy.rs"),
+    // not `./branchy.rs` or `<tempdir>/branchy.rs`.
+    assert!(
+        a.contains("path = \"branchy.rs\""),
+        "key must be relative to the baseline directory, got: {a}"
+    );
+}
+
+/// Write a baseline with one `--paths` form, then run `--baseline`
+/// with a *different* form against the same tree. Every entry must
+/// match; the run exits 0. Pre-#376 this would surface every
+/// existing offender as `[new]`.
+#[test]
+fn check_baseline_matches_across_paths_forms() {
+    let dir = TempDir::new().unwrap();
+    write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let baseline = dir.path().join("baseline.toml");
+    let abs_paths = dir.path().to_str().unwrap().to_string();
+
+    // Write with --paths "." (relative).
+    cli()
+        .current_dir(dir.path())
+        .args([
+            "--paths",
+            ".",
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--write-baseline",
+            baseline.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("wrote 1 baseline entries"));
+
+    // Read back with absolute --paths. Pre-#376: every entry would
+    // mismatch and the gate would re-fail on every offender.
+    cli()
+        .current_dir(dir.path())
+        .args([
+            "--paths",
+            &abs_paths,
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--baseline",
+            baseline.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "filtered 1 violations via baseline",
+        ));
+}
+
+/// A v2 baseline (pre-#376) keyed with a `./`-prefixed path must
+/// still match a violation reported under the new anchor-relative
+/// canonical form. The loader runs each legacy entry through the
+/// v3 pipeline at parse time, so ASCII-clean v2 baselines migrate
+/// transparently. A one-time deprecation warning is emitted on
+/// stderr telling the user to refresh.
+#[test]
+fn legacy_v2_baseline_migrates_dot_prefix() {
+    let dir = TempDir::new().unwrap();
+    write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let baseline = dir.path().join("baseline.toml");
+
+    // A v2 baseline with the old `./`-prefixed key shape that
+    // `--paths .` used to produce.
+    fs::write(
+        &baseline,
+        "version = 2\n[[entry]]\n\
+         path = \"./branchy.rs\"\n\
+         function = \"classify\"\n\
+         start_line = 2\n\
+         metric = \"cyclomatic\"\n\
+         value = 5.0\n",
+    )
+    .unwrap();
+
+    cli()
+        .current_dir(dir.path())
+        .args([
+            "--paths",
+            ".",
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--baseline",
+            baseline.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("baseline is v2"))
+        .stderr(predicate::str::contains(
+            "filtered 1 violations via baseline",
+        ));
 }

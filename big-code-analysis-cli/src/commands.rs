@@ -158,9 +158,13 @@ fn run_check_walk(
 }
 
 /// Serialize and write the collected violations as a baseline TOML
-/// file. Used by the `--write-baseline` early-exit branch.
+/// file. Used by the `--write-baseline` early-exit branch. The
+/// baseline-file directory becomes the *anchor* — every entry's path
+/// is keyed relative to it, so a subsequent `--baseline` invocation
+/// from any `--paths` form (`.`, `src/`, `$PWD`) still matches.
 fn write_check_baseline(violations: Vec<Violation>, path: &Path) {
-    let file = baseline::from_violations(violations);
+    let anchor = baseline::anchor_for(path);
+    let file = baseline::from_violations(violations, &anchor);
     let entry_count = file.entries.len();
     let text =
         baseline::render(&file).unwrap_or_else(|e| die(format_args!("serialize baseline: {e}")));

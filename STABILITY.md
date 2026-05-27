@@ -221,6 +221,27 @@ reach the raw tree-sitter surface.
   plumbing surface. They are not covered by any stability promise
   and may be removed or renamed in a patch bump.
 
+## CLI artifact formats
+
+The `.bca-baseline.toml` schema is a CLI artifact, not a library
+API. It carries its own `version` field and evolves independently
+of the library SemVer contract above. Schema bumps land under
+patch or minor releases of the `big-code-analysis-cli` crate.
+Loaders accept the current `version` plus a documented legacy
+window for in-place migration; older versions surface a
+"regenerate with `--write-baseline`" hint instead of silently
+mis-matching. Recent transitions:
+
+- **v2 → v3** ([#376](https://github.com/dekobon/big-code-analysis/issues/376)):
+  path keys are canonicalised relative to the baseline file's own
+  directory. ASCII-clean v2 baselines migrate transparently with
+  a one-time stderr notice; v2 baselines with pre-encoded
+  non-ASCII paths may need a `--write-baseline` refresh.
+- **v1 → v2**: `%` percent-encoding made total in the UTF-8
+  fast path so a literal `%FF` in a filename cannot collide with
+  the `%FF` escape for byte `0xFF` in a non-UTF-8 path. v1 is no
+  longer accepted; regenerate the file.
+
 ## MSRV policy
 
 The workspace pins `rust-version = "1.94"` (see the

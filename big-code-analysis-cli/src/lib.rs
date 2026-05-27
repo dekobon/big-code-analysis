@@ -780,13 +780,12 @@ fn load_threshold_config(path: &Path) -> BTreeMap<String, f64> {
     cfg.thresholds
 }
 
-/// Load a baseline file. Same error contract as `load_threshold_config`:
-/// any I/O, UTF-8, or schema error dies with exit code 1.
 fn load_baseline(path: &Path) -> Baseline {
     let bytes = read_file(path).unwrap_or_else(|e| die_io("read baseline", path, e));
     let text = std::str::from_utf8(&bytes)
         .unwrap_or_else(|e| die_io("decode UTF-8 from baseline", path, e));
-    Baseline::from_str(text).unwrap_or_else(|e| die_io("parse baseline", path, e))
+    let anchor = baseline::anchor_for(path);
+    Baseline::from_str(text, &anchor).unwrap_or_else(|e| die_io("parse baseline", path, e))
 }
 
 /// Write `bytes` to `path` atomically: create the parent directory if

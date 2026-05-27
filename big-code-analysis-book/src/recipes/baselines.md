@@ -45,6 +45,12 @@ git add bca-thresholds.toml .bca-baseline.toml
 git commit -m "ci: introduce metric thresholds with baseline"
 ```
 
+Path keys in the baseline are stored relative to the baseline file's
+own directory (the *anchor*). `--paths .`, `--paths src/`, and
+`--paths "$PWD"` produce byte-identical baselines, and `--baseline`
+runs match regardless of which `--paths` form CI uses — switch
+between them freely without re-running `--write-baseline`.
+
 ### 3. Wire the CI gate
 
 GitHub Actions:
@@ -186,10 +192,6 @@ violation including the ones that suppression markers normally hide.
   Editing code above a function shifts its `start_line` and the
   baseline entry stops matching, surfacing as a "new" offender. Refresh
   with `--write-baseline` and commit the diff.
-- **Path identity.** Entries record the path the walker saw. Run
-  `--write-baseline` and `--baseline` from the same working directory
-  with the same `--paths` argument; a relative `--paths src/` and an
-  absolute `--paths /repo/src/` produce non-matching baselines.
 - **OS portability.** Paths are normalized to forward slashes on
   write and re-normalized on read, so a baseline generated on Linux
   matches the same tree on Windows. Non-UTF-8 paths fall back to a

@@ -78,6 +78,19 @@ for historical reference.
 
 ### Changed
 
+- `bca check` baseline path keys are now canonicalised relative to
+  the baseline file's own directory (the *anchor*). `--paths .`,
+  `--paths src/`, and `--paths "$PWD"` produce byte-identical
+  baselines and `--baseline` runs match across forms — switching
+  `--paths` style no longer surfaces every existing offender as a
+  spurious `[new]`. The on-disk schema is bumped to `version = 3`;
+  v2 baselines load with a one-time stderr deprecation hint and an
+  in-memory migration (best-effort for ASCII-clean paths;
+  pre-encoded non-ASCII paths may need a `--write-baseline`
+  refresh). Removes the four "path-style stickiness" callouts in
+  the book and the 8-line header warning in `bca-thresholds.toml`.
+  Fixes
+  [#376](https://github.com/dekobon/big-code-analysis/issues/376).
 - ABC metric: refactored the Java / Groovy / C# `impl Abc::compute`
   bodies into four mutually-exclusive category helpers
   (`*_count_token_assignment`, `*_count_token_branch`,

@@ -173,18 +173,6 @@ error**. The soft tier is a real gate — never wrap
 `make self-scan-headroom` in `|| true` thinking it's advisory; the
 non-zero exit is the whole point of the encroachment band.
 
-> **Keep `--paths` identical across all four recipes.** Baseline
-> entries are keyed by the exact path string `bca` emits at write
-> time: `--paths .` records `./src/foo.rs`, `--paths src/` records
-> `src/foo.rs`, and `--paths "$PWD"` records the absolute path.
-> A subsequent `--baseline` invocation that uses a different
-> `--paths` form silently mismatches every entry and the gate
-> re-fails on every existing offender. The skeletons above all
-> use `--paths .` deliberately — if you change it, change it in
-> every recipe and refresh `.bca-baseline.toml` once. See
-> [Baselines: path identity](baselines.md#limitations) for the
-> full caveat.
-
 ### Wiring into pre-commit and CI
 
 Add the soft gate to whatever umbrella target your developers

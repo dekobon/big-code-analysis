@@ -226,15 +226,6 @@ bca --paths src/ check \
 git add bca-thresholds.toml .bca-baseline.toml
 ```
 
-> **Path-style stickiness.** Baseline entries are keyed by the exact
-> path string bca emits at write time. `--paths src/` records
-> `src/foo.rs`, `--paths .` records `./src/foo.rs`, and
-> `--paths "$PWD"` records the absolute path. The subsequent
-> `bca check --baseline` MUST use the same `--paths` form, or every
-> entry mismatches and the gate fails on every existing offender.
-> Pick one form and apply it consistently in CI and in the bootstrap
-> command.
-
 This snippet bootstraps from `src/` only — appropriate for a
 single-crate library. For a multi-crate workspace, see the
 [live worked example](#live-worked-example): its `.github/workflows/pages.yml`

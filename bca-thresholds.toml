@@ -5,15 +5,6 @@
 # and new offenders fail the gate. See the Baselines recipe in the book
 # for the bootstrap/refresh/retire flow.
 #
-# Path-style stickiness:
-#   `.bca-baseline.toml` records each offender keyed by the exact path
-#   bca emitted at write time. Our workflow runs `bca check --paths .`
-#   so the baseline keys are `./...`-prefixed. A subsequent `bca check
-#   --paths "$PWD" --baseline .bca-baseline.toml` would compare absolute
-#   paths against `./...` keys, miss every entry, and re-fail the gate
-#   on every existing offender. Refreshing the baseline (`--write-
-#   baseline`) and running the gate MUST use the same `--paths` form.
-#
 # Editing rules:
 #   * Each key is a stable metric name (or dotted sub-metric name) from
 #     `bca list-metrics` / `bca check --help`. Available names:
