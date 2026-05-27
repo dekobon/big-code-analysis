@@ -2548,3 +2548,133 @@ logic, drop the unused capture and lean on
 to preserve the narrative at the call-site.
 
 ---
+
+## 50. Independent dispatch paths counting the same event mask each other's bugs
+
+When a metric has two structurally-independent paths that contribute
+to the same headline count — a *token-arm* path classifying single
+AST node kinds and a *walker-arm* path descending through container
+nodes, or a *structural* arm opening a `FuncSpace` and a *body* arm
+summing inside it — both paths add into the same `Stats` field.
+Tests that exercise inputs covered by *either* path read the right
+total and pass. The dead path is invisible from the result alone;
+only an input the alternate path cannot classify exposes it. This
+is distinct from lesson #19 (a missing arm in a single dispatch
+table) and lesson #7 (an *upstream* filter masking the buggy code
+from the test input) — here the arm is present, the input reaches
+it, and the test still passes because a *parallel* path summed the
+same count by a different route.
+
+**C# `csharp_walk_for_conditions` was dead code for every existing
+test** (#370, `6384590`). The `IfStatement` / `WhileStatement` /
+`DoStatement` dispatch arms in `src/metrics/abc.rs` targeted
+`csharp_inspect_child(node, 1, …)` / `csharp_inspect_child(node, 3,
+…)`, which in tree-sitter-c-sharp's grammar shape land on the
+literal `(` and `while` token children, not the condition expression
+(condition lives at child(2) for if/while, child(4) for do-while).
+Every C# ABC test (`csharp_if_single_conditions`,
+`csharp_while_and_do_while_conditions`, …) used a comparison
+operator inside its condition — `if (x > 0)`, `while (x < 10)` —
+and the comparison tokens (`GT`, `LT`, `EQEQ`, …) were counted by an
+*independent* token-arm path in the same metric. The if/while/do
+helper contributed zero on every test input. The bug existed since
+C# language support landed and survived the #369 refactor
+(monolithic compute → per-category helpers, `f8b8829`) verbatim
+because the refactor preserved dispatch shapes without altering
+input coverage. The dead arm could only be exposed by a
+bare-identifier condition (`if (x)`) or unary `!` (`if (!x)`) —
+input shapes the token-arm path cannot classify.
+
+**The same masking pattern surfaced again on `BooleanLiteral` while
+reviewing the #370 fix** (#371, `efe38b7`; Groovy follow-up
+`f132990`). The new `csharp_count_condition` helper matched the leaf
+tokens `Csharp::True` / `Csharp::False` but not the
+`Csharp::BooleanLiteral` wrapper the grammar interposes when `true`
+/ `false` appear as a condition. `if (true)`, `while (false)`,
+ternary `true ? a : b`, and `!true` all scored 0 conditions — but
+only when no other condition token also fired in the same
+statement, because the existing ternary `?` / comparison-operator
+token arms covered most real test inputs. Discovered during
+`/rust-optimize` review of the #370 fix, not from a user report.
+Same root cause (dead walker arm, masked by alternate token path),
+different node-kind shape (wrapper vs. literal vs. child-index),
+all within one week of activity.
+
+**Lesson:** When a metric has multiple independent code paths
+summing into the same field, write at least one regression test
+whose input *only* the path-under-test can classify — bare
+identifiers for a walker arm that handles `!`/paren-wrappers, an
+empty container for an arm that descends into children, a
+single-arm `switch` for a container-vs.-arm counter. Test-via-revert
+each new arm independently (per lesson #33) and confirm it fails
+when that *one* arm is dropped — a passing test against an
+alternate-path-firing input proves nothing about the path you just
+wrote. When auditing or refactoring an existing metric, identify
+every independent path that contributes to the same field and
+ensure each has at least one input no other path covers; symmetric
+paths whose test fixtures all happen to exercise both will pass
+even after one path is dead-coded.
+
+---
+
+## 51. Hand-rolled match arms drift from their enum list without an integration coverage guard
+
+A `macro_rules!` macro that hand-codes one match arm per variant
+(`mk_get_language!`, `mk_get_language_name!`) is *correspondence by
+convention* with the variant list its companion macro emits
+(`mk_langs!`). The two share no compile-time tie: a typo in one
+arm's backing crate, a missing arm for a newly-added variant, or a
+copy-paste that resolves `Cpp` to `tree_sitter_mozjs` all type-check
+fine and ship silently. The bug surfaces only at runtime, when the
+wrong dispatch result reaches a caller — and if the crate is
+workspace-excluded (lesson #15), even `cargo test --workspace` won't
+exercise it. Distinct from lesson #15 (excluded crates drift outside
+*lint* gates) and lesson #48 (hand-written enum lists need a
+*match-based* exhaustiveness companion): here the runtime *dispatch
+target* — which backing crate, which name — has no compile-time
+check against the variant list it claims to cover.
+
+**Removing the unused capture (#49) fixed the documentation lie;
+the dispatch table still had no runtime coverage** (#344, fix
+`0b417f2`; integration coverage added in #350, `0f16162`). Lesson
+\#49 traces #344's root cause to a `mk_langs!` macro that captured
+`(Cpp, tree_sitter_cpp)` but discarded the second element in
+`mk_get_language!`'s hand-written match, which actually resolved
+`Cpp` to `tree_sitter_mozcpp`. Dropping the unused capture
+eliminated the *lie*, but it left every one of the 21 hand-written
+match arms untested: a future typo, a missing arm for a newly-added
+variant, or a copy-paste that swaps two backing crates would still
+type-check and ship silently. The enums crate is workspace-excluded
+(no `cargo test --workspace` exercises it) and previously shipped no
+`tests/` directory, so the only signal would be a runtime panic when
+the wrong dispatch result reached a caller. #350 added
+`enums/tests/dispatch.rs` with two load-bearing pieces: (1) a
+`lang_<variant>_resolves_to_<crate>` test per `Lang` variant
+comparing `get_language(&Lang::X)` to
+`tree_sitter_<crate>::LANGUAGE.into()` *directly imported* (not via
+`get_language` itself — avoiding the tautology trap), and (2) a
+`coverage_every_lang_variant_is_dispatched` guard that iterates
+`Lang::into_enum_iter()` and asserts the variant count equals an
+`EXPECTED_LANG_VARIANT_COUNT` constant. Test-via-revert: swapping
+the `Cpp` arm to `tree_sitter_mozjs::LANGUAGE` makes
+`lang_cpp_resolves_to_mozcpp` fail with `Cpp grammar mismatch`;
+adding a new `mk_langs!` variant without a per-variant test trips
+the coverage guard.
+
+**Lesson:** Any hand-rolled dispatch macro that emits one match arm
+per enum variant — `mk_get_language!`, `mk_action!`-style routers,
+manually-typed `From<X> for Y` impls over an enum — needs a sibling
+integration test that walks every variant of the source enum and
+pins the dispatch result to a *directly-imported* reference (the
+backing crate's `LANGUAGE`, the canonical string, the expected
+behaviour). Compare against the import, not the macro under test,
+or the test is tautological. Pair the per-variant tests with a
+variant-count coverage guard
+(`Lang::into_enum_iter().count() == EXPECTED_VARIANT_COUNT`) so
+adding a new variant without extending the test trips the guard.
+Workspace-excluded codegen crates need this gate locally (a
+per-crate `cargo test` recipe wired into `make pre-commit` / `make
+ci`, mirroring `enums-check` from lesson #15) — `--workspace`
+doesn't touch them.
+
+---
