@@ -32,12 +32,21 @@ use crate::metric_catalog::write_metrics;
 use crate::thresholds::{ThresholdSet, Violation, render_violation_line};
 use crate::{
     Action, CheckArgs, Cli, Command, Config, GlobalOpts, ListMetricsArgs, NodesArgs, PreprocArgs,
-    ReportArgs, StripCommentsArgs, StructuredArgs, die, die_io, legacy_hint, load_baseline,
-    load_preproc_data, load_threshold_config, run_walk, write_atomic, write_stdout_or_die,
+    PrintConfigFormat, ReportArgs, StripCommentsArgs, StructuredArgs, die, die_io, legacy_hint,
+    load_baseline, load_preproc_data, load_threshold_config, run_walk, write_atomic,
+    write_stdout_or_die,
 };
 
 fn run_check(globals: GlobalOpts, args: CheckArgs, preproc: Option<Arc<PreprocResults>>) {
     let set = validate_and_build_thresholds(&args);
+    // `--print-effective-config` is a read-only debug aid: print the
+    // resolved configuration and exit 0 before the walk. clap already
+    // rejects pairing with `--write-baseline` (conflicts_with), so by
+    // the time we get here the flag is unambiguous.
+    if let Some(format) = args.print_effective_config {
+        print_effective_config(&globals, &args, &set, format);
+        return;
+    }
     let scope = resolve_diff_scope(&args);
     // Clone globals for the remediation builder: `run_check_walk`
     // consumes `globals` by value (it passes through to `run_walk`
@@ -76,6 +85,119 @@ fn run_check(globals: GlobalOpts, args: CheckArgs, preproc: Option<Arc<PreprocRe
 
     if emitted && !args.no_fail {
         process::exit(2);
+    }
+}
+
+/// Serialize the resolved threshold/check configuration to stdout.
+/// Used by `--print-effective-config` to surface the post-merge view
+/// of every layer (`--config` TOML + repeated `--threshold` CLI
+/// overrides) without running the check.
+///
+/// The output shape is intentionally a strict superset of what
+/// `--config` consumes: piping the TOML form back through `--config`
+/// reproduces the same `ThresholdSet`. JSON is offered for tooling
+/// pipelines (CI dashboards, IDE plugins) that prefer structured data
+/// over TOML — the same field names; same shape.
+///
+/// Future layers (headroom scaling per #373, `[thresholds.soft]` per
+/// #375, baseline state per #381, tiered exit codes per #385) will
+/// extend `EffectiveConfig` additively. This printer is the single
+/// place that needs to learn about them.
+fn print_effective_config(
+    globals: &GlobalOpts,
+    args: &CheckArgs,
+    set: &ThresholdSet,
+    format: PrintConfigFormat,
+) {
+    let effective = EffectiveConfig::from_resolved(globals, args, set);
+    let serialized = match format {
+        PrintConfigFormat::Toml => toml::to_string_pretty(&effective)
+            .unwrap_or_else(|e| die(format_args!("serialize effective config to TOML: {e}"))),
+        PrintConfigFormat::Json => serde_json::to_string_pretty(&effective)
+            .unwrap_or_else(|e| die(format_args!("serialize effective config to JSON: {e}"))),
+    };
+    write_stdout_or_die(serialized.as_bytes());
+    // TOML's `to_string_pretty` already ends with a newline; JSON's
+    // `to_string_pretty` does not. Normalize so consumers piping into
+    // `--config` or `jq` see a clean trailing newline either way.
+    if !serialized.ends_with('\n') {
+        write_stdout_or_die(b"\n");
+    }
+}
+
+/// Resolved view of `bca check` configuration after layer merge.
+///
+/// Mirrors the [`ThresholdConfig`][crate::thresholds::ThresholdConfig]
+/// schema for the `[thresholds]` table so the TOML form is directly
+/// consumable via `--config`. The `[check]` table reports the
+/// filtering/scoping inputs (paths, include/exclude globs, suppression
+/// policy, etc.) that affect which functions are even considered for
+/// threshold comparison; those fields are informational and ignored
+/// by `--config`.
+#[derive(serde::Serialize)]
+struct EffectiveConfig {
+    thresholds: BTreeMap<String, f64>,
+    check: EffectiveCheck,
+}
+
+#[derive(serde::Serialize)]
+struct EffectiveCheck {
+    paths: Vec<String>,
+    include: Vec<String>,
+    exclude: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    exclude_from: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    paths_from: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    baseline: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    config: Option<String>,
+    no_fail: bool,
+    no_suppress: bool,
+    no_ignore: bool,
+    no_skip_generated: bool,
+    exclude_tests: bool,
+    changed_only: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    since: Option<String>,
+}
+
+impl EffectiveConfig {
+    /// Project the resolved `ThresholdSet` + the original CLI args into
+    /// a serializable view. Paths are rendered with [`Path::display`]
+    /// because the printed config is informational; `--config` only
+    /// reads the `[thresholds]` table back, where keys/values are pure
+    /// ASCII metric names + numbers and round-trip exactly.
+    fn from_resolved(globals: &GlobalOpts, args: &CheckArgs, set: &ThresholdSet) -> Self {
+        let thresholds: BTreeMap<String, f64> = set
+            .iter()
+            .map(|(name, limit)| (name.to_owned(), limit))
+            .collect();
+        let check = EffectiveCheck {
+            paths: globals
+                .paths
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect(),
+            include: globals.include.clone(),
+            exclude: globals.exclude.clone(),
+            exclude_from: globals
+                .exclude_from
+                .as_ref()
+                .map(|p| p.display().to_string()),
+            paths_from: globals.paths_from.as_ref().map(|p| p.display().to_string()),
+            baseline: args.baseline.as_ref().map(|p| p.display().to_string()),
+            config: args.config.as_ref().map(|p| p.display().to_string()),
+            no_fail: args.no_fail,
+            no_suppress: args.no_suppress,
+            no_ignore: globals.no_ignore,
+            no_skip_generated: globals.no_skip_generated,
+            exclude_tests: globals.exclude_tests,
+            changed_only: args.changed_only,
+            since: args.since.clone(),
+        };
+        Self { thresholds, check }
     }
 }
 

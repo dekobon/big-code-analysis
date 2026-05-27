@@ -4,7 +4,7 @@
 .SH NAME
 bca\-check \- Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed"
 .SH SYNOPSIS
-\fBbca\-check\fR [\fB\-\-threshold\fR] [\fB\-\-config\fR] [\fB\-\-no\-fail\fR] [\fB\-\-no\-suppress\fR] [\fB\-O\fR|\fB\-\-output\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-baseline\fR] [\fB\-\-write\-baseline\fR] [\fB\-\-no\-summary\fR] [\fB\-\-since\fR] [\fB\-\-changed\-only\fR] [\fB\-\-github\-annotations\fR] [\fB\-\-summary\-file\fR] [\fB\-\-no\-remediation\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+\fBbca\-check\fR [\fB\-\-threshold\fR] [\fB\-\-config\fR] [\fB\-\-no\-fail\fR] [\fB\-\-no\-suppress\fR] [\fB\-O\fR|\fB\-\-output\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-baseline\fR] [\fB\-\-write\-baseline\fR] [\fB\-\-no\-summary\fR] [\fB\-\-since\fR] [\fB\-\-changed\-only\fR] [\fB\-\-github\-annotations\fR] [\fB\-\-summary\-file\fR] [\fB\-\-no\-remediation\fR] [\fB\-\-print\-effective\-config\fR] [\fB\-h\fR|\fB\-\-help\fR] 
 .SH DESCRIPTION
 Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed"
 .SH OPTIONS
@@ -68,6 +68,19 @@ File path to append a markdown digest of the violations to — per\-file rollup 
 .TP
 \fB\-\-no\-remediation\fR
 Suppress the trailing "\-\-\- next steps \-\-\-" remediation block that names the artifact, prints a copy\-paste\-safe `\-\-write\-baseline` refresh invocation, and links to the Baselines recipe. By default the block is emitted on failure (and in `$GITHUB_STEP_SUMMARY` when present) so a first\-time reader of a failing CI log can see what to do next without leaving the page
+.TP
+\fB\-\-print\-effective\-config\fR [\fI<FORMAT>\fR]
+Print the resolved threshold/check configuration (after merging `\-\-config` TOML + `\-\-threshold` CLI overrides) to stdout, then exit 0 without walking the codebase. Default format is TOML; pass `=json` for JSON. Mutually exclusive with `\-\-write\-baseline` — this flag is a read\-only debug aid, not a side\-effecting operation. Output is round\-trippable: piping it back through `\-\-config` produces the same effective view
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+toml
+.IP \(bu 2
+json
+.RE
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help (see a summary with \*(Aq\-h\*(Aq)

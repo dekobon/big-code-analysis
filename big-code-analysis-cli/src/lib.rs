@@ -464,6 +464,33 @@ struct CheckArgs {
     /// next without leaving the page.
     #[clap(long = "no-remediation")]
     no_remediation: bool,
+    /// Print the resolved threshold/check configuration (after
+    /// merging `--config` TOML + `--threshold` CLI overrides) to
+    /// stdout, then exit 0 without walking the codebase. Default
+    /// format is TOML; pass `=json` for JSON. Mutually exclusive
+    /// with `--write-baseline` — this flag is a read-only debug
+    /// aid, not a side-effecting operation. Output is
+    /// round-trippable: piping it back through `--config` produces
+    /// the same effective view.
+    #[clap(
+        long = "print-effective-config",
+        value_enum,
+        num_args = 0..=1,
+        default_missing_value = "toml",
+        value_name = "FORMAT",
+        conflicts_with = "write_baseline",
+    )]
+    print_effective_config: Option<PrintConfigFormat>,
+}
+
+/// Serialization format for `--print-effective-config`. TOML is the
+/// default because the same shape is accepted by `--config`, so the
+/// output is directly round-trippable; JSON is offered for tooling
+/// pipelines that prefer structured data over TOML.
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+enum PrintConfigFormat {
+    Toml,
+    Json,
 }
 
 #[derive(Args, Debug)]

@@ -335,6 +335,7 @@ fn check_args_for_remediation(
         github_annotations: false,
         summary_file: None,
         no_remediation,
+        print_effective_config: None,
     }
 }
 
@@ -506,4 +507,117 @@ fn artifact_link_for_with_env_builds_run_url() {
         link,
         "bca-reports artifact at https://github.com/dekobon/big-code-analysis/actions/runs/12345"
     );
+}
+
+/// Round-trippable: serializing an `EffectiveConfig` to TOML and
+/// re-parsing it through the same `ThresholdConfig` schema used by
+/// `--config` must reproduce the original `[thresholds]` table
+/// exactly. Guards against future serializer changes (e.g. omitting
+/// fields, renaming keys, changing the float repr) silently breaking
+/// the documented "pipe back through `--config`" contract.
+#[test]
+fn effective_config_toml_roundtrips_through_threshold_config_schema() {
+    let mut thresholds = BTreeMap::new();
+    thresholds.insert("cyclomatic".to_owned(), 22.0);
+    thresholds.insert("loc.sloc".to_owned(), 300.0);
+    thresholds.insert("halstead.volume".to_owned(), 1_000.0);
+
+    let effective = EffectiveConfig {
+        thresholds: thresholds.clone(),
+        check: EffectiveCheck {
+            paths: vec!["src/".to_owned()],
+            include: vec!["*.rs".to_owned()],
+            exclude: vec!["target/".to_owned()],
+            exclude_from: None,
+            paths_from: None,
+            baseline: None,
+            config: None,
+            no_fail: false,
+            no_suppress: false,
+            no_ignore: false,
+            no_skip_generated: false,
+            exclude_tests: true,
+            changed_only: false,
+            since: None,
+        },
+    };
+
+    let toml_text = toml::to_string_pretty(&effective).expect("serialize EffectiveConfig to TOML");
+    let reparsed: crate::thresholds::ThresholdConfig =
+        toml::from_str(&toml_text).expect("re-parse via ThresholdConfig schema");
+    assert_eq!(
+        reparsed.thresholds, thresholds,
+        "roundtripped thresholds must match input"
+    );
+}
+
+/// JSON output must contain the resolved `cyclomatic` value with the
+/// same field-name shape as TOML, so tooling pipelines can switch
+/// between formats without remapping keys.
+#[test]
+fn effective_config_json_serializes_threshold_overrides() {
+    let mut thresholds = BTreeMap::new();
+    thresholds.insert("cyclomatic".to_owned(), 22.0);
+    let effective = EffectiveConfig {
+        thresholds,
+        check: EffectiveCheck {
+            paths: Vec::new(),
+            include: Vec::new(),
+            exclude: Vec::new(),
+            exclude_from: None,
+            paths_from: None,
+            baseline: None,
+            config: None,
+            no_fail: false,
+            no_suppress: false,
+            no_ignore: false,
+            no_skip_generated: false,
+            exclude_tests: false,
+            changed_only: false,
+            since: None,
+        },
+    };
+    let json = serde_json::to_string(&effective).expect("serialize EffectiveConfig to JSON");
+    assert!(
+        json.contains("\"cyclomatic\":22.0"),
+        "JSON must contain cyclomatic threshold: {json}"
+    );
+    assert!(
+        json.contains("\"thresholds\""),
+        "JSON must contain thresholds table: {json}"
+    );
+    assert!(
+        json.contains("\"check\""),
+        "JSON must contain check table: {json}"
+    );
+}
+
+/// `EffectiveConfig::from_resolved` must reflect both `--config` and
+/// `--threshold` layers via the resolved `ThresholdSet` rather than
+/// re-reading either source. This is the contract that lets the
+/// printer stay agnostic of future layers (#373 headroom, #375 soft
+/// thresholds, #381 baseline, #385 tiered exit codes) — they plug
+/// into `ThresholdSet::build`, the printer just observes the result.
+#[test]
+fn effective_config_reflects_resolved_threshold_set() {
+    let mut merged = BTreeMap::new();
+    merged.insert("cyclomatic".to_owned(), 11.0);
+    merged.insert("cognitive".to_owned(), 13.0);
+    let set = crate::thresholds::ThresholdSet::build(&merged).expect("build threshold set");
+
+    let globals = GlobalOpts {
+        paths: vec![PathBuf::from("src/")],
+        include: vec!["*.rs".to_owned()],
+        exclude: vec!["target/".to_owned()],
+        exclude_tests: true,
+        ..GlobalOpts::default()
+    };
+    let args = check_args_for_remediation(None, None, false);
+
+    let effective = EffectiveConfig::from_resolved(&globals, &args, &set);
+    assert_eq!(effective.thresholds.get("cyclomatic"), Some(&11.0));
+    assert_eq!(effective.thresholds.get("cognitive"), Some(&13.0));
+    assert_eq!(effective.check.paths, vec!["src/".to_owned()]);
+    assert_eq!(effective.check.include, vec!["*.rs".to_owned()]);
+    assert!(effective.check.exclude_tests);
 }

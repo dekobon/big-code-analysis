@@ -401,6 +401,15 @@ impl ThresholdSet {
         self.entries.is_empty()
     }
 
+    /// Iterate the resolved `(name, limit)` pairs. Used by
+    /// `--print-effective-config` to serialize the post-merge view of
+    /// the threshold layers (TOML config + `--threshold` CLI overrides)
+    /// without re-deriving the order or duplicating the registry's
+    /// canonical metric names.
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (&'static str, f64)> + '_ {
+        self.entries.iter().map(|(e, limit)| (e.name, *limit))
+    }
+
     /// Walk `space`, comparing each function's metrics against every
     /// configured threshold, and append a [`Violation`] per offending
     /// `(function, metric)` pair to `out`. `policy` decides whether to

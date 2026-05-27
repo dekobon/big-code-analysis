@@ -798,3 +798,124 @@ fn summary_sorts_by_count_desc() {
         "a.rs (2 violations) must precede b.rs (1 violation); got:\n{summary}",
     );
 }
+
+/// `--print-effective-config` (default TOML) must emit the resolved
+/// `[thresholds]` table with `--threshold` CLI overrides applied,
+/// then exit 0 without walking any files. Validates the
+/// debuggability contract for issue #380.
+#[test]
+fn check_print_effective_config_toml_emits_resolved_thresholds_and_exits_zero() {
+    cli()
+        .args([
+            "check",
+            "--threshold",
+            "cyclomatic=22",
+            "--print-effective-config",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("[thresholds]"))
+        .stdout(predicate::str::contains("cyclomatic = 22"))
+        .stdout(predicate::str::contains("[check]"));
+}
+
+/// `--print-effective-config=json` must emit valid JSON with the same
+/// shape as the TOML form (thresholds + check tables).
+#[test]
+fn check_print_effective_config_json_emits_valid_json() {
+    let assert = cli()
+        .args([
+            "check",
+            "--threshold",
+            "cyclomatic=22",
+            "--threshold",
+            "loc.sloc=300",
+            "--print-effective-config=json",
+        ])
+        .assert()
+        .success();
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("stdout is UTF-8");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("stdout must be valid JSON");
+    assert_eq!(
+        parsed["thresholds"]["cyclomatic"], 22.0,
+        "JSON output must contain resolved cyclomatic threshold"
+    );
+    assert_eq!(
+        parsed["thresholds"]["loc.sloc"], 300.0,
+        "JSON output must contain resolved loc.sloc threshold"
+    );
+    assert!(
+        parsed["check"].is_object(),
+        "JSON must contain check table: {stdout}"
+    );
+}
+
+/// CLI must reject the combination `--print-effective-config` +
+/// `--write-baseline` at clap parse time. The flag is a read-only
+/// debug aid; pairing it with a side-effecting operation would be a
+/// silent footgun.
+#[test]
+fn check_print_effective_config_conflicts_with_write_baseline() {
+    let dir = TempDir::new().unwrap();
+    let baseline_path = dir.path().join("baseline.toml");
+
+    cli()
+        .args([
+            "check",
+            "--threshold",
+            "cyclomatic=22",
+            "--print-effective-config",
+            "--write-baseline",
+            baseline_path.to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot be used with"));
+}
+
+/// Round-trip: feeding the TOML output of `--print-effective-config`
+/// back through `--config` must produce the same resolved thresholds.
+/// This is the core debuggability promise — operators can capture
+/// the effective view, tweak it, and feed it back without manual
+/// translation.
+#[test]
+fn check_print_effective_config_toml_roundtrips_through_config() {
+    let dir = TempDir::new().unwrap();
+    // First pass: capture the effective config to a file.
+    let assert = cli()
+        .args([
+            "check",
+            "--threshold",
+            "cyclomatic=22",
+            "--threshold",
+            "loc.sloc=300",
+            "--print-effective-config",
+        ])
+        .assert()
+        .success();
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("stdout is UTF-8");
+    let cfg_path = dir.path().join("captured.toml");
+    fs::write(&cfg_path, &stdout).unwrap();
+
+    // Second pass: feed it back via --config and re-print. The
+    // re-emitted [thresholds] table must match the original.
+    let assert2 = cli()
+        .args([
+            "check",
+            "--config",
+            cfg_path.to_str().unwrap(),
+            "--print-effective-config",
+        ])
+        .assert()
+        .success();
+    let stdout2 = String::from_utf8(assert2.get_output().stdout.clone()).expect("stdout is UTF-8");
+    assert!(
+        stdout2.contains("cyclomatic = 22"),
+        "roundtripped TOML must keep cyclomatic: {stdout2}"
+    );
+    assert!(
+        stdout2.contains("\"loc.sloc\" = 300"),
+        "roundtripped TOML must keep loc.sloc: {stdout2}"
+    );
+}
