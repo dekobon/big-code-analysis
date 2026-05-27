@@ -269,7 +269,15 @@ impl Alterator for RustCode {
         children: Vec<AstNode>,
     ) -> AstNode {
         match Rust::from(node.kind_id()) {
-            Rust::StringLiteral | Rust::CharLiteral => {
+            // RawStringLiteral (`r#"…"#`) is flattened alongside
+            // StringLiteral/CharLiteral so the AST dump matches what
+            // `Checker::is_string` and `Getter::get_op_type` already
+            // treat as a single string-like token. Without this arm,
+            // raw strings fall through to `get_default` and render
+            // with their structured `_raw_string_literal_start` /
+            // `string_content` / `_raw_string_literal_end` children
+            // — see issue #391.
+            Rust::StringLiteral | Rust::RawStringLiteral | Rust::CharLiteral => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
                 AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
             }
@@ -689,5 +697,48 @@ mod tests {
             "expected the flattened string_literal to keep its embedded newlines; got values: {:?}",
             strings.iter().map(|n| &n.value).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn rust_raw_string_literal_flattened() {
+        // Regression for issue #391: `Rust::RawStringLiteral` was missing
+        // from the `RustCode` Alterator arm, so `r#"hello"#` rendered with
+        // structured children (`_raw_string_literal_start`,
+        // `string_content`, `_raw_string_literal_end`) in the AST dump
+        // while the regular `"hello"` was flattened to a single text
+        // node. `Checker::is_string` and `Getter::get_op_type` already
+        // treat both as equivalent; the alterator now matches.
+        let code = br##"fn main() { let s = r#"hello"#; let t = "world"; }"##;
+        let root = build_ast::<crate::RustParser>(code, "test.rs");
+
+        let mut raw_strings = Vec::new();
+        collect_nodes_by_kind(&root, "raw_string_literal", &mut raw_strings);
+        assert_eq!(
+            raw_strings.len(),
+            1,
+            "expected exactly one raw_string_literal node"
+        );
+        let raw = raw_strings[0];
+        assert_eq!(
+            raw.children.len(),
+            0,
+            "raw_string_literal should be flattened (no children)"
+        );
+        assert_eq!(
+            raw.value, "r#\"hello\"#",
+            "raw_string_literal should preserve the verbatim source text"
+        );
+
+        // The regular StringLiteral arm must still flatten too — confirm
+        // the asymmetry that motivated #391 is gone.
+        let mut strings = Vec::new();
+        collect_nodes_by_kind(&root, "string_literal", &mut strings);
+        assert_eq!(strings.len(), 1, "expected exactly one string_literal node");
+        assert_eq!(
+            strings[0].children.len(),
+            0,
+            "string_literal should be flattened (no children)"
+        );
+        assert_eq!(strings[0].value, "\"world\"");
     }
 }
