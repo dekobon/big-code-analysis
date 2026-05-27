@@ -3,8 +3,10 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 
+mod common;
+
 fn cli() -> Command {
-    Command::cargo_bin("bca").unwrap()
+    common::bca_command()
 }
 
 /// A small fixture file known to the repo, resolved relative to the workspace

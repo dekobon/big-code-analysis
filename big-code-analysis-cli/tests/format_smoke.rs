@@ -28,7 +28,7 @@ mod common;
 use common::validators::{assert_checkstyle_well_formed_and_structural, validate_sarif};
 
 fn cli() -> Command {
-    Command::cargo_bin("bca").unwrap()
+    common::bca_command()
 }
 
 fn write_rust_fixture(dir: &TempDir) -> String {

@@ -12,7 +12,7 @@ mod common;
 use common::validators::assert_html_well_formed;
 
 fn cli() -> Command {
-    Command::cargo_bin("bca").expect("binary builds")
+    common::bca_command()
 }
 
 fn fixture_path() -> String {

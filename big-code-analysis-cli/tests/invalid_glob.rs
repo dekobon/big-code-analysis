@@ -2,8 +2,10 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 
+mod common;
+
 fn cli() -> Command {
-    Command::cargo_bin("bca").unwrap()
+    common::bca_command()
 }
 
 #[test]

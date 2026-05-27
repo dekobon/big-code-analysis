@@ -3,8 +3,10 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::NamedTempFile;
 
+mod common;
+
 fn cli() -> Command {
-    Command::cargo_bin("bca").unwrap()
+    common::bca_command()
 }
 
 #[test]

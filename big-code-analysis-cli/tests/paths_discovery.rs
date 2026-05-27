@@ -7,8 +7,10 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 
+mod common;
+
 fn cli(env_dir: &Path) -> Command {
-    let mut cmd = Command::cargo_bin("bca").unwrap();
+    let mut cmd = common::bca_command();
     // Isolate from any user-level global gitignore so tests are
     // deterministic across machines.
     cmd.env("HOME", env_dir)

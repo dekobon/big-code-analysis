@@ -11,8 +11,10 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 
+mod common;
+
 fn cli() -> Command {
-    Command::cargo_bin("bca").unwrap()
+    common::bca_command()
 }
 
 /// Rust function with cyclomatic complexity > 1: each branch contributes
@@ -572,6 +574,65 @@ fn summary_skipped_for_clean_run() {
         .assert()
         .success()
         .stderr(predicate::str::is_empty());
+}
+
+#[test]
+fn cli_helper_does_not_leak_to_github_step_summary() {
+    const ENV_KEY: &str = "GITHUB_STEP_SUMMARY";
+
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let summary = dir.path().join("step-summary.md");
+    fs::write(&summary, "").unwrap();
+
+    // Pre-set GITHUB_STEP_SUMMARY on the parent's env so a freshly
+    // built Command inherits it — this mimics the GHA runner case
+    // exactly (the runner exports the var before invoking
+    // `cargo test`). `assert_cmd::Command::cargo_bin` snapshots
+    // the parent env at spawn time, so any tests in this binary
+    // that spawn `bca` while the var is set would also leak unless
+    // `cli()` removes it — which is the helper's contract.
+    //
+    // SAFETY (test-only): Rust 2024 marks `env::set_var` /
+    // `env::remove_var` as `unsafe` because of concurrent-thread
+    // hazards. Within this integration test binary, no other test
+    // reads `GITHUB_STEP_SUMMARY`, every test goes through `cli()`
+    // (which removes the var before spawn), and the variable is
+    // restored before this test returns. The remaining concurrent
+    // reader is the child `bca` process — which we explicitly want
+    // to either see the var (control) or not (regression check).
+    // Mirrors `src/diff_tests.rs::EnvGuard`, which uses the same
+    // pattern for the same reason.
+    let prior = std::env::var_os(ENV_KEY);
+    unsafe { std::env::set_var(ENV_KEY, &summary) };
+
+    let result = std::panic::catch_unwind(|| {
+        // Regression: `cli()` strips the inherited env var, so
+        // the child never sees a step-summary target.
+        cli()
+            .args(["--paths", &path, "check", "--threshold", "cyclomatic=1"])
+            .assert()
+            .code(2);
+
+        let leaked = fs::read_to_string(&summary).unwrap();
+        assert!(
+            leaked.is_empty(),
+            "cli() leaked to GITHUB_STEP_SUMMARY: {leaked:?}"
+        );
+    });
+
+    // Always restore the parent's env before propagating any
+    // panic, so a failed assertion doesn't pollute later tests in
+    // the same binary.
+    unsafe {
+        match &prior {
+            Some(v) => std::env::set_var(ENV_KEY, v),
+            None => std::env::remove_var(ENV_KEY),
+        }
+    }
+    if let Err(payload) = result {
+        std::panic::resume_unwind(payload);
+    }
 }
 
 #[test]
