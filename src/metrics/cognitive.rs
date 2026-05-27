@@ -5564,8 +5564,9 @@ mod tests {
 
     #[test]
     fn tcl_not_booleans() {
-        // Each `!` marks the start of a new boolean-operator sequence; the single `&&`
-        // between the two negations contributes +1, plus +1 for the surrounding `if`.
+        // `!` does not contribute cognitive cost on its own (issue
+        // #392). The single `&&` between the two negations contributes
+        // +1, plus +1 for the surrounding `if`.
         check_metrics::<TclParser>(
             "proc f {a b} {
     if {!$a && !$b} {
@@ -5693,7 +5694,11 @@ mod tests {
 
     #[test]
     fn tcl_not_booleans_double_nested() {
-        // `!($a || $b) && !($c || $d)`: if(+1) + &&(+1) + first || after not(+1) + second || after not(+1) = 4.
+        // `!($a || $b) && !($c || $d)`: the two `||` sub-expressions and
+        // the connecting `&&` are at distinct positions with distinct
+        // operator tokens, so each starts a new boolean sequence
+        // regardless of the `!` wrapping (issue #392). if(+1) + &&(+1)
+        // + first ||(+1) + second ||(+1) = 4.
         check_metrics::<TclParser>(
             "proc f {a b c d} {
     if {!($a || $b) && !($c || $d)} {
@@ -5831,8 +5836,9 @@ end",
 
     #[test]
     fn lua_cognitive_not_booleans() {
-        // `not a and not b`: each `not` resets the boolean sequence so the
-        // single `and` between them counts once. if(+1) + and(+1) = 2.
+        // `not a and not b`: `not` does not contribute cognitive cost
+        // on its own (issue #392); the single `and` between the two
+        // negations contributes +1. if(+1) + and(+1) = 2.
         check_metrics::<LuaParser>(
             "local function f(a, b)
     if not a and not b then
