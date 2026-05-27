@@ -294,6 +294,11 @@ enum Command {
     /// threshold is exceeded; reserve exit 1 for tool errors so CI can
     /// distinguish "metric regression" from "tool crashed".
     Check(CheckArgs),
+    /// Scaffold the canonical adoption files (`bca-thresholds.toml`,
+    /// `.bcaignore`, `.bca-baseline.toml`) in the current directory.
+    /// Replaces the six-step copy-paste flow from the book's adoption
+    /// recipe. Refuses to overwrite existing files without `--force`.
+    Init(InitArgs),
 }
 
 /// Shared shape for `metrics` and `ops`: same format set, same output
@@ -481,6 +486,33 @@ struct CheckArgs {
         conflicts_with = "write_baseline",
     )]
     print_effective_config: Option<PrintConfigFormat>,
+}
+
+/// Arguments for the `init` subcommand. Pre-#374 form: scaffolds
+/// `bca-thresholds.toml`, `.bcaignore`, and `.bca-baseline.toml`
+/// in the target directory. Once #374 lands, this will switch to
+/// emitting a single `bca.toml` manifest. Interactive prompts and
+/// `--emit make/just/pre-commit/github-actions` skeletons are
+/// deliberately scoped out of the initial cut — they are tracked
+/// against #379 for a follow-up.
+#[derive(Args, Debug, Default)]
+struct InitArgs {
+    /// Directory to scaffold into. Defaults to the current working
+    /// directory. The directory must already exist; `init` will not
+    /// create the project root itself.
+    #[clap(long, value_parser)]
+    dir: Option<PathBuf>,
+    /// Overwrite any of the canonical files that already exist.
+    /// Default: refuse to clobber, listing which files block.
+    #[clap(long)]
+    force: bool,
+    /// Skip the baseline-generation pass. The written
+    /// `.bca-baseline.toml` is then an empty placeholder; the user
+    /// can populate it later with
+    /// `bca check --config bca-thresholds.toml --write-baseline .bca-baseline.toml`.
+    /// Default: walk the target directory and pin today's offenders.
+    #[clap(long = "no-baseline")]
+    no_baseline: bool,
 }
 
 /// Serialization format for `--print-effective-config`. TOML is the
@@ -899,9 +931,6 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     })
 }
 
-/// Names of every subcommand on the new CLI. Kept in sync with the
-/// `Command` enum by `tests::subcommands_match_command_enum`, which
-/// fails if the two ever drift.
 const SUBCOMMANDS: &[&str] = &[
     "metrics",
     "ops",
@@ -914,6 +943,7 @@ const SUBCOMMANDS: &[&str] = &[
     "preproc",
     "list-metrics",
     "check",
+    "init",
 ];
 
 /// Decode the value of `-O <v>` / `--output-format <v>` /

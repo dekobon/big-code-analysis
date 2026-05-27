@@ -16,6 +16,14 @@ can live in the same repo; suppression is checked first.
 
 ## End-to-end adoption flow
 
+> One-shot shortcut: `bca init` scaffolds `bca-thresholds.toml`,
+> `.bcaignore`, and an initial `.bca-baseline.toml` derived from the
+> current tree in a single command. It writes the same files the
+> step-by-step recipe below produces; pass `--force` to overwrite
+> existing files or `--no-baseline` to skip the walk. The longer
+> recipe below is useful when you want to tune thresholds before
+> bootstrapping the baseline.
+
 ### 1. Pick initial thresholds
 
 Either gut-feel numbers (`cyclomatic=15`, `cognitive=20`) or pull them

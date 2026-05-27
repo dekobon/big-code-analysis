@@ -96,21 +96,21 @@ path = "big-code-analysis-cli/src/commands.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 3649672.3017515587
+value = 4322441.192355224
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1100.0
+value = 1296.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 111.0
+value = 118.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
@@ -124,7 +124,7 @@ path = "big-code-analysis-cli/src/commands.rs"
 function = "<file>"
 start_line = 1
 metric = "nom"
-value = 68.0
+value = 74.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
@@ -139,6 +139,13 @@ function = "from_resolved"
 start_line = 172
 metric = "nargs"
 value = 9.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands.rs"
+function = "run_command_init"
+start_line = 1190
+metric = "halstead.effort"
+value = 69006.64569686029
 
 [[entry]]
 path = "big-code-analysis-cli/src/diff.rs"
@@ -313,14 +320,14 @@ path = "big-code-analysis-cli/src/lib.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 2491039.5286930096
+value = 2526764.9977672338
 
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1061.0
+value = 1091.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
@@ -346,7 +353,7 @@ value = 55.0
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
 function = "legacy_hint"
-start_line = 957
+start_line = 987
 metric = "halstead.effort"
 value = 59351.805921378844
 

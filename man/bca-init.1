@@ -1,0 +1,22 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH BCA-INIT 1  "big-code-analysis 1.1.0" "big-code-analysis Manual"
+.SH NAME
+bca\-init \- Scaffold the canonical adoption files (`bca\-thresholds.toml`, `.bcaignore`, `.bca\-baseline.toml`) in the current directory. Replaces the six\-step copy\-paste flow from the book\*(Aqs adoption recipe. Refuses to overwrite existing files without `\-\-force`
+.SH SYNOPSIS
+\fBbca\-init\fR [\fB\-\-dir\fR] [\fB\-\-force\fR] [\fB\-\-no\-baseline\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+.SH DESCRIPTION
+Scaffold the canonical adoption files (`bca\-thresholds.toml`, `.bcaignore`, `.bca\-baseline.toml`) in the current directory. Replaces the six\-step copy\-paste flow from the book\*(Aqs adoption recipe. Refuses to overwrite existing files without `\-\-force`
+.SH OPTIONS
+.TP
+\fB\-\-dir\fR \fI<DIR>\fR
+Directory to scaffold into. Defaults to the current working directory. The directory must already exist; `init` will not create the project root itself
+.TP
+\fB\-\-force\fR
+Overwrite any of the canonical files that already exist. Default: refuse to clobber, listing which files block
+.TP
+\fB\-\-no\-baseline\fR
+Skip the baseline\-generation pass. The written `.bca\-baseline.toml` is then an empty placeholder; the user can populate it later with `bca check \-\-config bca\-thresholds.toml \-\-write\-baseline .bca\-baseline.toml`. Default: walk the target directory and pin today\*(Aqs offenders
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help
