@@ -153,7 +153,21 @@ When you cannot reach `github.com` from a runner (air-gapped, custom
 mirror) but can reach crates.io, the following two actions fall back
 transparently to `cargo install` when no prebuilt is published — at
 the cost of compile time on the cold path. Both pin to the same
-crates.io release as the GitHub Releases assets:
+crates.io release as the GitHub Releases assets, so the
+[CLI-artifact schema compatibility](#installing-bca-from-a-github-release-recommended)
+warning applies here unchanged.
+
+If you specifically need a `bca` ahead of the latest crates.io
+release (e.g., your `.bca-baseline.toml` is committed at a newer
+schema than any published `bca` understands), swap the
+`tool: big-code-analysis-cli@<version>` or `--version` form for
+`cargo install --git https://github.com/dekobon/big-code-analysis
+--rev <SHA> --locked big-code-analysis-cli` against the exact commit
+the baseline was generated from. This is what the in-tree
+[`pages.yml`](https://github.com/dekobon/big-code-analysis/blob/main/.github/workflows/pages.yml)
+workflow does (against the local checkout via `--path`) — it is a
+deliberate workaround for `bca`'s own repo, not a recommended
+default for downstream adopters.
 
 ```yaml
 # Option 1: taiki-e/install-action
@@ -832,7 +846,11 @@ Applies regardless of provider:
   --version` and `cargo binstall --version` accept the published
   crate version of `big-code-analysis-cli`. A floating install
   surfaces metric-counting changes as "mysterious CI flakes" on
-  Mondays.
+  Mondays. Pin to a version whose CLI-artifact schemas
+  ([baseline](https://github.com/dekobon/big-code-analysis/blob/main/STABILITY.md#cli-artifact-formats),
+  thresholds) match the files your repo commits — see the
+  [schema-compatibility note](#installing-bca-from-a-github-release-recommended)
+  in the install section.
 - **`--num-jobs` defaults to the effective CPU count.** As of
   issue #383 the flag honors `available_parallelism()` —
   cgroup-/cpuset-/quota-aware on Linux, OS CPU count on
