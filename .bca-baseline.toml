@@ -12,14 +12,14 @@ path = "big-code-analysis-cli/src/baseline.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 455237.1037520595
+value = 499705.0702035342
 
 [[entry]]
 path = "big-code-analysis-cli/src/baseline.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 512.0
+value = 551.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/baseline.rs"
@@ -33,7 +33,7 @@ path = "big-code-analysis-cli/src/baseline.rs"
 function = "<file>"
 start_line = 1
 metric = "nexits"
-value = 5.0
+value = 6.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/baseline.rs"
@@ -334,7 +334,7 @@ path = "big-code-analysis-cli/src/lib.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 978.0
+value = 982.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
@@ -360,7 +360,7 @@ value = 57.0
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
 function = "legacy_hint"
-start_line = 874
+start_line = 878
 metric = "halstead.effort"
 value = 48333.93310897573
 

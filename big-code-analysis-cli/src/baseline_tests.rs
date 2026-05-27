@@ -62,6 +62,17 @@ fn parse_round_trip_preserves_entries() {
 }
 
 #[test]
+fn parse_drops_negative_zero_values() {
+    // `-0.0 < 0.0` is false under IEEE 754, so a `< 0.0` filter
+    // would miss `-0.0` and store `recorded == -0.0` — then the
+    // regression renderer divides by zero producing an `inf`-shaped
+    // tag. `is_sign_negative()` correctly catches `-0.0`.
+    let toml = "version = 3\n[[entry]]\npath=\"a\"\nfunction=\"f\"\nstart_line=1\nmetric=\"cyclomatic\"\nvalue=-0.0\n";
+    let b = parse(toml).expect("parse");
+    assert_eq!(b.by_key.len(), 0);
+}
+
+#[test]
 fn parse_drops_negative_values() {
     // Hand-edited baselines with negative `value` entries are
     // silently dropped, matching the non-finite defence above.
@@ -170,6 +181,25 @@ fn parse_silently_ignores_unknown_fields() {
 }
 
 // -- from_violations ---------------------------------------------------
+
+#[test]
+fn from_violations_skips_negative_values() {
+    // Round-trip symmetry with `from_str`: writer drops the same
+    // entries reader would silently filter, so a synthetic
+    // `Violation { value: -1.0 }` round-trip is consistent rather
+    // than producing a TOML entry the reader then deletes.
+    // `is_sign_negative()` also catches `-0.0`.
+    let file = from_violations(
+        vec![
+            v("a", "neg", 1, "cyclomatic", -1.0),
+            v("a", "nzero", 2, "cyclomatic", -0.0),
+            v("a", "ok", 3, "cyclomatic", 5.0),
+        ],
+        test_anchor(),
+    );
+    assert_eq!(file.entries.len(), 1);
+    assert_eq!(file.entries[0].function, "ok");
+}
 
 #[test]
 fn from_violations_skips_non_finite() {
@@ -411,6 +441,28 @@ fn lexical_normalize_preserves_escaping_parents() {
 
 #[cfg(unix)]
 #[test]
+fn lexical_normalize_folds_parent_past_root() {
+    // POSIX: `..` immediately after a RootDir is a no-op. Before the
+    // fix the function preserved `..` literally, yielding `/..` —
+    // non-canonical and `strip_prefix` would not match a canonical
+    // anchor. A hand-crafted v2 entry like `path = "/../etc/passwd"`
+    // could exploit this to produce keys that bypass anchor
+    // relativisation; the fold keeps the encoder's output canonical.
+    assert_eq!(lexical_normalize(Path::new("/..")), Path::new("/"));
+    assert_eq!(lexical_normalize(Path::new("/../..")), Path::new("/"));
+    assert_eq!(
+        lexical_normalize(Path::new("/../etc/passwd")),
+        Path::new("/etc/passwd")
+    );
+    // Mixing: Normal pop still works after a root-fold no-op.
+    assert_eq!(
+        lexical_normalize(Path::new("/foo/../../bar")),
+        Path::new("/bar")
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn anchor_for_strips_baseline_filename() {
     // `anchor_for` is lexical-only — no filesystem access — so the
     // assertion can be a pure path comparison against synthetic
@@ -434,6 +486,32 @@ fn normalize_path_canonicalises_against_anchor() {
     assert_eq!(key_dot, "src/foo.rs");
     assert_eq!(key_rel, "src/foo.rs");
     assert_eq!(key_parent, "src/foo.rs");
+}
+
+#[cfg(unix)]
+#[test]
+fn from_str_defensive_anchor_normalization() {
+    // Caller bypasses `anchor_for` and supplies an un-normalised anchor
+    // (`/repo/.` instead of `/repo`). `Path::strip_prefix` is
+    // component-exact, so without defensive normalisation every key
+    // would fail to strip and surface as absolute. The defensive
+    // `lexical_normalize(anchor)` in `from_str` lets classify match
+    // a violation at `/repo/src/foo.rs` against an entry keyed
+    // `src/foo.rs`.
+    let toml = "version = 3\n[[entry]]\npath=\"src/foo.rs\"\nfunction=\"f\"\nstart_line=1\nmetric=\"cyclomatic\"\nvalue=5.0\n";
+    let b = Baseline::from_str(toml, Path::new("/repo/.")).expect("parse");
+    assert!(matches!(
+        b.classify(&Violation {
+            path: PathBuf::from("/repo/src/foo.rs"),
+            start_line: 1,
+            end_line: 2,
+            function: "f".to_string(),
+            metric: "cyclomatic",
+            value: 5.0,
+            limit: 1.0,
+        }),
+        Coverage::Covered { recorded } if recorded == 5.0
+    ));
 }
 
 #[cfg(unix)]

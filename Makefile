@@ -336,10 +336,11 @@ enums-check:
 #
 #   self-scan-write-baseline   refreshes .bca-baseline.toml in place.
 #
-# IMPORTANT: --paths . MUST be used (not --paths $(BASE_DIR)) — the
-# baseline file's keys are recorded with `./`-prefixed paths and
-# diverging from that form silently misses every entry. See the
-# header comment in bca-thresholds.toml.
+# NOTE: `--paths .` is conventional but no longer load-bearing.
+# Since v3 (issue #376), baseline keys are recorded relative to the
+# baseline file's own directory (the anchor) so `--paths .`,
+# `--paths $(BASE_DIR)`, and `--paths "$$PWD"` all produce
+# byte-identical baselines and match each other on read.
 # ---------------------------------------------------------------------------
 SELF_SCAN_BCA := cargo run --quiet --release -p big-code-analysis-cli --
 SELF_SCAN_BASE_ARGS := --paths . --exclude-from .bcaignore \

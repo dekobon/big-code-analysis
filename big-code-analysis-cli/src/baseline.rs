@@ -152,7 +152,12 @@ impl Baseline {
                  `--paths`-form stickiness)"
             );
         }
-        let anchor = anchor.to_path_buf();
+        // Defensive: re-normalise the supplied anchor so a caller that
+        // bypasses `anchor_for` (or hand-constructs an anchor with
+        // `.`/`..` components) still gets correct strip_prefix matching.
+        // Production code always routes through `anchor_for`, which is
+        // already idempotent under `lexical_normalize`.
+        let anchor = lexical_normalize(anchor);
         let mut by_key = HashMap::with_capacity(file.entries.len());
         for e in file.entries {
             // Skip non-finite and negative values. Non-finite is the
@@ -165,7 +170,14 @@ impl Baseline {
             // an entry can be negative is hand-editing — silently
             // drop and treat the entry as if missing (the violation
             // will surface as `New`).
-            if !e.value.is_finite() || e.value < 0.0 {
+            //
+            // `is_sign_negative()` catches `-0.0` too (which `< 0.0`
+            // misses under IEEE 754: `-0.0 < 0.0` is false). A hand-
+            // crafted `-0.0` entry would otherwise pass the filter and
+            // store `recorded = -0.0`, then `format_regressed_tag`
+            // would divide by zero producing an `inf`-flavoured
+            // `[regr +-N%]` tag.
+            if !e.value.is_finite() || e.value.is_sign_negative() {
                 continue;
             }
             // v3 stored paths are already canonical (the writer ran
@@ -245,14 +257,11 @@ pub(crate) enum Coverage {
     New,
 }
 
-/// Build a `BaselineFile` from a list of violations, keyed against
-/// `anchor` (typically derived via [`anchor_for`] from the baseline
-/// file's path). Skips entries whose `value` is non-finite (degenerate
-/// Halstead inputs can produce NaN/Inf, which TOML cannot serialize)
-/// and emits a stderr warning per occurrence. Entries are sorted by
-/// `(path, start_line, function, metric)` so the rendered output is
-/// deterministic and diff-friendly.
 pub(crate) fn from_violations(violations: Vec<Violation>, anchor: &Path) -> BaselineFile {
+    // Defensive anchor normalisation — mirrors `Baseline::from_str` so
+    // write and read sides agree even when a caller bypasses
+    // `anchor_for` and supplies an un-normalised path.
+    let anchor = lexical_normalize(anchor);
     let mut entries: Vec<BaselineEntry> = violations
         .into_iter()
         .filter_map(|v| {
@@ -267,8 +276,26 @@ pub(crate) fn from_violations(violations: Vec<Violation>, anchor: &Path) -> Base
                 );
                 return None;
             }
+            // Drop negative values (including `-0.0`, which `< 0.0`
+            // would miss under IEEE 754) so write and read sides stay
+            // round-trip-symmetric — `from_str` filters the same set,
+            // and `format_regressed_tag` cannot divide by a negative
+            // `recorded`. Production metric extractors never emit
+            // negative values, so this only matters for hand-crafted
+            // Violations and adversarial TOML inputs.
+            if v.value.is_sign_negative() {
+                eprintln!(
+                    "warning: skipping negative value for {}:{}-{}: {} = {}",
+                    v.path.display(),
+                    v.start_line,
+                    v.end_line,
+                    v.metric,
+                    v.value,
+                );
+                return None;
+            }
             Some(BaselineEntry {
-                path: normalize_path(anchor, &v.path),
+                path: normalize_path(&anchor, &v.path),
                 function: v.function,
                 start_line: v.start_line,
                 metric: v.metric.to_string(),
@@ -325,23 +352,36 @@ pub(crate) fn anchor_for(baseline_path: &Path) -> PathBuf {
 }
 
 /// Lexically normalise `p` by folding `.` and `..` components without
-/// touching the filesystem. `..` past the root (or a leading prefix on
-/// Windows) is preserved literally — the alternative is to silently
-/// rewrite paths that escape the anchor, which would break identity
-/// for legitimate sibling-of-anchor entries.
+/// touching the filesystem. POSIX-style folding:
+/// - `..` after a `Normal` component pops it (`a/b/../c` → `a/c`).
+/// - `..` immediately after a `RootDir` or Windows `Prefix` is a no-op
+///   (`/..` → `/`, `C:\..` → `C:\`) — you cannot go above the root.
+/// - `..` with no prior component to consume is preserved literally
+///   (`../a` → `../a`, `a/../../b` → `../b`). This keeps identity for
+///   baselines that legitimately reference a sibling of the anchor.
 fn lexical_normalize(p: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for c in p.components() {
         match c {
             Component::Prefix(_) | Component::RootDir | Component::Normal(_) => out.push(c),
             Component::CurDir => {}
-            Component::ParentDir => {
-                if matches!(out.components().next_back(), Some(Component::Normal(_))) {
+            Component::ParentDir => match out.components().next_back() {
+                // Pop the previous Normal component (typical case).
+                Some(Component::Normal(_)) => {
                     out.pop();
-                } else {
-                    out.push(c);
                 }
-            }
+                // POSIX/Windows: `..` past a root or drive prefix is
+                // a no-op. `/..` resolves to `/`, not `/..`. Without
+                // this case the normalised path would be non-canonical
+                // and downstream `strip_prefix` would mis-match.
+                Some(Component::RootDir | Component::Prefix(_)) => {}
+                // No prior Normal/Root/Prefix component (e.g.,
+                // relative path starting with `..` or accumulating
+                // multiple leading `..`s). Preserve the `..` literally
+                // so a baseline that legitimately points at a sibling
+                // of the anchor keeps a distinct identity.
+                _ => out.push(c),
+            },
         }
     }
     out
