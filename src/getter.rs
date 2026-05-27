@@ -491,8 +491,16 @@ impl Getter for RustCode {
             | PrimitiveType15 | PrimitiveType16 | PrimitiveType17 | Fn | SEMI => {
                 HalsteadType::Operator
             }
-            Identifier | StringLiteral | RawStringLiteral | IntegerLiteral | FloatLiteral
-            | BooleanLiteral | Zelf | CharLiteral | UNDERSCORE => HalsteadType::Operand,
+            // FieldIdentifier (e.g. `p.x`) and TypeIdentifier (e.g. `Vec`,
+            // `HashMap`) are operand-class names — C++ and Go classify them
+            // the same way (see arms ~588 and ~862 below). Omitting them
+            // here silently dropped both into HalsteadType::Unknown,
+            // deflating n2/N2 and the derived vocabulary/volume/effort
+            // estimates (issue #390).
+            Identifier | TypeIdentifier | FieldIdentifier | StringLiteral | RawStringLiteral
+            | IntegerLiteral | FloatLiteral | BooleanLiteral | Zelf | CharLiteral | UNDERSCORE => {
+                HalsteadType::Operand
+            }
             _ => HalsteadType::Unknown,
         }
     }

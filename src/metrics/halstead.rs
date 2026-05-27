@@ -870,8 +870,105 @@ mod tests {
                 // operand counts pin the rest of the Halstead state.
                 assert_eq!(metric.halstead.u_operators(), 30.0);
                 assert_eq!(metric.halstead.operators(), 118.0);
-                assert_eq!(metric.halstead.u_operands(), 31.0);
-                assert_eq!(metric.halstead.operands(), 50.0);
+                // u_operands / operands grew (was 31/50 before #390): the
+                // fix now classifies TypeIdentifier (`T`, `S`, `Option`)
+                // and FieldIdentifier (struct fields `x`, `y`) as operands
+                // alongside the existing primitive type names.
+                assert_eq!(metric.halstead.u_operands(), 36.0);
+                assert_eq!(metric.halstead.operands(), 55.0);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_field_identifier_is_operand() {
+        // Regression for issue #390: prior to the fix, `FieldIdentifier`
+        // (e.g. the `x` / `y` in `p.x`, `p.y`) fell through to
+        // `HalsteadType::Unknown`, so the field names were not counted
+        // as operands. Both C++ and Go already classify FieldIdentifier
+        // as an operand. After the fix:
+        //   unique operators: fn, (), {}, let, =, +, ;, .
+        //   unique operands : main, p, Point, x, y, sum, 0, 1
+        // Field names `x` and `y` each appear twice (`p.x + p.y` and
+        // the struct literal `Point { x: 0, y: 1 }`).
+        check_metrics::<RustParser>(
+            "fn main() {
+              let p = Point { x: 0, y: 1 };
+              let sum = p.x + p.y;
+            }",
+            "foo.rs",
+            |metric| {
+                // Headline: u_operands now includes `x` and `y` as
+                // distinct names (would be 6 without the fix, since
+                // `Point` is also a TypeIdentifier that this fix
+                // promotes; pre-fix u_operands was 4: main, p, sum, 0, 1
+                // minus duplicates).
+                assert_eq!(metric.halstead.u_operands(), 8.0);
+                assert_eq!(metric.halstead.operands(), 12.0);
+                insta::assert_json_snapshot!(
+                    metric.halstead,
+                    @r###"
+                {
+                  "n1": 9.0,
+                  "N1": 14.0,
+                  "n2": 8.0,
+                  "N2": 12.0,
+                  "length": 26.0,
+                  "estimated_program_length": 52.529325012980806,
+                  "purity_ratio": 2.0203586543454155,
+                  "vocabulary": 17.0,
+                  "volume": 106.27403387250882,
+                  "difficulty": 6.75,
+                  "level": 0.14814814814814814,
+                  "effort": 717.3497286394346,
+                  "time": 39.85276270219081,
+                  "bugs": 0.026711567292222575
+                }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn rust_type_identifier_is_operand() {
+        // Regression for issue #390: `TypeIdentifier` (e.g. `Vec`,
+        // `HashMap`, `String` when used as a path name) was dropped to
+        // `HalsteadType::Unknown` for Rust. C++ and Go classify them as
+        // operands. After the fix, u_operands = 8:
+        //   main, v, m, Vec, HashMap, new, K, V
+        // (`i32` is a primitive type, classified as an operator.)
+        check_metrics::<RustParser>(
+            "fn main() {
+              let v: Vec<i32> = Vec::new();
+              let m: HashMap<K, V> = HashMap::new();
+            }",
+            "foo.rs",
+            |metric| {
+                // Headline: u_operands includes `Vec`, `HashMap`, `K`,
+                // `V` (and `i32` as a primitive operator). Without the
+                // fix, Vec/HashMap/K/V silently dropped to Unknown.
+                assert_eq!(metric.halstead.u_operands(), 8.0);
+                assert_eq!(metric.halstead.operands(), 11.0);
+                insta::assert_json_snapshot!(
+                    metric.halstead,
+                    @r###"
+                {
+                  "n1": 10.0,
+                  "N1": 17.0,
+                  "n2": 8.0,
+                  "N2": 11.0,
+                  "length": 28.0,
+                  "estimated_program_length": 57.219280948873624,
+                  "purity_ratio": 2.043545748174058,
+                  "vocabulary": 18.0,
+                  "volume": 116.75790004038474,
+                  "difficulty": 6.875,
+                  "level": 0.14545454545454545,
+                  "effort": 802.7105627776451,
+                  "time": 44.59503126542473,
+                  "bugs": 0.028790645175253947
+                }"###
+                );
             },
         );
     }
