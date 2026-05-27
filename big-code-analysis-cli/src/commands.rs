@@ -568,7 +568,7 @@ fn shell_quote_path(p: &Path) -> String {
 ///
 /// **POSIX-only**: This quoting is correct for bash / zsh / dash /
 /// sh, which is what GitHub Actions runs every step in. It is NOT
-/// safe for `cmd.exe` or PowerShell — a Windows user copy-pasting
+/// safe for `cmd.exe` or `PowerShell` — a Windows user copy-pasting
 /// the refresh command from a Windows CI log would need to
 /// re-escape. The remediation block is a GHA/POSIX-CI feature by
 /// design; Windows-host CI is out of scope.
