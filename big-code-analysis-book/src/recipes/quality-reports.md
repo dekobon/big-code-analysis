@@ -33,7 +33,6 @@ Run from the project root and write the report to a file:
 ```bash
 bca \
     --paths "$PWD" \
-    --num-jobs "$(nproc)" \
     report markdown \
     --top 20 \
     --strip-prefix "$PWD/" \
@@ -45,8 +44,9 @@ bca \
   current checkout.
 - `--top` controls how many rows appear in each hotspot table. 20 is
   a good default for a PR comment; drop to 5 for a dashboard tile.
-- `--num-jobs` controls parallelism. The walker is CPU-bound on most
-  modern hardware.
+- `--num-jobs` defaults to the effective CPU count
+  (cgroup-/cpuset-aware on Linux); pass `--num-jobs 1` only to force
+  serial mode for debugging.
 
 ## Limit the report to specific languages
 

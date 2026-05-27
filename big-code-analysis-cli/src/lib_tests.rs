@@ -586,3 +586,101 @@ fn exclude_pattern_filter_direct_policy_check() {
         "`#` mid-line is literal, only leading-`#` counts as comment",
     );
 }
+
+// -- NumJobs parser (#383) ----------------------------------------------
+
+#[test]
+fn num_jobs_parses_auto_case_insensitive() {
+    // `auto` is the documented synonym for the default; accept any
+    // ASCII case so users typing `AUTO` in shell scripts don't see a
+    // surprise parse error.
+    assert_eq!(NumJobs::from_str("auto").unwrap(), NumJobs::Auto);
+    assert_eq!(NumJobs::from_str("AUTO").unwrap(), NumJobs::Auto);
+    assert_eq!(NumJobs::from_str("Auto").unwrap(), NumJobs::Auto);
+}
+
+#[test]
+fn num_jobs_parses_positive_integer() {
+    let parsed = NumJobs::from_str("4").unwrap();
+    assert_eq!(parsed, NumJobs::Explicit(NonZeroUsize::new(4).unwrap()));
+    assert_eq!(parsed.resolve(), 4);
+}
+
+#[test]
+fn num_jobs_serial_one_preserved() {
+    // `--num-jobs 1` is the documented "force serial for debugging"
+    // knob — must not be silently rewritten to anything else.
+    let parsed = NumJobs::from_str("1").unwrap();
+    assert_eq!(parsed, NumJobs::Explicit(NonZeroUsize::new(1).unwrap()));
+    assert_eq!(parsed.resolve(), 1);
+}
+
+#[test]
+fn num_jobs_rejects_zero() {
+    let err = NumJobs::from_str("0").unwrap_err();
+    assert!(
+        err.contains(">= 1"),
+        "zero must be rejected with an actionable message; got: {err}"
+    );
+}
+
+#[test]
+fn num_jobs_rejects_non_numeric() {
+    let err = NumJobs::from_str("not-a-number").unwrap_err();
+    assert!(
+        err.contains("positive integer or `auto`"),
+        "non-numeric input must mention the accepted forms; got: {err}"
+    );
+}
+
+#[test]
+fn num_jobs_rejects_negative() {
+    // `-1` fails usize::from_str — surfaces via the generic error path.
+    assert!(NumJobs::from_str("-1").is_err());
+}
+
+#[test]
+fn num_jobs_default_is_auto() {
+    // Default trait must agree with the clap `default_value = "auto"`
+    // attribute — otherwise GlobalOpts::default() (used elsewhere as a
+    // builder seed) drifts from CLI parsing.
+    assert_eq!(NumJobs::default(), NumJobs::Auto);
+}
+
+#[test]
+fn num_jobs_auto_resolves_to_at_least_one() {
+    // `available_parallelism()` may legitimately fail in some sandboxes;
+    // the fallback path must still produce a usable worker count.
+    assert!(NumJobs::Auto.resolve() >= 1);
+}
+
+#[test]
+fn cli_parses_num_jobs_auto() {
+    let cli = parse(&["--num-jobs", "auto", "metrics"]).unwrap();
+    assert_eq!(cli.globals.num_jobs, NumJobs::Auto);
+}
+
+#[test]
+fn cli_parses_num_jobs_integer() {
+    let cli = parse(&["--num-jobs", "8", "metrics"]).unwrap();
+    assert_eq!(
+        cli.globals.num_jobs,
+        NumJobs::Explicit(NonZeroUsize::new(8).unwrap())
+    );
+}
+
+#[test]
+fn cli_rejects_num_jobs_zero() {
+    let err = parse(&["--num-jobs", "0", "metrics"]).unwrap_err();
+    let rendered = err.to_string();
+    assert!(
+        rendered.contains(">= 1"),
+        "clap should surface the from_str rejection; got: {rendered}"
+    );
+}
+
+#[test]
+fn cli_default_num_jobs_is_auto() {
+    let cli = parse(&["metrics"]).unwrap();
+    assert_eq!(cli.globals.num_jobs, NumJobs::Auto);
+}

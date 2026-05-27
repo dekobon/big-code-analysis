@@ -195,7 +195,6 @@ jobs:
         run: |
           bca \
             --paths "$PWD" \
-            --num-jobs "$(nproc)" \
             report markdown \
             --top 20 \
             --strip-prefix "$PWD/" \
@@ -653,7 +652,6 @@ bca-quality:
   script:
     - bca
         --paths "$PWD"
-        --num-jobs "$(nproc)"
         check
         --config bca-thresholds.toml
         --output-format code-climate
@@ -661,7 +659,6 @@ bca-quality:
         --no-fail
     - bca
         --paths "$PWD"
-        --num-jobs "$(nproc)"
         check
         --config bca-thresholds.toml
         --output-format checkstyle
@@ -669,7 +666,6 @@ bca-quality:
         --no-fail
     - bca
         --paths "$PWD"
-        --num-jobs "$(nproc)"
         report markdown
         --top 20
         --strip-prefix "$PWD/"
@@ -805,9 +801,12 @@ Applies regardless of provider:
   crate version of `big-code-analysis-cli`. A floating install
   surfaces metric-counting changes as "mysterious CI flakes" on
   Mondays.
-- **Use `--num-jobs "$(nproc)"`.** The walker is CPU-bound on
-  modern hardware; `--num-jobs 1` is a debugging knob, not a
-  default.
+- **`--num-jobs` defaults to the effective CPU count.** As of
+  issue #383 the flag honors `available_parallelism()` —
+  cgroup-/cpuset-/quota-aware on Linux, OS CPU count on
+  macOS/Windows — so CI runners no longer need to thread
+  `--num-jobs "$(nproc)"` through every recipe. `--num-jobs 1`
+  remains a debugging knob, not a default.
 - **Always pass `--strip-prefix "$PWD/"` to `bca report markdown`**
   so the path column is identical across runners with different
   workspace paths. Without it the diff between two reports is

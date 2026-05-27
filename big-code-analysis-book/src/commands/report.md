@@ -59,7 +59,6 @@ The user's daily-driver invocation:
 ```bash
 bca \
     --paths "$PWD" \
-    --num-jobs $(nproc) \
     report markdown \
     --top 20 \
     --strip-prefix "$PWD/"

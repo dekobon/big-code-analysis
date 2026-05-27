@@ -349,8 +349,10 @@ enums-check:
 # byte-identical baselines and match each other on read.
 # ---------------------------------------------------------------------------
 SELF_SCAN_BCA := cargo run --quiet --release -p big-code-analysis-cli --
-SELF_SCAN_BASE_ARGS := --paths . --exclude-from .bcaignore \
-  --num-jobs $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+# `--num-jobs` defaults to `auto` (effective CPU count, cgroup-/cpuset-
+# aware on Linux via Rust's std lib), so no `$(nproc)` plumbing is
+# needed for the self-scan recipes (issue #383).
+SELF_SCAN_BASE_ARGS := --paths . --exclude-from .bcaignore
 
 self-scan:
 	@echo "bca self-scan (hard gate)..."

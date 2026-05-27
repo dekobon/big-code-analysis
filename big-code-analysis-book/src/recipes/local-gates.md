@@ -106,8 +106,11 @@ BCA_HEADROOM      ?= 0.95
 PY                ?= python3
 
 # Common args, factored out so the four recipes stay in lockstep.
-BCA_BASE_ARGS := --paths $(BCA_PATHS) --exclude-from $(BCA_EXCLUDE_FROM) \
-                 --num-jobs $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+# `--num-jobs` defaults to the OS-reported effective CPU count
+# (cgroup-/cpuset-aware on Linux), so no `$(nproc)` plumbing is
+# needed. Override with `--num-jobs N` (or `--num-jobs 1` to force
+# serial mode for debugging).
+BCA_BASE_ARGS := --paths $(BCA_PATHS) --exclude-from $(BCA_EXCLUDE_FROM)
 
 .PHONY: self-scan self-scan-headroom \
         self-scan-write-baseline self-scan-write-baseline-headroom
@@ -264,8 +267,10 @@ baseline    := ".bca-baseline.toml"
 headroom    := env_var_or_default("BCA_HEADROOM", "0.95")
 py          := env_var_or_default("PY", "python3")
 
-jobs        := `nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4`
-base_args   := "--paths " + paths + " --exclude-from " + exclude + " --num-jobs " + jobs
+# `--num-jobs` defaults to the effective CPU count, so the skeleton
+# no longer threads `$(nproc)` through `just` (issue #383). Override
+# inline if needed: `just self-scan --num-jobs 1`.
+base_args   := "--paths " + paths + " --exclude-from " + exclude
 
 self-scan:
     {{bca}} {{base_args}} \
@@ -294,19 +299,19 @@ self-scan-write-baseline-headroom:
 ## Skeleton: `package.json` scripts
 
 For JavaScript projects pulling in `bca` via `npx` or a pinned
-binary. The `--num-jobs` flag is threaded through via the
-`BCA_NUM_JOBS` env var (default in the wrapper script below) so the
-npm tier runs the same shape of command as Make / `just` — per
-Principle 1, all three skeletons should produce byte-identical
-`bca check` invocations:
+binary. `--num-jobs` defaults to the effective CPU count
+(cgroup-/cpuset-aware on Linux), so the npm tier no longer needs a
+`BCA_NUM_JOBS` env var to produce byte-identical `bca check`
+invocations as Make / `just`. Pass `--num-jobs 1` explicitly only
+when debugging:
 
 ```json
 {
   "scripts": {
-    "self-scan": "bca --paths . --exclude-from .bcaignore --num-jobs ${BCA_NUM_JOBS:-4} check --config bca-thresholds.toml --baseline .bca-baseline.toml",
-    "self-scan-headroom": "npm run self-scan && python3 ./utils/bca-self-scan-headroom.py bca --paths . --exclude-from .bcaignore --num-jobs ${BCA_NUM_JOBS:-4}",
-    "self-scan-write-baseline": "bca --paths . --exclude-from .bcaignore --num-jobs ${BCA_NUM_JOBS:-4} check --config bca-thresholds.toml --write-baseline .bca-baseline.toml",
-    "self-scan-write-baseline-headroom": "BCA_HEADROOM_WRITE_BASELINE=.bca-baseline.toml python3 ./utils/bca-self-scan-headroom.py bca --paths . --exclude-from .bcaignore --num-jobs ${BCA_NUM_JOBS:-4}"
+    "self-scan": "bca --paths . --exclude-from .bcaignore check --config bca-thresholds.toml --baseline .bca-baseline.toml",
+    "self-scan-headroom": "npm run self-scan && python3 ./utils/bca-self-scan-headroom.py bca --paths . --exclude-from .bcaignore",
+    "self-scan-write-baseline": "bca --paths . --exclude-from .bcaignore check --config bca-thresholds.toml --write-baseline .bca-baseline.toml",
+    "self-scan-write-baseline-headroom": "BCA_HEADROOM_WRITE_BASELINE=.bca-baseline.toml python3 ./utils/bca-self-scan-headroom.py bca --paths . --exclude-from .bcaignore"
   }
 }
 ```
@@ -320,10 +325,7 @@ Three portability footnotes for the npm tier:
   [`cross-env`](https://www.npmjs.com/package/cross-env):
   `cross-env BCA_HEADROOM=0.90 npm run self-scan-headroom`. Avoid
   `${VAR:-default}` *as a primary configuration mechanism* — `cmd.exe`
-  passes it through literally. The `${BCA_NUM_JOBS:-4}` usage above
-  is a reasonable default for POSIX hosts; Windows users either set
-  `BCA_NUM_JOBS` explicitly or replace the literal with a fixed
-  number in a per-platform script.
+  passes it through literally.
 - **`python3` vs `python`.** The stock python.org Windows installer
   ships `python.exe` and `py.exe` but no `python3` alias. Replace
   the literal `python3` above with `py -3` (Windows launcher) or

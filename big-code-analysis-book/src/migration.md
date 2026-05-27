@@ -54,7 +54,6 @@ big-code-analysis-cli \
 # NEW
 bca \
     --paths "$PWD" \
-    --num-jobs $(nproc) \
     report markdown \
     --top 20 \
     --strip-prefix "$PWD/"
