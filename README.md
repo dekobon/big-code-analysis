@@ -38,9 +38,15 @@ the result alongside the documentation:
   <https://dekobon.github.io/big-code-analysis/reports/report.md>
 
 The wiring lives in
-[`.github/workflows/pages.yml`](.github/workflows/pages.yml); see the
-book's [CI integration recipe](https://dekobon.github.io/big-code-analysis/recipes/ci.html)
-for adapting it to your own project.
+[`.github/workflows/pages.yml`](.github/workflows/pages.yml). For
+downstream projects, the
+[CI integration recipe](https://dekobon.github.io/big-code-analysis/recipes/ci.html)
+is the canonical adoption guide — it documents the recommended
+pinned-release install path (with `BCA_VERSION` + sha256 pin) plus
+a `cargo install` alternative. The in-tree `pages.yml` workflow
+builds `bca` from the current checkout because main may carry CLI
+artifact schemas that no released `bca` supports yet — see the
+schema-compatibility note in the recipe before copying that pattern.
 
 ## Usage
 

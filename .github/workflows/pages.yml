@@ -59,20 +59,34 @@ permissions:
 # Action SHAs are pinned to commit hashes to eliminate supply-chain
 # risk from action-release spoofing. Dependabot (configured for the
 # github-actions ecosystem in .github/dependabot.yml) keeps these in
-# sync with upstream releases. The mdBook and bca tarballs are
-# downloaded outside the actions/ pipeline and are therefore
-# additionally verified by sha256 (see the "Install mdbook" and
-# "Install bca" steps) — bump the version and the checksum together.
+# sync with upstream releases. The mdBook tarball is downloaded
+# outside the actions/ pipeline and is additionally verified by
+# sha256 (see the "Install mdbook" step) — bump the version and the
+# checksum together.
+#
+# `bca` itself is built from the current checkout (see the `scan`
+# job's `cargo install` step). A pinned-release install used to live
+# here too but it broke whenever main shipped a CLI-artifact schema
+# bump the last release didn't understand (e.g., the v3 baseline
+# schema from #376 was unreadable to v1.1.0's bca). Building from
+# source closes that drift gap; Swatinem/rust-cache keeps cold-build
+# cost bounded. The trade-off vs the previous sha256-pinned install
+# is real but matches how every other Rust workflow in this repo
+# already trusts its own cargo build — see STABILITY.md for the
+# schema-bump operational contract this approach enforces.
 env:
   MDBOOK_VERSION: "0.4.40"
   MDBOOK_SHA256: "9ef07fd288ba58ff3b99d1c94e6d414d431c9a61fdb20348e5beb74b823d546b"
-  # bca self-scan builds from the current checkout — see the `scan`
-  # job's "Build bca from source" step. A pinned-release approach
-  # used to live here, but it broke whenever main shipped a feature
-  # the last release didn't (e.g., the v3 baseline schema from #376
-  # was unreadable to v1.1.0's bca). Building from source closes the
-  # version-drift gap by definition; the Swatinem/rust-cache step
-  # below keeps cold-build pain bounded.
+  # Workspace-wide Rust env, mirrored from ci.yml so the `bca` build
+  # in this workflow gates on the same warnings, retries, and
+  # incremental settings as the rest of CI. Without these, a warning
+  # introduced on main can compile green here while failing ci.yml
+  # for the same commit.
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+  RUSTUP_MAX_RETRIES: 10
+  RUSTFLAGS: "-D warnings"
 
 jobs:
   build-book:
@@ -136,7 +150,12 @@ jobs:
   scan:
     name: bca self-scan
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Generous to accommodate cold-cache release builds of the whole
+    # bca workspace (many tree-sitter grammar C crates plus the Rust
+    # workspace itself). Warm-cache runs finish in 3-5 min; the
+    # ceiling absorbs the worst-case "Cargo.lock churned + Swatinem
+    # cache evicted" combo without killing useful runs.
+    timeout-minutes: 30
     # The workspace-minus-vendored exclude list lives in `.bcaignore`
     # at the repo root — every `bca` invocation below points to it
     # via `--exclude-from`. If you edit `.bcaignore`, also refresh
@@ -149,26 +168,32 @@ jobs:
           submodules: false
 
       # Build `bca` from the current checkout so the gate always
-      # runs against HEAD. This avoids the version-skew failure
-      # mode the previous "download pinned release" approach hit
-      # when main shipped a schema bump (e.g., the v3 baseline
+      # runs against HEAD. This avoids the schema-skew failure mode
+      # the previous "download pinned release" approach hit when
+      # main shipped a CLI artifact bump (e.g., the v3 baseline
       # from #376 was unreadable to the last v1.1.0 release).
       # Swatinem/rust-cache below keeps the cold-build cost
-      # bounded — on a warm cache the build is dominated by
-      # incremental relink, not full recompile.
+      # bounded — warm runs are dominated by incremental relink,
+      # not full recompile.
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable tip
         with:
           toolchain: stable
+      # `shared-key` (vs `key`) lets Swatinem fall back to
+      # restore-keys when the exact Cargo.lock+rustc fingerprint
+      # changes, so a dep bump still warm-restores most of the
+      # workspace. The `--release` profile here is intentionally
+      # distinct from ci.yml's default-profile builds — mixing them
+      # in one cache would thrash both.
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
-          # Distinct from the cache other jobs share — this build
-          # is `--release` (vs `--debug` everywhere else) and
-          # mixing the two would thrash both.
-          key: pages-scan-release
-      - name: Build bca from source
-        run: cargo build --release --locked --bin bca -p big-code-analysis-cli
-      - name: Prepend target/release to PATH
-        run: echo "${GITHUB_WORKSPACE}/target/release" >> "$GITHUB_PATH"
+          shared-key: pages-scan-release
+      # `cargo install --path …` lands the binary in `~/.cargo/bin`
+      # (already on PATH on every GHA runner) so we don't have to
+      # hand-roll a PATH prepend that would break if a future
+      # `CARGO_TARGET_DIR` override moved the build artefacts.
+      # `--locked` matches the rest of CI's `--locked` builds.
+      - name: Install bca from current checkout
+        run: cargo install --path big-code-analysis-cli --locked --bin bca
 
       - name: bca version
         run: bca --version
@@ -211,17 +236,13 @@ jobs:
 
       # Run the gate last so the report artifacts above always upload
       # even when thresholds fail — the report is most useful when CI
-      # is red.
+      # is red. Delegate to `make self-scan` so the local pre-commit
+      # gate and the CI gate share one canonical invocation; the
+      # Makefile owns the path filters, --exclude-from, --num-jobs
+      # defaults, and threshold/baseline file selection. Drift between
+      # local and CI is now impossible by construction.
       - name: Threshold gate (baseline-ratcheted)
-        run: |
-          set -euo pipefail
-          bca \
-            --paths . \
-            --exclude-from "${GITHUB_WORKSPACE}/.bcaignore" \
-            --num-jobs "$(nproc)" \
-            check \
-            --config bca-thresholds.toml \
-            --baseline .bca-baseline.toml
+        run: make self-scan
 
       - name: Upload reports artifact
         if: always()

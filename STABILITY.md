@@ -242,6 +242,41 @@ mis-matching. Recent transitions:
   the `%FF` escape for byte `0xFF` in a non-UTF-8 path. v1 is no
   longer accepted; regenerate the file.
 
+### Schema-bump operational contract
+
+CLI artifact schemas (the `version` field on `.bca-baseline.toml`,
+the shape of `bca-thresholds.toml`, the on-disk report formats) are
+read by whichever `bca` binary the user has installed. A schema bump
+in the binary that goes out without a coordinated update to the
+*install-bca* surfaces leaves downstream users in a state where
+their checked-in artifact file is unreadable by their pinned `bca`,
+and the gate fails with `version N is not supported by this bca`
+on a clean checkout.
+
+Treat a schema bump as a **release-coupled change**. The same PR (or
+release-prep batch) that bumps `BASELINE_VERSION` or the equivalent
+constant must also:
+
+1. Update [`.github/workflows/pages.yml`](.github/workflows/pages.yml)
+   if it pins a `bca` release (today it builds from checkout, so
+   this is automatic — but a future revert to a pinned install
+   would re-introduce the gap).
+2. Update every install-bca example in the
+   [CI integration recipe](https://dekobon.github.io/big-code-analysis/recipes/ci.html):
+   the GitHub Actions section (`BCA_VERSION`/`BCA_SHA256` block,
+   the `taiki-e/install-action@v2` cache snippet) and the GitLab
+   CI section (`variables.BCA_VERSION`/`BCA_SHA256`).
+3. Land a `bca` release that supports the new schema **before**
+   the next downstream user pulls. The release-train ordering is:
+   merge the schema bump → cut a release on the new commit → bump
+   the documented `BCA_VERSION` to that release. Skipping step 2
+   ships a documented install path that cannot read the artifact
+   `main` now writes — exactly the failure mode that motivated
+   the pages.yml workflow's switch to build-from-checkout.
+
+The schema author owns this checklist. The release-prep section of
+[`RELEASING.md`](RELEASING.md) references back to this contract.
+
 ## MSRV policy
 
 The workspace pins `rust-version = "1.94"` (see the

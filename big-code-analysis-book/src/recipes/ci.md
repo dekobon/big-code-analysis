@@ -43,8 +43,8 @@ the [Quality reports recipe](quality-reports.md).
 `big-code-analysis` runs the recipes below against its own source on
 every push and PR. The workflow source —
 [`.github/workflows/pages.yml`](https://github.com/dekobon/big-code-analysis/blob/main/.github/workflows/pages.yml) —
-exercises the GitHub-Releases install path, the cache, the
-baseline-ratcheted gate, and both report formats. The output sits on
+exercises the threshold gate, the baseline ratchet, and both report
+formats end-to-end against the workspace itself. The output sits on
 GitHub Pages alongside this book:
 
 - HTML hotspot report:
@@ -54,6 +54,16 @@ GitHub Pages alongside this book:
 
 Copy snippets below straight into your own workflow; the `bca` version
 quoted is the latest published release at the time of writing.
+
+> The in-tree workflow installs `bca` by building it from the current
+> checkout rather than downloading a pinned release — this avoids the
+> CLI-artifact schema-skew failure mode described under [Installing
+> `bca` from a GitHub Release](#installing-bca-from-a-github-release-recommended)
+> below for repos whose `.bca-baseline.toml` is always written by the
+> same `bca` that gates it. Downstream adopters tracking a stable
+> release line should stick with the pinned-tarball pattern; only
+> switch to "build from checkout" if you, too, are mutating CLI
+> artifact schemas in lockstep with the binary.
 
 ### Threshold gate, SARIF, and clang-warning matcher
 
@@ -71,6 +81,23 @@ It is a single `curl | sha256sum | tar`, requires no Rust toolchain,
 and produces byte-identical binaries across runs. Pair it with
 [`actions/cache`](https://github.com/actions/cache) keyed by version
 so a green-path rerun skips the download entirely:
+
+> **CLI-artifact schema compatibility.** The `BCA_VERSION` you pin
+> here must support the schema version of every CLI artifact your
+> repo commits — most importantly `.bca-baseline.toml` (carries its
+> own `version` field) and `bca-thresholds.toml`. A baseline file
+> written by a newer `bca` (e.g., the v3 schema introduced in
+> [#376](https://github.com/dekobon/big-code-analysis/issues/376))
+> is **not loadable** by an older `bca` and the gate will fail with
+> `baseline version N is not supported by this bca`. When tracking
+> `main` or regenerating baselines locally with a newer `bca`,
+> either re-pin to a release that covers the new schema or switch
+> to a `cargo install --git` build of `bca` pointed at the same
+> commit your baseline was written from (see the
+> [`cargo install` alternative](#alternative-cargo-install-via-prebuilt-aware-actions)
+> below).
+> The compatibility contract is recorded in
+> [STABILITY.md](https://github.com/dekobon/big-code-analysis/blob/main/STABILITY.md#cli-artifact-formats).
 
 ```yaml
 env:
@@ -610,7 +637,12 @@ overrides like `BCA_HEADROOM=0.90` work identically across both.
 
 The job below installs `bca`, runs the threshold check producing
 Code Climate JSON (for the MR Code Quality widget), Checkstyle XML,
-and a Markdown report, then uploads them as artifacts:
+and a Markdown report, then uploads them as artifacts.
+
+> The same [CLI-artifact schema-compatibility
+> note](#installing-bca-from-a-github-release-recommended) from the
+> GitHub Actions section applies here — the `BCA_VERSION` pin must
+> cover the schema version of every CLI artifact you commit.
 
 ```yaml
 stages:
