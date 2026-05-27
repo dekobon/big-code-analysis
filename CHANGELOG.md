@@ -105,6 +105,30 @@ for historical reference.
 
 ### Changed
 
+- ABC metric: the unary-conditional walker that previously
+  applied to Java, Groovy, and C# now also runs for Rust, Go,
+  JavaScript, TypeScript, TSX, Mozjs, PHP, C++, Python, Perl,
+  Lua, and Tcl. On every `&&` / `||` token (and per-language
+  equivalents — Python's `and` / `or`, Lua's `and` / `or`,
+  Perl's `&&` / `||` / `//` / `and` / `or` / `xor`, Tcl's
+  `&&` / `||`) the walker iterates the immediate operands of
+  the parent `binary_expression` and counts each terminal-bool
+  operand (identifier, boolean literal, call, field/member
+  access, subscript, etc.) once, plus each `!`-wrapped /
+  `not`-wrapped operand whose inner expression is a terminal.
+  This is Fitzpatrick's Rule 7 (Figure 2) / Rule 9 (Figure 3 /
+  Figure 4): "Add one to the condition count for each unary
+  conditional expression." So `if (a && b) {}` now reports 2
+  conditions across every language with the walker, matching
+  the worked example in Listing 2 ("there are two unary
+  conditions since both x and y are tested as conditional
+  expressions"). Library users will see *higher* C-counts on
+  functions that mix logical operators (the inverse of the
+  Phase-1 drop in #395); ABC magnitudes shift upward
+  accordingly. Phase 2 of [#395]
+  (https://github.com/dekobon/big-code-analysis/issues/395).
+  Fixes
+  [#403](https://github.com/dekobon/big-code-analysis/issues/403).
 - ABC metric: `&&` / `||` (and per-language equivalents — Python's
   `and` / `or`, Lua's `and` / `or`, Tcl's `&&` / `||`, Perl's
   `&&` / `||` / `//` / `and` / `or` / `xor`) are no longer counted

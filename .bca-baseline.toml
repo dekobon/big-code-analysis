@@ -810,7 +810,7 @@ path = "big-code-analysis-py/src/sarif.rs"
 function = "collect_offenders"
 start_line = 357
 metric = "abc"
-value = 48.579831205964474
+value = 49.03060268852505
 
 [[entry]]
 path = "big-code-analysis-py/src/sarif.rs"
@@ -1677,43 +1677,50 @@ value = 9.0
 path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
+metric = "cyclomatic"
+value = 25.0
+
+[[entry]]
+path = "src/metrics/abc.rs"
+function = "<file>"
+start_line = 1
 metric = "halstead.effort"
-value = 33815021.40280978
+value = 47916181.849616624
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 7489.0
+value = 9020.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 398.0
+value = 476.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "nexits"
-value = 42.0
+value = 50.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "nom"
-value = 580.0
+value = 678.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "wmc"
-value = 145.0
+value = 161.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
@@ -1753,9 +1760,30 @@ value = 21.0
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "compute"
-start_line = 807
+start_line = 933
 metric = "cyclomatic"
 value = 15.0
+
+[[entry]]
+path = "src/metrics/abc.rs"
+function = "perl_inspect_container"
+start_line = 2685
+metric = "halstead.effort"
+value = 59598.23551209177
+
+[[entry]]
+path = "src/metrics/abc.rs"
+function = "PerlCode"
+start_line = 2792
+metric = "halstead.effort"
+value = 60594.10489533262
+
+[[entry]]
+path = "src/metrics/abc.rs"
+function = "compute"
+start_line = 2793
+metric = "halstead.effort"
+value = 55232.93141004214
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
@@ -2917,7 +2945,7 @@ path = "src/output/dump.rs"
 function = "dump_tree_helper"
 start_line = 75
 metric = "abc"
-value = 49.28488612140643
+value = 49.53786430600334
 
 [[entry]]
 path = "src/output/dump.rs"
@@ -3309,7 +3337,7 @@ path = "src/preproc.rs"
 function = "fix_includes"
 start_line = 97
 metric = "abc"
-value = 63.35613624582863
+value = 64.5445582524197
 
 [[entry]]
 path = "src/preproc.rs"
@@ -3442,7 +3470,7 @@ path = "src/spaces.rs"
 function = "metrics_inner"
 start_line = 997
 metric = "abc"
-value = 51.146847410177685
+value = 51.57518783291051
 
 [[entry]]
 path = "src/spaces.rs"

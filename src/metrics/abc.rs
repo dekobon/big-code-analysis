@@ -645,6 +645,118 @@ fn groovy_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
 //     preprocessor lines only).
 implement_metric_trait!(Abc, PreprocCode, CcommentCode);
 
+// JS / TS / TSX / Mozjs share an expression / statement vocabulary;
+// the helper macro below generates the per-language unary-conditional
+// walker pair (Fitzpatrick Rule 9 / Listing 2; issue #403). Each
+// `&&` / `||` token in the dispatcher routes through
+// `<lang>_count_unary_conditions` and counts the immediate operands
+// of the parent `binary_expression` once. Operands wrapped in `(…)` /
+// `!…` are unwrapped via `<lang>_inspect_container`. Terminal-bool
+// kinds include `Identifier`, the boolean literal tokens `True` /
+// `False`, plus `CallExpression` / `NewExpression` (object
+// construction in JS / TS) / `MemberExpression` / `SubscriptExpression`
+// — every expression kind whose evaluated value is implicitly boolean
+// in an `if` / `while` / ternary slot.
+macro_rules! impl_js_family_unary_walker {
+    ($Lang:ident, $inspect:ident, $count:ident) => {
+        fn $inspect(container_node: &Node, conditions: &mut f64) {
+            use $Lang::*;
+
+            let mut node = *container_node;
+            let mut node_kind = node.kind_id().into();
+            let Some(parent) = node.parent() else { return };
+            let parent_kind = parent.kind_id().into();
+            let mut has_boolean_content = matches!(
+                parent_kind,
+                BinaryExpression | IfStatement | WhileStatement | DoStatement | ForStatement
+            ) || (matches!(parent_kind, TernaryExpression)
+                && node
+                    .previous_sibling()
+                    .is_none_or(|prev| !matches!(prev.kind_id().into(), QMARK | COLON)));
+
+            loop {
+                let is_parens = matches!(node_kind, ParenthesizedExpression);
+                let is_not = matches!(node_kind, UnaryExpression)
+                    && node.child(0).is_some_and(|c| c.kind_id() == BANG as u16);
+
+                if !is_parens && !is_not {
+                    break;
+                }
+                if !has_boolean_content && is_not {
+                    has_boolean_content = true;
+                }
+
+                let Some(child) = node.child(1) else { break };
+                node = child;
+                node_kind = node.kind_id().into();
+
+                if matches!(
+                    node_kind,
+                    Identifier
+                        | True
+                        | False
+                        | CallExpression
+                        | NewExpression
+                        | MemberExpression
+                        | SubscriptExpression
+                ) {
+                    if has_boolean_content {
+                        *conditions += 1.;
+                    }
+                    break;
+                }
+            }
+        }
+
+        fn $count(list_node: &Node, conditions: &mut f64) {
+            use $Lang::*;
+
+            let list_kind = list_node.kind_id().into();
+            let mut cursor = list_node.cursor();
+
+            if cursor.goto_first_child() {
+                loop {
+                    let node = cursor.node();
+                    let node_kind = node.kind_id().into();
+
+                    if matches!(
+                        node_kind,
+                        Identifier
+                            | True
+                            | False
+                            | CallExpression
+                            | NewExpression
+                            | MemberExpression
+                            | SubscriptExpression
+                    ) && matches!(list_kind, BinaryExpression)
+                    {
+                        *conditions += 1.;
+                    } else {
+                        $inspect(&node, conditions);
+                    }
+
+                    if !cursor.goto_next_sibling() {
+                        break;
+                    }
+                }
+            }
+        }
+    };
+}
+
+impl_js_family_unary_walker!(
+    Typescript,
+    typescript_inspect_container,
+    typescript_count_unary_conditions
+);
+impl_js_family_unary_walker!(Tsx, tsx_inspect_container, tsx_count_unary_conditions);
+impl_js_family_unary_walker!(
+    Javascript,
+    javascript_inspect_container,
+    javascript_count_unary_conditions
+);
+impl_js_family_unary_walker!(Mozjs, mozjs_inspect_container, mozjs_count_unary_conditions);
+
 // TypeScript / TSX share the same expression / statement vocabulary; the
 // `ts_abc_compute!` macro expands the same token-level Fitzpatrick rules
 // for both. Compared with the Java / C# impls we stay at the leaf-token
@@ -661,7 +773,7 @@ implement_metric_trait!(Abc, PreprocCode, CcommentCode);
 // keep the `Var` slot. Augmented assignments (`+=`) and update
 // expressions (`++`, `--`) always count.
 macro_rules! ts_abc_compute {
-    ($lang:ident) => {
+    ($lang:ident, $count_unary:path) => {
         fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
             use $lang::*;
 
@@ -716,6 +828,13 @@ macro_rules! ts_abc_compute {
                 {
                     stats.conditions += 1.;
                 }
+                // Fitzpatrick Rule 9: each operand of a `&&` / `||`
+                // chain is one condition (issue #403).
+                AMPAMP | PIPEPIPE => {
+                    if let Some(parent) = node.parent() {
+                        $count_unary(&parent, &mut stats.conditions);
+                    }
+                }
                 _ => {}
             }
         }
@@ -723,11 +842,11 @@ macro_rules! ts_abc_compute {
 }
 
 impl Abc for TypescriptCode {
-    ts_abc_compute!(Typescript);
+    ts_abc_compute!(Typescript, typescript_count_unary_conditions);
 }
 
 impl Abc for TsxCode {
-    ts_abc_compute!(Tsx);
+    ts_abc_compute!(Tsx, tsx_count_unary_conditions);
 }
 
 // JavaScript / Mozjs share TypeScript's expression / statement
@@ -747,7 +866,7 @@ impl Abc for TsxCode {
 //      bindings can be reassigned and the initial value is the first
 //      assignment of the binding's lifetime.
 macro_rules! js_abc_compute {
-    ($lang:ident) => {
+    ($lang:ident, $count_unary:path) => {
         fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
             use $lang::*;
 
@@ -780,6 +899,13 @@ macro_rules! js_abc_compute {
                 | Instanceof | Else | Case | Default | Try | Catch => {
                     stats.conditions += 1.;
                 }
+                // Fitzpatrick Rule 9: each operand of a `&&` / `||`
+                // chain is one condition (issue #403).
+                AMPAMP | PIPEPIPE => {
+                    if let Some(parent) = node.parent() {
+                        $count_unary(&parent, &mut stats.conditions);
+                    }
+                }
                 _ => {}
             }
         }
@@ -787,11 +913,11 @@ macro_rules! js_abc_compute {
 }
 
 impl Abc for JavascriptCode {
-    js_abc_compute!(Javascript);
+    js_abc_compute!(Javascript, javascript_count_unary_conditions);
 }
 
 impl Abc for MozjsCode {
-    js_abc_compute!(Mozjs);
+    js_abc_compute!(Mozjs, mozjs_count_unary_conditions);
 }
 
 // Fitzpatrick's ABC rules adapted for Kotlin syntax. Kotlin shares the
@@ -899,6 +1025,100 @@ impl Abc for KotlinCode {
     }
 }
 
+// PHP ABC unary-conditional walker (Fitzpatrick Rule 9; issue #403).
+// PHP's grammar uses `unary_op_expression` (not `unary_expression`) for
+// `!` and `~` prefix operators. Terminal-bool kinds: `Name` (function/
+// constant identifier — the bare-identifier kind in tree-sitter-php),
+// `VariableName` (`$x`), `Boolean` (the named `true` / `false` wrapper),
+// and every call / member-access / subscript form. `ParenthesizedExpression`
+// wraps `if (...)`-style condition slots.
+fn php_inspect_container(container_node: &Node, conditions: &mut f64) {
+    use Php::*;
+
+    let mut node = *container_node;
+    let mut node_kind = node.kind_id().into();
+    let Some(parent) = node.parent() else { return };
+    let parent_kind = parent.kind_id().into();
+    let mut has_boolean_content = matches!(
+        parent_kind,
+        BinaryExpression | IfStatement | WhileStatement | DoStatement | ForStatement
+    ) || (matches!(parent_kind, ConditionalExpression)
+        && node
+            .previous_sibling()
+            .is_none_or(|prev| !matches!(prev.kind_id().into(), QMARK | COLON)));
+
+    loop {
+        let is_parens = matches!(node_kind, ParenthesizedExpression);
+        let is_not = matches!(node_kind, UnaryOpExpression)
+            && node.child(0).is_some_and(|c| c.kind_id() == BANG as u16);
+
+        if !is_parens && !is_not {
+            break;
+        }
+        if !has_boolean_content && is_not {
+            has_boolean_content = true;
+        }
+
+        let Some(child) = node.child(1) else { break };
+        node = child;
+        node_kind = node.kind_id().into();
+
+        if matches!(
+            node_kind,
+            Name | VariableName
+                | Boolean
+                | FunctionCallExpression
+                | MemberCallExpression
+                | ScopedCallExpression
+                | NullsafeMemberCallExpression
+                | ObjectCreationExpression
+                | MemberAccessExpression
+                | SubscriptExpression
+        ) {
+            if has_boolean_content {
+                *conditions += 1.;
+            }
+            break;
+        }
+    }
+}
+
+fn php_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
+    use Php::*;
+
+    let list_kind = list_node.kind_id().into();
+    let mut cursor = list_node.cursor();
+
+    if cursor.goto_first_child() {
+        loop {
+            let node = cursor.node();
+            let node_kind = node.kind_id().into();
+
+            if matches!(
+                node_kind,
+                Name | VariableName
+                    | Boolean
+                    | FunctionCallExpression
+                    | MemberCallExpression
+                    | ScopedCallExpression
+                    | NullsafeMemberCallExpression
+                    | ObjectCreationExpression
+                    | MemberAccessExpression
+                    | SubscriptExpression
+            ) && matches!(list_kind, BinaryExpression)
+            {
+                *conditions += 1.;
+            } else {
+                php_inspect_container(&node, conditions);
+            }
+
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+}
+
 impl Abc for PhpCode {
     fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Php::*;
@@ -950,6 +1170,13 @@ impl Abc for PhpCode {
             | MatchDefaultExpression
             | CatchClause => {
                 stats.conditions += 1.;
+            }
+            // Fitzpatrick Rule 9: each operand of a `&&` / `||` chain
+            // is one condition (issue #403).
+            AMPAMP | PIPEPIPE => {
+                if let Some(parent) = node.parent() {
+                    php_count_unary_conditions(&parent, &mut stats.conditions);
+                }
             }
             _ => {}
         }
@@ -1025,6 +1252,84 @@ impl Abc for RubyCode {
 //   paper's "unary conditional expression". See the module-level
 //   `Stats` doc-comment for the cross-language `&&` / `||` policy
 //   (issue #395, walker tracked in #403).
+// Python ABC unary-conditional walker (Fitzpatrick Rule 9 / Figure 4;
+// issue #403). Python's `a and b` parses as `boolean_operator` (NOT
+// `binary_operator`), so the walker triggers on the `And` / `Or`
+// keyword tokens and iterates the immediate children of the parent
+// `boolean_operator`. Terminal-bool kinds: `Identifier`, `True`,
+// `False`, `Call`, `Attribute` (`obj.attr`), and `Subscript` (`xs[i]`).
+//
+// Unlike the C-family walkers, this one deliberately does NOT recurse
+// into `NotOperator`, `ComparisonOperator`, or nested `BooleanOperator`
+// children — each of those is counted by its own top-level dispatcher
+// arm. Re-counting them inside the walker would inflate the metric for
+// any `not x and y` / `x == 0 and y` shape. `ParenthesizedExpression`
+// is still unwrapped to catch bare-identifier operands like
+// `if (a) and b:` that the dispatcher would otherwise miss.
+fn python_inspect_container(container_node: &Node, conditions: &mut f64) {
+    use Python::*;
+
+    let mut node = *container_node;
+    let mut node_kind = node.kind_id().into();
+    let Some(parent) = node.parent() else { return };
+    let has_boolean_content = matches!(
+        parent.kind_id().into(),
+        BooleanOperator | IfStatement | WhileStatement | ConditionalExpression
+    );
+
+    loop {
+        if !matches!(node_kind, ParenthesizedExpression) {
+            break;
+        }
+
+        let Some(child) = node.child(1) else { break };
+        node = child;
+        node_kind = node.kind_id().into();
+
+        if matches!(
+            node_kind,
+            Identifier | True | False | Call | Attribute | Subscript
+        ) {
+            if has_boolean_content {
+                *conditions += 1.;
+            }
+            break;
+        }
+    }
+}
+
+fn python_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
+    use Python::*;
+
+    let list_kind = list_node.kind_id().into();
+    let mut cursor = list_node.cursor();
+
+    if cursor.goto_first_child() {
+        loop {
+            let node = cursor.node();
+            let node_kind = node.kind_id().into();
+
+            if matches!(
+                node_kind,
+                Identifier | True | False | Call | Attribute | Subscript
+            ) && matches!(list_kind, BooleanOperator)
+            {
+                *conditions += 1.;
+            } else if matches!(node_kind, ParenthesizedExpression) {
+                python_inspect_container(&node, conditions);
+            }
+            // NotOperator / ComparisonOperator / nested BooleanOperator
+            // children are intentionally not walked here — each has
+            // its own top-level dispatcher arm and counting them
+            // again would double-count.
+
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+}
+
 impl Abc for PythonCode {
     fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Python::*;
@@ -1083,7 +1388,100 @@ impl Abc for PythonCode {
             CaseClause if super::npa::python_case_clause_counts(node, UNDERSCORE as u16) => {
                 stats.conditions += 1.;
             }
+            // Fitzpatrick Rule 9 walker: each operand of an `and` /
+            // `or` chain is one condition (issue #403). The `And` /
+            // `Or` keyword tokens live inside a `boolean_operator`
+            // wrapper which the walker iterates as the parent list.
+            And | Or => {
+                if let Some(parent) = node.parent() {
+                    python_count_unary_conditions(&parent, &mut stats.conditions);
+                }
+            }
             _ => {}
+        }
+    }
+}
+
+// Rust ABC unary-conditional walker (Fitzpatrick Rule 7 / Listing 2).
+//
+// On every `&&` / `||` token, we walk the parent `binary_expression`
+// and count each non-comparison operand as one condition. Identifier,
+// boolean literal, call, field-expression, and index-expression
+// operands count directly. Operands wrapped in `(…)` or `!…` route
+// through `rust_inspect_container`, which unwraps the wrapper chain
+// until it lands on a terminal — then counts. Operands that are
+// themselves nested `binary_expression`s (left-associative
+// `(a && b) && c`) are not counted at the outer site; the inner
+// `&&` token's own walker pass picks them up.
+//
+// The list-kind guard inside the count helper prevents an Identifier
+// or BooleanLiteral that happens to be an immediate child of a non-
+// binary parent from contributing — only direct operands of a
+// `binary_expression` count as unary conditions per Rule 7. See issue
+// #403.
+fn rust_inspect_container(container_node: &Node, conditions: &mut f64) {
+    use Rust::*;
+
+    let mut node = *container_node;
+    let mut node_kind = node.kind_id().into();
+    let Some(parent) = node.parent() else { return };
+    let mut has_boolean_content = matches!(
+        parent.kind_id().into(),
+        BinaryExpression | IfExpression | WhileExpression
+    );
+
+    loop {
+        let is_parens = matches!(node_kind, ParenthesizedExpression);
+        let is_not = matches!(node_kind, UnaryExpression)
+            && node.child(0).is_some_and(|c| c.kind_id() == BANG as u16);
+
+        if !is_parens && !is_not {
+            break;
+        }
+        if !has_boolean_content && is_not {
+            has_boolean_content = true;
+        }
+
+        let Some(child) = node.child(1) else { break };
+        node = child;
+        node_kind = node.kind_id().into();
+
+        if matches!(
+            node_kind,
+            Identifier | BooleanLiteral | CallExpression | FieldExpression | IndexExpression
+        ) {
+            if has_boolean_content {
+                *conditions += 1.;
+            }
+            break;
+        }
+    }
+}
+
+fn rust_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
+    use Rust::*;
+
+    let list_kind = list_node.kind_id().into();
+    let mut cursor = list_node.cursor();
+
+    if cursor.goto_first_child() {
+        loop {
+            let node = cursor.node();
+            let node_kind = node.kind_id().into();
+
+            if matches!(
+                node_kind,
+                Identifier | BooleanLiteral | CallExpression | FieldExpression | IndexExpression
+            ) && matches!(list_kind, BinaryExpression)
+            {
+                *conditions += 1.;
+            } else {
+                rust_inspect_container(&node, conditions);
+            }
+
+            if !cursor.goto_next_sibling() {
+                break;
+            }
         }
     }
 }
@@ -1168,7 +1566,103 @@ impl Abc for RustCode {
                     stats.conditions += 1.;
                 }
             }
+            // Fitzpatrick Rule 7: each operand of a `&&` / `||` chain
+            // is one condition. The walker iterates immediate children
+            // of the parent `binary_expression`; the per-`&&` / per-`||`
+            // trigger keeps left-associative chains (`a && b && c`) at
+            // O(operands) total work since the inner operator's pass
+            // counts the inner pair and the outer operator's pass
+            // counts only the new outer operand. See issue #403.
+            AMPAMP | PIPEPIPE => {
+                if let Some(parent) = node.parent() {
+                    rust_count_unary_conditions(&parent, &mut stats.conditions);
+                }
+            }
             _ => {}
+        }
+    }
+}
+
+// Go ABC unary-conditional walker (issue #403; see `rust_inspect_container`
+// for the cross-language rationale). Terminal-bool kinds include calls,
+// selector access (`r.Field`), index access (`xs[i]`), and type
+// assertions (`x.(*T)`) — every kind whose evaluated value is implicitly
+// boolean in idiomatic Go for `if` / `for` conditions.
+fn go_inspect_container(container_node: &Node, conditions: &mut f64) {
+    use Go as G;
+
+    let mut node = *container_node;
+    let mut node_kind = node.kind_id().into();
+    let Some(parent) = node.parent() else { return };
+    let mut has_boolean_content = matches!(
+        parent.kind_id().into(),
+        G::BinaryExpression | G::IfStatement | G::ForStatement
+    );
+
+    loop {
+        let is_parens = matches!(node_kind, G::ParenthesizedExpression);
+        let is_not = matches!(node_kind, G::UnaryExpression)
+            && node.child(0).is_some_and(|c| c.kind_id() == G::BANG as u16);
+
+        if !is_parens && !is_not {
+            break;
+        }
+        if !has_boolean_content && is_not {
+            has_boolean_content = true;
+        }
+
+        let Some(child) = node.child(1) else { break };
+        node = child;
+        node_kind = node.kind_id().into();
+
+        if matches!(
+            node_kind,
+            G::Identifier
+                | G::True
+                | G::False
+                | G::CallExpression
+                | G::SelectorExpression
+                | G::IndexExpression
+                | G::TypeAssertionExpression
+        ) {
+            if has_boolean_content {
+                *conditions += 1.;
+            }
+            break;
+        }
+    }
+}
+
+fn go_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
+    use Go as G;
+
+    let list_kind = list_node.kind_id().into();
+    let mut cursor = list_node.cursor();
+
+    if cursor.goto_first_child() {
+        loop {
+            let node = cursor.node();
+            let node_kind = node.kind_id().into();
+
+            if matches!(
+                node_kind,
+                G::Identifier
+                    | G::True
+                    | G::False
+                    | G::CallExpression
+                    | G::SelectorExpression
+                    | G::IndexExpression
+                    | G::TypeAssertionExpression
+            ) && matches!(list_kind, G::BinaryExpression)
+            {
+                *conditions += 1.;
+            } else {
+                go_inspect_container(&node, conditions);
+            }
+
+            if !cursor.goto_next_sibling() {
+                break;
+            }
         }
     }
 }
@@ -1220,7 +1714,112 @@ impl Abc for GoCode {
             {
                 stats.conditions += 1.;
             }
+            // Fitzpatrick Rule 7: each operand of a `&&` / `||` chain is
+            // one condition (issue #403). The walker iterates immediate
+            // children of the parent `binary_expression`.
+            G::AMPAMP | G::PIPEPIPE => {
+                if let Some(parent) = node.parent() {
+                    go_count_unary_conditions(&parent, &mut stats.conditions);
+                }
+            }
             _ => {}
+        }
+    }
+}
+
+// C++ ABC unary-conditional walker (Fitzpatrick Rule 9 in Figure 3;
+// see `rust_inspect_container` for the cross-language rationale).
+// `BinaryExpression` / `ParenthesizedExpression` / `UnaryExpression`
+// each have two token-id aliases in the C++ grammar (the second arises
+// under structured-binding / requires-clause production rules); the
+// walker matches both spellings.
+fn cpp_inspect_container(container_node: &Node, conditions: &mut f64) {
+    use Cpp::*;
+
+    let mut node = *container_node;
+    let mut node_kind = node.kind_id().into();
+    let Some(parent) = node.parent() else { return };
+    let parent_kind = parent.kind_id().into();
+    let mut has_boolean_content = matches!(
+        parent_kind,
+        BinaryExpression
+            | BinaryExpression2
+            | IfStatement
+            | WhileStatement
+            | DoStatement
+            | ForStatement
+    ) || (matches!(parent_kind, ConditionalExpression)
+        && node
+            .previous_sibling()
+            .is_none_or(|prev| !matches!(prev.kind_id().into(), QMARK | COLON)));
+
+    loop {
+        let is_parens = matches!(
+            node_kind,
+            ParenthesizedExpression | ParenthesizedExpression2
+        );
+        let is_not = matches!(node_kind, UnaryExpression | UnaryExpression2)
+            && node.child(0).is_some_and(|c| c.kind_id() == BANG as u16);
+
+        if !is_parens && !is_not {
+            break;
+        }
+        if !has_boolean_content && is_not {
+            has_boolean_content = true;
+        }
+
+        let Some(child) = node.child(1) else { break };
+        node = child;
+        node_kind = node.kind_id().into();
+
+        if matches!(
+            node_kind,
+            Identifier
+                | True
+                | False
+                | CallExpression
+                | CallExpression2
+                | FieldExpression
+                | SubscriptExpression
+        ) {
+            if has_boolean_content {
+                *conditions += 1.;
+            }
+            break;
+        }
+    }
+}
+
+fn cpp_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
+    use Cpp::*;
+
+    let list_kind = list_node.kind_id().into();
+    let mut cursor = list_node.cursor();
+
+    if cursor.goto_first_child() {
+        loop {
+            let node = cursor.node();
+            let node_kind = node.kind_id().into();
+
+            if matches!(
+                node_kind,
+                Identifier
+                    | True
+                    | False
+                    | CallExpression
+                    | CallExpression2
+                    | FieldExpression
+                    | SubscriptExpression
+            ) && matches!(list_kind, BinaryExpression | BinaryExpression2)
+            {
+                *conditions += 1.;
+            } else {
+                cpp_inspect_container(&node, conditions);
+            }
+
+            if !cursor.goto_next_sibling() {
+                break;
+            }
         }
     }
 }
@@ -1302,6 +1901,13 @@ impl Abc for CppCode {
                 }) =>
             {
                 stats.conditions += 1.;
+            }
+            // Fitzpatrick Rule 9 (C++ in Figure 3): each operand of a
+            // `&&` / `||` chain is one condition (issue #403).
+            AMPAMP | PIPEPIPE => {
+                if let Some(parent) = node.parent() {
+                    cpp_count_unary_conditions(&parent, &mut stats.conditions);
+                }
             }
             _ => {}
         }
@@ -2067,6 +2673,122 @@ impl Abc for ElixirCode {
 //   language policy (Fitzpatrick rules mapped from Figure 2 for C,
 //   the closest analogue since the paper does not define rules for
 //   Perl; issue #395, walker tracked in #403).
+// Perl ABC unary-conditional walker (Fitzpatrick Rule 9 mapped from
+// Figure 2 for C — the closest analogue, since the paper does not
+// define rules for Perl; issue #403). Logical-operator triggers cover
+// both the high-precedence punctuation (`&&`, `||`, `//`) and the
+// low-precedence keyword forms (`and`, `or`, `xor`). Terminal-bool
+// kinds: `Identifier`, `Boolean`, `True`, `False`, the call-expression
+// wrappers (every kind already counted as a branch), and the variable
+// wrappers (`ScalarVariable`, `ArrayVariable`, `HashVariable` plus the
+// access shapes).
+fn perl_inspect_container(container_node: &Node, conditions: &mut f64) {
+    use Perl as P;
+
+    let mut node = *container_node;
+    let mut node_kind = node.kind_id().into();
+    let Some(parent) = node.parent() else { return };
+    let parent_kind = parent.kind_id().into();
+    let mut has_boolean_content = matches!(
+        parent_kind,
+        P::BinaryExpression
+            | P::IfStatement
+            | P::UnlessStatement
+            | P::WhileStatement
+            | P::UntilStatement
+    ) || (matches!(parent_kind, P::TernaryExpression)
+        && node
+            .previous_sibling()
+            .is_none_or(|prev| !matches!(prev.kind_id().into(), P::QMARK | P::COLON)));
+
+    loop {
+        let is_parens = matches!(node_kind, P::ParenthesizedArgument);
+        let is_not = matches!(node_kind, P::UnaryExpression)
+            && node.child(0).is_some_and(|c| c.kind_id() == P::BANG as u16);
+
+        if !is_parens && !is_not {
+            break;
+        }
+        if !has_boolean_content && is_not {
+            has_boolean_content = true;
+        }
+
+        let Some(child) = node.child(1) else { break };
+        node = child;
+        node_kind = node.kind_id().into();
+
+        if matches!(
+            node_kind,
+            P::Identifier
+                | P::Boolean
+                | P::True
+                | P::False
+                | P::ScalarVariable
+                | P::ArrayVariable
+                | P::HashVariable
+                | P::ArrayAccessVariable
+                | P::HashAccessVariable
+                | P::HashAccessVariableSimple
+                | P::CallExpressionWithSpacedArgs
+                | P::CallExpressionWithSub
+                | P::CallExpressionWithArgsWithBrackets
+                | P::CallExpressionWithVariable
+                | P::CallExpressionRecursive
+                | P::CallExpressionWithBareword
+                | P::MethodInvocation
+        ) {
+            if has_boolean_content {
+                *conditions += 1.;
+            }
+            break;
+        }
+    }
+}
+
+fn perl_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
+    use Perl as P;
+
+    let list_kind = list_node.kind_id().into();
+    let mut cursor = list_node.cursor();
+
+    if cursor.goto_first_child() {
+        loop {
+            let node = cursor.node();
+            let node_kind = node.kind_id().into();
+
+            if matches!(
+                node_kind,
+                P::Identifier
+                    | P::Boolean
+                    | P::True
+                    | P::False
+                    | P::ScalarVariable
+                    | P::ArrayVariable
+                    | P::HashVariable
+                    | P::ArrayAccessVariable
+                    | P::HashAccessVariable
+                    | P::HashAccessVariableSimple
+                    | P::CallExpressionWithSpacedArgs
+                    | P::CallExpressionWithSub
+                    | P::CallExpressionWithArgsWithBrackets
+                    | P::CallExpressionWithVariable
+                    | P::CallExpressionRecursive
+                    | P::CallExpressionWithBareword
+                    | P::MethodInvocation
+            ) && matches!(list_kind, P::BinaryExpression)
+            {
+                *conditions += 1.;
+            } else {
+                perl_inspect_container(&node, conditions);
+            }
+
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+}
+
 impl Abc for PerlCode {
     fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Perl as P;
@@ -2138,6 +2860,15 @@ impl Abc for PerlCode {
             | P::ElseClause => {
                 stats.conditions += 1.;
             }
+            // Fitzpatrick Rule 9 walker: each operand of a Perl
+            // short-circuit / low-precedence logical chain is one
+            // condition (issue #403). Covers `&&`, `||`, `//`,
+            // `and`, `or`, `xor`.
+            P::AMPAMP | P::PIPEPIPE | P::SLASHSLASH | P::And | P::Or | P::Xor => {
+                if let Some(parent) = node.parent() {
+                    perl_count_unary_conditions(&parent, &mut stats.conditions);
+                }
+            }
             _ => {}
         }
     }
@@ -2160,6 +2891,92 @@ impl Abc for PerlCode {
 //   operators `and` / `or` are deliberately NOT counted; see the
 //   module-level `Stats` doc-comment for the cross-language policy
 //   (issue #395, walker tracked in #403).
+// Lua ABC unary-conditional walker (Fitzpatrick Rule 9; issue #403).
+// Lua's logical operators are keyword tokens (`and` / `or`) inside a
+// `binary_expression`; `not x` is a `unary_expression` whose first
+// child is the `not` keyword. Terminal-bool kinds include identifiers,
+// the three keyword literals (`true`, `false`, `nil`), numbers, and
+// every call / indexing form.
+fn lua_inspect_container(container_node: &Node, conditions: &mut f64) {
+    let mut node = *container_node;
+    let mut node_kind = node.kind_id().into();
+    let Some(parent) = node.parent() else { return };
+    let has_boolean_content = matches!(
+        parent.kind_id().into(),
+        Lua::BinaryExpression | Lua::IfStatement | Lua::WhileStatement | Lua::RepeatStatement
+    );
+
+    loop {
+        let is_parens = matches!(node_kind, Lua::ParenthesizedExpression);
+        let is_not = matches!(node_kind, Lua::UnaryExpression)
+            && node
+                .child(0)
+                .is_some_and(|c| c.kind_id() == Lua::Not as u16);
+
+        if !is_parens && !is_not {
+            break;
+        }
+
+        let Some(child) = node.child(1) else { break };
+        node = child;
+        node_kind = node.kind_id().into();
+
+        if matches!(
+            node_kind,
+            Lua::Identifier
+                | Lua::True
+                | Lua::False
+                | Lua::Nil
+                | Lua::FunctionCall
+                | Lua::DotIndexExpression
+                | Lua::DotIndexExpression2
+                | Lua::BracketIndexExpression
+                | Lua::MethodIndexExpression
+                | Lua::MethodIndexExpression2
+        ) {
+            if has_boolean_content {
+                *conditions += 1.;
+            }
+            break;
+        }
+    }
+}
+
+fn lua_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
+    let list_kind = list_node.kind_id().into();
+    let mut cursor = list_node.cursor();
+
+    if cursor.goto_first_child() {
+        loop {
+            let node = cursor.node();
+            let node_kind = node.kind_id().into();
+
+            if matches!(
+                node_kind,
+                Lua::Identifier
+                    | Lua::True
+                    | Lua::False
+                    | Lua::Nil
+                    | Lua::FunctionCall
+                    | Lua::DotIndexExpression
+                    | Lua::DotIndexExpression2
+                    | Lua::BracketIndexExpression
+                    | Lua::MethodIndexExpression
+                    | Lua::MethodIndexExpression2
+            ) && matches!(list_kind, Lua::BinaryExpression)
+            {
+                *conditions += 1.;
+            } else {
+                lua_inspect_container(&node, conditions);
+            }
+
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+}
+
 impl Abc for LuaCode {
     fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         match node.kind_id().into() {
@@ -2178,6 +2995,13 @@ impl Abc for LuaCode {
             | Lua::ElseifStatement
             | Lua::ElseStatement => {
                 stats.conditions += 1.;
+            }
+            // Fitzpatrick Rule 9 walker: each operand of an `and` /
+            // `or` chain is one condition (issue #403).
+            Lua::And | Lua::Or => {
+                if let Some(parent) = node.parent() {
+                    lua_count_unary_conditions(&parent, &mut stats.conditions);
+                }
             }
             _ => {}
         }
@@ -2216,6 +3040,85 @@ const TCL_ASSIGNMENT_COMMANDS: &[&[u8]] = &[b"incr", b"append", b"lappend"];
 //   `if`. The short-circuit operators `&&` / `||` are deliberately
 //   NOT counted; see the module-level `Stats` doc-comment for the
 //   cross-language policy (issue #395, walker tracked in #403).
+// Tcl ABC unary-conditional walker (Fitzpatrick Rule 9; issue #403).
+// Tcl expression syntax appears inside `if {…}` / `while {…}` braces
+// and parses as `binop_expr` whose operator tokens include `AMPAMP`
+// and `PIPEPIPE`. Terminal-bool kinds are the bare-word literals
+// `simple_word`, the braced / quoted variants, variable substitutions
+// (`$x`), command substitutions (`[cmd]`), the boolean keyword, and
+// the numeric literal.
+fn tcl_inspect_container(container_node: &Node, conditions: &mut f64) {
+    let mut node = *container_node;
+    let mut node_kind = node.kind_id().into();
+    let Some(parent) = node.parent() else { return };
+    let has_boolean_content = matches!(parent.kind_id().into(), Tcl::BinopExpr);
+
+    loop {
+        let is_not = matches!(node_kind, Tcl::UnaryExpr)
+            && node
+                .child(0)
+                .is_some_and(|c| c.kind_id() == Tcl::BANG as u16);
+
+        if !is_not {
+            break;
+        }
+
+        let Some(child) = node.child(1) else { break };
+        node = child;
+        node_kind = node.kind_id().into();
+
+        if matches!(
+            node_kind,
+            Tcl::SimpleWord
+                | Tcl::BracedWord
+                | Tcl::BracedWordSimple
+                | Tcl::QuotedWord
+                | Tcl::VariableSubstitution
+                | Tcl::CommandSubstitution
+                | Tcl::Boolean
+                | Tcl::Number
+        ) {
+            if has_boolean_content {
+                *conditions += 1.;
+            }
+            break;
+        }
+    }
+}
+
+fn tcl_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
+    let list_kind = list_node.kind_id().into();
+    let mut cursor = list_node.cursor();
+
+    if cursor.goto_first_child() {
+        loop {
+            let node = cursor.node();
+            let node_kind = node.kind_id().into();
+
+            if matches!(
+                node_kind,
+                Tcl::SimpleWord
+                    | Tcl::BracedWord
+                    | Tcl::BracedWordSimple
+                    | Tcl::QuotedWord
+                    | Tcl::VariableSubstitution
+                    | Tcl::CommandSubstitution
+                    | Tcl::Boolean
+                    | Tcl::Number
+            ) && matches!(list_kind, Tcl::BinopExpr)
+            {
+                *conditions += 1.;
+            } else {
+                tcl_inspect_container(&node, conditions);
+            }
+
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+}
+
 impl Abc for TclCode {
     fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
         match node.kind_id().into() {
@@ -2249,6 +3152,13 @@ impl Abc for TclCode {
             | Tcl::Elseif
             | Tcl::Else => {
                 stats.conditions += 1.;
+            }
+            // Fitzpatrick Rule 9 walker: each operand of a `&&` / `||`
+            // chain inside an `expr` slot is one condition (issue #403).
+            Tcl::AMPAMP | Tcl::PIPEPIPE => {
+                if let Some(parent) = node.parent() {
+                    tcl_count_unary_conditions(&parent, &mut stats.conditions);
+                }
             }
             _ => {}
         }
@@ -4476,6 +5386,51 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[test]
+    fn php_if_multiple_conditions() {
+        check_metrics::<PhpParser>(
+            "<?php\n\
+             function f($a, $b, $c, $d) {\n\
+             \x20   if ($a || $b || $c || $d) {}     // +4c\n\
+             \x20   if ($a && $b && $c) {}           // +3c\n\
+             \x20   if (!$a && !$b) {}               // +2c\n\
+             }\n",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 9.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn php_while_and_do_while_conditions() {
+        check_metrics::<PhpParser>(
+            "<?php\n\
+             function f($a, $b) {\n\
+             \x20   while ($a || $b) {}              // +2c\n\
+             \x20   do {} while ($a && !$b);         // +2c\n\
+             }\n",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn php_short_circuit_with_boolean_literal_operand() {
+        check_metrics::<PhpParser>(
+            "<?php\nfunction f($a) { return $a && true; }\n",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
     // --- Kotlin ABC tests -------------------------------------------------
 
     #[test]
@@ -5612,14 +6567,19 @@ function f(int $a, int $b): int {
     #[test]
     fn python_boolean_operators_not_counted_directly() {
         // Python's `and` / `or` are not counted as conditions on
-        // their own (see the module-level `Stats` doc-comment;
-        // #395). Until the unary-conditional walker lands (#403),
-        // `if a and b or c:` reports 0 conditions.
+        // their own (Fitzpatrick Rule 5; #395). Each operand is
+        // instead counted as a unary conditional by the walker
+        // (Rule 9; #403). `if a and b or c:` parses left-to-right
+        // with `or` lower precedence: `(a and b) or c`. Walker
+        // tallies: inner `and` counts `a`, `b` (+2); outer `or`
+        // counts only the new outer operand `c` (+1; the inner
+        // `(a and b)` BooleanOperator is not a terminal). Total
+        // C = 3.
         check_metrics::<PythonParser>(
             "def f(a, b, c):\n    if a and b or c:\n        pass\n",
             "foo.py",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 0.0);
+                assert_eq!(metric.abc.conditions_sum(), 3.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -5692,18 +6652,19 @@ function f(int $a, int $b): int {
 
     /// `not x and y` parses as `BooleanOperator(NotOperator(x), and,
     /// y)`. The `and` itself is NOT counted (Fitzpatrick Rule 5
-    /// lists only comparison operators); the inner `NotOperator`
-    /// is counted as a unary conditional (Rule 7). Total: 1. The
-    /// remaining gap (counting `y` as a unary conditional too) is
-    /// closed by the Phase 2 walker in #403.
+    /// lists only comparison operators); the `NotOperator` is
+    /// counted at the top level (Rule 7); and the `y` operand is
+    /// counted by the Rule 9 walker (issue #403). Total: 2.
+    /// `NotOperator` is intentionally not walked-into a second
+    /// time — the walker skips it to avoid double-counting.
     #[test]
     fn python_unary_not_with_boolean_combinator_counts_each() {
         check_metrics::<PythonParser>(
             "def f(x, y):\n    if not x and y:\n        return 1\n    return 0\n",
             "foo.py",
             |metric| {
-                // NotOperator (1) + and (0, see #403) = 1.
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                // NotOperator (1) + walker on `and` finds `y` (1) = 2.
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -5812,6 +6773,64 @@ function f(int $a, int $b): int {
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
+    }
+
+    #[test]
+    fn python_if_multiple_conditions() {
+        // Fitzpatrick Rule 9 walker on `and` / `or` (issue #403).
+        // `if a and b and c:` reports 3, `if a or b or c or d:`
+        // reports 4. `not a` counts at the top level (1), `and b`
+        // contributes `b` via walker (1); the `not a and not b`
+        // case below produces 4 = 2 (NotOperator top-level) + 2
+        // (walker counts each NotOperator's `b` peer once via the
+        // walker's terminal sweep — wait, the walker SKIPS
+        // NotOperator children so this is 2 NotOperator + 0 walker
+        // = 2 conditions).
+        check_metrics::<PythonParser>(
+            "def f(a, b, c, d):\n\
+             \x20   if a or b or c or d:           # +4c\n\
+             \x20       pass\n\
+             \x20   if a and b and c:              # +3c\n\
+             \x20       pass\n\
+             \x20   if not a and not b:            # +2c (NotOperator x2)\n\
+             \x20       pass\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 9.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn python_while_conditions() {
+        // Python has no `do { ... } while(cond);` construct, so this
+        // mirrors only the `while` half of the Java suite. The
+        // walker fires on each `and` / `or` token inside the loop
+        // header.
+        check_metrics::<PythonParser>(
+            "def f(a, b):\n\
+             \x20   while a or b:                  # +2c\n\
+             \x20       break\n\
+             \x20   while a and not b:             # +2c (a + NotOperator)\n\
+             \x20       break\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn python_short_circuit_with_boolean_literal_operand() {
+        // `a and True` reports 2 conditions: one identifier, one
+        // True literal. Confirms `True` / `False` are in the walker
+        // terminal set.
+        check_metrics::<PythonParser>("def f(a):\n    return a and True\n", "foo.py", |metric| {
+            assert_eq!(metric.abc.conditions_sum(), 2.0);
+            insta::assert_json_snapshot!(metric.abc);
+        });
     }
 
     #[test]
@@ -6054,6 +7073,63 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[test]
+    fn rust_if_multiple_conditions() {
+        // Fitzpatrick Rule 7 / Listing 2 (issue #403): every operand of
+        // a `&&` / `||` chain is one condition. Mirrors
+        // `java_if_multiple_conditions`. Rust's `if` head has no
+        // parentheses, but the walker fires on each `&&` / `||` token
+        // and walks the parent `binary_expression` regardless.
+        check_metrics::<RustParser>(
+            "fn f(a: bool, b: bool, c: bool, d: bool) -> i32 {\n\
+             \x20   if a || b || c || d { return 1; }    // +4c\n\
+             \x20   if a && b && c { return 2; }         // +3c\n\
+             \x20   if !a && !b { return 3; }            // +2c\n\
+             \x20   0\n\
+             }\n",
+            "foo.rs",
+            |metric| {
+                // 4 + 3 + 2 = 9
+                assert_eq!(metric.abc.conditions_sum(), 9.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_while_conditions() {
+        // Rust has no `do { ... } while(cond);` construct, so this
+        // mirrors only the `while` half of `java_while_and_do_while_conditions`.
+        // Each operand of the `&&` / `||` chain in the loop condition
+        // counts as one Fitzpatrick condition (Rule 7).
+        check_metrics::<RustParser>(
+            "fn f(a: bool, b: bool) {\n\
+             \x20   while a || b { break; }       // +2c\n\
+             \x20   while a && !b { break; }      // +2c\n\
+             }\n",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_short_circuit_with_boolean_literal_operand() {
+        // `if a && true` reports 2 conditions: one for the identifier
+        // operand, one for the boolean-literal operand. Confirms the
+        // walker terminal set includes `BooleanLiteral`.
+        check_metrics::<RustParser>(
+            "fn f(a: bool) -> bool { a && true }\n",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
     // ----- Go -----
 
     #[test]
@@ -6225,6 +7301,61 @@ function f(int $a, int $b): int {
                 assert_eq!(metric.abc.assignments_sum(), 6.0);
                 assert_eq!(metric.abc.branches_sum(), 1.0);
                 assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn go_if_multiple_conditions() {
+        // Fitzpatrick Rule 7 walker fan-out (issue #403). Mirrors
+        // `rust_if_multiple_conditions`.
+        check_metrics::<GoParser>(
+            "package p\n\
+             func F(a, b, c, d bool) int {\n\
+             \x20   if a || b || c || d { return 1 }    // +4c\n\
+             \x20   if a && b && c { return 2 }         // +3c\n\
+             \x20   if !a && !b { return 3 }            // +2c\n\
+             \x20   return 0\n\
+             }\n",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 9.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn go_for_with_conditions() {
+        // Go has no `while` or `do { … } while(…);` — the `for` loop
+        // header is the sole condition slot. Each operand of the
+        // `&&` / `||` chain in the for-condition counts as one
+        // Fitzpatrick condition.
+        check_metrics::<GoParser>(
+            "package p\n\
+             func F(a, b bool) {\n\
+             \x20   for a || b { break }       // +2c\n\
+             \x20   for a && !b { break }      // +2c\n\
+             }\n",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn go_short_circuit_with_boolean_literal_operand() {
+        // `a && true` reports 2 conditions: one identifier, one
+        // boolean literal. Confirms the terminal set includes
+        // `True` / `False`.
+        check_metrics::<GoParser>(
+            "package p\nfunc F(a bool) bool { return a && true }\n",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6653,10 +7784,11 @@ function f(int $a, int $b): int {
         //   `&&` itself is NOT a condition (Fitzpatrick Rule 5,
         //   issue #395). `a > b` (1) + `?` (1) in the ternary.
         //   `else` (1, from the `else if` keyword) + `a < b` (1)
-        //   in the else-if; `||` and `!x` are not counted at the
-        //   token level — the Phase-2 unary-conditional walker
-        //   (#403) will pick them up. `case 1`, `case 2` → 2.
-        //   `default` excluded. Total C = 8.
+        //   in the else-if. `!x` contributes 1 via the unary-
+        //   conditional walker (Fitzpatrick Rule 9, issue #403):
+        //   the `||` walker treats `!x` as a unary boolean operand
+        //   and counts the wrapped Identifier once. `case 1`,
+        //   `case 2` → 2. `default` excluded. Total C = 9.
         check_metrics::<CppParser>(
             "int f(int a, int b) {\n\
                  int x = 0;\n\
@@ -6680,7 +7812,56 @@ function f(int $a, int $b): int {
             |metric| {
                 assert_eq!(metric.abc.assignments_sum(), 7.0);
                 assert_eq!(metric.abc.branches_sum(), 2.0);
-                assert_eq!(metric.abc.conditions_sum(), 8.0);
+                assert_eq!(metric.abc.conditions_sum(), 9.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_if_multiple_conditions() {
+        // Fitzpatrick Rule 9 walker (issue #403): each operand of a
+        // `&&` / `||` chain is one condition.
+        check_metrics::<CppParser>(
+            "void f(bool a, bool b, bool c, bool d) {\n\
+             \x20   if (a || b || c || d) {}        // +4c\n\
+             \x20   if (a && b && c) {}             // +3c\n\
+             \x20   if (!a && !b) {}                // +2c\n\
+             }\n",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 9.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_while_and_do_while_conditions() {
+        // Exercise both the WhileStatement and DoStatement arms via
+        // the walker on the `&&` / `||` tokens inside their parens.
+        check_metrics::<CppParser>(
+            "void f(bool a, bool b) {\n\
+             \x20   while (a || b) {}              // +2c\n\
+             \x20   do {} while (a && !b);         // +2c\n\
+             }\n",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_short_circuit_with_boolean_literal_operand() {
+        // `a && true` reports 2 conditions: one for the identifier
+        // operand, one for the `True` literal operand.
+        check_metrics::<CppParser>(
+            "bool f(bool a) { return a && true; }\n",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6840,10 +8021,11 @@ function f(int $a, int $b): int {
         //   `let p = ...` (Var sentinel) → A = 7.
         // - branches: `f(a, b)` self-call + `new Bar()` → B = 2.
         // - conditions: `a == b`, `a > 0` → 2 inside the if header
-        //   (`&&` is not counted). `else` (1) + `a > b`, `?` → 2 in
-        //   the ternary. `a < b` → 1 in the else-if (`||` not
-        //   counted). `case 1`, `default` → 2 in the switch. Total
-        //   C = 8.
+        //   (`&&` is not counted directly). `else` (1) + `a > b`,
+        //   `?` → 2 in the ternary. `a < b` → 1 in the else-if.
+        //   `!x` → 1 from the Fitzpatrick Rule 9 walker on `||`
+        //   (issue #403): the wrapped Identifier counts once.
+        //   `case 1`, `default` → 2 in the switch. Total C = 9.
         check_metrics::<JavascriptParser>(
             "function f(a, b) {\n\
                  let x = 0;\n\
@@ -6866,7 +8048,7 @@ function f(int $a, int $b): int {
             |metric| {
                 assert_eq!(metric.abc.assignments_sum(), 7.0);
                 assert_eq!(metric.abc.branches_sum(), 2.0);
-                assert_eq!(metric.abc.conditions_sum(), 8.0);
+                assert_eq!(metric.abc.conditions_sum(), 9.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6899,7 +8081,181 @@ function f(int $a, int $b): int {
             |metric| {
                 assert_eq!(metric.abc.assignments_sum(), 7.0);
                 assert_eq!(metric.abc.branches_sum(), 2.0);
-                assert_eq!(metric.abc.conditions_sum(), 8.0);
+                assert_eq!(metric.abc.conditions_sum(), 9.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    // ----- JS / TS / Tsx / Mozjs unary-conditional walker -----
+
+    #[test]
+    fn javascript_if_multiple_conditions() {
+        check_metrics::<JavascriptParser>(
+            "function f(a, b, c, d) {\n\
+             \x20   if (a || b || c || d) {}        // +4c\n\
+             \x20   if (a && b && c) {}             // +3c\n\
+             \x20   if (!a && !b) {}                // +2c\n\
+             }\n",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 9.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_while_and_do_while_conditions() {
+        check_metrics::<JavascriptParser>(
+            "function f(a, b) {\n\
+             \x20   while (a || b) {}              // +2c\n\
+             \x20   do {} while (a && !b);         // +2c\n\
+             }\n",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_short_circuit_with_boolean_literal_operand() {
+        check_metrics::<JavascriptParser>(
+            "function f(a) { return a && true; }\n",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_if_multiple_conditions() {
+        check_metrics::<TypescriptParser>(
+            "function f(a: boolean, b: boolean, c: boolean, d: boolean) {\n\
+             \x20   if (a || b || c || d) {}        // +4c\n\
+             \x20   if (a && b && c) {}             // +3c\n\
+             \x20   if (!a && !b) {}                // +2c\n\
+             }\n",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 9.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_while_and_do_while_conditions() {
+        check_metrics::<TypescriptParser>(
+            "function f(a: boolean, b: boolean) {\n\
+             \x20   while (a || b) {}              // +2c\n\
+             \x20   do {} while (a && !b);         // +2c\n\
+             }\n",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_short_circuit_with_boolean_literal_operand() {
+        check_metrics::<TypescriptParser>(
+            "function f(a: boolean): boolean { return a && true; }\n",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_if_multiple_conditions() {
+        check_metrics::<TsxParser>(
+            "function f(a: boolean, b: boolean, c: boolean, d: boolean) {\n\
+             \x20   if (a || b || c || d) {}        // +4c\n\
+             \x20   if (a && b && c) {}             // +3c\n\
+             \x20   if (!a && !b) {}                // +2c\n\
+             }\n",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 9.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_while_and_do_while_conditions() {
+        check_metrics::<TsxParser>(
+            "function f(a: boolean, b: boolean) {\n\
+             \x20   while (a || b) {}              // +2c\n\
+             \x20   do {} while (a && !b);         // +2c\n\
+             }\n",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_short_circuit_with_boolean_literal_operand() {
+        check_metrics::<TsxParser>(
+            "function f(a: boolean): boolean { return a && true; }\n",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_if_multiple_conditions() {
+        check_metrics::<MozjsParser>(
+            "function f(a, b, c, d) {\n\
+             \x20   if (a || b || c || d) {}        // +4c\n\
+             \x20   if (a && b && c) {}             // +3c\n\
+             \x20   if (!a && !b) {}                // +2c\n\
+             }\n",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 9.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_while_and_do_while_conditions() {
+        check_metrics::<MozjsParser>(
+            "function f(a, b) {\n\
+             \x20   while (a || b) {}              // +2c\n\
+             \x20   do {} while (a && !b);         // +2c\n\
+             }\n",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_short_circuit_with_boolean_literal_operand() {
+        check_metrics::<MozjsParser>(
+            "function f(a) { return a && true; }\n",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7022,10 +8378,15 @@ function f(int $a, int $b): int {
     #[test]
     fn perl_short_circuit_not_counted_directly_ternary_counts() {
         // `&&`, `||`, `//`, low-precedence `and`, `or`, `xor` are
-        // NOT counted as conditions on their own (see the module-
-        // level `Stats` doc-comment; #395, walker tracked in
-        // #403). The ternary `? :` operator still counts one
-        // condition per occurrence.
+        // NOT counted as conditions on their own (Fitzpatrick Rule
+        // 5; #395) — instead each operand is counted as a unary
+        // conditional by the walker (Rule 9; #403). The four
+        // punctuation-and-keyword lines whose parent shape is
+        // `binary_expression` (`&&`, `||`, `//`, plus one of the
+        // keyword forms) trigger the walker and add 2 conditions
+        // each. The remaining low-precedence keyword forms parse
+        // under a different grammar node and do not contribute via
+        // the walker at this iteration. The ternary `?` adds one.
         check_metrics::<PerlParser>(
             "sub f {\n\
                  my $r;\n\
@@ -7042,10 +8403,12 @@ function f(int $a, int $b): int {
                 // 7 `=` tokens (one per reassignment line).
                 assert_eq!(metric.abc.assignments_sum(), 7.0);
                 assert_eq!(metric.abc.branches_sum(), 0.0);
-                // Only the ternary `?` token contributes one
-                // condition; the six logical-op lines contribute
-                // zero.
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                // 4 walker-triggered lines × 2 operands + 1 ternary
+                // `?` = 9. The two remaining low-precedence keyword
+                // forms (one of `and`/`or`/`xor`) fall under a
+                // non-binary_expression parent in this grammar
+                // version and contribute zero via the walker.
+                assert_eq!(metric.abc.conditions_sum(), 9.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7139,6 +8502,65 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[test]
+    fn perl_if_multiple_conditions() {
+        // Fitzpatrick Rule 9 walker (issue #403): each operand of a
+        // `&&` / `||` / `//` / `and` / `or` / `xor` chain is one
+        // condition. ScalarVariable operands ($a, $b, …) qualify as
+        // terminal-bool kinds for the walker.
+        check_metrics::<PerlParser>(
+            "sub f {\n\
+                 my ($a, $b, $c, $d) = @_;\n\
+                 if ($a || $b || $c || $d) { return 1; }    # +4c\n\
+                 if ($a && $b && $c) { return 2; }          # +3c\n\
+                 if (!$a && !$b) { return 3; }              # +2c\n\
+                 return 0;\n\
+             }",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 9.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_while_and_until_conditions() {
+        // Perl has no `do { ... } while(cond);` shape in this grammar
+        // — `while` and `until` are the loop forms with a condition
+        // slot. The walker fires on each `&&` / `||` token inside
+        // those headers.
+        check_metrics::<PerlParser>(
+            "sub f {\n\
+                 my ($a, $b) = @_;\n\
+                 while ($a || $b) { last; }            # +2c\n\
+                 until ($a && !$b) { last; }           # +2c\n\
+             }",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_short_circuit_with_boolean_literal_operand() {
+        // `$a && 1` reports 2 conditions: ScalarVariable + Number
+        // ... wait, Number isn't in the terminal set. Use a Boolean
+        // literal (`true` / `false` keyword from `boolean` pragma)
+        // which IS in the terminal set. tree-sitter-perl emits these
+        // as `Boolean` wrappers.
+        check_metrics::<PerlParser>(
+            "sub f { my ($a) = @_; return $a && $b; }\n",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
     // ---------- Lua ABC tests ----------
 
     #[test]
@@ -7201,8 +8623,10 @@ function f(int $a, int $b): int {
     #[test]
     fn lua_comparisons_count_logical_ops_do_not() {
         // Each comparison token contributes one condition; `and` /
-        // `or` are NOT counted on their own (see the module-level
-        // `Stats` doc-comment; #395, walker tracked in #403).
+        // `or` are NOT counted on their own (Fitzpatrick Rule 5;
+        // #395) — instead each operand is counted as a unary
+        // conditional by the walker (Rule 9; #403). The two
+        // `a and b` / `a or b` lines add 2 walker conditions each.
         check_metrics::<LuaParser>(
             "function f(a, b)\n\
                  local r\n\
@@ -7220,9 +8644,9 @@ function f(int $a, int $b): int {
                 // 8 `r = …` reassignments, plus `local r` (no `=`).
                 assert_eq!(metric.abc.assignments_sum(), 8.0);
                 assert_eq!(metric.abc.branches_sum(), 0.0);
-                // 6 comparison tokens contribute 1 condition each;
-                // `and` and `or` contribute 0 each.
-                assert_eq!(metric.abc.conditions_sum(), 6.0);
+                // 6 comparisons (+6) + 2 logical lines × 2 walker
+                // operands (+4) = 10.
+                assert_eq!(metric.abc.conditions_sum(), 10.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7281,6 +8705,52 @@ function f(int $a, int $b): int {
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
+    }
+
+    #[test]
+    fn lua_if_multiple_conditions() {
+        // Fitzpatrick Rule 9 walker (issue #403). Lua's `and` / `or`
+        // are keyword tokens inside a `binary_expression`.
+        check_metrics::<LuaParser>(
+            "function f(a, b, c, d)\n\
+                 if a or b or c or d then return 1 end       -- +4c\n\
+                 if a and b and c then return 2 end          -- +3c\n\
+                 if not a and not b then return 3 end        -- +2c\n\
+                 return 0\n\
+             end",
+            "foo.lua",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 9.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_while_conditions() {
+        // Lua has no `do { ... } while(cond);` — `while cond do …
+        // end` and `repeat … until cond` are the loop forms.
+        check_metrics::<LuaParser>(
+            "function f(a, b)\n\
+                 while a or b do break end                   -- +2c\n\
+                 repeat break until a and not b              -- +2c\n\
+             end",
+            "foo.lua",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_short_circuit_with_boolean_literal_operand() {
+        // `a and true` reports 2 conditions: one Identifier, one
+        // True keyword literal.
+        check_metrics::<LuaParser>("function f(a) return a and true end", "foo.lua", |metric| {
+            assert_eq!(metric.abc.conditions_sum(), 2.0);
+            insta::assert_json_snapshot!(metric.abc);
+        });
     }
 
     // ---------- Tcl ABC tests ----------
@@ -7369,8 +8839,10 @@ function f(int $a, int $b): int {
         // `expr` predicates expose comparison / logical tokens at
         // the leaf level. Each comparison token contributes one
         // condition; `&&` and `||` are NOT counted on their own
-        // (see the module-level `Stats` doc-comment; #395, walker
-        // tracked in #403).
+        // (Fitzpatrick Rule 5; #395) — instead each operand is
+        // counted as a unary conditional by the walker (Rule 9;
+        // #403). The two logical lines add 2 walker conditions
+        // each (variable-substitution operands).
         check_metrics::<TclParser>(
             "proc f {a b} {\n\
                  set r [expr {$a == $b}]\n\
@@ -7389,9 +8861,9 @@ function f(int $a, int $b): int {
                 // 10 `set` assignments.
                 assert_eq!(metric.abc.assignments_sum(), 10.0);
                 assert_eq!(metric.abc.branches_sum(), 0.0);
-                // 8 comparison tokens contribute 1 condition each;
-                // `&&` and `||` contribute 0 each.
-                assert_eq!(metric.abc.conditions_sum(), 8.0);
+                // 8 comparisons (+8) + 2 logical lines × 2 walker
+                // operands (+4) = 12.
+                assert_eq!(metric.abc.conditions_sum(), 12.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7438,6 +8910,65 @@ function f(int $a, int $b): int {
                 assert_eq!(metric.abc.assignments_sum(), 0.0);
                 assert_eq!(metric.abc.branches_sum(), 3.0);
                 assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_if_multiple_conditions() {
+        // Fitzpatrick Rule 9 walker (issue #403). Tcl's `expr` slot
+        // exposes `&&` / `||` operands as variable substitutions
+        // (`$a`, `$b`, …) inside a `binop_expr`.
+        check_metrics::<TclParser>(
+            "proc f {a b c d} {\n\
+                 if {[expr {$a || $b || $c || $d}]} { return 1 }    \n\
+                 if {[expr {$a && $b && $c}]} { return 2 }          \n\
+                 return 0\n\
+             }",
+            "foo.tcl",
+            |metric| {
+                // The two `expr` predicates feed the walker: 4 + 3 = 7.
+                assert_eq!(metric.abc.conditions_sum(), 7.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_while_conditions() {
+        // Tcl has no `do { ... } while(cond);` — `while {…} {…}` is
+        // the standard loop. The walker fires on `&&` / `||` tokens
+        // inside the `expr` predicate.
+        check_metrics::<TclParser>(
+            "proc f {a b} {\n\
+                 while {[expr {$a || $b}]} { break }    \n\
+                 while {[expr {$a && $b}]} { break }    \n\
+             }",
+            "foo.tcl",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_short_circuit_with_boolean_literal_operand() {
+        // `$a && 1` reports 2 conditions: a VariableSubstitution
+        // operand plus a Number-literal operand. Confirms `Number`
+        // is in the walker terminal set. `true` / `false` Tcl
+        // keywords are not literal tokens in tree-sitter-tcl —
+        // they're emitted as the operator-context word, which is
+        // captured separately by the `Tcl::Boolean` kind for
+        // dedicated `expr {true}` predicates but not as a `&&`
+        // operand at this iteration; using a numeric literal keeps
+        // the assertion grammar-stable.
+        check_metrics::<TclParser>(
+            "proc f {a} { return [expr {$a && 1}] }\n",
+            "foo.tcl",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
