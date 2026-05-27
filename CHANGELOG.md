@@ -75,6 +75,33 @@ for historical reference.
   test suite runs under `make enums-check` (extended in this
   release) so pre-commit and CI gate on it. Fixes
   [#350](https://github.com/dekobon/big-code-analysis/issues/350).
+- `bca init`: new subcommand scaffolds the canonical pre-#374
+  adoption files in one shot — `bca-thresholds.toml` (with the
+  full header comment), `.bcaignore` (with commented default
+  patterns), and an initial `.bca-baseline.toml` derived from a
+  write-baseline pass. Flags: `--dir <DIR>`, `--force`,
+  `--no-baseline`. Interactive prompts and `--emit
+  make|just|pre-commit|github-actions` skeletons are deferred to
+  follow-up. Fixes
+  [#379](https://github.com/dekobon/big-code-analysis/issues/379).
+- `bca check --print-effective-config[=FORMAT]` serializes the
+  resolved threshold / check configuration after merging
+  `--config` TOML + `--threshold` CLI overrides, then exits 0
+  without walking the codebase. Default format is TOML; `=json`
+  selects JSON. Mutually exclusive with `--write-baseline`. The
+  printed view is round-trippable through `--config`. Future
+  layers (#373 headroom, #374 `bca.toml`, #375
+  `[thresholds.soft]`, #385 tiered exit codes) plug into the same
+  printer without changing its CLI surface. Fixes
+  [#380](https://github.com/dekobon/big-code-analysis/issues/380).
+- `bca check` / config now suggests the closest known metric name
+  when a `--threshold` flag or `[thresholds]` TOML key is
+  misspelled. Uses Levenshtein with a `min(2, max(len)/3)` cutoff
+  plus a shared-prefix rescue for truncations (covers
+  `cyclic` → `cyclomatic` and `halstead.efort` →
+  `halstead.effort`). Up to three ties listed; unrelated input
+  still falls back to the prior "unknown metric" error. Fixes
+  [#381](https://github.com/dekobon/big-code-analysis/issues/381).
 
 ### Changed
 
@@ -89,6 +116,28 @@ for historical reference.
   Contributors who track tooling via `mise install` get the new
   binary automatically; otherwise install via `mise install rumdl`
   or `cargo install rumdl`.
+- `bca --num-jobs` now defaults to the OS-reported effective CPU
+  count via `available_parallelism()` (cgroup-, cpuset-, and
+  quota-aware on Linux; OS CPU count on macOS/Windows) instead of
+  `1`. `--num-jobs auto` is accepted as an explicit synonym for
+  the default; `--num-jobs 0` is rejected with an actionable
+  message; `--num-jobs 1` still forces serial mode for debugging.
+  The Makefile / book / package.json skeletons drop their
+  per-recipe `$(nproc)` / `BCA_NUM_JOBS` threading. Fixes
+  [#383](https://github.com/dekobon/big-code-analysis/issues/383).
+- Cognitive complexity: removed the dead `UnaryExpression →
+  not_operator()` arms across 13 language impls (Python, Rust,
+  Cpp, the js_cognitive macro covering Mozjs/Javascript/Typescript/
+  Tsx, Java, Groovy, Csharp, Perl, Kotlin, Go, Tcl, Lua, PHP,
+  Elixir, Ruby). In pre-order traversal the reset fired after the
+  enclosing `BinaryExpression` was already scored, so chained-NOT
+  (`!a && !b && !c`) silently scored zero contribution; NOT-
+  wrapping (`a && !(b && c)`) had a small effect that the patch
+  collapses to a single boolean sequence, aligning with
+  SonarSource rule B1's intent that only operator-type switches
+  start a new sequence. `BoolSequence::not_operator()` is removed.
+  Fixes
+  [#392](https://github.com/dekobon/big-code-analysis/issues/392).
 - `bca check` baseline path keys are now canonicalised relative to
   the baseline file's own directory (the *anchor*). `--paths .`,
   `--paths src/`, and `--paths "$PWD"` produce byte-identical
@@ -142,6 +191,72 @@ for historical reference.
 
 ### Fixed
 
+- Cognitive complexity now counts Rust `loop {}` as a nesting
+  construct. The arm in `src/metrics/cognitive.rs` matched
+  `ForExpression | WhileExpression | MatchExpression` but omitted
+  `LoopExpression`; every `loop {}` block silently scored zero
+  structural / nesting contribution while structurally identical
+  `for` / `while` loops scored correctly. Cyclomatic was already
+  correct. Fixes
+  [#389](https://github.com/dekobon/big-code-analysis/issues/389).
+- Halstead now classifies Rust `FieldIdentifier` and
+  `TypeIdentifier` as operands. `p.x + p.y` previously counted
+  `p` but dropped `x`/`y`; `Vec<i32>` dropped `Vec`. C++ and Go
+  already classified both; Rust now matches. Fixes
+  [#390](https://github.com/dekobon/big-code-analysis/issues/390).
+- The alterator now flattens Rust `RawStringLiteral` like
+  `StringLiteral` / `CharLiteral`. AST dump output for `r#"…"#`
+  no longer renders structured children (start delimiter,
+  content, end delimiter) — it produces a single flat text node
+  to match `"…"`. `Checker::is_string` and `Getter::get_op_type`
+  already treated both as equivalent. Fixes
+  [#391](https://github.com/dekobon/big-code-analysis/issues/391).
+- The alterator now flattens C++ `RawStringLiteral` the same way
+  (peer of #391). Fixes
+  [#398](https://github.com/dekobon/big-code-analysis/issues/398).
+- Halstead now classifies Rust `COLONCOLON` (`::`) and 14
+  declaration / visibility keywords (`Const`, `Static`, `Enum`,
+  `Struct`, `Trait`, `Impl`, `Use`, `Mod`, `Pub`, `Type`,
+  `Union`, `Where`, `Extern`, `Dyn`) as operators, matching
+  C++ / Java / C# / Kotlin parity. Path-heavy and declaration-
+  heavy Rust code previously had deflated n1 / N1 / volume /
+  effort estimates. Fixes
+  [#394](https://github.com/dekobon/big-code-analysis/issues/394).
+- Cognitive complexity now counts `&&` operators inside Rust
+  2024 let-chains. `if let Some(x) = a && let Some(y) = b && x >
+  y` previously contributed zero boolean-sequence cost because
+  the `BinaryExpression`-only dispatch missed `&&` tokens
+  directly under `LetChain` / `LetChain2`. Cyclomatic already
+  counted them. Fixes
+  [#396](https://github.com/dekobon/big-code-analysis/issues/396).
+- ABC: C# / Java / Groovy condition walkers now count
+  `MemberAccessExpression`, `AwaitExpression`, `CastExpression`,
+  `IsPatternExpression`, `ElementAccessExpression` (and the
+  per-language equivalents) as conditions. Idioms like
+  `if (cfg.Enabled)`, `if (await CheckAsync())`, `if ((bool)v)`,
+  `if (x is not null)`, `if (flags[0])` no longer silently score
+  zero. Fixes
+  [#372](https://github.com/dekobon/big-code-analysis/issues/372).
+- ABC: Rust `LetDeclaration` and C++ `InitDeclarator` carrying an
+  explicit `=` initializer now count toward the A-count. The
+  literal Fitzpatrick reading is restored, matching JavaScript's
+  treatment of `let x = expr;` (while `const x = expr;` /
+  declarations without initializer still contribute zero). Fixes
+  [#393](https://github.com/dekobon/big-code-analysis/issues/393).
+- `bca check` integration tests no longer leak TempDir fixture
+  paths into the GHA runner's `$GITHUB_STEP_SUMMARY`. The shared
+  `bca_command()` test builder scrubs `GITHUB_STEP_SUMMARY` and
+  `GITHUB_ACTIONS` from the child environment, so a failing
+  `test` job stops appearing as a "threshold gate" failure in
+  the runner's UI. Fixes
+  [#388](https://github.com/dekobon/big-code-analysis/issues/388).
+- Vendored tree-sitter scanner builds (`tree-sitter-ccomment`,
+  `tree-sitter-preproc`, `tree-sitter-mozcpp`) suppress
+  `-Wsign-compare` warnings emitted when scanner sources compare
+  `lexer->lookahead` (int32_t) against `wchar_t` containers. The
+  suppression lives in each crate's `build.rs` (not the C/C++
+  source) so it survives grammar regeneration. Fixes
+  [#399](https://github.com/dekobon/big-code-analysis/issues/399).
 - Checkstyle output (`bca metrics --output-format checkstyle`) now
   substitutes plane-end Unicode non-characters (`U+FFFE`, `U+FFFF`,
   and every supplementary-plane counterpart `U+nFFFE` / `U+nFFFF`
