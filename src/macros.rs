@@ -892,9 +892,63 @@ macro_rules! csharp_var_declarator_kinds {
     };
 }
 
+// Terminal-bool operand kinds recognised by ABC condition counting for
+// the Java grammar. Sister of `csharp_bool_terminal_kinds!()` — bundles
+// the four "bare boolean leaf" kinds (`MethodInvocation`, `Identifier`,
+// `True`, `False`) with the four bool-evaluating expression kinds
+// surfaced by #372 / lesson #19:
+//
+// - `FieldAccess`          — `cfg.flag`
+// - `CastExpression`       — `(boolean) v`
+// - `ArrayAccess`          — `flags[0]`
+// - `InstanceofExpression` — `x instanceof Foo`
+//
+// Used by `java_inspect_container`, `java_count_unary_conditions`,
+// `java_walk_ternary`, and the two branches of `java_walk_for_statement`
+// (the latter ORs in `SEMI | RPAREN` at the call site to also recognise
+// the empty-condition `for (;;)` form).
+macro_rules! java_bool_terminal_kinds {
+    () => {
+        $crate::Java::MethodInvocation
+            | $crate::Java::Identifier
+            | $crate::Java::True
+            | $crate::Java::False
+            | $crate::Java::FieldAccess
+            | $crate::Java::CastExpression
+            | $crate::Java::ArrayAccess
+            | $crate::Java::InstanceofExpression
+    };
+}
+
+// Terminal-bool operand kinds recognised by ABC condition counting for
+// the dekobon Groovy grammar. Sister of `java_bool_terminal_kinds!()`,
+// with Groovy-specific replacements: `CommandChain` for the parens-less
+// call form `println foo`, `BooleanLiteral` (the named wrapper around
+// the leaf `True` / `False` tokens, see `groovy_count_condition`), and
+// `ParenthesizedTypeCast` for the Java-style `(boolean) v` form (the
+// grammar represents it as its own kind rather than nesting
+// `cast_expression` inside `parenthesized_expression`). The set bundles
+// the bool-evaluating terminals added by #372 (`FieldAccess`,
+// `CastExpression`, `ParenthesizedTypeCast`, `InstanceofExpression`);
+// the dekobon Groovy grammar has no `await` or `array_access`
+// analogues, so those collapse out of the C# set.
+macro_rules! groovy_bool_terminal_kinds {
+    () => {
+        $crate::Groovy::MethodInvocation
+            | $crate::Groovy::CommandChain
+            | $crate::Groovy::Identifier
+            | $crate::Groovy::BooleanLiteral
+            | $crate::Groovy::FieldAccess
+            | $crate::Groovy::CastExpression
+            | $crate::Groovy::ParenthesizedTypeCast
+            | $crate::Groovy::InstanceofExpression
+    };
+}
+
 pub(crate) use implement_metric_trait;
 pub(crate) use {
     csharp_bool_terminal_kinds, csharp_invocation_expr_kinds, csharp_paren_expr_kinds,
     csharp_prefix_unary_expr_kinds, csharp_var_decl_kinds, csharp_var_declarator_kinds,
-    get_language, mk_action, mk_code, mk_emacs_mode, mk_extensions, mk_lang, mk_langs,
+    get_language, groovy_bool_terminal_kinds, java_bool_terminal_kinds, mk_action, mk_code,
+    mk_emacs_mode, mk_extensions, mk_lang, mk_langs,
 };

@@ -28,7 +28,7 @@ use std::fmt;
 use crate::checker::Checker;
 use crate::macros::{
     csharp_bool_terminal_kinds, csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds,
-    implement_metric_trait,
+    groovy_bool_terminal_kinds, implement_metric_trait, java_bool_terminal_kinds,
 };
 use crate::node::Node;
 use crate::*;
@@ -387,17 +387,7 @@ fn java_inspect_container(container_node: &Node, conditions: &mut f64) {
         // `InstanceofExpression` (`x instanceof Foo`) — every kind whose
         // evaluated value is implicitly boolean in idiomatic Java, mirroring
         // the C# fix in #372 (lesson #19).
-        if matches!(
-            node_kind,
-            MethodInvocation
-                | Identifier
-                | True
-                | False
-                | FieldAccess
-                | CastExpression
-                | ArrayAccess
-                | InstanceofExpression
-        ) {
+        if matches!(node_kind, java_bool_terminal_kinds!()) {
             if has_boolean_content {
                 *conditions += 1.;
             }
@@ -515,17 +505,8 @@ fn java_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             // and `InstanceofExpression` so that bool-evaluating
             // operands of `&&` / `||` chains are not silently zeroed
             // out (mirrors the C# fix in #372; lesson #19).
-            if matches!(
-                node_kind,
-                MethodInvocation
-                    | Identifier
-                    | True
-                    | False
-                    | FieldAccess
-                    | CastExpression
-                    | ArrayAccess
-                    | InstanceofExpression
-            ) && matches!(list_kind, BinaryExpression)
+            if matches!(node_kind, java_bool_terminal_kinds!())
+                && matches!(list_kind, BinaryExpression)
             {
                 *conditions += 1.;
             } else {
@@ -582,17 +563,7 @@ fn groovy_inspect_container(container_node: &Node, conditions: &mut f64) {
         // bool-evaluating terminals (`FieldAccess`, `CastExpression`,
         // `ParenthesizedTypeCast`, `InstanceofExpression`) mirror
         // the C# fix in #372 (lesson #19).
-        if matches!(
-            node_kind,
-            MethodInvocation
-                | CommandChain
-                | Identifier
-                | BooleanLiteral
-                | FieldAccess
-                | CastExpression
-                | ParenthesizedTypeCast
-                | InstanceofExpression
-        ) {
+        if matches!(node_kind, groovy_bool_terminal_kinds!()) {
             if has_boolean_content {
                 *conditions += 1.;
             }
@@ -616,17 +587,8 @@ fn groovy_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             // bool-evaluating kinds (`FieldAccess`, `CastExpression`,
             // `ParenthesizedTypeCast`, `InstanceofExpression`) added
             // per issue #372 (lesson #19).
-            if matches!(
-                node_kind,
-                MethodInvocation
-                    | CommandChain
-                    | Identifier
-                    | BooleanLiteral
-                    | FieldAccess
-                    | CastExpression
-                    | ParenthesizedTypeCast
-                    | InstanceofExpression
-            ) && matches!(list_kind, BinaryExpression)
+            if matches!(node_kind, groovy_bool_terminal_kinds!())
+                && matches!(list_kind, BinaryExpression)
             {
                 *conditions += 1.;
             } else {
@@ -1456,8 +1418,7 @@ fn java_walk_ternary(node: &Node, stats: &mut Stats) {
     // `java_inspect_container` (issue #372 / lesson #19).
     if let Some(condition) = node.child(0) {
         match condition.kind_id().into() {
-            MethodInvocation | Identifier | True | False | FieldAccess | CastExpression
-            | ArrayAccess | InstanceofExpression => *conds += 1.,
+            java_bool_terminal_kinds!() => *conds += 1.,
             ParenthesizedExpression | UnaryExpression => {
                 java_inspect_container(&condition, conds);
             }
@@ -1487,6 +1448,17 @@ fn java_walk_for_statement(node: &Node, stats: &mut Stats) {
         SEMI => {
             if let Some(cond) = node.child(4) {
                 match cond.kind_id().into() {
+                    // The terminal set here is `java_bool_terminal_kinds!()`
+                    // augmented with `SEMI` / `RPAREN` to handle the
+                    // empty-condition `for (init; ; ...)` and `for (;;)`
+                    // forms: the trailing `;` or closing `)` lands at
+                    // child(4) and is treated as a vacuously-true
+                    // condition. The arm cannot be written as
+                    // `java_bool_terminal_kinds!() | SEMI | RPAREN`
+                    // because clippy's `unnested_or_patterns` forbids
+                    // mixing a macro-expanded OR with extra literal
+                    // patterns, and splitting into two arms with the
+                    // same body trips `match_same_arms`.
                     MethodInvocation | Identifier | True | False | FieldAccess | CastExpression
                     | ArrayAccess | InstanceofExpression | SEMI | RPAREN => {
                         stats.conditions += 1.;
@@ -1498,8 +1470,7 @@ fn java_walk_for_statement(node: &Node, stats: &mut Stats) {
                 }
             }
         }
-        MethodInvocation | Identifier | True | False | FieldAccess | CastExpression
-        | ArrayAccess | InstanceofExpression => {
+        java_bool_terminal_kinds!() => {
             stats.conditions += 1.;
         }
         ParenthesizedExpression | UnaryExpression => {
@@ -1711,14 +1682,7 @@ fn groovy_count_condition(condition: &Node, conditions: &mut f64) {
     // Groovy grammar has no `await` or `array_access` analogues, so
     // those collapse out of the five-kind C# set.
     match condition.kind_id().into() {
-        MethodInvocation
-        | CommandChain
-        | Identifier
-        | BooleanLiteral
-        | FieldAccess
-        | CastExpression
-        | ParenthesizedTypeCast
-        | InstanceofExpression => {
+        groovy_bool_terminal_kinds!() => {
             *conditions += 1.;
         }
         ParenthesizedExpression | UnaryExpression => {
