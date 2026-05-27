@@ -1685,21 +1685,21 @@ path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 58371809.978897616
+value = 58563171.584388226
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 10114.0
+value = 10141.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 544.0
+value = 545.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
@@ -1713,7 +1713,7 @@ path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "nom"
-value = 770.0
+value = 771.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
@@ -1783,19 +1783,19 @@ path = "src/metrics/abc.rs"
 function = "perl_inspect_container"
 start_line = 2952
 metric = "halstead.effort"
-value = 60780.69099129375
+value = 53345.08959628053
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "PerlCode"
-start_line = 3074
+start_line = 3096
 metric = "halstead.effort"
 value = 74315.72438997906
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "compute"
-start_line = 3075
+start_line = 3097
 metric = "halstead.effort"
 value = 67862.8313802447
 

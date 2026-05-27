@@ -2968,29 +2968,19 @@ fn perl_inspect_container(container_node: &Node, conditions: &mut f64) {
             .previous_sibling()
             .is_none_or(|prev| !matches!(prev.kind_id().into(), P::QMARK | P::COLON)));
 
-    // `Array` is tree-sitter-perl's name for the `(...)` shape used
-    // BOTH as the if/while/unless/until condition wrapper AND as
-    // list literals `(1, 2, 3)`. Only treat it as a paren wrapper
-    // when the outer parent is a known if-condition slot — when the
-    // walker enters via a `&&` / `||` / ternary operand position
-    // (parent = BinaryExpression / TernaryExpression), Array is a
-    // list literal and unwrapping it would attribute the wrong
-    // operand to the metric.
-    let array_is_paren = matches!(
-        parent_kind,
-        P::IfStatement
-            | P::UnlessStatement
-            | P::WhileStatement
-            | P::UntilStatement
-            | P::ReturnExpression
-    );
-
     loop {
-        // `ParenthesizedArgument` is unambiguous; `Array` is the
-        // grammar's if-condition wrapper only when entered from an
-        // if/while/unless/until/return context.
-        let is_parens = matches!(node_kind, P::ParenthesizedArgument)
-            || (matches!(node_kind, P::Array) && array_is_paren);
+        // `Array` is tree-sitter-perl's name for the `(...)` shape
+        // used BOTH as the if/while/unless/until condition wrapper
+        // AND as list literals `(1, 2, 3)` (and `(x, y)` operand
+        // groupings). In Perl's scalar context — which every walker
+        // call site here operates in — a list expression evaluates
+        // to its LAST element, so descending via the last named
+        // child gives the semantically correct operand for both
+        // shapes: `($a)` → `$a`, `($x, $y)` → `$y`, `if ($a)` →
+        // `$a`. `ParenthesizedArgument` (the other paren-wrap kind)
+        // has only one inner expression, so child(1) and last-named
+        // are equivalent.
+        let is_parens = matches!(node_kind, P::ParenthesizedArgument | P::Array);
         let is_not = matches!(node_kind, P::UnaryExpression)
             && node.child(0).is_some_and(|c| c.kind_id() == P::BANG as u16);
 
@@ -3001,7 +2991,15 @@ fn perl_inspect_container(container_node: &Node, conditions: &mut f64) {
             has_boolean_content = true;
         }
 
-        let Some(child) = node.child(1) else { break };
+        // Descend through the wrapper to the value. Array uses
+        // last-named-child (Perl scalar-context value); other
+        // wrappers store their inner expression at child(1).
+        let next = if matches!(node_kind, P::Array) {
+            perl_last_named_child(&node)
+        } else {
+            node.child(1)
+        };
+        let Some(child) = next else { break };
         node = child;
         node_kind = node.kind_id().into();
 
@@ -3032,6 +3030,30 @@ fn perl_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
 // `perl_count_unary_conditions`; condition-slot Arrays are
 // already unwrapped by `perl_inspect_container`. This predicate
 // disambiguates by checking the parent kind.
+// Returns the last named child of a node, or None if there are no
+// named children. Used by `perl_inspect_container` to descend through
+// the `Array` `(...)` wrapper: for a single-element grouping
+// `($a)` the last named child is `$a`; for a multi-element list
+// literal `($x, $y)` the last named child is `$y` (the value the
+// expression evaluates to in Perl's scalar context, which is the
+// only context the walker operates in).
+fn perl_last_named_child<'a>(node: &Node<'a>) -> Option<Node<'a>> {
+    let mut cursor = node.cursor();
+    let mut last_named = None;
+    if cursor.goto_first_child() {
+        loop {
+            let child = cursor.node();
+            if child.is_named() {
+                last_named = Some(child);
+            }
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+    last_named
+}
+
 fn perl_is_call_argument_parent(parent: Node) -> bool {
     use Perl as P;
     matches!(
@@ -9498,30 +9520,35 @@ function f(int $a, int $b): int {
     }
 
     #[test]
-    fn perl_array_in_binary_operand_is_not_unwrapped() {
-        // Regression for the code-review finding: `$a || ($x, $y)`
-        // parses with `Array` as the right operand of `||`. Pre-fix,
-        // `perl_inspect_container` unconditionally treated `Array`
-        // as a paren wrapper and unwrapped to its first inner
-        // element, counting `$x` as if it were the operand. The
-        // fix gates `Array`-as-paren on the entry parent kind: only
-        // an if/while/unless/until/return parent treats `Array` as
-        // a `(...)` wrapper; a BinaryExpression parent treats it
-        // as the list literal it actually is.
-        //
-        // After the fix:
-        //   - `||` walker counts the left operand `$a` (+1).
-        //   - The right operand is `Array` (list literal); the
-        //     walker descends via `is_named()` but
-        //     `perl_inspect_container` immediately breaks because
-        //     `Array` is no longer a paren in BinaryExpression
-        //     parent context.
-        //   - Total: 1 condition (the left scalar-variable operand).
+    fn perl_array_in_binary_operand_descends_to_scalar_context_value() {
+        // Regression test for the code-review findings on the
+        // Phase-2B Perl walker:
+        //   - Pre-fix-A: `perl_inspect_container` descended `Array`
+        //     via `node.child(1)` — the FIRST element — wrongly
+        //     attributing `$x` for `($x, $y)` (semantically `$y`
+        //     is the scalar-context value).
+        //   - Fix-A (the `array_is_paren` guard, 5db8078): dropped
+        //     Array-as-paren entirely in `BinaryExpression` operand
+        //     contexts to avoid the wrong attribution — but
+        //     regressed `$a || ($x)` (single paren-grouped operand)
+        //     to C=1 instead of 2.
+        //   - Fix-B (this change): keeps Array-as-paren unconditional
+        //     but descends via the LAST named child. `$a || ($x)`
+        //     reaches `$x` (count both operands → 2);
+        //     `$a || ($x, $y)` reaches `$y` (count `$a` + `$y` →
+        //     still 2, matching Fitzpatrick Rule 7 "one per
+        //     operand"); `if ($a)` still reaches `$a` (single-
+        //     element grouping → 1).
         check_metrics::<PerlParser>(
-            "sub f { my ($a, $x, $y) = @_; my $r = $a || ($x, $y); $r; }\n",
+            "sub f { my ($a, $x, $y) = @_;\n\
+             \x20   my $r = $a || ($x, $y);    # +2c: $a + last-named $y\n\
+             \x20   my $s = $a || ($x);        # +2c: $a + only-named $x\n\
+             \x20   $r + $s;\n\
+             }\n",
             "foo.pl",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                // 2 + 2 = 4 unary conditions from the two `||`s.
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
