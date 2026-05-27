@@ -1136,9 +1136,14 @@ impl Abc for PhpCode {
             | CatchClause => {
                 stats.conditions += 1.;
             }
-            // Fitzpatrick Rule 9: each operand of a `&&` / `||` chain
-            // is one condition (issue #403).
-            AMPAMP | PIPEPIPE => {
+            // Fitzpatrick Rule 9: each operand of a `&&` / `||` / `and`
+            // / `or` / `xor` chain is one condition (issue #403). PHP
+            // exposes both the punctuation forms (`&&`, `||`) and the
+            // low-precedence keyword forms (`and`, `or`, `xor`) as
+            // distinct tokens inside `binary_expression`; both fire
+            // the walker so `connect() or die();`-style idiom counts
+            // the same as `connect() || die();`.
+            AMPAMP | PIPEPIPE | And | Or | Xor => {
                 if let Some(parent) = node.parent() {
                     php_count_unary_conditions(&parent, &mut stats.conditions);
                 }
@@ -1387,7 +1392,7 @@ fn rust_inspect_container(container_node: &Node, conditions: &mut f64) {
     let Some(parent) = node.parent() else { return };
     let mut has_boolean_content = matches!(
         parent.kind_id().into(),
-        BinaryExpression | IfExpression | WhileExpression
+        BinaryExpression | IfExpression | WhileExpression | LetChain | LetChain2
     );
 
     loop {
@@ -1426,8 +1431,16 @@ fn rust_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             let node = cursor.node();
             let node_kind = node.kind_id().into();
 
+            // Allow `LetChain` (and its hidden-rule alias `LetChain2`)
+            // alongside `BinaryExpression` as a known-boolean list
+            // parent: a Rust 2024 let-chain `if a && let Some(x) = b`
+            // makes `&&`'s parent the `LetChain` wrapper, not a
+            // `BinaryExpression`. Without this, bare-identifier
+            // operands inside a let-chain fall through and never
+            // contribute to the condition count, while their
+            // semantically equivalent `BinaryExpression` siblings do.
             if matches!(node_kind, rust_bool_terminal_kinds!())
-                && matches!(list_kind, BinaryExpression)
+                && matches!(list_kind, BinaryExpression | LetChain | LetChain2)
             {
                 *conditions += 1.;
             } else if node.is_named() {
@@ -5229,6 +5242,26 @@ function f(int $a, int $b): int {
     }
 
     #[test]
+    fn php_low_precedence_keyword_logical_ops_trigger_walker() {
+        // Regression: pre-fix, `$a or $b` reported 0 conditions
+        // because the dispatcher only handled `AMPAMP|PIPEPIPE`,
+        // skipping the PHP-specific `and` / `or` / `xor` keyword
+        // forms even though they parse under the same
+        // `binary_expression` shape.
+        check_metrics::<PhpParser>(
+            "<?php\n\
+             function f($a, $b) {\n\
+             \x20   return $a or $b;\n\
+             }\n",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
     fn php_if_multiple_conditions() {
         check_metrics::<PhpParser>(
             "<?php\n\
@@ -6914,6 +6947,28 @@ function f(int $a, int $b): int {
     }
 
     #[test]
+    fn rust_let_chain_bare_identifier_operand_counts() {
+        // Regression: pre-fix, `if a && let Some(_z) = y { }` reported
+        // 1 condition (only the LetCondition). The bare-identifier
+        // `a` operand was lost because Rust 2024 wraps let-chain
+        // `&&` operands in a `LetChain` node (not `BinaryExpression`)
+        // and `rust_count_unary_conditions` only counted terminals
+        // under a `BinaryExpression` parent. Allowing `LetChain` /
+        // `LetChain2` as known-bool list parents fixes the loss.
+        // Expected: LetCondition (1) + walker on `a` (1) = 2.
+        check_metrics::<RustParser>(
+            "fn f(a: bool, y: Option<i32>) {\n\
+             \x20   if a && let Some(_z) = y { }\n\
+             }\n",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
     fn rust_if_multiple_conditions() {
         // Fitzpatrick Rule 7 / Listing 2 (issue #403): every operand of
         // a `&&` / `||` chain is one condition. Mirrors
@@ -8220,13 +8275,17 @@ function f(int $a, int $b): int {
         // `&&`, `||`, `//`, low-precedence `and`, `or`, `xor` are
         // NOT counted as conditions on their own (Fitzpatrick Rule
         // 5; #395) — instead each operand is counted as a unary
-        // conditional by the walker (Rule 9; #403). The four
-        // punctuation-and-keyword lines whose parent shape is
-        // `binary_expression` (`&&`, `||`, `//`, plus one of the
-        // keyword forms) trigger the walker and add 2 conditions
-        // each. The remaining low-precedence keyword forms parse
-        // under a different grammar node and do not contribute via
-        // the walker at this iteration. The ternary `?` adds one.
+        // conditional by the walker (Rule 9; #403). At the pinned
+        // tree-sitter-perl grammar version, only the four
+        // punctuation forms plus one keyword form parse under a
+        // `binary_expression` parent that triggers the walker; the
+        // other two keyword forms parse under a distinct grammar
+        // node and contribute zero. Net: 4 walker-firing lines × 2
+        // scalar-variable operands + 1 ternary `?` = 9. The exact
+        // mix of "which two keyword forms are silent" is grammar-
+        // version-dependent; a future grammar bump that normalises
+        // the keyword forms' parent kind will shift this count to
+        // 13. See follow-up note above the test name.
         check_metrics::<PerlParser>(
             "sub f {\n\
                  my $r;\n\
