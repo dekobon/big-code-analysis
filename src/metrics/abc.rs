@@ -368,6 +368,28 @@ where
     fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats);
 }
 
+// Shared Phase-2B helper (issue #403): walk every named child of an
+// expression-list-style wrapper (Go's `expression_list`, Lua's
+// `expression_list`) and route each through a language-specific
+// classifier. Used for `return value1, value2, ...` arms where the
+// values live one level below the return statement under a list
+// wrapper. The classifier receives only named children so that
+// `,` / `;` / `(` / `)` tokens never reach it.
+fn for_each_named_child(list: &Node, conditions: &mut f64, f: fn(&Node, &mut f64)) {
+    let mut cursor = list.cursor();
+    if cursor.goto_first_child() {
+        loop {
+            let child = cursor.node();
+            if child.is_named() {
+                f(&child, conditions);
+            }
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+}
+
 // Inspects the content of Java parenthesized expressions
 // and `Not` operators to find unary conditional expressions
 fn java_inspect_container(container_node: &Node, conditions: &mut f64) {
@@ -1142,12 +1164,19 @@ fn php_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             let node_kind = node.kind_id().into();
 
             // PHP wraps each call argument in an `argument` node;
-            // descend through that wrapper so the unary-conditional
-            // operand inside is reachable.
-            let inner = if matches!(node_kind, Argument) {
-                node.child(0).unwrap_or(node)
-            } else {
-                node
+            // descend one level through that wrapper so the
+            // unary-conditional operand inside is reachable. The
+            // grammar guarantees `argument` has at least one child;
+            // skip the rare grammar-error case where it doesn't.
+            let inner = match (matches!(node_kind, Argument), node.child(0)) {
+                (true, None) => {
+                    if !cursor.goto_next_sibling() {
+                        break;
+                    }
+                    continue;
+                }
+                (true, Some(child)) => child,
+                (false, _) => node,
             };
             let inner_kind = inner.kind_id().into();
 
@@ -1893,18 +1922,7 @@ impl Abc for GoCode {
             // (no values) has no child(1).
             G::ReturnStatement => {
                 if let Some(expr_list) = node.child(1) {
-                    let mut cursor = expr_list.cursor();
-                    if cursor.goto_first_child() {
-                        loop {
-                            let child = cursor.node();
-                            if child.is_named() {
-                                go_inspect_container(&child, &mut stats.conditions);
-                            }
-                            if !cursor.goto_next_sibling() {
-                                break;
-                            }
-                        }
-                    }
+                    for_each_named_child(&expr_list, &mut stats.conditions, go_inspect_container);
                 }
             }
             // Method-argument-list walker for `f(!a, !b)`. Two
@@ -2953,6 +2971,26 @@ fn perl_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
     }
 }
 
+// Phase-2B helper (issue #403): Perl's `Array` node serves double
+// duty as the `(...)` wrapper around `if` / `while` / `unless` /
+// `until` conditions AND as the call-argument-list wrapper. The
+// dispatcher routes call-argument Arrays through
+// `perl_count_unary_conditions`; condition-slot Arrays are
+// already unwrapped by `perl_inspect_container`. This predicate
+// disambiguates by checking the parent kind.
+fn perl_is_call_argument_parent(parent: Node) -> bool {
+    use Perl as P;
+    matches!(
+        parent.kind_id().into(),
+        P::CallExpressionWithArgsWithBrackets
+            | P::CallExpressionWithSpacedArgs
+            | P::CallExpressionWithSub
+            | P::CallExpressionWithVariable
+            | P::CallExpressionRecursive
+            | P::MethodInvocation
+    )
+}
+
 fn perl_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
     use Perl as P;
 
@@ -3081,19 +3119,7 @@ impl Abc for PerlCode {
             // conditions). To avoid re-handling condition slots that
             // were already walked through inspect_container, only
             // dispatch when the parent is a call-expression form.
-            P::Array
-                if node.parent().is_some_and(|p| {
-                    matches!(
-                        p.kind_id().into(),
-                        P::CallExpressionWithArgsWithBrackets
-                            | P::CallExpressionWithSpacedArgs
-                            | P::CallExpressionWithSub
-                            | P::CallExpressionWithVariable
-                            | P::CallExpressionRecursive
-                            | P::MethodInvocation
-                    )
-                }) =>
-            {
+            P::Array if node.parent().is_some_and(perl_is_call_argument_parent) => {
                 perl_count_unary_conditions(node, &mut stats.conditions);
             }
             _ => {}
@@ -3252,18 +3278,7 @@ impl Abc for LuaCode {
             // (no values) has no child(1).
             Lua::ReturnStatement => {
                 if let Some(expr_list) = node.child(1) {
-                    let mut cursor = expr_list.cursor();
-                    if cursor.goto_first_child() {
-                        loop {
-                            let child = cursor.node();
-                            if child.is_named() {
-                                lua_inspect_container(&child, &mut stats.conditions);
-                            }
-                            if !cursor.goto_next_sibling() {
-                                break;
-                            }
-                        }
-                    }
+                    for_each_named_child(&expr_list, &mut stats.conditions, lua_inspect_container);
                 }
             }
             // `f(not a, not b)` — argument-list walker.
