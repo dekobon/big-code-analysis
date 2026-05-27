@@ -2968,12 +2968,29 @@ fn perl_inspect_container(container_node: &Node, conditions: &mut f64) {
             .previous_sibling()
             .is_none_or(|prev| !matches!(prev.kind_id().into(), P::QMARK | P::COLON)));
 
+    // `Array` is tree-sitter-perl's name for the `(...)` shape used
+    // BOTH as the if/while/unless/until condition wrapper AND as
+    // list literals `(1, 2, 3)`. Only treat it as a paren wrapper
+    // when the outer parent is a known if-condition slot — when the
+    // walker enters via a `&&` / `||` / ternary operand position
+    // (parent = BinaryExpression / TernaryExpression), Array is a
+    // list literal and unwrapping it would attribute the wrong
+    // operand to the metric.
+    let array_is_paren = matches!(
+        parent_kind,
+        P::IfStatement
+            | P::UnlessStatement
+            | P::WhileStatement
+            | P::UntilStatement
+            | P::ReturnExpression
+    );
+
     loop {
-        // `Array` is the tree-sitter-perl grammar's name for the
-        // `(...)` wrapper around `if` / `while` / `unless` / `until`
-        // condition slots — same `(`, content, `)` shape as
-        // `ParenthesizedArgument` despite the unrelated kind name.
-        let is_parens = matches!(node_kind, P::ParenthesizedArgument | P::Array);
+        // `ParenthesizedArgument` is unambiguous; `Array` is the
+        // grammar's if-condition wrapper only when entered from an
+        // if/while/unless/until/return context.
+        let is_parens = matches!(node_kind, P::ParenthesizedArgument)
+            || (matches!(node_kind, P::Array) && array_is_paren);
         let is_not = matches!(node_kind, P::UnaryExpression)
             && node.child(0).is_some_and(|c| c.kind_id() == P::BANG as u16);
 
@@ -3239,12 +3256,6 @@ fn lua_count_condition(condition: &Node, conditions: &mut f64) {
     }
 }
 
-fn lua_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
-    if let Some(child) = node.child(idx) {
-        lua_count_condition(&child, conditions);
-    }
-}
-
 fn lua_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
     let list_kind = list_node.kind_id().into();
     let mut cursor = list_node.cursor();
@@ -3295,17 +3306,19 @@ impl Abc for LuaCode {
                     lua_count_unary_conditions(&parent, &mut stats.conditions);
                 }
             }
-            // Phase-2B (issue #403): condition slots. Lua has no
-            // paren wrap around `if` / `while` / `repeat …` conditions,
-            // so `lua_count_condition` classifies the slot directly.
-            // `if` / `while` have condition at child(1) (child(0) is
-            // the keyword). `repeat … until cond` has the condition at
-            // child(3) (children: `repeat`, block, `until`, condition).
-            Lua::IfStatement | Lua::WhileStatement => {
-                lua_inspect_child(node, 1, &mut stats.conditions);
-            }
-            Lua::RepeatStatement => {
-                lua_inspect_child(node, 3, &mut stats.conditions);
+            // Phase-2B (issue #403): condition slots. Lua has no paren
+            // wrap around `if` / `while` / `repeat …` conditions, so
+            // `lua_count_condition` classifies the slot directly. Use
+            // `child_by_field_name("condition")` so the lookup is
+            // grammar-version-robust — tree-sitter-lua exposes the
+            // `condition` field on if/while/repeat statements. Pinning
+            // by name handles the rare empty-body `repeat until cond`
+            // shape where the BLANK alternative for the body would
+            // shift positional child indices.
+            Lua::IfStatement | Lua::WhileStatement | Lua::RepeatStatement => {
+                if let Some(cond) = node.child_by_field_name("condition") {
+                    lua_count_condition(&cond, &mut stats.conditions);
+                }
             }
             // `return value` — Lua wraps return values in
             // `expression_list` at child(1). Route each named child
@@ -7223,6 +7236,22 @@ function f(int $a, int $b): int {
     }
 
     #[test]
+    fn python_if_call_terminal_condition_counts_once() {
+        // Pins the Phase-2B behaviour for Python's `Call` terminal-bool
+        // kind: `if foo():` is a Fitzpatrick Rule 6 unary conditional
+        // (a bare boolean-evaluating call as the if-condition). The
+        // walker's terminal-at-top check fires once per call-condition;
+        // the call itself separately contributes 1 branch. Surfaced
+        // (and verified intentional) by the code-review pass on
+        // Phase 2B.
+        check_metrics::<PythonParser>("def f():\n    if foo(): pass\n", "foo.py", |metric| {
+            assert_eq!(metric.abc.branches_sum(), 1.0);
+            assert_eq!(metric.abc.conditions_sum(), 1.0);
+            insta::assert_json_snapshot!(metric.abc);
+        });
+    }
+
+    #[test]
     fn python_if_boolean_literal_condition() {
         // Phase 2B (issue #403): bare-boolean conditions count once.
         // Python has no paren wrap around if-conditions, so the
@@ -9463,6 +9492,36 @@ function f(int $a, int $b): int {
             "foo.pl",
             |metric| {
                 assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_array_in_binary_operand_is_not_unwrapped() {
+        // Regression for the code-review finding: `$a || ($x, $y)`
+        // parses with `Array` as the right operand of `||`. Pre-fix,
+        // `perl_inspect_container` unconditionally treated `Array`
+        // as a paren wrapper and unwrapped to its first inner
+        // element, counting `$x` as if it were the operand. The
+        // fix gates `Array`-as-paren on the entry parent kind: only
+        // an if/while/unless/until/return parent treats `Array` as
+        // a `(...)` wrapper; a BinaryExpression parent treats it
+        // as the list literal it actually is.
+        //
+        // After the fix:
+        //   - `||` walker counts the left operand `$a` (+1).
+        //   - The right operand is `Array` (list literal); the
+        //     walker descends via `is_named()` but
+        //     `perl_inspect_container` immediately breaks because
+        //     `Array` is no longer a paren in BinaryExpression
+        //     parent context.
+        //   - Total: 1 condition (the left scalar-variable operand).
+        check_metrics::<PerlParser>(
+            "sub f { my ($a, $x, $y) = @_; my $r = $a || ($x, $y); $r; }\n",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
