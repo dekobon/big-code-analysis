@@ -66,12 +66,13 @@ permissions:
 env:
   MDBOOK_VERSION: "0.4.40"
   MDBOOK_SHA256: "9ef07fd288ba58ff3b99d1c94e6d414d431c9a61fdb20348e5beb74b823d546b"
-  # bca self-scan: pinned to a published GitHub Release of this repo
-  # so we eat our own dog food without paying cargo-install costs in
-  # CI. Bump BCA_VERSION and BCA_SHA256 in the same commit.
-  BCA_VERSION: "1.1.0"
-  BCA_TARGET: "x86_64-unknown-linux-gnu"
-  BCA_SHA256: "f11c324fd80787e1a9edf99d3c1763980e035e51abb5479527b14b1e2f83e919"
+  # bca self-scan builds from the current checkout — see the `scan`
+  # job's "Build bca from source" step. A pinned-release approach
+  # used to live here, but it broke whenever main shipped a feature
+  # the last release didn't (e.g., the v3 baseline schema from #376
+  # was unreadable to v1.1.0's bca). Building from source closes the
+  # version-drift gap by definition; the Swatinem/rust-cache step
+  # below keeps cold-build pain bounded.
 
 jobs:
   build-book:
@@ -147,38 +148,27 @@ jobs:
           fetch-depth: 1
           submodules: false
 
-      # Cache the extracted bca binary by version + sha256 + OS so a
-      # green-path rerun skips both the ~50 MB release-asset download
-      # and the tarball extraction. Including the sha256 in the key is
-      # what gives the security guarantee teeth: republishing v1.0.0
-      # with a corrected binary (BCA_SHA256 rotated, BCA_VERSION
-      # unchanged) invalidates the cache and forces the install step's
-      # `sha256sum --check` to re-run. Without the sha256 in the key, a
-      # cache hit would silently restore the old binary and bypass
-      # verification entirely.
-      - name: Cache bca binary
-        id: bca-cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      # Build `bca` from the current checkout so the gate always
+      # runs against HEAD. This avoids the version-skew failure
+      # mode the previous "download pinned release" approach hit
+      # when main shipped a schema bump (e.g., the v3 baseline
+      # from #376 was unreadable to the last v1.1.0 release).
+      # Swatinem/rust-cache below keeps the cold-build cost
+      # bounded — on a warm cache the build is dominated by
+      # incremental relink, not full recompile.
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable tip
         with:
-          path: ~/.local/bin/bca
-          key: bca-${{ runner.os }}-${{ env.BCA_TARGET }}-${{ env.BCA_VERSION }}-${{ env.BCA_SHA256 }}
-
-      - name: Install bca from GitHub Releases
-        if: steps.bca-cache.outputs.cache-hit != 'true'
-        run: |
-          set -euo pipefail
-          stage="big-code-analysis-${BCA_VERSION}-${BCA_TARGET}"
-          tarball="${stage}.tar.gz"
-          url="https://github.com/dekobon/big-code-analysis/releases/download/v${BCA_VERSION}/${tarball}"
-          mkdir -p "$HOME/.local/bin"
-          curl -fsSL --proto '=https' --tlsv1.2 -o "/tmp/${tarball}" "$url"
-          echo "${BCA_SHA256}  /tmp/${tarball}" | sha256sum --check --strict -
-          tar -xzf "/tmp/${tarball}" -C /tmp
-          install -m 0755 "/tmp/${stage}/bca" "$HOME/.local/bin/bca"
-          rm -rf "/tmp/${tarball}" "/tmp/${stage}"
-
-      - name: Prepend ~/.local/bin to PATH
-        run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          toolchain: stable
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          # Distinct from the cache other jobs share — this build
+          # is `--release` (vs `--debug` everywhere else) and
+          # mixing the two would thrash both.
+          key: pages-scan-release
+      - name: Build bca from source
+        run: cargo build --release --locked --bin bca -p big-code-analysis-cli
+      - name: Prepend target/release to PATH
+        run: echo "${GITHUB_WORKSPACE}/target/release" >> "$GITHUB_PATH"
 
       - name: bca version
         run: bca --version
