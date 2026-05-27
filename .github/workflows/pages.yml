@@ -216,7 +216,6 @@ jobs:
           bca \
             --paths . \
             --exclude-from "${GITHUB_WORKSPACE}/.bcaignore" \
-            --num-jobs "$(nproc)" \
             report markdown \
             --top 30 \
             --strip-prefix "./" \
@@ -228,7 +227,6 @@ jobs:
           bca \
             --paths . \
             --exclude-from "${GITHUB_WORKSPACE}/.bcaignore" \
-            --num-jobs "$(nproc)" \
             report html \
             --top 50 \
             --strip-prefix "./" \
