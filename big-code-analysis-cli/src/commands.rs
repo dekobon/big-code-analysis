@@ -1211,18 +1211,13 @@ fn run_command_init(globals: GlobalOpts, args: InitArgs, preproc: Option<Arc<Pre
     // back up before retrying, rather than fixing one and re-running
     // to discover the next.
     if !args.force {
-        let mut blockers: Vec<&Path> = Vec::new();
-        for p in [&thresholds_path, &bcaignore_path, &baseline_path] {
-            if p.exists() {
-                blockers.push(p.as_path());
-            }
-        }
-        if !blockers.is_empty() {
-            let list = blockers
-                .iter()
-                .map(|p| format!("  {}", p.display()))
-                .collect::<Vec<_>>()
-                .join("\n");
+        let list = [&thresholds_path, &bcaignore_path, &baseline_path]
+            .into_iter()
+            .filter(|p| p.exists())
+            .map(|p| format!("  {}", p.display()))
+            .collect::<Vec<_>>()
+            .join("\n");
+        if !list.is_empty() {
             die(format_args!(
                 "bca init: refusing to overwrite existing files (pass --force to clobber):\n{list}"
             ));

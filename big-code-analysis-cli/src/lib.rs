@@ -168,16 +168,11 @@ impl FromStr for NumJobs {
             return Ok(Self::Auto);
         }
         match s.parse::<usize>() {
-            Ok(0) => Err(
+            Ok(n) => NonZeroUsize::new(n).map(Self::Explicit).ok_or_else(|| {
                 "--num-jobs must be >= 1 (use `--num-jobs 1` to force serial mode, \
                  or `--num-jobs auto` for the OS-reported CPU count)"
-                    .to_owned(),
-            ),
-            Ok(n) => Ok(Self::Explicit(
-                // `Ok(0)` is matched above, so n >= 1 is guaranteed
-                // here — `NonZeroUsize::new` cannot return None.
-                NonZeroUsize::new(n).expect("n >= 1 (Ok(0) handled above)"),
-            )),
+                    .to_owned()
+            }),
             Err(e) => Err(format!(
                 "--num-jobs: expected a positive integer or `auto`, got `{s}`: {e}"
             )),
