@@ -780,6 +780,10 @@ fn load_threshold_config(path: &Path) -> BTreeMap<String, f64> {
     cfg.thresholds
 }
 
+/// Load a baseline file. Same error contract as `load_threshold_config`:
+/// any I/O, UTF-8, or schema error dies with exit code 1. The anchor
+/// is derived from `path` itself, so the baseline keys are interpreted
+/// against the file's own directory.
 fn load_baseline(path: &Path) -> Baseline {
     let bytes = read_file(path).unwrap_or_else(|e| die_io("read baseline", path, e));
     let text = std::str::from_utf8(&bytes)

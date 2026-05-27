@@ -310,6 +310,12 @@ pub(crate) fn render(file: &BaselineFile) -> Result<String, toml::ser::Error> {
 /// path (or vice-versa) does not match — but that mirrors how every
 /// other tool (cargo, git) treats workdir identity.
 pub(crate) fn anchor_for(baseline_path: &Path) -> PathBuf {
+    // `std::path::absolute` only fails when the path is empty or the
+    // platform cannot obtain the CWD (effectively never in a normal
+    // shell). Fall back to the input path so the rest of the pipeline
+    // degrades to pre-#376 behaviour (no canonicalisation) instead of
+    // dying — the worst case is the path-stickiness this fix targets,
+    // not a hard error.
     let abs = std::path::absolute(baseline_path).unwrap_or_else(|_| baseline_path.to_path_buf());
     let mut abs = lexical_normalize(&abs);
     // `pop` returns false if the path is already a root or empty; in
@@ -366,20 +372,15 @@ fn lexical_normalize(p: &Path) -> PathBuf {
 fn normalize_path(anchor: &Path, p: &Path) -> String {
     // Resolve to an absolute, lexically-normalised PathBuf so the key
     // is independent of CWD and the `--paths` form the user passed.
-    // `std::path::absolute` falls back to a no-op for empty paths; we
-    // still want to strip the anchor in that case.
-    let base = anchor;
-    let abs = if p.is_absolute() {
+    // An already-absolute `p` and an empty anchor both bypass the join
+    // (empty-anchor is the in-memory-test case; absolute is the
+    // `--paths "$PWD"` form).
+    let abs = if p.is_absolute() || anchor.as_os_str().is_empty() {
         lexical_normalize(p)
     } else {
-        let joined = if base.as_os_str().is_empty() {
-            p.to_path_buf()
-        } else {
-            base.join(p)
-        };
-        lexical_normalize(&joined)
+        lexical_normalize(&anchor.join(p))
     };
-    let stripped = abs.strip_prefix(base).unwrap_or(&abs);
+    let stripped = abs.strip_prefix(anchor).unwrap_or(&abs);
     encode_os_path(stripped.as_os_str())
 }
 
