@@ -868,8 +868,11 @@ mod tests {
                 // the 16 distinct primitive type names dedupe by text in
                 // the primitive_operators map. Total operators (N1) and
                 // operand counts pin the rest of the Halstead state.
-                assert_eq!(metric.halstead.u_operators(), 30.0);
-                assert_eq!(metric.halstead.operators(), 118.0);
+                // Grew from 30 → 33 with the issue #394 fix: `const`,
+                // `type`, and `struct` keywords are now classified as
+                // operators (one occurrence each).
+                assert_eq!(metric.halstead.u_operators(), 33.0);
+                assert_eq!(metric.halstead.operators(), 121.0);
                 // u_operands / operands grew (was 31/50 before #390): the
                 // fix now classifies TypeIdentifier (`T`, `S`, `Option`)
                 // and FieldIdentifier (struct fields `x`, `y`) as operands
@@ -937,6 +940,10 @@ mod tests {
         // operands. After the fix, u_operands = 8:
         //   main, v, m, Vec, HashMap, new, K, V
         // (`i32` is a primitive type, classified as an operator.)
+        //
+        // Also covers issue #394: `::` is now an operator. The snippet
+        // has two `::` tokens (`Vec::new`, `HashMap::new`), so n1 grew
+        // from 10 → 11 and N1 from 17 → 19.
         check_metrics::<RustParser>(
             "fn main() {
               let v: Vec<i32> = Vec::new();
@@ -949,26 +956,96 @@ mod tests {
                 // fix, Vec/HashMap/K/V silently dropped to Unknown.
                 assert_eq!(metric.halstead.u_operands(), 8.0);
                 assert_eq!(metric.halstead.operands(), 11.0);
+                // `::` appears twice (Vec::new, HashMap::new); without
+                // the #394 fix u_operators was 10 and operators 17.
+                assert_eq!(metric.halstead.u_operators(), 11.0);
+                assert_eq!(metric.halstead.operators(), 19.0);
                 insta::assert_json_snapshot!(
                     metric.halstead,
                     @r###"
                 {
-                  "n1": 10.0,
-                  "N1": 17.0,
+                  "n1": 11.0,
+                  "N1": 19.0,
                   "n2": 8.0,
                   "N2": 11.0,
-                  "length": 28.0,
-                  "estimated_program_length": 57.219280948873624,
-                  "purity_ratio": 2.043545748174058,
-                  "vocabulary": 18.0,
-                  "volume": 116.75790004038474,
-                  "difficulty": 6.875,
-                  "level": 0.14545454545454545,
-                  "effort": 802.7105627776451,
-                  "time": 44.59503126542473,
-                  "bugs": 0.028790645175253947
+                  "length": 30.0,
+                  "estimated_program_length": 62.05374780501027,
+                  "purity_ratio": 2.068458260167009,
+                  "vocabulary": 19.0,
+                  "volume": 127.43782540330756,
+                  "difficulty": 7.5625,
+                  "level": 0.1322314049586777,
+                  "effort": 963.7485546125134,
+                  "time": 53.54158636736186,
+                  "bugs": 0.03252279825177962
                 }"###
                 );
+            },
+        );
+    }
+
+    #[test]
+    fn rust_path_separator_is_operator() {
+        // Regression for issue #394: `::` (`COLONCOLON`) was missing
+        // from the Rust `get_op_type` operator arm even though C++,
+        // Java, C#, and Kotlin all classify it as an operator. Path-
+        // heavy code (`std::collections::HashMap`, `Vec::new`,
+        // `T::method`) had every `::` silently dropped into
+        // HalsteadType::Unknown.
+        //
+        // Snippet has three `::` tokens (`std::collections::HashMap`,
+        // counted as two `::` separators, plus `HashMap::new`).
+        check_metrics::<RustParser>(
+            "fn main() {
+              let m = std::collections::HashMap::new();
+            }",
+            "foo.rs",
+            |metric| {
+                // expected: ::  appears 3 times across the two path
+                // expressions (std::collections::HashMap contributes
+                // two; HashMap::new contributes one). Without the #394
+                // fix, all three `::` tokens fell through to Unknown,
+                // so operators() would be 7 (was 10 after the fix
+                // accounted for the three `::` occurrences).
+                //
+                // unique operators: fn, LPAREN, LBRACE, let, =, ::, ;
+                // (open parens/braces are the only counted side; the
+                // closing tokens do not appear in the operator arm.)
+                // unique operands: main, m, std, collections, HashMap, new
+                assert_eq!(metric.halstead.u_operators(), 7.0);
+                assert_eq!(metric.halstead.operators(), 10.0);
+                assert_eq!(metric.halstead.u_operands(), 6.0);
+                assert_eq!(metric.halstead.operands(), 6.0);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_declaration_keywords_are_operators() {
+        // Regression for issue #394: the Rust impl already accepted 17
+        // keywords as operators (As, Async, Await, …, Fn) but omitted
+        // 14 declaration / visibility keywords. The fix adds `Const`,
+        // `Static`, `Enum`, `Struct`, `Trait`, `Impl`, `Use`, `Mod`,
+        // `Pub`, `Type`, `Union`, `Where`, `Extern`, `Dyn`.
+        //
+        // Snippet exercises `use`, `pub`, `struct`, and `impl` (one of
+        // each); together they account for 4 new operator occurrences
+        // and 4 new unique operators.
+        check_metrics::<RustParser>(
+            "use std::fmt;
+            pub struct S;
+            impl S { fn n() -> u8 { 0 } }",
+            "foo.rs",
+            |metric| {
+                // expected: unique operators (11) = use, ::, ;, pub,
+                // struct, impl, LBRACE, fn, LPAREN, DASHGT, u8. Without
+                // the #394 fix, `use`, `pub`, `struct`, and `impl`
+                // would each drop to Unknown and u_operators would be
+                // 7. unique operands (5): std, fmt, S, n, 0.
+                assert_eq!(metric.halstead.u_operators(), 11.0);
+                assert_eq!(metric.halstead.operators(), 13.0);
+                assert_eq!(metric.halstead.u_operands(), 5.0);
+                assert_eq!(metric.halstead.operands(), 6.0);
             },
         );
     }
