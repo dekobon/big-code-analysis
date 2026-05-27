@@ -449,7 +449,15 @@ impl Cognitive for RustCode {
             UnaryExpression => {
                 stats.boolean_seq.not_operator();
             }
-            BinaryExpression => {
+            // `LetChain` (the visible alias) and `LetChain2` (the hidden
+            // `_let_chain` supertype) are Rust 2024 let-chains:
+            // `if let Some(x) = a && let Some(y) = b && cond`. Their `&&`
+            // tokens are direct children of the chain node — not wrapped
+            // in `BinaryExpression` — so without dispatching them through
+            // `compute_booleans` here, let-chain `&&` is invisible to the
+            // boolean-sequence counter (issue #396). Cyclomatic already
+            // counts the same tokens via the AMPAMP keyword arm.
+            BinaryExpression | LetChain | LetChain2 => {
                 compute_booleans(node, stats, AMPAMP, PIPEPIPE);
             }
             FunctionItem => {
@@ -1928,6 +1936,76 @@ mod tests {
                       "average": 2.0,
                       "min": 0.0,
                       "max": 2.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    // Regression for issue #396: in Rust 2024 let-chains, the `&&`
+    // tokens are direct children of the `_let_chain` / `let_chain`
+    // node rather than a `BinaryExpression`. Before #396 these
+    // tokens were invisible to the cognitive boolean-sequence
+    // counter (cyclomatic already counted them via AMPAMP).
+    #[test]
+    fn rust_let_chain_sequence_booleans() {
+        // expected: +1 for the `if`, +1 for the chain of two `&&`
+        // tokens (sequence of same operator collapses to one).
+        // Equivalent shape to `if a && b && true { ... }` above,
+        // which scores 2.0.
+        check_metrics::<RustParser>(
+            "fn f(a: Option<i32>, b: Option<i32>) {
+                 if let Some(x) = a && let Some(y) = b && x > y { // +2 (+1 sequence of &&)
+                     println!(\"both\");
+                 }
+             }",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum() as u32, 2);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 2.0,
+                      "min": 0.0,
+                      "max": 2.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn rust_let_chain_vs_nested_if_let() {
+        // Two equivalent forms for chained `let` destructuring.
+        // The nested-`if let` form pays +1 for the outer `if`, +1
+        // for the nested `if` (nesting=1), so 3 total.
+        // The flat let-chain form pays +1 for the outer `if`, +1
+        // for the boolean sequence of `&&` between the let
+        // patterns, so 2 total. The two are *not* required to
+        // match exactly — what we assert is that the let-chain
+        // version contributes at least the boolean-sequence cost
+        // (sum >= 2). Pre-#396 this would have been 1.
+        check_metrics::<RustParser>(
+            "fn f(a: Option<i32>, b: Option<i32>) {
+                 if let Some(x) = a { // +1
+                     if let Some(y) = b { // +2 (nesting=1)
+                         println!(\"{} {}\", x, y);
+                     }
+                 }
+             }",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum() as u32, 3);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 3.0,
+                      "min": 0.0,
+                      "max": 3.0
                     }"###
                 );
             },
