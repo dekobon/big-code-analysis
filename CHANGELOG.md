@@ -105,6 +105,27 @@ for historical reference.
 
 ### Changed
 
+- ABC metric: `&&` / `||` (and per-language equivalents — Python's
+  `and` / `or`, Lua's `and` / `or`, Tcl's `&&` / `||`, Perl's
+  `&&` / `||` / `//` / `and` / `or` / `xor`) are no longer counted
+  as conditions on their own. Fitzpatrick's Rule 5 (Figures 2-4
+  in the 1997 paper) lists only the comparison operators (`==`,
+  `!=`, `<=`, `>=`, `<`, `>`) and his worked Listing 2 annotates
+  `(am >= 0 && am <= 0xF) ? '/' : 'C'` as `accc` — three
+  conditions for `>=`, `<=`, `?`, zero for `&&`. The C++, Python,
+  Perl, Lua, and Tcl per-language `Abc` impls dropped the
+  short-circuit arms; Java, Groovy, and C# already routed
+  `&&` / `||` through their unary-conditional walker (which
+  counts operands, not the operator, per Rule 7 / 9) and were
+  unaffected. Library users will see lower C-counts on functions
+  that mix logical operators; ABC magnitudes shift downward
+  accordingly. The unary-conditional walker is being extended to
+  the remaining languages (Rust, Go, JS/TS, PHP, C++, Python,
+  Perl, Lua, Tcl) under
+  [#403](https://github.com/dekobon/big-code-analysis/issues/403)
+  so `if (a && b)` ultimately reports 2 conditions per the paper.
+  Fixes
+  [#395](https://github.com/dekobon/big-code-analysis/issues/395).
 - Markdown linting / formatting now uses
   [`rumdl`](https://github.com/rvben/rumdl) (Rust-native) instead of
   `markdownlint-cli2` (Node.js). `mise.toml` pins `rumdl = "0.2.2"`,

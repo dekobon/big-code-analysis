@@ -58,9 +58,19 @@ three-dimensional vector. Each component counts one kind of operation:
 - **B**ranches — function and method *calls*. Despite the name, this
   is not the count of conditional jumps; it is the number of points
   where control branches out to other code.
-- **C**onditions — boolean tests: `if`, `while`, ternary operators,
-  short-circuit `&&` / `||`, and the comparison operators that feed
-  them.
+- **C**onditions — boolean tests: comparison operators (`==`, `!=`,
+  `<=`, `>=`, `<`, `>`), ternary operators (`?`), and the fixed
+  keyword set (`else`, `case`, `default`, `try`, `catch`). The
+  short-circuit logical operators `&&` and `||` are **not** counted
+  on their own — Fitzpatrick's Rule 5 lists only comparison
+  operators, and his worked Listing 2 annotates `(am >= 0 &&
+  am <= 0xF) ? '/' : 'C'` as `accc` (one assignment, three
+  conditions: `>=`, `<=`, `?`, zero for `&&`). His Rule 7 / 9
+  "unary conditional expression" instead counts each non-
+  comparison operand of a `&&` / `||` chain once; the walker for
+  this rule is implemented today for Java, Groovy, and C# and is
+  being extended to every other supported language under
+  [issue 403](https://github.com/dekobon/big-code-analysis/issues/403).
 
 The metric was introduced by Jerry Fitzpatrick in the 1997 C++ Report
 article *Applying the ABC metric to C, C++ and Java*. The current

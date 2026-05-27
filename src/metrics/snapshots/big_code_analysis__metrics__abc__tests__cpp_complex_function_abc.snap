@@ -5,15 +5,15 @@ expression: metric.abc
 {
   "assignments": 7.0,
   "branches": 2.0,
-  "conditions": 10.0,
-  "magnitude": 12.36931687685298,
+  "conditions": 8.0,
+  "magnitude": 10.816653826391969,
   "assignments_average": 3.5,
   "branches_average": 1.0,
-  "conditions_average": 5.0,
+  "conditions_average": 4.0,
   "assignments_min": 0.0,
   "assignments_max": 7.0,
   "branches_min": 0.0,
   "branches_max": 2.0,
   "conditions_min": 0.0,
-  "conditions_max": 10.0
+  "conditions_max": 8.0
 }

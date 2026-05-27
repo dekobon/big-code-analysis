@@ -46,6 +46,39 @@ use crate::*;
 /// Fitzpatrick, Jerry (1997). "Applying the ABC metric to C, C++ and Java". C++ Report.
 ///
 /// <https://www.softwarerenovation.com/Articles.aspx>
+///
+/// # Cross-language `&&` / `||` policy
+///
+/// Per Fitzpatrick's conditional-operator rule (Rule 5 in Figure 2
+/// for C and Figure 4 for Java; Rule 7 in Figure 3 for C++), only
+/// comparison operators (`==`, `!=`, `<=`, `>=`, `<`, `>`) and a
+/// paper-defined keyword set (`else`, `case`, `default`, `?`, plus
+/// `try` / `catch` for C++ and Java) contribute to the condition
+/// count. Per-language `impl Abc` blocks narrow this set where
+/// appropriate — e.g., C++/Rust/Go/Python exclude `default` since
+/// it falls through unconditionally (matching the Rust `_ =>` and
+/// Java `default:` precedent). The short-
+/// circuit logical operators `&&` and `||` (and per-language
+/// equivalents — Python's `and` / `or`, Lua's `and` / `or`, Tcl's
+/// `&&` / `||`, Perl's `&&` / `||` / `//` / `and` / `or` / `xor`)
+/// are deliberately **not** counted on their own. The paper's
+/// worked Listing 2 annotates `(am >= 0 && am <= 0xF) ? '/' : 'C'`
+/// as `accc` — three conditions for `>=`, `<=`, `?`, zero for
+/// `&&`.
+///
+/// Fitzpatrick's Rule 7 / 9 ("Add one to the condition count for
+/// each unary conditional expression") instead counts each non-
+/// comparison operand of a `&&` / `||` chain once. The walker
+/// machinery for this — modelled on `java_count_unary_conditions`
+/// / `java_inspect_container` — is present today for Java, Groovy,
+/// and C#; extending it to every other supported language is
+/// tracked in issue #403. Until that lands, `if (a && b)` reports
+/// 0 conditions in every other language (Rust, Go, JS/TS/Mozjs,
+/// PHP, C++, Python, Perl, Lua, Tcl, Ruby, Kotlin, Bash, Elixir)
+/// and 2 conditions in languages that have it (Java, Groovy, C#).
+///
+/// See issue #395 for the cross-language policy alignment, and
+/// issue #404 for the book-level documentation effort.
 #[derive(Debug, Clone)]
 pub struct Stats {
     assignments: f64,
@@ -978,13 +1011,20 @@ impl Abc for RubyCode {
 //   arm covers it without a separate `New`-style case.
 // - Conditions: comparison operators (`ComparisonOperator` wraps
 //   `<`, `>`, `==`, `!=`, `is`, `is not`, `in`, `not in`, etc. as a
-//   single node), `BooleanOperator` (`and`/`or`), `ConditionalExpression`
-//   (ternary `a if c else b`), and the explicit arms of control flow:
+//   single node), `ConditionalExpression` (ternary `a if c else b`),
+//   the unary `NotOperator` (paper's "unary conditional expression",
+//   Rule 7 / Figure 4), and the explicit arms of control flow:
 //   `ElifClause`, `ElseClause`, `ExceptClause`, `FinallyClause`,
 //   `CaseClause`. We do not separately count the `if` / `while`
 //   keyword: the condition expression itself is already covered by
-//   `ComparisonOperator` or `BooleanOperator`. This matches the
-//   token-level approach used for PHP / Bash.
+//   `ComparisonOperator`. This matches the token-level approach
+//   used for PHP / Bash.
+//
+//   `BooleanOperator` (Python's `and` / `or` wrapper) is
+//   deliberately NOT counted, and `NotOperator` is kept as the
+//   paper's "unary conditional expression". See the module-level
+//   `Stats` doc-comment for the cross-language `&&` / `||` policy
+//   (issue #395, walker tracked in #403).
 impl Abc for PythonCode {
     fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Python::*;
@@ -1016,7 +1056,6 @@ impl Abc for PythonCode {
             // node, one condition, regardless of how many comparison
             // operators are chained.
             ComparisonOperator
-            | BooleanOperator
             | ConditionalExpression
             | ElifClause
             | ElseClause
@@ -1234,14 +1273,19 @@ impl Abc for CppCode {
             // Comparison operators emitted as token children of a
             // `binary_expression`. The C++20 spaceship `<=>` (`LTEQGT`)
             // is a comparison operator and counts once per use.
-            // `&&` / `||` add one each per Fitzpatrick. `else` opens
-            // an alternative branch path; `case` (non-default) adds
-            // one per switch arm; `?` opens a ternary; `try` / `catch`
-            // count per Fitzpatrick (and Java's rule). `Try2` is the
-            // second token-id alias the C++ grammar emits for `try`
-            // (it appears under structured-exception forms).
-            LTEQ | GTEQ | EQEQ | BANGEQ | LTEQGT | AMPAMP | PIPEPIPE | Else | Case | QMARK
-            | Try | Try2 | Catch => {
+            // `else` opens an alternative branch path; `case`
+            // (non-default) adds one per switch arm; `?` opens a
+            // ternary; `try` / `catch` count per Fitzpatrick (and
+            // Java's rule). `Try2` is the second token-id alias the
+            // C++ grammar emits for `try` (it appears under
+            // structured-exception forms).
+            //
+            // `&&` / `||` are deliberately NOT counted (Fitzpatrick
+            // Rule 7 in Figure 3 for C++; the unary-conditional
+            // counterpart is Rule 9). See the module-level `Stats`
+            // doc-comment for the cross-language policy (issue
+            // #395, walker tracked in #403).
+            LTEQ | GTEQ | EQEQ | BANGEQ | LTEQGT | Else | Case | QMARK | Try | Try2 | Catch => {
                 stats.conditions += 1.;
             }
             // Plain `<` / `>` doubles as template-argument and
@@ -2010,13 +2054,19 @@ impl Abc for ElixirCode {
 //   already contributed the branch.
 // - Conditions: numeric and string comparison operators (`==`, `!=`,
 //   `<`, `>`, `<=`, `>=`, `<=>`, `eq`, `ne`, `lt`, `gt`, `le`, `ge`,
-//   `cmp`, `=~`, `!~`), short-circuit / logical operators (`&&`,
-//   `||`, `//`, `and`, `or`, `xor`), the ternary operator
-//   (`TernaryExpression`), and each `elsif` / `else` clause of an
-//   `if` / `unless` statement. Bare predicates that have no
-//   comparison (e.g. `if ($x)`) are not separately counted; we let
-//   the comparison tokens carry the metric, mirroring the Bash /
-//   Python token-level approach.
+//   `cmp`, `=~`, `!~`), the ternary operator (`TernaryExpression`),
+//   and each `elsif` / `else` clause of an `if` / `unless`
+//   statement. Bare predicates that have no comparison (e.g.
+//   `if ($x)`) are not separately counted; we let the comparison
+//   tokens carry the metric, mirroring the Bash / Python token-
+//   level approach.
+//
+//   The short-circuit and low-precedence logical operators (`&&`,
+//   `||`, `//`, `and`, `or`, `xor`) are deliberately NOT counted.
+//   See the module-level `Stats` doc-comment for the cross-
+//   language policy (Fitzpatrick rules mapped from Figure 2 for C,
+//   the closest analogue since the paper does not define rules for
+//   Perl; issue #395, walker tracked in #403).
 impl Abc for PerlCode {
     fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Perl as P;
@@ -2081,10 +2131,6 @@ impl Abc for PerlCode {
             P::EQEQ | P::BANGEQ | P::LT | P::GT | P::LTEQ | P::GTEQ | P::LTEQGT
             | P::Eq | P::Ne | P::Lt | P::Gt | P::Le | P::Ge | P::Cmp
             | P::EQTILDE | P::BANGTILDE
-            // Short-circuit / logical operators (high- and low-
-            // precedence forms).
-            | P::AMPAMP | P::PIPEPIPE | P::SLASHSLASH
-            | P::And | P::Or | P::Xor
             // Ternary `a ? b : c` and each `elsif` / `else` clause of
             // an `if` / `unless` chain.
             | P::TernaryExpression
@@ -2109,9 +2155,11 @@ impl Abc for PerlCode {
 //   `obj.method(args)`, `obj:method(args)`, and `f(args)` into the
 //   same `function_call` node, so one arm covers all dispatch forms.
 // - Conditions: comparison operators (`==`, `~=`, `<`, `>`, `<=`,
-//   `>=`), short-circuit operators (`and`, `or`), each elseif / else
-//   arm of an `if`. Lua has no ternary operator (`cond and a or b`
-//   is the idiom, captured by the `and` / `or` tokens above).
+//   `>=`) and each elseif / else arm of an `if`. Lua has no ternary
+//   operator (`cond and a or b` is the idiom). The short-circuit
+//   operators `and` / `or` are deliberately NOT counted; see the
+//   module-level `Stats` doc-comment for the cross-language policy
+//   (issue #395, walker tracked in #403).
 impl Abc for LuaCode {
     fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         match node.kind_id().into() {
@@ -2127,8 +2175,6 @@ impl Abc for LuaCode {
             | Lua::GT
             | Lua::LTEQ
             | Lua::GTEQ
-            | Lua::And
-            | Lua::Or
             | Lua::ElseifStatement
             | Lua::ElseStatement => {
                 stats.conditions += 1.;
@@ -2165,9 +2211,11 @@ const TCL_ASSIGNMENT_COMMANDS: &[&[u8]] = &[b"incr", b"append", b"lappend"];
 //   builtin. The grammar productions for `if`, `while`, `foreach`,
 //   etc. live separately from `command` and do not double-count.
 // - Conditions: numeric (`==`, `!=`, `<`, `>`, `<=`, `>=`) and
-//   string (`eq`, `ne`, `in`, `ni`) comparison tokens, short-circuit
-//   operators (`&&`, `||`), the ternary expression production, and
-//   each `elseif` / `else` clause of an `if`.
+//   string (`eq`, `ne`, `in`, `ni`) comparison tokens, the ternary
+//   expression production, and each `elseif` / `else` clause of an
+//   `if`. The short-circuit operators `&&` / `||` are deliberately
+//   NOT counted; see the module-level `Stats` doc-comment for the
+//   cross-language policy (issue #395, walker tracked in #403).
 impl Abc for TclCode {
     fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
         match node.kind_id().into() {
@@ -2197,8 +2245,6 @@ impl Abc for TclCode {
             | Tcl::Ne
             | Tcl::In
             | Tcl::Ni
-            | Tcl::AMPAMP
-            | Tcl::PIPEPIPE
             | Tcl::TernaryExpr
             | Tcl::Elseif
             | Tcl::Else => {
@@ -5443,12 +5489,11 @@ function f(int $a, int $b): int {
             |metric| {
                 assert_eq!(metric.abc.assignments_sum(), 1.0);
                 assert_eq!(metric.abc.branches_sum(), 1.0);
-                // `>`(1) + `==`(1) = 2 conditions. `if` is not a token;
-                // `&&` is `AMPAMP` which is NOT a Fitzpatrick condition
-                // in our Ruby impl (it's a logical operator, not a
-                // comparison). The Fitzpatrick paper allows either
-                // choice; we follow the comparison-only rule like
-                // Java/PHP.
+                // `>`(1) + `==`(1) = 2 conditions. `if` is not a
+                // token; `&&` is `AMPAMP` and is not counted (see
+                // the module-level `Stats` doc-comment for the
+                // cross-language policy; #395, walker tracked in
+                // #403).
                 assert_eq!(metric.abc.conditions_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
@@ -5565,17 +5610,16 @@ function f(int $a, int $b): int {
     }
 
     #[test]
-    fn python_boolean_operators_count_conditions() {
-        // `and` / `or` are each a `BooleanOperator` node → one condition
-        // per logical-binop instance.
+    fn python_boolean_operators_not_counted_directly() {
+        // Python's `and` / `or` are not counted as conditions on
+        // their own (see the module-level `Stats` doc-comment;
+        // #395). Until the unary-conditional walker lands (#403),
+        // `if a and b or c:` reports 0 conditions.
         check_metrics::<PythonParser>(
             "def f(a, b, c):\n    if a and b or c:\n        pass\n",
             "foo.py",
             |metric| {
-                // `a and b or c` parses as `BooleanOperator(or,
-                // BooleanOperator(and, a, b), c)` → 2 BooleanOperator
-                // nodes → 2 conditions.
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -5647,16 +5691,19 @@ function f(int $a, int $b): int {
     }
 
     /// `not x and y` parses as `BooleanOperator(NotOperator(x), and,
-    /// y)`. The BooleanOperator counts (and/or = 1 condition); the
-    /// inner NotOperator also counts. Total: 2.
+    /// y)`. The `and` itself is NOT counted (Fitzpatrick Rule 5
+    /// lists only comparison operators); the inner `NotOperator`
+    /// is counted as a unary conditional (Rule 7). Total: 1. The
+    /// remaining gap (counting `y` as a unary conditional too) is
+    /// closed by the Phase 2 walker in #403.
     #[test]
     fn python_unary_not_with_boolean_combinator_counts_each() {
         check_metrics::<PythonParser>(
             "def f(x, y):\n    if not x and y:\n        return 1\n    return 0\n",
             "foo.py",
             |metric| {
-                // BooleanOperator (1) + NotOperator (1) = 2.
-                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                // NotOperator (1) + and (0, see #403) = 1.
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6482,7 +6529,10 @@ function f(int $a, int $b): int {
     #[test]
     fn cpp_comparisons_count_conditions() {
         // `<`, `>`, `<=`, `>=`, `==`, `!=`, and the C++20 spaceship
-        // `<=>` each contribute one condition. Seven comparisons → C = 7.
+        // `<=>` each contribute one condition. The `||` short-
+        // circuits add 0 (Fitzpatrick Rule 5, issue #395). Six
+        // comparisons in the `||` chain plus `<=>` (1) plus the
+        // outer `== 0` (1) → C = 8.
         check_metrics::<CppParser>(
             "#include <compare>\n\
              bool f(int a, int b) {\n\
@@ -6490,28 +6540,29 @@ function f(int $a, int $b): int {
              }\n",
             "foo.cpp",
             |metric| {
-                // 6 plain comparisons + 1 spaceship + 1 `||` adds = 7? Let's
-                // pin the exact count by hand:
-                // `<`, `>`, `<=`, `>=`, `==`, `!=` → 6 from the
-                // chained `||` expression. `(a <=> b) == 0` adds the
-                // spaceship → 7, plus its `== 0` adds one more → 8.
-                // Six `||` short-circuits add → 8 + 6 = 14.
-                assert_eq!(metric.abc.conditions_sum(), 14.0);
+                // `<`, `>`, `<=`, `>=`, `==`, `!=` → 6 comparisons
+                // from the chained `||` expression. `(a <=> b) == 0`
+                // adds the spaceship `<=>` (1) + the outer `== 0`
+                // (1) → 8 total. The six `||` short-circuits add 0
+                // (Fitzpatrick Rule 5; issue #395).
+                assert_eq!(metric.abc.conditions_sum(), 8.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
     }
 
     #[test]
-    fn cpp_short_circuit_ops_count_conditions() {
-        // `&&` and `||` each count once per occurrence (Fitzpatrick
-        // rule). Two short-circuits → C = 2 (plus two comparisons → 4).
+    fn cpp_short_circuit_ops_not_counted_directly() {
+        // `&&` and `||` do NOT count on their own (see the
+        // module-level `Stats` doc-comment; #395, walker tracked
+        // in #403). Until the walker lands, this returns only the
+        // comparison-token tally.
         check_metrics::<CppParser>(
             "bool f(int a, int b) { return a == b && a > 0 || b < 0; }",
             "foo.cpp",
             |metric| {
-                // == 1, > 1, < 1, && 1, || 1 → 5.
-                assert_eq!(metric.abc.conditions_sum(), 5.0);
+                // == 1, > 1, < 1, && 0, || 0 → 3.
+                assert_eq!(metric.abc.conditions_sum(), 3.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6598,10 +6649,14 @@ function f(int $a, int $b): int {
         //   `auto* p = new int(5)` (init_declarator with `=`) → A = 7
         //   (post-#393: every `=` in an init_declarator counts).
         // - branches: `f(a, b)` self-call + `new int(5)` → B = 2.
-        // - conditions: `a == b`, `&&`, `a > 0` → 3 inside the if.
-        //   `else` (1) + `a > b`, `?` → 2 in the ternary. `a < b`,
-        //   `||` → 2 in the else-if. `case 1`, `case 2` → 2.
-        //   default excluded. Total C = 10.
+        // - conditions: `a == b` (1) + `a > 0` (1) inside the if;
+        //   `&&` itself is NOT a condition (Fitzpatrick Rule 5,
+        //   issue #395). `a > b` (1) + `?` (1) in the ternary.
+        //   `else` (1, from the `else if` keyword) + `a < b` (1)
+        //   in the else-if; `||` and `!x` are not counted at the
+        //   token level — the Phase-2 unary-conditional walker
+        //   (#403) will pick them up. `case 1`, `case 2` → 2.
+        //   `default` excluded. Total C = 8.
         check_metrics::<CppParser>(
             "int f(int a, int b) {\n\
                  int x = 0;\n\
@@ -6625,7 +6680,7 @@ function f(int $a, int $b): int {
             |metric| {
                 assert_eq!(metric.abc.assignments_sum(), 7.0);
                 assert_eq!(metric.abc.branches_sum(), 2.0);
-                assert_eq!(metric.abc.conditions_sum(), 10.0);
+                assert_eq!(metric.abc.conditions_sum(), 8.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6965,9 +7020,12 @@ function f(int $a, int $b): int {
     }
 
     #[test]
-    fn perl_short_circuit_and_ternary_count_conditions() {
-        // `&&`, `||`, `//`, low-precedence `and`, `or`, `xor`, plus
-        // ternary `? :` each contribute one condition.
+    fn perl_short_circuit_not_counted_directly_ternary_counts() {
+        // `&&`, `||`, `//`, low-precedence `and`, `or`, `xor` are
+        // NOT counted as conditions on their own (see the module-
+        // level `Stats` doc-comment; #395, walker tracked in
+        // #403). The ternary `? :` operator still counts one
+        // condition per occurrence.
         check_metrics::<PerlParser>(
             "sub f {\n\
                  my $r;\n\
@@ -6984,7 +7042,10 @@ function f(int $a, int $b): int {
                 // 7 `=` tokens (one per reassignment line).
                 assert_eq!(metric.abc.assignments_sum(), 7.0);
                 assert_eq!(metric.abc.branches_sum(), 0.0);
-                assert_eq!(metric.abc.conditions_sum(), 7.0);
+                // Only the ternary `?` token contributes one
+                // condition; the six logical-op lines contribute
+                // zero.
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7138,9 +7199,10 @@ function f(int $a, int $b): int {
     }
 
     #[test]
-    fn lua_comparisons_and_boolean_ops_count_conditions() {
-        // Each comparison / logical operator token contributes one
-        // condition.
+    fn lua_comparisons_count_logical_ops_do_not() {
+        // Each comparison token contributes one condition; `and` /
+        // `or` are NOT counted on their own (see the module-level
+        // `Stats` doc-comment; #395, walker tracked in #403).
         check_metrics::<LuaParser>(
             "function f(a, b)\n\
                  local r\n\
@@ -7158,7 +7220,9 @@ function f(int $a, int $b): int {
                 // 8 `r = …` reassignments, plus `local r` (no `=`).
                 assert_eq!(metric.abc.assignments_sum(), 8.0);
                 assert_eq!(metric.abc.branches_sum(), 0.0);
-                assert_eq!(metric.abc.conditions_sum(), 8.0);
+                // 6 comparison tokens contribute 1 condition each;
+                // `and` and `or` contribute 0 each.
+                assert_eq!(metric.abc.conditions_sum(), 6.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -7301,9 +7365,12 @@ function f(int $a, int $b): int {
     }
 
     #[test]
-    fn tcl_comparisons_and_boolean_ops_count_conditions() {
+    fn tcl_comparisons_count_logical_ops_do_not() {
         // `expr` predicates expose comparison / logical tokens at
-        // the leaf level; each token contributes one condition.
+        // the leaf level. Each comparison token contributes one
+        // condition; `&&` and `||` are NOT counted on their own
+        // (see the module-level `Stats` doc-comment; #395, walker
+        // tracked in #403).
         check_metrics::<TclParser>(
             "proc f {a b} {\n\
                  set r [expr {$a == $b}]\n\
@@ -7319,11 +7386,12 @@ function f(int $a, int $b): int {
              }",
             "foo.tcl",
             |metric| {
-                // 10 `set` assignments. Each `expr` predicate
-                // produces exactly one comparison/logical token.
+                // 10 `set` assignments.
                 assert_eq!(metric.abc.assignments_sum(), 10.0);
                 assert_eq!(metric.abc.branches_sum(), 0.0);
-                assert_eq!(metric.abc.conditions_sum(), 10.0);
+                // 8 comparison tokens contribute 1 condition each;
+                // `&&` and `||` contribute 0 each.
+                assert_eq!(metric.abc.conditions_sum(), 8.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );

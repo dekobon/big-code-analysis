@@ -3,17 +3,17 @@ source: src/metrics/abc.rs
 expression: metric.abc
 ---
 {
-  "assignments": 7.0,
+  "assignments": 10.0,
   "branches": 0.0,
-  "conditions": 7.0,
-  "magnitude": 9.899494936611665,
-  "assignments_average": 3.5,
+  "conditions": 8.0,
+  "magnitude": 12.806248474865697,
+  "assignments_average": 5.0,
   "branches_average": 0.0,
-  "conditions_average": 3.5,
+  "conditions_average": 4.0,
   "assignments_min": 0.0,
-  "assignments_max": 7.0,
+  "assignments_max": 10.0,
   "branches_min": 0.0,
   "branches_max": 0.0,
   "conditions_min": 0.0,
-  "conditions_max": 7.0
+  "conditions_max": 8.0
 }

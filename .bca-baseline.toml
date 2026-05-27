@@ -1678,14 +1678,14 @@ path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 33862511.83727245
+value = 33815021.40280978
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 7421.0
+value = 7489.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
@@ -1718,51 +1718,44 @@ value = 145.0
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "Stats"
-start_line = 94
+start_line = 127
 metric = "nexits"
 value = 14.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "serialize"
-start_line = 95
+start_line = 128
 metric = "cyclomatic"
 value = 15.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "serialize"
-start_line = 95
+start_line = 128
 metric = "nexits"
 value = 14.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "Stats"
-start_line = 143
+start_line = 176
 metric = "halstead.effort"
 value = 287297.79316755506
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "Stats"
-start_line = 143
+start_line = 176
 metric = "nargs"
 value = 21.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "compute"
-start_line = 774
+start_line = 807
 metric = "cyclomatic"
 value = 15.0
-
-[[entry]]
-path = "src/metrics/abc.rs"
-function = "PerlCode"
-start_line = 2020
-metric = "halstead.effort"
-value = 50334.369072957204
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
