@@ -12,7 +12,7 @@ path = "big-code-analysis-cli/src/baseline.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 499705.0702035342
+value = 830208.4841275339
 
 [[entry]]
 path = "big-code-analysis-cli/src/baseline.rs"
@@ -40,14 +40,14 @@ path = "big-code-analysis-cli/src/baseline.rs"
 function = "Baseline"
 start_line = 121
 metric = "halstead.effort"
-value = 51198.98891273089
+value = 72626.98818461745
 
 [[entry]]
 path = "big-code-analysis-cli/src/check_format.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 2162341.1593800117
+value = 3347030.3818084607
 
 [[entry]]
 path = "big-code-analysis-cli/src/check_format.rs"
@@ -96,7 +96,7 @@ path = "big-code-analysis-cli/src/commands.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1887851.429029634
+value = 3059160.8889459125
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
@@ -138,7 +138,7 @@ path = "big-code-analysis-cli/src/diff.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 207951.72598101114
+value = 377960.1455394685
 
 [[entry]]
 path = "big-code-analysis-cli/src/diff.rs"
@@ -166,7 +166,7 @@ path = "big-code-analysis-cli/src/dispatch.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 797619.5593300649
+value = 1128680.1481921375
 
 [[entry]]
 path = "big-code-analysis-cli/src/dispatch.rs"
@@ -208,7 +208,7 @@ path = "big-code-analysis-cli/src/formats.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 656488.6892596212
+value = 1390840.935290976
 
 [[entry]]
 path = "big-code-analysis-cli/src/formats.rs"
@@ -236,7 +236,7 @@ path = "big-code-analysis-cli/src/html_report.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 3107788.6422335347
+value = 4351729.7650529
 
 [[entry]]
 path = "big-code-analysis-cli/src/html_report.rs"
@@ -271,7 +271,7 @@ path = "big-code-analysis-cli/src/html_report.rs"
 function = "generate_html_report"
 start_line = 364
 metric = "halstead.effort"
-value = 204966.98176862687
+value = 249448.33998042793
 
 [[entry]]
 path = "big-code-analysis-cli/src/html_report.rs"
@@ -299,7 +299,7 @@ path = "big-code-analysis-cli/src/html_report.rs"
 function = "write_language_section"
 start_line = 514
 metric = "halstead.effort"
-value = 987896.8323868884
+value = 1123315.0175096784
 
 [[entry]]
 path = "big-code-analysis-cli/src/html_report.rs"
@@ -327,7 +327,7 @@ path = "big-code-analysis-cli/src/lib.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1363080.058531702
+value = 2289882.930410088
 
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
@@ -362,14 +362,14 @@ path = "big-code-analysis-cli/src/lib.rs"
 function = "legacy_hint"
 start_line = 878
 metric = "halstead.effort"
-value = 48333.93310897573
+value = 59351.805921378844
 
 [[entry]]
 path = "big-code-analysis-cli/src/markdown_report.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 4797654.969821163
+value = 7051619.677070235
 
 [[entry]]
 path = "big-code-analysis-cli/src/markdown_report.rs"
@@ -397,7 +397,7 @@ path = "big-code-analysis-cli/src/markdown_report/sections.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1672341.782940951
+value = 2549426.9832654498
 
 [[entry]]
 path = "big-code-analysis-cli/src/markdown_report/sections.rs"
@@ -439,14 +439,14 @@ path = "big-code-analysis-cli/src/metric_catalog.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 115712.73346715192
+value = 242362.90819456722
 
 [[entry]]
 path = "big-code-analysis-cli/src/thresholds.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 500351.3695303127
+value = 889199.5827445801
 
 [[entry]]
 path = "big-code-analysis-cli/src/thresholds.rs"
@@ -480,6 +480,13 @@ value = 49.0
 path = "big-code-analysis-cli/src/thresholds.rs"
 function = "Violation"
 start_line = 209
+metric = "halstead.effort"
+value = 64469.81569483045
+
+[[entry]]
+path = "big-code-analysis-cli/src/thresholds.rs"
+function = "Violation"
+start_line = 209
 metric = "nargs"
 value = 9.0
 
@@ -488,7 +495,7 @@ path = "big-code-analysis-cli/src/thresholds.rs"
 function = "ThresholdSet"
 start_line = 373
 metric = "halstead.effort"
-value = 48937.391564950456
+value = 67229.50550655276
 
 [[entry]]
 path = "big-code-analysis-cli/src/thresholds.rs"
@@ -509,7 +516,7 @@ path = "big-code-analysis-py/src/batch.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 413516.97158700594
+value = 721580.5694261151
 
 [[entry]]
 path = "big-code-analysis-py/src/batch.rs"
@@ -571,6 +578,13 @@ value = 18.0
 path = "big-code-analysis-py/src/batch.rs"
 function = "analyze_batch"
 start_line = 346
+metric = "halstead.effort"
+value = 54744.156850060965
+
+[[entry]]
+path = "big-code-analysis-py/src/batch.rs"
+function = "analyze_batch"
+start_line = 346
 metric = "nexits"
 value = 8.0
 
@@ -579,7 +593,7 @@ path = "big-code-analysis-py/src/conversion.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 260179.05315200103
+value = 401768.26979644725
 
 [[entry]]
 path = "big-code-analysis-py/src/conversion.rs"
@@ -600,7 +614,7 @@ path = "big-code-analysis-py/src/language.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 286657.9006666494
+value = 375435.300585897
 
 [[entry]]
 path = "big-code-analysis-py/src/language.rs"
@@ -628,7 +642,7 @@ path = "big-code-analysis-py/src/lib.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 209969.94256599678
+value = 329862.44387144997
 
 [[entry]]
 path = "big-code-analysis-py/src/lib.rs"
@@ -677,7 +691,7 @@ path = "big-code-analysis-py/src/sarif.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 760635.6236342953
+value = 1430473.5355172544
 
 [[entry]]
 path = "big-code-analysis-py/src/sarif.rs"
@@ -725,8 +739,15 @@ value = 5.0
 path = "big-code-analysis-py/src/sarif.rs"
 function = "collect_offenders"
 start_line = 357
+metric = "abc"
+value = 48.579831205964474
+
+[[entry]]
+path = "big-code-analysis-py/src/sarif.rs"
+function = "collect_offenders"
+start_line = 357
 metric = "cognitive"
-value = 26.0
+value = 27.0
 
 [[entry]]
 path = "big-code-analysis-py/src/sarif.rs"
@@ -740,7 +761,7 @@ path = "big-code-analysis-py/src/sarif.rs"
 function = "collect_offenders"
 start_line = 357
 metric = "halstead.effort"
-value = 91166.17772024416
+value = 114068.7225483487
 
 [[entry]]
 path = "big-code-analysis-py/src/sarif.rs"
@@ -754,7 +775,14 @@ path = "big-code-analysis-web/src/lib.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 90274.3656808533
+value = 137846.5639330659
+
+[[entry]]
+path = "big-code-analysis-web/src/web/metrics.rs"
+function = "<file>"
+start_line = 1
+metric = "halstead.effort"
+value = 62717.99969927457
 
 [[entry]]
 path = "big-code-analysis-web/src/web/metrics.rs"
@@ -768,7 +796,7 @@ path = "big-code-analysis-web/src/web/server.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1099895.6658813353
+value = 1809806.4736633168
 
 [[entry]]
 path = "big-code-analysis-web/src/web/server.rs"
@@ -793,10 +821,17 @@ value = 15.0
 
 [[entry]]
 path = "big-code-analysis-web/src/web/server.rs"
+function = "run_parse"
+start_line = 55
+metric = "halstead.effort"
+value = 53017.88070452704
+
+[[entry]]
+path = "big-code-analysis-web/src/web/server.rs"
 function = "run_with_timeout"
 start_line = 382
 metric = "halstead.effort"
-value = 75817.81333806844
+value = 111983.27425687395
 
 [[entry]]
 path = "big-code-analysis-web/src/web/server.rs"
@@ -810,14 +845,14 @@ path = "src/alterator.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1776016.263294155
+value = 2656259.686950325
 
 [[entry]]
 path = "src/alterator.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 693.0
+value = 744.0
 
 [[entry]]
 path = "src/alterator.rs"
@@ -831,14 +866,14 @@ path = "src/alterator.rs"
 function = "<file>"
 start_line = 1
 metric = "nom"
-value = 31.0
+value = 32.0
 
 [[entry]]
 path = "src/alterator.rs"
 function = "Alterator"
 start_line = 14
 metric = "halstead.effort"
-value = 56029.38232398857
+value = 72742.76613123094
 
 [[entry]]
 path = "src/alterator.rs"
@@ -852,7 +887,7 @@ path = "src/ast.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 386045.97213141486
+value = 706347.5709095739
 
 [[entry]]
 path = "src/ast.rs"
@@ -897,11 +932,18 @@ metric = "nargs"
 value = 9.0
 
 [[entry]]
+path = "src/ast.rs"
+function = "build"
+start_line = 117
+metric = "halstead.effort"
+value = 69995.37678152707
+
+[[entry]]
 path = "src/c_macro.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1151681.8022215713
+value = 1526794.9543266622
 
 [[entry]]
 path = "src/c_macro.rs"
@@ -936,7 +978,7 @@ path = "src/c_macro.rs"
 function = "step_normal"
 start_line = 46
 metric = "halstead.effort"
-value = 53891.15579027525
+value = 57340.12625759015
 
 [[entry]]
 path = "src/c_macro.rs"
@@ -957,14 +999,14 @@ path = "src/c_macro.rs"
 function = "replace"
 start_line = 202
 metric = "halstead.effort"
-value = 67748.00587771143
+value = 77683.8524299759
 
 [[entry]]
 path = "src/cfg_predicate.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 218413.7514609452
+value = 256963.80456249585
 
 [[entry]]
 path = "src/cfg_predicate.rs"
@@ -985,7 +1027,7 @@ path = "src/checker.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 8710946.52395539
+value = 12669893.23999494
 
 [[entry]]
 path = "src/checker.rs"
@@ -1047,6 +1089,13 @@ value = 10.0
 path = "src/checker.rs"
 function = "CppCode"
 start_line = 290
+metric = "halstead.effort"
+value = 48356.78719880412
+
+[[entry]]
+path = "src/checker.rs"
+function = "CppCode"
+start_line = 290
 metric = "nargs"
 value = 10.0
 
@@ -1063,6 +1112,13 @@ function = "JavaCode"
 start_line = 445
 metric = "nargs"
 value = 11.0
+
+[[entry]]
+path = "src/checker.rs"
+function = "CsharpCode"
+start_line = 510
+metric = "halstead.effort"
+value = 50985.46810235209
 
 [[entry]]
 path = "src/checker.rs"
@@ -1104,7 +1160,7 @@ path = "src/checker.rs"
 function = "RustCode"
 start_line = 877
 metric = "halstead.effort"
-value = 65475.03264581359
+value = 90844.53560124818
 
 [[entry]]
 path = "src/checker.rs"
@@ -1167,7 +1223,7 @@ path = "src/checker.rs"
 function = "ElixirCode"
 start_line = 1429
 metric = "halstead.effort"
-value = 68013.12070370787
+value = 92612.18359125816
 
 [[entry]]
 path = "src/checker.rs"
@@ -1201,22 +1257,29 @@ value = 11.0
 path = "src/checker.rs"
 function = "simple_is_string_macro_recognises_each_language"
 start_line = 2233
+metric = "abc"
+value = 49.49747468305833
+
+[[entry]]
+path = "src/checker.rs"
+function = "simple_is_string_macro_recognises_each_language"
+start_line = 2233
 metric = "halstead.effort"
-value = 82310.94116665021
+value = 105721.44190330332
 
 [[entry]]
 path = "src/comment_rm.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 151954.82468715782
+value = 232184.90135574236
 
 [[entry]]
 path = "src/concurrent_files.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 415146.872117775
+value = 955833.2643573226
 
 [[entry]]
 path = "src/concurrent_files.rs"
@@ -1244,7 +1307,7 @@ path = "src/concurrent_files.rs"
 function = "ConcurrentRunner<Config>"
 start_line = 185
 metric = "halstead.effort"
-value = 90611.09946788894
+value = 149891.3504117573
 
 [[entry]]
 path = "src/concurrent_files.rs"
@@ -1264,6 +1327,13 @@ value = 5.0
 path = "src/concurrent_files.rs"
 function = "run"
 start_line = 246
+metric = "halstead.effort"
+value = 58350.17670113319
+
+[[entry]]
+path = "src/concurrent_files.rs"
+function = "run"
+start_line = 246
 metric = "nexits"
 value = 5.0
 
@@ -1272,21 +1342,21 @@ path = "src/count.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 61274.67470984392
+value = 103196.27504514888
 
 [[entry]]
 path = "src/find.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 49941.11033084341
+value = 85716.98742390217
 
 [[entry]]
 path = "src/function.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 176494.78260925534
+value = 301517.227956994
 
 [[entry]]
 path = "src/function.rs"
@@ -1307,14 +1377,14 @@ path = "src/getter.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 5785460.784420482
+value = 8591208.542223765
 
 [[entry]]
 path = "src/getter.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1808.0
+value = 1828.0
 
 [[entry]]
 path = "src/getter.rs"
@@ -1353,59 +1423,122 @@ value = 9.0
 
 [[entry]]
 path = "src/getter.rs"
-function = "CppCode"
-start_line = 503
+function = "MozjsCode"
+start_line = 203
 metric = "halstead.effort"
-value = 86020.22765685551
+value = 51476.6747832617
+
+[[entry]]
+path = "src/getter.rs"
+function = "JavascriptCode"
+start_line = 257
+metric = "halstead.effort"
+value = 51476.6747832617
+
+[[entry]]
+path = "src/getter.rs"
+function = "TypescriptCode"
+start_line = 311
+metric = "halstead.effort"
+value = 52229.83748036828
+
+[[entry]]
+path = "src/getter.rs"
+function = "TsxCode"
+start_line = 372
+metric = "halstead.effort"
+value = 52252.14137547625
+
+[[entry]]
+path = "src/getter.rs"
+function = "RustCode"
+start_line = 433
+metric = "halstead.effort"
+value = 62937.97256633656
+
+[[entry]]
+path = "src/getter.rs"
+function = "CppCode"
+start_line = 523
+metric = "halstead.effort"
+value = 116213.36249585122
+
+[[entry]]
+path = "src/getter.rs"
+function = "get_func_space_name"
+start_line = 524
+metric = "halstead.effort"
+value = 51935.897455499806
+
+[[entry]]
+path = "src/getter.rs"
+function = "GoCode"
+start_line = 847
+metric = "halstead.effort"
+value = 53701.05313315732
 
 [[entry]]
 path = "src/getter.rs"
 function = "PerlCode"
-start_line = 874
+start_line = 894
 metric = "halstead.effort"
-value = 61151.477207601645
+value = 96033.40737406735
 
 [[entry]]
 path = "src/getter.rs"
 function = "get_op_type"
-start_line = 885
+start_line = 905
 metric = "halstead.effort"
-value = 48084.00809809446
+value = 72081.96311720028
+
+[[entry]]
+path = "src/getter.rs"
+function = "BashCode"
+start_line = 1095
+metric = "halstead.effort"
+value = 63219.32238615343
 
 [[entry]]
 path = "src/getter.rs"
 function = "ElixirCode"
-start_line = 1451
+start_line = 1471
 metric = "halstead.effort"
-value = 164747.1674173174
+value = 225116.40039745305
 
 [[entry]]
 path = "src/getter.rs"
 function = "ElixirCode"
-start_line = 1451
+start_line = 1471
 metric = "nargs"
 value = 9.0
 
 [[entry]]
 path = "src/getter.rs"
-function = "RubyCode"
-start_line = 1616
+function = "get_op_type"
+start_line = 1558
 metric = "halstead.effort"
-value = 72845.33310843991
+value = 54810.421313798346
+
+[[entry]]
+path = "src/getter.rs"
+function = "RubyCode"
+start_line = 1636
+metric = "halstead.effort"
+value = 114284.86052241523
 
 [[entry]]
 path = "src/getter.rs"
 function = "get_op_type"
-start_line = 1631
+start_line = 1651
 metric = "halstead.effort"
-value = 54360.42527107703
+value = 81549.56984746325
 
 [[entry]]
 path = "src/langs.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 143546.00739071253
+value = 174386.6346337888
 
 [[entry]]
 path = "src/langs.rs"
@@ -1426,21 +1559,21 @@ path = "src/macros.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 726926.6237965797
+value = 1042617.6836690763
 
 [[entry]]
 path = "src/macros.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 868.0
+value = 900.0
 
 [[entry]]
 path = "src/metric_set.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 267708.36412749364
+value = 462935.3539720444
 
 [[entry]]
 path = "src/metric_set.rs"
@@ -1461,7 +1594,7 @@ path = "src/metric_set.rs"
 function = "MetricSet"
 start_line = 216
 metric = "halstead.effort"
-value = 50103.08987346512
+value = 87610.83490124358
 
 [[entry]]
 path = "src/metric_set.rs"
@@ -1475,21 +1608,21 @@ path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 22696186.08048151
+value = 34221636.294684
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 7217.0
+value = 7457.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 389.0
+value = 398.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
@@ -1503,14 +1636,14 @@ path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "nom"
-value = 563.0
+value = 580.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "wmc"
-value = 140.0
+value = 145.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
@@ -1538,7 +1671,7 @@ path = "src/metrics/abc.rs"
 function = "Stats"
 start_line = 143
 metric = "halstead.effort"
-value = 140095.07542037583
+value = 287297.79316755506
 
 [[entry]]
 path = "src/metrics/abc.rs"
@@ -1550,30 +1683,37 @@ value = 21.0
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "compute"
-start_line = 788
+start_line = 812
 metric = "cyclomatic"
 value = 15.0
+
+[[entry]]
+path = "src/metrics/abc.rs"
+function = "PerlCode"
+start_line = 2056
+metric = "halstead.effort"
+value = 50334.369072957204
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 21438400.91658697
+value = 29096961.128064923
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 8116.0
+value = 8254.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 410.0
+value = 414.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
@@ -1587,7 +1727,7 @@ path = "src/metrics/cognitive.rs"
 function = "<file>"
 start_line = 1
 metric = "nom"
-value = 611.0
+value = 619.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
@@ -1614,8 +1754,22 @@ value = 5.0
 path = "src/metrics/cognitive.rs"
 function = "Stats"
 start_line = 97
+metric = "halstead.effort"
+value = 50437.715556490104
+
+[[entry]]
+path = "src/metrics/cognitive.rs"
+function = "Stats"
+start_line = 97
 metric = "nargs"
 value = 11.0
+
+[[entry]]
+path = "src/metrics/cognitive.rs"
+function = "PythonCode"
+start_line = 346
+metric = "halstead.effort"
+value = 55391.1543709994
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
@@ -1628,22 +1782,36 @@ value = 8.0
 path = "src/metrics/cognitive.rs"
 function = "compute"
 start_line = 347
+metric = "halstead.effort"
+value = 50867.285787273395
+
+[[entry]]
+path = "src/metrics/cognitive.rs"
+function = "compute"
+start_line = 347
 metric = "nargs"
 value = 8.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 function = "RubyCode"
-start_line = 1345
+start_line = 1353
 metric = "halstead.effort"
-value = 48318.53602482811
+value = 62690.157735001165
+
+[[entry]]
+path = "src/metrics/cognitive.rs"
+function = "compute"
+start_line = 1354
+metric = "halstead.effort"
+value = 57337.73513632449
 
 [[entry]]
 path = "src/metrics/cyclomatic.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 9968999.46831709
+value = 14391326.73033909
 
 [[entry]]
 path = "src/metrics/cyclomatic.rs"
@@ -1713,7 +1881,7 @@ path = "src/metrics/cyclomatic.rs"
 function = "Stats"
 start_line = 103
 metric = "halstead.effort"
-value = 64360.50516852072
+value = 132609.34961712314
 
 [[entry]]
 path = "src/metrics/cyclomatic.rs"
@@ -1727,7 +1895,7 @@ path = "src/metrics/exit.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 2756530.0130641903
+value = 3992017.024801936
 
 [[entry]]
 path = "src/metrics/exit.rs"
@@ -1775,6 +1943,13 @@ value = 5.0
 path = "src/metrics/exit.rs"
 function = "Stats"
 start_line = 80
+metric = "halstead.effort"
+value = 59087.127007711686
+
+[[entry]]
+path = "src/metrics/exit.rs"
+function = "Stats"
+start_line = 80
 metric = "nargs"
 value = 11.0
 
@@ -1783,21 +1958,21 @@ path = "src/metrics/halstead.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 5858625.294420626
+value = 8861174.489822714
 
 [[entry]]
 path = "src/metrics/halstead.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 2865.0
+value = 3038.0
 
 [[entry]]
 path = "src/metrics/halstead.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 173.0
+value = 177.0
 
 [[entry]]
 path = "src/metrics/halstead.rs"
@@ -1811,7 +1986,7 @@ path = "src/metrics/halstead.rs"
 function = "<file>"
 start_line = 1
 metric = "nom"
-value = 215.0
+value = 223.0
 
 [[entry]]
 path = "src/metrics/halstead.rs"
@@ -1846,7 +2021,7 @@ path = "src/metrics/halstead.rs"
 function = "Stats"
 start_line = 157
 metric = "halstead.effort"
-value = 83108.1615193115
+value = 117191.15521123762
 
 [[entry]]
 path = "src/metrics/halstead.rs"
@@ -1860,7 +2035,7 @@ path = "src/metrics/loc.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 42863934.72602967
+value = 57881286.163527414
 
 [[entry]]
 path = "src/metrics/loc.rs"
@@ -1909,7 +2084,7 @@ path = "src/metrics/loc.rs"
 function = "serialize"
 start_line = 332
 metric = "abc"
-value = 63.0
+value = 63.00793600809346
 
 [[entry]]
 path = "src/metrics/loc.rs"
@@ -1930,7 +2105,7 @@ path = "src/metrics/loc.rs"
 function = "Stats"
 start_line = 390
 metric = "halstead.effort"
-value = 130309.71995863885
+value = 253324.60221553227
 
 [[entry]]
 path = "src/metrics/loc.rs"
@@ -1968,11 +2143,18 @@ metric = "nargs"
 value = 7.0
 
 [[entry]]
+path = "src/metrics/loc.rs"
+function = "PerlCode"
+start_line = 1103
+metric = "halstead.effort"
+value = 49965.90777079715
+
+[[entry]]
 path = "src/metrics/mi.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 334209.8847348811
+value = 541890.070997593
 
 [[entry]]
 path = "src/metrics/mi.rs"
@@ -2000,7 +2182,7 @@ path = "src/metrics/nargs.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 3962588.3536442863
+value = 5768164.484337556
 
 [[entry]]
 path = "src/metrics/nargs.rs"
@@ -2056,7 +2238,7 @@ path = "src/metrics/nargs.rs"
 function = "Stats"
 start_line = 102
 metric = "halstead.effort"
-value = 108410.52562214977
+value = 173977.80392929664
 
 [[entry]]
 path = "src/metrics/nargs.rs"
@@ -2070,7 +2252,7 @@ path = "src/metrics/nom.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1700278.8683092168
+value = 2582405.949892034
 
 [[entry]]
 path = "src/metrics/nom.rs"
@@ -2119,7 +2301,7 @@ path = "src/metrics/nom.rs"
 function = "Stats"
 start_line = 107
 metric = "halstead.effort"
-value = 99831.6499536889
+value = 191597.93835599
 
 [[entry]]
 path = "src/metrics/nom.rs"
@@ -2140,7 +2322,7 @@ path = "src/metrics/npa.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 16293623.989730112
+value = 22966950.825238235
 
 [[entry]]
 path = "src/metrics/npa.rs"
@@ -2196,7 +2378,7 @@ path = "src/metrics/npa.rs"
 function = "Stats"
 start_line = 84
 metric = "halstead.effort"
-value = 88775.8175506611
+value = 149227.40553801894
 
 [[entry]]
 path = "src/metrics/npa.rs"
@@ -2210,7 +2392,7 @@ path = "src/metrics/npa.rs"
 function = "PhpCode"
 start_line = 613
 metric = "halstead.effort"
-value = 51632.49113918272
+value = 68565.47778119722
 
 [[entry]]
 path = "src/metrics/npa.rs"
@@ -2224,7 +2406,7 @@ path = "src/metrics/npa.rs"
 function = "compute"
 start_line = 614
 metric = "halstead.effort"
-value = 51251.4395440596
+value = 66155.26936218655
 
 [[entry]]
 path = "src/metrics/npa.rs"
@@ -2238,7 +2420,7 @@ path = "src/metrics/npa.rs"
 function = "RustCode"
 start_line = 786
 metric = "halstead.effort"
-value = 87391.2786150095
+value = 106767.11110765494
 
 [[entry]]
 path = "src/metrics/npa.rs"
@@ -2259,7 +2441,7 @@ path = "src/metrics/npa.rs"
 function = "compute"
 start_line = 787
 metric = "halstead.effort"
-value = 86889.02988733705
+value = 103817.66322473175
 
 [[entry]]
 path = "src/metrics/npa.rs"
@@ -2280,7 +2462,7 @@ path = "src/metrics/npm.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 10972935.972097069
+value = 15277532.733608034
 
 [[entry]]
 path = "src/metrics/npm.rs"
@@ -2336,7 +2518,7 @@ path = "src/metrics/npm.rs"
 function = "Stats"
 start_line = 85
 metric = "halstead.effort"
-value = 88500.11625391991
+value = 148833.66568171806
 
 [[entry]]
 path = "src/metrics/npm.rs"
@@ -2364,7 +2546,7 @@ path = "src/metrics/tokens.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 702255.3099163271
+value = 1020937.7738378608
 
 [[entry]]
 path = "src/metrics/tokens.rs"
@@ -2412,6 +2594,13 @@ value = 5.0
 path = "src/metrics/tokens.rs"
 function = "Stats"
 start_line = 89
+metric = "halstead.effort"
+value = 52127.44538498567
+
+[[entry]]
+path = "src/metrics/tokens.rs"
+function = "Stats"
+start_line = 89
 metric = "nargs"
 value = 8.0
 
@@ -2420,7 +2609,7 @@ path = "src/metrics/wmc.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 4830552.285425351
+value = 7090461.6810751585
 
 [[entry]]
 path = "src/metrics/wmc.rs"
@@ -2447,6 +2636,13 @@ value = 315.0
 path = "src/metrics/wmc.rs"
 function = "Stats"
 start_line = 59
+metric = "halstead.effort"
+value = 57796.492162576586
+
+[[entry]]
+path = "src/metrics/wmc.rs"
+function = "Stats"
+start_line = 59
 metric = "nargs"
 value = 9.0
 
@@ -2455,7 +2651,7 @@ path = "src/node.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 676374.4889723423
+value = 1035625.8614187762
 
 [[entry]]
 path = "src/node.rs"
@@ -2497,7 +2693,7 @@ path = "src/node.rs"
 function = "Node<'a>"
 start_line = 73
 metric = "halstead.effort"
-value = 314684.17431112437
+value = 442882.240482443
 
 [[entry]]
 path = "src/node.rs"
@@ -2518,7 +2714,7 @@ path = "src/node.rs"
 function = "Node<'a>"
 start_line = 282
 metric = "halstead.effort"
-value = 95936.36086313309
+value = 110776.93365899024
 
 [[entry]]
 path = "src/node.rs"
@@ -2532,7 +2728,7 @@ path = "src/ops.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1085603.4500326093
+value = 1548003.7308489382
 
 [[entry]]
 path = "src/ops.rs"
@@ -2553,14 +2749,14 @@ path = "src/ops.rs"
 function = "operands_and_operators"
 start_line = 193
 metric = "halstead.effort"
-value = 67016.90902338063
+value = 81688.8722426604
 
 [[entry]]
 path = "src/output/checkstyle.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 75168.03581835116
+value = 111886.79465367735
 
 [[entry]]
 path = "src/output/checkstyle.rs"
@@ -2588,7 +2784,7 @@ path = "src/output/code_climate.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1258804.0979427292
+value = 1682110.6862836902
 
 [[entry]]
 path = "src/output/code_climate.rs"
@@ -2616,7 +2812,7 @@ path = "src/output/csv.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 256446.13187712897
+value = 384230.3944815031
 
 [[entry]]
 path = "src/output/csv.rs"
@@ -2644,7 +2840,7 @@ path = "src/output/dump.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 268912.55091798725
+value = 362572.6618679963
 
 [[entry]]
 path = "src/output/dump.rs"
@@ -2665,7 +2861,7 @@ path = "src/output/dump.rs"
 function = "dump_tree_helper"
 start_line = 75
 metric = "abc"
-value = 47.634021455258214
+value = 49.28488612140643
 
 [[entry]]
 path = "src/output/dump.rs"
@@ -2679,7 +2875,7 @@ path = "src/output/dump.rs"
 function = "dump_tree_helper"
 start_line = 75
 metric = "halstead.effort"
-value = 154213.1159250338
+value = 152404.75438050737
 
 [[entry]]
 path = "src/output/dump.rs"
@@ -2700,7 +2896,7 @@ path = "src/output/dump_metrics.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1693465.505437639
+value = 1733872.104248343
 
 [[entry]]
 path = "src/output/dump_metrics.rs"
@@ -2771,13 +2967,6 @@ function = "dump_halstead"
 start_line = 160
 metric = "cyclomatic"
 value = 19.0
-
-[[entry]]
-path = "src/output/dump_metrics.rs"
-function = "dump_halstead"
-start_line = 160
-metric = "halstead.effort"
-value = 47928.26533729154
 
 [[entry]]
 path = "src/output/dump_metrics.rs"
@@ -2868,7 +3057,7 @@ path = "src/output/dump_ops.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 141310.01986659254
+value = 190574.46043729273
 
 [[entry]]
 path = "src/output/dump_ops.rs"
@@ -2910,28 +3099,28 @@ path = "src/output/funcspace_row.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 130019.20325530128
+value = 87915.64833832016
 
 [[entry]]
 path = "src/output/funcspace_row.rs"
 function = "metric_values"
 start_line = 27
 metric = "abc"
-value = 111.0
+value = 111.87939935484101
 
 [[entry]]
 path = "src/output/funcspace_row.rs"
 function = "metric_values"
 start_line = 27
 metric = "halstead.effort"
-value = 135126.17019741316
+value = 60527.12163430756
 
 [[entry]]
 path = "src/output/numfmt.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 144150.62615893577
+value = 208124.99797936674
 
 [[entry]]
 path = "src/output/numfmt.rs"
@@ -2945,14 +3134,21 @@ path = "src/output/offenders.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 76119.05395705439
+value = 157549.12204105302
+
+[[entry]]
+path = "src/output/rule_descriptions.rs"
+function = "<file>"
+start_line = 1
+metric = "halstead.effort"
+value = 55715.192136029415
 
 [[entry]]
 path = "src/output/sarif.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 895600.0053285874
+value = 1267867.1004252515
 
 [[entry]]
 path = "src/output/sarif.rs"
@@ -2973,7 +3169,7 @@ path = "src/output/warning_line.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 415858.438023703
+value = 567757.2814920848
 
 [[entry]]
 path = "src/output/warning_line.rs"
@@ -2994,7 +3190,7 @@ path = "src/parser.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 214929.4588502278
+value = 525001.0514267822
 
 [[entry]]
 path = "src/parser.rs"
@@ -3015,7 +3211,7 @@ path = "src/parser.rs"
 function = "Parser<T>"
 start_line = 121
 metric = "halstead.effort"
-value = 78871.4699291428
+value = 127679.0649423356
 
 [[entry]]
 path = "src/parser.rs"
@@ -3025,11 +3221,18 @@ metric = "nargs"
 value = 12.0
 
 [[entry]]
+path = "src/parser.rs"
+function = "get_filters"
+start_line = 190
+metric = "halstead.effort"
+value = 50360.26160456827
+
+[[entry]]
 path = "src/preproc.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 808343.2965472081
+value = 1238461.191377924
 
 [[entry]]
 path = "src/preproc.rs"
@@ -3050,7 +3253,7 @@ path = "src/preproc.rs"
 function = "fix_includes"
 start_line = 97
 metric = "abc"
-value = 60.44832503882965
+value = 63.35613624582863
 
 [[entry]]
 path = "src/preproc.rs"
@@ -3071,21 +3274,28 @@ path = "src/preproc.rs"
 function = "fix_includes"
 start_line = 97
 metric = "halstead.effort"
-value = 164908.1494492432
+value = 205360.37054064192
+
+[[entry]]
+path = "src/preproc.rs"
+function = "preprocess"
+start_line = 240
+metric = "cognitive"
+value = 26.0
 
 [[entry]]
 path = "src/preproc.rs"
 function = "preprocess"
 start_line = 240
 metric = "halstead.effort"
-value = 71096.49353326565
+value = 80852.78438823794
 
 [[entry]]
 path = "src/spaces.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 5792960.25476
+value = 9762711.953160133
 
 [[entry]]
 path = "src/spaces.rs"
@@ -3120,14 +3330,14 @@ path = "src/spaces.rs"
 function = "CodeMetrics"
 start_line = 148
 metric = "halstead.effort"
-value = 74868.30227957082
+value = 96192.24660515241
 
 [[entry]]
 path = "src/spaces.rs"
 function = "serialize"
 start_line = 159
 metric = "halstead.effort"
-value = 71744.21409959269
+value = 88902.69770481167
 
 [[entry]]
 path = "src/spaces.rs"
@@ -3162,7 +3372,7 @@ path = "src/spaces.rs"
 function = "compute_per_node"
 start_line = 952
 metric = "halstead.effort"
-value = 60567.12541220743
+value = 66915.68183497727
 
 [[entry]]
 path = "src/spaces.rs"
@@ -3175,8 +3385,15 @@ value = 7.0
 path = "src/spaces.rs"
 function = "metrics_inner"
 start_line = 997
+metric = "abc"
+value = 51.146847410177685
+
+[[entry]]
+path = "src/spaces.rs"
+function = "metrics_inner"
+start_line = 997
 metric = "cognitive"
-value = 25.0
+value = 30.0
 
 [[entry]]
 path = "src/spaces.rs"
@@ -3190,14 +3407,14 @@ path = "src/spaces.rs"
 function = "metrics_inner"
 start_line = 997
 metric = "halstead.effort"
-value = 155297.630860683
+value = 180040.750508432
 
 [[entry]]
 path = "src/suppression.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1447570.7364517082
+value = 2189065.87464656
 
 [[entry]]
 path = "src/suppression.rs"
@@ -3239,7 +3456,7 @@ path = "src/tools.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1386564.68504664
+value = 1986738.8772322927
 
 [[entry]]
 path = "src/tools.rs"
@@ -3275,3 +3492,10 @@ function = "read_file_with_eol"
 start_line = 87
 metric = "nexits"
 value = 5.0
+
+[[entry]]
+path = "src/traits.rs"
+function = "<file>"
+start_line = 1
+metric = "halstead.effort"
+value = 60515.59243517526

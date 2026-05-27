@@ -1101,6 +1101,22 @@ impl Abc for RustCode {
             AssignmentExpression | CompoundAssignmentExpr => {
                 stats.assignments += 1.;
             }
+            // `let x = expr;` and `let mut x = expr;` both carry an
+            // explicit `=` initializer — the `value` field is present
+            // on the `let_declaration` only when the initializer
+            // exists. Per Fitzpatrick (1997), every `=` operator
+            // increments A; the JS impl already counts `let x = 5;`
+            // (and excludes `const`). We follow the literal reading
+            // for Rust too and count both `let x = ...;` and
+            // `let mut x = ...;` — distinguishing the `mut` form
+            // would diverge from the JS rule (which does not
+            // distinguish `let` from `var`) and complicates the
+            // implementation without changing the cross-language
+            // story. Bare `let x;` (no initializer) leaves the
+            // `value` field unset and correctly stays out.
+            LetDeclaration if node.child_by_field_name("value").is_some() => {
+                stats.assignments += 1.;
+            }
             // Every call expression — including method calls
             // (`a.b.c()` parses as `call_expression` whose callee is a
             // `field_expression`) — plus every `try_expression` (the
@@ -1218,11 +1234,30 @@ impl Abc for CppCode {
             // `^=`, `<<=`, `>>=`); the grammar lifts them all into a
             // single named node so we count once per
             // `assignment_expression`. `update_expression` covers both
-            // prefix and postfix `++` / `--`. Variable initialisers
-            // (`int x = 0`) parse as `init_declarator` inside
-            // `declaration` and never become `assignment_expression` —
-            // they correctly stay out.
+            // prefix and postfix `++` / `--`.
             AssignmentExpression | AssignmentExpression2 | UpdateExpression => {
+                stats.assignments += 1.;
+            }
+            // `int x = expr;` parses as a `declaration` carrying an
+            // `init_declarator` of the form `declarator = value`. Per
+            // Fitzpatrick (1997), every `=` operator increments A; the
+            // JS impl already counts `let x = 5;` (and excludes
+            // `const`). We follow the literal reading for C++ too and
+            // count every `init_declarator` whose body contains an
+            // explicit `=` token. `const int x = 5;` is counted along
+            // with `int x = 5;` — distinguishing them would diverge
+            // from the JS rule's "let counted, const not" mapping
+            // because C++ `const` semantics are unlike JS `const` (a
+            // C++ `const int x` binding is the canonical "one
+            // assignment to initialise" — closer to Rust's
+            // non-`mut` `let` than to JS's hoisted reference binding).
+            // `int x;` parses as a plain declarator inside the
+            // `declaration`, not an `init_declarator`, so this arm
+            // never fires for un-initialised declarations. The second
+            // `init_declarator` grammar form `int x(5);` / `int x{5};`
+            // (paren / brace init) carries no `=` token and stays out
+            // — only the `=` operator counts.
+            InitDeclarator if node.first_child(|id| id == EQ as u16).is_some() => {
                 stats.assignments += 1.;
             }
             // Every call counts (method calls fold in as
@@ -5781,18 +5816,58 @@ function f(int $a, int $b): int {
     }
 
     #[test]
-    fn rust_assignments_count_outside_let() {
-        // `let x = 0` is a declaration — its `=` is NOT a Fitzpatrick
-        // assignment (mirrors Java's local-variable-declaration rule).
-        // `x = 5` and `x = 7` are plain `=` assignments → 2. `x += 2`
-        // is a compound assignment → 1. Total A = 3.
+    fn rust_assignments_let_init_plain_and_compound() {
+        // `let mut x = 0` is a `let_declaration` carrying an `=`
+        // initializer → counts as 1 (matches Fitzpatrick's literal
+        // "every `=` is an assignment" rule and the JS impl's
+        // treatment of `let x = 5`). `x = 5` and `x = 7` are plain
+        // `=` assignments → 2. `x += 2` is a compound assignment → 1.
+        // Total A = 4.
         check_metrics::<RustParser>(
             "fn f() { let mut x = 0; x = 5; x += 2; x = 7; }",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 3.0);
+                assert_eq!(metric.abc.assignments_sum(), 4.0);
                 assert_eq!(metric.abc.branches_sum(), 0.0);
                 assert_eq!(metric.abc.conditions_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_let_without_initializer_does_not_count() {
+        // `let a;` is a `let_declaration` with NO `=` and no `value`
+        // field — the binding is uninitialised. The arm only fires
+        // when `value` is present, so this contributes zero to A.
+        // `let _b;` is the same shape (the `_` pattern is still a
+        // pattern, not a wildcard suppression of the binding).
+        // Regression test for issue #393: only `=` counts, not the
+        // bare declaration.
+        check_metrics::<RustParser>(
+            "fn f() { let a: i32; let _b: i32; a = 5; }",
+            "foo.rs",
+            |metric| {
+                // Only `a = 5` (assignment_expression) → A = 1.
+                assert_eq!(metric.abc.assignments_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_let_initializers_immutable_and_mutable_count() {
+        // Issue #393: `let a = 1;`, `let b = 2;`, `let c = a + b;`,
+        // `let mut d = 0;` are all `let_declaration` nodes carrying
+        // an `=` initializer — each counts as 1 (Option B in the
+        // issue body: literal Fitzpatrick, both `let` and `let mut`
+        // count). `d = 5;` is one plain assignment_expression, `d
+        // += 1;` is one compound. Total A = 4 + 1 + 1 = 6.
+        check_metrics::<RustParser>(
+            "fn f() { let a=1; let b=2; let c=a+b; let mut d=0; d=5; d+=1; }",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 6.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -5929,8 +6004,11 @@ function f(int $a, int $b): int {
     fn rust_complex_function_abc() {
         // Mixed-shape regression: assignments, calls, conditions, `?`,
         // `if let`, `match` in one body. Verified by hand:
-        // - assignments: `x = 5`, `x += 2` → A = 2 (the `let` initialisers
-        //   are not assignments).
+        // - assignments: `let mut x = 0` (let init), `x = 5`, `x += 2`,
+        //   `let _ = ...` (let init), `let r: ... = Err(())` (let init),
+        //   `let _v = r?` (let init) → A = 6 (post-#393: every `=`
+        //   initializer in a `let_declaration` is one assignment, in
+        //   line with the literal Fitzpatrick reading).
         // - branches: `xs.iter()`, `.next()`, `Err(())`, `r?` → B = 4
         //   (3 calls + 1 try).
         // - conditions: `if let Some(v) = opt` → 1, `match x` arms
@@ -5953,7 +6031,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.rs",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 2.0);
+                assert_eq!(metric.abc.assignments_sum(), 6.0);
                 // calls: xs.iter(), .next(), Err(()), Ok(...) → 4 calls
                 // plus 1 try (`r?`) → 5 branches.
                 assert_eq!(metric.abc.branches_sum(), 5.0);
@@ -6337,14 +6415,16 @@ function f(int $a, int $b): int {
 
     #[test]
     fn cpp_plain_and_compound_assignments_count() {
-        // `int x = 0` is an `init_declarator` (declaration initialiser)
-        // and NOT a Fitzpatrick assignment. `x = 5`, `x += 2`, `x = 7`
-        // all parse as `assignment_expression` → A = 3.
+        // `int x = 0` is an `init_declarator` carrying an `=` token
+        // and counts as 1 (post-#393: the literal Fitzpatrick rule
+        // counts every `=` operator, matching the JS impl's
+        // `let x = 5` treatment). `x = 5`, `x += 2`, `x = 7` all
+        // parse as `assignment_expression` → 3. Total A = 4.
         check_metrics::<CppParser>(
             "void f() { int x = 0; x = 5; x += 2; x = 7; }",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 3.0);
+                assert_eq!(metric.abc.assignments_sum(), 4.0);
                 assert_eq!(metric.abc.branches_sum(), 0.0);
                 assert_eq!(metric.abc.conditions_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.abc);
@@ -6355,12 +6435,63 @@ function f(int $a, int $b): int {
     #[test]
     fn cpp_increment_and_decrement_count_as_assignment() {
         // `x++` / `--x` / prefix and postfix forms each parse as
-        // `update_expression` and count as 1 assignment per Fitzpatrick.
+        // `update_expression` and count as 1 assignment per
+        // Fitzpatrick — 4. `int x = 0` (init_declarator with `=`)
+        // adds 1 (post-#393). Total A = 5.
         check_metrics::<CppParser>(
             "void f() { int x = 0; x++; --x; ++x; x--; }",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 4.0);
+                assert_eq!(metric.abc.assignments_sum(), 5.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_init_declarators_count_as_assignments() {
+        // Issue #393 regression: `int a=1;`, `int b=2;`, `int c=a+b;`,
+        // `int d=0;` are all `init_declarator` nodes with `=` → 4
+        // assignments. `d=5;` is one plain `assignment_expression`,
+        // `d+=1;` is one compound. Total A = 4 + 1 + 1 = 6.
+        check_metrics::<CppParser>(
+            "void f() { int a=1; int b=2; int c=a+b; int d=0; d=5; d+=1; }",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.abc.assignments_sum(), 6.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_declaration_without_initializer_does_not_count() {
+        // `int a;` parses as a plain declarator inside `declaration`,
+        // NOT an `init_declarator` (the latter only appears when an
+        // initializer is present). Regression test for issue #393:
+        // un-initialised declarations contribute zero to A.
+        check_metrics::<CppParser>("void f() { int a; a = 5; }", "foo.cpp", |metric| {
+            // Only `a = 5` (assignment_expression) → A = 1.
+            assert_eq!(metric.abc.assignments_sum(), 1.0);
+            insta::assert_json_snapshot!(metric.abc);
+        });
+    }
+
+    #[test]
+    fn cpp_init_declarator_brace_paren_init_does_not_count() {
+        // `init_declarator` has two grammar forms: `declarator = value`
+        // (the `=` form) and `declarator argument_list_or_initializer_list`
+        // (the `int x(5);` / `int x{5};` direct-init forms). Only the
+        // first form contains an `=` token, so only it should count.
+        // Regression test pinning that distinction so that
+        // refactorings of the init_declarator arm don't accidentally
+        // start counting direct-init too.
+        check_metrics::<CppParser>(
+            "void f() { int x(5); int y{7}; x = 1; }",
+            "foo.cpp",
+            |metric| {
+                // Only `x = 1` (assignment_expression) → A = 1.
+                assert_eq!(metric.abc.assignments_sum(), 1.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6370,12 +6501,15 @@ function f(int $a, int $b): int {
     fn cpp_calls_are_branches() {
         // Free call + member-fn call (parses as `call_expression` with
         // a `field_expression` callee) + `new` allocation. All three
-        // are branches → B = 3.
+        // are branches → B = 3. `auto* p = new int(5)` is also an
+        // `init_declarator` with `=` so it contributes one assignment
+        // (post-#393); the snapshot pins that magnitude.
         check_metrics::<CppParser>(
             "struct S { void m(); }; void g(); void f() { g(); S s; s.m(); auto* p = new int(5); }",
             "foo.cpp",
             |metric| {
                 assert_eq!(metric.abc.branches_sum(), 3.0);
+                assert_eq!(metric.abc.assignments_sum(), 1.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6495,9 +6629,10 @@ function f(int $a, int $b): int {
     fn cpp_complex_function_abc() {
         // Mixed-shape regression: assignments, calls, conditions,
         // ternary, switch, new. Verified by hand:
-        // - assignments: `x = 5`, `x += 2`, `x++`, `x = (a > b) ? a : b`,
-        //   `x = b` → A = 5. (`int x = 0`, `auto y = ...`, `auto* p = ...`
-        //   are declaration initialisers and don't count.)
+        // - assignments: `int x = 0` (init_declarator with `=`),
+        //   `x = 5`, `x += 2`, `x++`, `x = (a > b) ? a : b`, `x = b`,
+        //   `auto* p = new int(5)` (init_declarator with `=`) → A = 7
+        //   (post-#393: every `=` in an init_declarator counts).
         // - branches: `f(a, b)` self-call + `new int(5)` → B = 2.
         // - conditions: `a == b`, `&&`, `a > 0` → 3 inside the if.
         //   `else` (1) + `a > b`, `?` → 2 in the ternary. `a < b`,
@@ -6524,7 +6659,7 @@ function f(int $a, int $b): int {
              }\n",
             "foo.cpp",
             |metric| {
-                assert_eq!(metric.abc.assignments_sum(), 5.0);
+                assert_eq!(metric.abc.assignments_sum(), 7.0);
                 assert_eq!(metric.abc.branches_sum(), 2.0);
                 assert_eq!(metric.abc.conditions_sum(), 10.0);
                 insta::assert_json_snapshot!(metric.abc);
