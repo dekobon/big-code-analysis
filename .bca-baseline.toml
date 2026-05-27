@@ -442,13 +442,6 @@ metric = "halstead.effort"
 value = 115712.73346715192
 
 [[entry]]
-path = "big-code-analysis-cli/src/metric_catalog.rs"
-function = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 220.0
-
-[[entry]]
 path = "big-code-analysis-cli/src/thresholds.rs"
 function = "<file>"
 start_line = 1
@@ -977,13 +970,6 @@ value = 218413.7514609452
 path = "src/cfg_predicate.rs"
 function = "<file>"
 start_line = 1
-metric = "loc.sloc"
-value = 260.0
-
-[[entry]]
-path = "src/cfg_predicate.rs"
-function = "<file>"
-start_line = 1
 metric = "nargs"
 value = 10.0
 
@@ -1217,13 +1203,6 @@ function = "simple_is_string_macro_recognises_each_language"
 start_line = 2233
 metric = "halstead.effort"
 value = 82310.94116665021
-
-[[entry]]
-path = "src/checker.rs"
-function = "simple_is_string_macro_recognises_each_language"
-start_line = 2233
-metric = "loc.sloc"
-value = 248.0
 
 [[entry]]
 path = "src/comment_rm.rs"
@@ -2671,13 +2650,6 @@ value = 268912.55091798725
 path = "src/output/dump.rs"
 function = "<file>"
 start_line = 1
-metric = "loc.sloc"
-value = 234.0
-
-[[entry]]
-path = "src/output/dump.rs"
-function = "<file>"
-start_line = 1
 metric = "nargs"
 value = 15.0
 
@@ -2965,13 +2937,6 @@ value = 144150.62615893577
 path = "src/output/numfmt.rs"
 function = "<file>"
 start_line = 1
-metric = "loc.sloc"
-value = 221.0
-
-[[entry]]
-path = "src/output/numfmt.rs"
-function = "<file>"
-start_line = 1
 metric = "nargs"
 value = 7.0
 
@@ -2981,13 +2946,6 @@ function = "<file>"
 start_line = 1
 metric = "halstead.effort"
 value = 104369.70794753898
-
-[[entry]]
-path = "src/output/offenders.rs"
-function = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 292.0
 
 [[entry]]
 path = "src/output/sarif.rs"
