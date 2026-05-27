@@ -78,6 +78,17 @@ for historical reference.
 
 ### Changed
 
+- Markdown linting / formatting now uses
+  [`rumdl`](https://github.com/rvben/rumdl) (Rust-native) instead of
+  `markdownlint-cli2` (Node.js). `mise.toml` pins `rumdl = "0.2.2"`,
+  the project rule customisations migrate to `.rumdl.toml` (the old
+  `.markdownlint-cli2.jsonc` is removed), `make markdown-fmt` /
+  `make markdown-lint` invoke `rumdl check --fix` / `rumdl check`,
+  and the CI `lint` job installs the upstream release tarball with a
+  pinned SHA256 (dropping the previous `actions/setup-node` step).
+  Contributors who track tooling via `mise install` get the new
+  binary automatically; otherwise install via `mise install rumdl`
+  or `cargo install rumdl`.
 - `bca check` baseline path keys are now canonicalised relative to
   the baseline file's own directory (the *anchor*). `--paths .`,
   `--paths src/`, and `--paths "$PWD"` produce byte-identical

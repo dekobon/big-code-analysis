@@ -1,5 +1,12 @@
 [tools]
 node = "25.9.0"
+# rumdl (https://github.com/rvben/rumdl) is the project's Markdown
+# linter / formatter. Pinned to a specific 0.2.x release so
+# contributors and CI converge on identical rule output. Keep this
+# version in lockstep with the `RUMDL_VERSION` / `RUMDL_SHA256`
+# pair in `.github/workflows/ci.yml` (the CI lint job fetches the
+# upstream release tarball directly rather than going through mise).
+rumdl = "0.2.2"
 # Python is required for the `big-code-analysis-py` crate
 # (PyO3 + maturin). Pinned to a 3.12 series — bindings declare
 # `requires-python = ">=3.12"` in `big-code-analysis-py/pyproject.toml`.

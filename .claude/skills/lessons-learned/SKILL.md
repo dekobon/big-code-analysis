@@ -206,7 +206,7 @@ Show the complete draft in context (the markdown that would be appended).
 After user approval:
 
 1. Append approved entries to `docs/development/lessons_learned.md`
-2. Run `markdownlint-cli2 docs/development/lessons_learned.md` to ensure
+2. Run `rumdl check docs/development/lessons_learned.md` to ensure
    the file passes lint
 3. Stage the file: `git add docs/development/lessons_learned.md`
 4. Do NOT commit — staging only

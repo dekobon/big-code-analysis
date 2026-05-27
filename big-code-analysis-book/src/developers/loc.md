@@ -18,7 +18,7 @@ For extra credits, do not use mutable state or a imperative loop like `for` or `
 
 /// Factorial: n! = n*(n-1)*(n-2)*(n-3)...3*2*1
 fn factorial(num: u64) -> u64 {
-    
+
     // use `product` on `Iterator`
     (1..=num).product()
 }

@@ -52,7 +52,7 @@ gate. It runs, in one parallel pass:
 - `cargo test --workspace --all-features`.
 - `cargo +nightly udeps`.
 - Markdown / TOML / shell / Makefile lint families
-  (`markdownlint-cli2`, `taplo`, `shellcheck`, `shfmt`, `checkmake`).
+  (`rumdl`, `taplo`, `shellcheck`, `shfmt`, `checkmake`).
 - `./check-snapshot-anchors.py` (see "Snapshot anchors" below).
 
 `make ci` runs the same checks without auto-fix, mirroring the GitHub

@@ -957,7 +957,7 @@ make pre-commit
 
 `make ci` runs the same checks without auto-fix (mirrors CI
 behaviour). If GNU Make 4 or any optional tool (`taplo`,
-`markdownlint-cli2`, `shellcheck`, `shfmt`, `checkmake`) is
+`rumdl`, `shellcheck`, `shfmt`, `checkmake`) is
 unavailable, fall back to the raw equivalents:
 
 ```bash

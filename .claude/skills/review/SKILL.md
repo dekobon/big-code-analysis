@@ -230,7 +230,7 @@ If there are zero findings, say so explicitly and state "APPROVE".
 - Do NOT implement fixes. This is review-only.
 - Do NOT report findings without concrete evidence (file + line + reasoning).
 - Do NOT flag style preferences already handled by `cargo fmt`, `clippy`, or
-  `markdownlint-cli2`. Automated tools own style.
+  `rumdl`. Automated tools own style.
 - Do NOT flag pre-existing issues as blocking unless the change makes them
   worse.
 - Read full files, not just diff hunks. Context matters.

@@ -60,14 +60,14 @@ fi
 echo ""
 echo "Optional Tools (Markdown linting):"
 
-markdownlint_missing=0
-if command -v markdownlint-cli2 >/dev/null 2>&1; then
-	mdlint_version=$(markdownlint-cli2 --version 2>&1 | awk 'NR==1{print $1" "$2; exit}' || true)
-	mdlint_version=${mdlint_version:-unknown}
-	echo "  ✓ markdownlint-cli2 (version: $mdlint_version)"
+rumdl_missing=0
+if command -v rumdl >/dev/null 2>&1; then
+	rumdl_version=$(rumdl --version 2>/dev/null | awk 'NR==1{print $NF; exit}' || true)
+	rumdl_version=${rumdl_version:-unknown}
+	echo "  ✓ rumdl (version: $rumdl_version)"
 else
-	echo "  ✗ markdownlint-cli2 (not found)"
-	markdownlint_missing=1
+	echo "  ✗ rumdl (not found)"
+	rumdl_missing=1
 fi
 
 echo ""
@@ -175,7 +175,7 @@ fi
 echo ""
 
 core_missing=$((cargo_missing + nightly_missing + udeps_missing + insta_missing + checkmake_missing))
-optional_missing=$((markdownlint_missing + fd_missing + taplo_missing + shellcheck_missing + shfmt_missing + actionlint_missing + mdbook_missing + ruff_missing + mypy_missing + pyright_missing + maturin_py_missing))
+optional_missing=$((rumdl_missing + fd_missing + taplo_missing + shellcheck_missing + shfmt_missing + actionlint_missing + mdbook_missing + ruff_missing + mypy_missing + pyright_missing + maturin_py_missing))
 
 if [ "$core_missing" -gt 0 ]; then
 	echo "Missing core tools:"
@@ -201,8 +201,8 @@ fi
 
 if [ "$optional_missing" -gt 0 ]; then
 	echo "Missing optional tools:"
-	if [ "$markdownlint_missing" -eq 1 ]; then
-		echo "  - markdownlint-cli2: Install with: npm install -g markdownlint-cli2"
+	if [ "$rumdl_missing" -eq 1 ]; then
+		echo "  - rumdl: Install with: mise install rumdl (or 'cargo install rumdl')"
 	fi
 	if [ "$fd_missing" -eq 1 ]; then
 		echo "  - fd: Install with: apt install fd-find (Debian/Ubuntu) or cargo install fd-find"

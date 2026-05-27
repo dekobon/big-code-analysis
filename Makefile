@@ -77,8 +77,8 @@ help:
 	@echo "  fmt-check                            Verify formatting without modifying files"
 	@echo "  clippy                               Run clippy with -D warnings"
 	@echo "  udeps                                Detect unused deps (requires nightly)"
-	@echo "  markdown-fmt                         Auto-fix Markdown with markdownlint-cli2"
-	@echo "  markdown-lint                        Lint Markdown with markdownlint-cli2"
+	@echo "  markdown-fmt                         Auto-fix Markdown with rumdl"
+	@echo "  markdown-lint                        Lint Markdown with rumdl"
 	@echo "  shellcheck                           Lint bash scripts"
 	@echo "  sh-fmt                               Format bash scripts with shfmt"
 	@echo "  sh-fmt-check                         Check bash formatting without modifying"
@@ -195,13 +195,19 @@ _check-find:
 	@N=$$($(call find-by-ext,md,) | wc -l); \
 	  [ "$$N" -ge 5 ] || { echo "ERROR: find-by-ext returned $$N .md files (expected >=5); EXCLUDE_DIRS is over-matching — see #160"; exit 1; }
 
+# `rumdl check --fix` is preferred over `rumdl fmt` here: `fmt`
+# exits 0 even when unfixable findings remain (formatter semantics),
+# whereas `check --fix` applies every auto-fix it can and then exits
+# non-zero if any finding is still outstanding. The latter is what
+# we want for a Makefile gate — auto-fix what you can, then fail
+# loudly on the rest so the contributor knows to edit manually.
 markdown-fmt: _check-find
 	@echo "Auto-fixing Markdown files..."
-	@$(call find-by-ext,md,) | xargs -r markdownlint-cli2 --fix || { echo "markdownlint-cli2 could not auto-fix all issues"; exit 1; }
+	@$(call find-by-ext,md,) | xargs -r rumdl check --fix || { echo "rumdl could not auto-fix all issues"; exit 1; }
 
 markdown-lint: _check-find
 	@echo "Linting Markdown files..."
-	@$(call find-by-ext,md,) | xargs -r markdownlint-cli2 || { echo "markdownlint-cli2 found issues"; exit 1; }
+	@$(call find-by-ext,md,) | xargs -r rumdl check || { echo "rumdl found issues"; exit 1; }
 
 sh-fmt: _check-find
 	@$(call find-by-ext,sh,) | xargs -r shfmt -w -i 0 -ci -bn

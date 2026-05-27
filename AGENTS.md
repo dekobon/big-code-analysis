@@ -166,7 +166,7 @@ skipped with a clear "X not found" message when the corresponding
 tool is absent). `make ci` runs the same checks without auto-fix,
 mirroring CI behaviour.
 
-If GNU Make 4 or any of the optional tools (`taplo`, `markdownlint-cli2`,
+If GNU Make 4 or any of the optional tools (`taplo`, `rumdl`,
 `shellcheck`, `shfmt`, `checkmake`, `actionlint`, `ruff`, `mypy`, `pyright`,
 `maturin`) are unavailable, fall back to the raw cargo commands:
 

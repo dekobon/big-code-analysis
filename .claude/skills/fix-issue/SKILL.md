@@ -94,7 +94,7 @@ description: Complete workflow for fixing GitHub issues including investigation,
     TOML / shell / Makefile lint families in one parallel pass. If
     `make` is unavailable, fall back to running the cargo gates manually
     (`cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
-    `cargo test --workspace --all-features`) plus `markdownlint-cli2`
+    `cargo test --workspace --all-features`) plus `rumdl check`
     against any Markdown files touched. If any check fails, fix and
     re-run until clean.
      If snapshot tests fail (`*.snap.new` files generated), use
@@ -118,7 +118,7 @@ description: Complete workflow for fixing GitHub issues including investigation,
       architecture changed.
     - Avoid hardcoding stale counts in any doc ("all tests passing", not "42
       tests passing").
-    - Re-run `markdownlint-cli2` after editing any Markdown files.
+    - Re-run `rumdl check` after editing any Markdown files.
 14. If there is a hard-won, globally reusable lesson from this fix, run the
     `/lessons-learned` skill (or propose an entry directly to
     `docs/development/lessons_learned.md` if that file exists) and prompt the

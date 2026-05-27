@@ -30,7 +30,7 @@ git clone -j8 git@github.com:dekobon/big-code-analysis.git
 The repository ships a `Makefile` that wraps every common build, test,
 lint, format, and docs task. Run `make help` to see the full list of
 targets, and `make check-tools` to verify which optional tools
-(`taplo`, `markdownlint-cli2`, `shellcheck`, `shfmt`, `checkmake`,
+(`taplo`, `rumdl`, `shellcheck`, `shfmt`, `checkmake`,
 `mdbook`, `cargo-insta`, `cargo-udeps`) are present on your machine.
 
 The two composite targets you will use most:
@@ -110,7 +110,7 @@ project (Rust, Markdown, TOML, Bash) in one shot; `make fmt-check`
 verifies formatting without modifying files.
 
 ```console
-make fmt         # cargo fmt + markdownlint-cli2 --fix + shfmt -w + taplo fmt
+make fmt         # cargo fmt + rumdl check --fix + shfmt -w + taplo fmt
 make fmt-check   # the equivalent --check variants
 ```
 

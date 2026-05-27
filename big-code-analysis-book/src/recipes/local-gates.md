@@ -83,7 +83,7 @@ checker (a pinned release binary, `cargo run --release`, an npm /
 pip wrapper). Adjust `PATHS` and `EXCLUDE_FROM` to match your
 layout.
 
-<!-- markdownlint-disable MD010 -->
+<!-- rumdl-disable MD010 -->
 
 ```make
 # --- bca local threshold gates ------------------------------------------
@@ -153,7 +153,7 @@ self-scan-write-baseline-headroom:
 	  $(BCA) $(BCA_BASE_ARGS)
 ```
 
-<!-- markdownlint-enable MD010 -->
+<!-- rumdl-enable MD010 -->
 
 The helper (`utils/bca-self-scan-headroom.py`) reads four env vars —
 `BCA_HEADROOM` (default `0.95`), `BCA_THRESHOLDS` (default
