@@ -433,7 +433,7 @@ impl Cognitive for RustCode {
             IfExpression if !Self::is_else_if(node) => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
-            ForExpression | WhileExpression | MatchExpression => {
+            ForExpression | WhileExpression | LoopExpression | MatchExpression => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
             Else /*else-if also */ => {
@@ -2897,6 +2897,70 @@ mod tests {
                       "average": 11.0,
                       "min": 0.0,
                       "max": 11.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    // Regression for #389: Rust's `loop {}` has a dedicated grammar node
+    // (LoopExpression) distinct from WhileExpression. The cognitive nesting
+    // arm previously matched only For/While/Match, so `loop {}` silently
+    // contributed neither a structural +1 nor a nesting bump.
+    #[test]
+    fn rust_loop_single() {
+        check_metrics::<RustParser>(
+            "fn f() {
+                 loop { // +1
+                     if true { // +2 (nesting = 1)
+                         break;
+                     }
+                 }
+             }",
+            "foo.rs",
+            |metric| {
+                // expected: loop=+1, nested if=+2 (1 + nesting depth 1) = 3
+                assert_eq!(metric.cognitive.cognitive_sum() as u32, 3);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 3.0,
+                      "min": 0.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    // Regression for #389: nested `loop` blocks must accrue nesting just
+    // like nested `while`/`for` would.
+    #[test]
+    fn rust_loop_nested() {
+        check_metrics::<RustParser>(
+            "fn f() {
+                 loop { // +1
+                     loop { // +2 (nesting = 1)
+                         if true { // +3 (nesting = 2)
+                             break;
+                         }
+                     }
+                 }
+             }",
+            "foo.rs",
+            |metric| {
+                // expected: outer loop=+1, inner loop=+2, inner if=+3 = 6
+                assert_eq!(metric.cognitive.cognitive_sum() as u32, 6);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 6.0,
+                      "average": 6.0,
+                      "min": 0.0,
+                      "max": 6.0
                     }"###
                 );
             },
