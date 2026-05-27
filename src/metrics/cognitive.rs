@@ -1978,15 +1978,11 @@ mod tests {
 
     #[test]
     fn rust_let_chain_vs_nested_if_let() {
-        // Two equivalent forms for chained `let` destructuring.
-        // The nested-`if let` form pays +1 for the outer `if`, +1
-        // for the nested `if` (nesting=1), so 3 total.
-        // The flat let-chain form pays +1 for the outer `if`, +1
-        // for the boolean sequence of `&&` between the let
-        // patterns, so 2 total. The two are *not* required to
-        // match exactly — what we assert is that the let-chain
-        // version contributes at least the boolean-sequence cost
-        // (sum >= 2). Pre-#396 this would have been 1.
+        // Companion to `rust_let_chain_sequence_booleans`. The nested
+        // `if let` form has no `&&` and so is unaffected by the #396
+        // LetChain dispatch; this test pins that the pre-existing
+        // nesting scoring (+1 outer `if`, +2 nested `if` at nesting=1)
+        // still yields 3 and that the LetChain arm did not alter it.
         check_metrics::<RustParser>(
             "fn f(a: Option<i32>, b: Option<i32>) {
                  if let Some(x) = a { // +1

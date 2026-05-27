@@ -901,11 +901,10 @@ mod tests {
             }",
             "foo.rs",
             |metric| {
-                // Headline: u_operands now includes `x` and `y` as
-                // distinct names (would be 6 without the fix, since
-                // `Point` is also a TypeIdentifier that this fix
-                // promotes; pre-fix u_operands was 4: main, p, sum, 0, 1
-                // minus duplicates).
+                // Headline: pre-fix, FieldIdentifier (`x`, `y`) and
+                // TypeIdentifier (`Point`) fell through to Unknown, so
+                // u_operands was 5 (main, p, sum, 0, 1). After the
+                // fix, +Point, +x, +y → 8 distinct names.
                 assert_eq!(metric.halstead.u_operands(), 8.0);
                 assert_eq!(metric.halstead.operands(), 12.0);
                 insta::assert_json_snapshot!(
@@ -1001,17 +1000,17 @@ mod tests {
             }",
             "foo.rs",
             |metric| {
-                // expected: ::  appears 3 times across the two path
-                // expressions (std::collections::HashMap contributes
-                // two; HashMap::new contributes one). Without the #394
-                // fix, all three `::` tokens fell through to Unknown,
-                // so operators() would be 7 (was 10 after the fix
-                // accounted for the three `::` occurrences).
+                // `::` appears 3 times across the two path expressions
+                // (`std::collections::HashMap` contributes two; the
+                // `HashMap::new` contributes one). Pre-fix all three
+                // dropped to Unknown: u_operators would be 6 (no `::`
+                // distinct) and operators() would be 7 (minus 3 `::`
+                // occurrences). With the fix u_operators=7 and
+                // operators=10.
                 //
-                // unique operators: fn, LPAREN, LBRACE, let, =, ::, ;
-                // (open parens/braces are the only counted side; the
-                // closing tokens do not appear in the operator arm.)
-                // unique operands: main, m, std, collections, HashMap, new
+                // unique operators (post-fix): fn, LPAREN, LBRACE,
+                // let, =, ::, ;. unique operands: main, m, std,
+                // collections, HashMap, new.
                 assert_eq!(metric.halstead.u_operators(), 7.0);
                 assert_eq!(metric.halstead.operators(), 10.0);
                 assert_eq!(metric.halstead.u_operands(), 6.0);
