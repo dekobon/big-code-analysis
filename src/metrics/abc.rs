@@ -8385,14 +8385,15 @@ function f(int $a, int $b): int {
     }
 
     #[test]
-    fn perl_short_circuit_with_boolean_literal_operand() {
+    fn perl_short_circuit_counts_scalar_variable_operands() {
         // `$a && $b` reports 2 conditions — one walker count per
-        // `ScalarVariable` operand. tree-sitter-perl's `Boolean`
-        // kind only fires on the `boolean` pragma's named `true` /
-        // `false` constants, not on bareword `1` / `0`, so this
-        // test uses two scalar-variable operands as the
-        // grammar-stable terminal-set witness for Perl. Confirms
-        // `ScalarVariable` is in the walker terminal set.
+        // `ScalarVariable` operand. Renamed from the cross-language
+        // `_with_boolean_literal_operand` convention because Perl has
+        // no readily-grammar-exposed boolean literal in an `&&`
+        // operand slot at the pinned grammar version (the `Boolean`
+        // kind only fires on the `boolean` pragma's named constants,
+        // not bareword `1` / `0`). Two scalar variables are the
+        // grammar-stable terminal-set witness for Perl.
         check_metrics::<PerlParser>(
             "sub f { my ($a) = @_; return $a && $b; }\n",
             "foo.pl",
