@@ -848,6 +848,38 @@ macro_rules! csharp_prefix_unary_expr_kinds {
     };
 }
 
+// Terminal-bool operand kinds recognised by ABC condition counting for
+// the C# grammar. Anything in this set, when it appears in a known-
+// boolean context (if / while / do / for / ternary / binary), counts
+// as one condition. The set bundles `csharp_invocation_expr_kinds!()`
+// with the bare `Identifier` / `BooleanLiteral` leaves *and* the five
+// expression kinds whose evaluated value is implicitly boolean in any
+// idiomatic codebase:
+//
+// - `MemberAccessExpression` — `cfg.Enabled`, `Request.IsHttps`
+// - `AwaitExpression`        — `await CheckAsync()`
+// - `CastExpression`         — `(bool)v`, `(IDisposable)x is not null`
+// - `IsPatternExpression`    — `x is null`, `x is not Foo f`
+// - `ElementAccessExpression` — `flags[0]`, `dict["key"]`
+//
+// Before #372 only the first three (invocation / identifier /
+// boolean) were recognised, so all five kinds above silently scored
+// zero conditions in `if` / `while` / `do` / ternary contexts.
+macro_rules! csharp_bool_terminal_kinds {
+    () => {
+        $crate::Csharp::InvocationExpression
+            | $crate::Csharp::InvocationExpression2
+            | $crate::Csharp::InvocationExpression3
+            | $crate::Csharp::Identifier
+            | $crate::Csharp::BooleanLiteral
+            | $crate::Csharp::MemberAccessExpression
+            | $crate::Csharp::AwaitExpression
+            | $crate::Csharp::CastExpression
+            | $crate::Csharp::IsPatternExpression
+            | $crate::Csharp::ElementAccessExpression
+    };
+}
+
 macro_rules! csharp_var_decl_kinds {
     () => {
         $crate::Csharp::VariableDeclaration | $crate::Csharp::VariableDeclaration2
@@ -862,7 +894,7 @@ macro_rules! csharp_var_declarator_kinds {
 
 pub(crate) use implement_metric_trait;
 pub(crate) use {
-    csharp_invocation_expr_kinds, csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds,
-    csharp_var_decl_kinds, csharp_var_declarator_kinds, get_language, mk_action, mk_code,
-    mk_emacs_mode, mk_extensions, mk_lang, mk_langs,
+    csharp_bool_terminal_kinds, csharp_invocation_expr_kinds, csharp_paren_expr_kinds,
+    csharp_prefix_unary_expr_kinds, csharp_var_decl_kinds, csharp_var_declarator_kinds,
+    get_language, mk_action, mk_code, mk_emacs_mode, mk_extensions, mk_lang, mk_langs,
 };

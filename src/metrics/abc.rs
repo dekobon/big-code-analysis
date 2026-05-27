@@ -27,7 +27,7 @@ use std::fmt;
 
 use crate::checker::Checker;
 use crate::macros::{
-    csharp_invocation_expr_kinds, csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds,
+    csharp_bool_terminal_kinds, csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds,
     implement_metric_trait,
 };
 use crate::node::Node;
@@ -381,8 +381,23 @@ fn java_inspect_container(container_node: &Node, conditions: &mut f64) {
         node = child;
         node_kind = node.kind_id().into();
 
-        // Stops the exploration when the content is found
-        if matches!(node_kind, MethodInvocation | Identifier | True | False) {
+        // Stops the exploration when the content is found. The terminal
+        // set includes `FieldAccess` (`obj.flag`), `CastExpression`
+        // (`(boolean)v`), `ArrayAccess` (`flags[0]`), and
+        // `InstanceofExpression` (`x instanceof Foo`) — every kind whose
+        // evaluated value is implicitly boolean in idiomatic Java, mirroring
+        // the C# fix in #372 (lesson #19).
+        if matches!(
+            node_kind,
+            MethodInvocation
+                | Identifier
+                | True
+                | False
+                | FieldAccess
+                | CastExpression
+                | ArrayAccess
+                | InstanceofExpression
+        ) {
             if has_boolean_content {
                 *conditions += 1.;
             }
@@ -391,9 +406,6 @@ fn java_inspect_container(container_node: &Node, conditions: &mut f64) {
     }
 }
 
-// C# analogue of `java_inspect_container`: walks parenthesised expressions
-// and `!` (PrefixUnaryExpression) wrappers to surface a unary boolean
-// condition contained within.
 fn csharp_inspect_container(container_node: &Node, conditions: &mut f64) {
     use Csharp::*;
 
@@ -440,17 +452,12 @@ fn csharp_inspect_container(container_node: &Node, conditions: &mut f64) {
         node_kind = node.kind_id().into();
 
         // Found the innermost operand; count it if a boolean context
-        // was established up the chain. `BooleanLiteral` is the
-        // grammar's named wrapper for `true` / `false` — see the
-        // doc comment on `csharp_count_condition` (issue #371).
-        if matches!(
-            node_kind,
-            crate::Csharp::InvocationExpression
-                | crate::Csharp::InvocationExpression2
-                | crate::Csharp::InvocationExpression3
-                | Identifier
-                | BooleanLiteral
-        ) {
+        // was established up the chain. The `csharp_bool_terminal_kinds!()`
+        // set bundles invocation aliases, the `Identifier` /
+        // `BooleanLiteral` leaves, and the five bool-evaluating kinds
+        // restored by #372 (member access / await / cast / is-pattern /
+        // element access).
+        if matches!(node_kind, csharp_bool_terminal_kinds!()) {
             if has_boolean_content {
                 *conditions += 1.;
             }
@@ -470,17 +477,12 @@ fn csharp_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             let node = cursor.node();
             let node_kind = node.kind_id().into();
 
-            // `BooleanLiteral` is the grammar's named wrapper for
-            // `true` / `false` — see the doc comment on
-            // `csharp_count_condition` (issue #371).
-            if matches!(
-                node_kind,
-                crate::Csharp::InvocationExpression
-                    | crate::Csharp::InvocationExpression2
-                    | crate::Csharp::InvocationExpression3
-                    | Identifier
-                    | BooleanLiteral
-            ) && matches!(list_kind, BinaryExpression)
+            // `csharp_bool_terminal_kinds!()` bundles invocation aliases,
+            // `Identifier`, `BooleanLiteral`, and the bool-evaluating
+            // expression kinds restored by #372 (member access / await /
+            // cast / is-pattern / element access).
+            if matches!(node_kind, csharp_bool_terminal_kinds!())
+                && matches!(list_kind, BinaryExpression)
             {
                 *conditions += 1.;
             } else {
@@ -508,9 +510,22 @@ fn java_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             let node = cursor.node();
             let node_kind = node.kind_id().into();
 
-            // Checks if the node is a unary condition
-            if matches!(node_kind, MethodInvocation | Identifier | True | False)
-                && matches!(list_kind, BinaryExpression)
+            // Checks if the node is a unary condition. The terminal set
+            // includes `FieldAccess`, `CastExpression`, `ArrayAccess`,
+            // and `InstanceofExpression` so that bool-evaluating
+            // operands of `&&` / `||` chains are not silently zeroed
+            // out (mirrors the C# fix in #372; lesson #19).
+            if matches!(
+                node_kind,
+                MethodInvocation
+                    | Identifier
+                    | True
+                    | False
+                    | FieldAccess
+                    | CastExpression
+                    | ArrayAccess
+                    | InstanceofExpression
+            ) && matches!(list_kind, BinaryExpression)
             {
                 *conditions += 1.;
             } else {
@@ -527,13 +542,6 @@ fn java_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
     }
 }
 
-// Groovy mirror of `java_inspect_container`. The dekobon Groovy grammar
-// inherits `parenthesized_expression`, `unary_expression`, and the
-// standard boolean-context kinds from tree-sitter-java verbatim, so the
-// body is structurally identical to Java's helper. The terminal set
-// includes `CommandChain` (the new grammar's distinct node for Groovy's
-// parens-less call form `println foo`), keeping it in sync with the
-// `impl Abc for GroovyCode` branches dispatch.
 fn groovy_inspect_container(container_node: &Node, conditions: &mut f64) {
     use Groovy::*;
 
@@ -570,11 +578,20 @@ fn groovy_inspect_container(container_node: &Node, conditions: &mut f64) {
 
         // `BooleanLiteral` is the dekobon tree-sitter-groovy
         // grammar's named wrapper for `true` / `false` — see the
-        // doc comment on `groovy_count_condition` (companion to
-        // issue #371's C# fix).
+        // doc comment on `groovy_count_condition`. The remaining
+        // bool-evaluating terminals (`FieldAccess`, `CastExpression`,
+        // `ParenthesizedTypeCast`, `InstanceofExpression`) mirror
+        // the C# fix in #372 (lesson #19).
         if matches!(
             node_kind,
-            MethodInvocation | CommandChain | Identifier | BooleanLiteral
+            MethodInvocation
+                | CommandChain
+                | Identifier
+                | BooleanLiteral
+                | FieldAccess
+                | CastExpression
+                | ParenthesizedTypeCast
+                | InstanceofExpression
         ) {
             if has_boolean_content {
                 *conditions += 1.;
@@ -595,13 +612,20 @@ fn groovy_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             let node = cursor.node();
             let node_kind = node.kind_id().into();
 
-            // `BooleanLiteral` is the dekobon tree-sitter-groovy
-            // grammar's named wrapper for `true` / `false` — see
-            // the doc comment on `groovy_count_condition`
-            // (companion to issue #371's C# fix).
+            // Terminal set mirrors `groovy_inspect_container` —
+            // bool-evaluating kinds (`FieldAccess`, `CastExpression`,
+            // `ParenthesizedTypeCast`, `InstanceofExpression`) added
+            // per issue #372 (lesson #19).
             if matches!(
                 node_kind,
-                MethodInvocation | CommandChain | Identifier | BooleanLiteral
+                MethodInvocation
+                    | CommandChain
+                    | Identifier
+                    | BooleanLiteral
+                    | FieldAccess
+                    | CastExpression
+                    | ParenthesizedTypeCast
+                    | InstanceofExpression
             ) && matches!(list_kind, BinaryExpression)
             {
                 *conditions += 1.;
@@ -1393,10 +1417,12 @@ fn java_walk_for_conditions(node: &Node, stats: &mut Stats) {
 fn java_walk_ternary(node: &Node, stats: &mut Stats) {
     use Java::*;
     let conds = &mut stats.conditions;
-    // Child 0: condition itself.
+    // Child 0: condition itself. The terminal set mirrors the one in
+    // `java_inspect_container` (issue #372 / lesson #19).
     if let Some(condition) = node.child(0) {
         match condition.kind_id().into() {
-            MethodInvocation | Identifier | True | False => *conds += 1.,
+            MethodInvocation | Identifier | True | False | FieldAccess | CastExpression
+            | ArrayAccess | InstanceofExpression => *conds += 1.,
             ParenthesizedExpression | UnaryExpression => {
                 java_inspect_container(&condition, conds);
             }
@@ -1416,13 +1442,18 @@ fn java_walk_for_statement(node: &Node, stats: &mut Stats) {
     let Some(condition) = node.child(3) else {
         return;
     };
+    // Terminal set mirrors `java_inspect_container` (issue #372 / lesson
+    // #19): FieldAccess / CastExpression / ArrayAccess /
+    // InstanceofExpression all evaluate to a boolean in idiomatic Java
+    // for-condition slots.
     match condition.kind_id().into() {
         // `for (i = 0; cond; ...)` — initializer is an expression, so
         // the leading `;` sits at child 3 and the real condition at 4.
         SEMI => {
             if let Some(cond) = node.child(4) {
                 match cond.kind_id().into() {
-                    MethodInvocation | Identifier | True | False | SEMI | RPAREN => {
+                    MethodInvocation | Identifier | True | False | FieldAccess | CastExpression
+                    | ArrayAccess | InstanceofExpression | SEMI | RPAREN => {
                         stats.conditions += 1.;
                     }
                     ParenthesizedExpression | UnaryExpression => {
@@ -1432,7 +1463,8 @@ fn java_walk_for_statement(node: &Node, stats: &mut Stats) {
                 }
             }
         }
-        MethodInvocation | Identifier | True | False => {
+        MethodInvocation | Identifier | True | False | FieldAccess | CastExpression
+        | ArrayAccess | InstanceofExpression => {
             stats.conditions += 1.;
         }
         ParenthesizedExpression | UnaryExpression => {
@@ -1632,27 +1664,26 @@ impl Abc for GroovyCode {
     }
 }
 
-// Counts a single boolean-context condition expression for the dekobon
-// Groovy grammar. The grammar inlines `(` / `)` as token children of
-// `if_statement` / `while_statement` / `do_while_statement` rather than
-// wrapping the condition in a `parenthesized_expression`, so the
-// condition shows up bare. A bare identifier / boolean / call / command
-// chain contributes one condition directly; parenthesised and unary
-// containers delegate to `groovy_inspect_container`; binary / ternary
-// expressions are picked up by their own arms.
-//
-// The boolean-literal arm matches `BooleanLiteral` (the named
-// `boolean_literal` wrapper, kind_id 270), not the leaf `True` /
-// `False` keyword tokens which only appear *underneath* that
-// wrapper. `groovy_inspect_container` and
-// `groovy_count_unary_conditions` follow the same convention.
-// Companion to issue #371 (the C# fix); the dekobon Groovy
-// grammar mirrors the C# grammar's wrapping convention for
-// boolean literals.
 fn groovy_count_condition(condition: &Node, conditions: &mut f64) {
     use Groovy::*;
+    // Terminal set mirrors the C# fix in #372 (lesson #19):
+    // `FieldAccess` (`obj.flag`), `CastExpression` (`v as Boolean` — the
+    // Groovy-idiomatic form), `ParenthesizedTypeCast` (`(boolean) v` —
+    // the Java-style form, which the dekobon Groovy grammar represents
+    // as its own kind rather than nesting `cast_expression` inside
+    // `parenthesized_expression`), and `InstanceofExpression`
+    // (`x instanceof Foo`) all evaluate to a boolean. The dekobon
+    // Groovy grammar has no `await` or `array_access` analogues, so
+    // those collapse out of the five-kind C# set.
     match condition.kind_id().into() {
-        MethodInvocation | CommandChain | Identifier | BooleanLiteral => {
+        MethodInvocation
+        | CommandChain
+        | Identifier
+        | BooleanLiteral
+        | FieldAccess
+        | CastExpression
+        | ParenthesizedTypeCast
+        | InstanceofExpression => {
             *conditions += 1.;
         }
         ParenthesizedExpression | UnaryExpression => {
@@ -1816,14 +1847,11 @@ fn csharp_walk_conditional(node: &Node, stats: &mut Stats) {
 // condition is a bare identifier, invocation, boolean literal,
 // parenthesised expression, or `!`-prefixed unary expression.
 fn csharp_walk_for_statement(node: &Node, stats: &mut Stats) {
-    use Csharp::*;
     let Some(condition) = node.child_by_field_name("condition") else {
         return;
     };
     let kind = condition.kind_id().into();
-    if matches!(kind, csharp_invocation_expr_kinds!())
-        || matches!(kind, Identifier | BooleanLiteral)
-    {
+    if matches!(kind, csharp_bool_terminal_kinds!()) {
         stats.conditions += 1.;
     } else if matches!(kind, csharp_paren_expr_kinds!())
         || matches!(kind, csharp_prefix_unary_expr_kinds!())
@@ -2210,38 +2238,9 @@ fn csharp_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
     }
 }
 
-// Counts a single boolean-context condition expression for
-// tree-sitter-c-sharp. Mirrors `groovy_count_condition`: the C#
-// grammar inlines `(` / `)` as anonymous token children of
-// `if_statement` / `while_statement` / `do_statement` (and the
-// `conditional_expression` ternary leaves its condition bare at
-// child(0)) rather than wrapping the condition in a
-// `parenthesized_expression`, so a bare identifier / boolean
-// literal / call contributes one condition directly. Parenthesised
-// and `!`-prefixed unary containers delegate to
-// `csharp_inspect_container`, which seeds
-// `has_boolean_content = true` from the known-boolean parent
-// (if/while/do/conditional). Binary / comparison expressions are
-// counted elsewhere via the `AMPAMP` / `PIPEPIPE` / `GT` / `LT` /
-// `EQEQ` token arms. See issue #370.
-//
-// `if/while` route here from child(2), `do-while` from child(4),
-// and the ternary's condition slot from child(0) — the C# grammar
-// reverses Java's `parenthesized_expression` wrapper convention, so
-// the index differs across the call sites but the kind-classifier
-// is the same.
-//
-// The boolean-literal arm matches `BooleanLiteral` (the named
-// `boolean_literal` wrapper), not the leaf `True` / `False`
-// keyword tokens which only appear *underneath* that wrapper.
-// `csharp_inspect_container` and `csharp_count_unary_conditions`
-// follow the same convention. See issue #371.
 fn csharp_count_condition(condition: &Node, conditions: &mut f64) {
-    use Csharp::*;
     let kind = condition.kind_id().into();
-    if matches!(kind, csharp_invocation_expr_kinds!())
-        || matches!(kind, Identifier | BooleanLiteral)
-    {
+    if matches!(kind, csharp_bool_terminal_kinds!()) {
         *conditions += 1.;
     } else if matches!(kind, csharp_paren_expr_kinds!())
         || matches!(kind, csharp_prefix_unary_expr_kinds!())
@@ -3076,6 +3075,39 @@ mod tests {
     }
 
     #[test]
+    fn java_bool_returning_terminal_kinds_count() {
+        // Companion to `csharp_bool_returning_terminal_kinds_count`
+        // (issue #372 / lesson #19). Java's grammar wraps every
+        // if/while/do condition in `parenthesized_expression`, so
+        // the gap lived in `java_inspect_container`'s terminal-arm
+        // recognizer: `FieldAccess` (`cfg.flag`), `CastExpression`
+        // (`(boolean)v`), `ArrayAccess` (`flags[0]`), and
+        // `InstanceofExpression` (`x instanceof Foo`) were never
+        // counted. Java has no `await` or `is_pattern` analogues,
+        // so the C# fix's five-kind set collapses to four here.
+        //
+        // expected: 4 conditions (one per `if`), 0 assignments,
+        // 0 branches (no invocations).
+        check_metrics::<JavaParser>(
+            "class Cfg { boolean flag; }
+            class A {
+                void m(Object v, boolean[] flags, Cfg cfg) {
+                    if (cfg.flag) { }
+                    if ((boolean) v) { }
+                    if (v instanceof Cfg) { }
+                    if (flags[0]) { }
+                }
+            }",
+            "foo.java",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+            },
+        );
+    }
+
+    #[test]
     fn groovy_no_abc() {
         // Comment-only file has no executable code → all-zero ABC.
         check_metrics::<GroovyParser>(
@@ -3235,6 +3267,39 @@ mod tests {
         check_metrics::<GroovyParser>("def x = (((", "foo.groovy", |metric| {
             assert_eq!(metric.abc.assignments_sum(), 1.0);
         });
+    }
+
+    #[test]
+    fn groovy_bool_returning_terminal_kinds_count() {
+        // Companion to `csharp_bool_returning_terminal_kinds_count`
+        // (issue #372 / lesson #19). The dekobon Groovy grammar
+        // shares Java's wrapping conventions for `FieldAccess` and
+        // `InstanceofExpression`, but it splits casts into two
+        // distinct kinds — `cast_expression` for the Groovy-idiomatic
+        // `v as Boolean` and `parenthesized_type_cast` for the
+        // Java-style `(boolean) v`. The grammar has no `await` or
+        // `array_access` analogues, so the C# fix's five-kind set
+        // collapses to four here (with the cast slot doubled).
+        //
+        // expected: 4 conditions (one per `if`), 0 assignments,
+        // 0 branches (no invocations).
+        check_metrics::<GroovyParser>(
+            "class Cfg { boolean flag }
+            class A {
+                void m(Object v, Cfg cfg) {
+                    if (cfg.flag) { }
+                    if ((boolean) v) { }
+                    if (v as Boolean) { }
+                    if (v instanceof Cfg) { }
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                assert_eq!(metric.abc.branches_sum(), 0.0);
+            },
+        );
     }
 
     #[test]
@@ -3750,6 +3815,46 @@ mod tests {
                 assert_eq!(metric.abc.conditions_sum(), 1.0);
                 assert_eq!(metric.abc.branches_sum(), 1.0);
                 assert_eq!(metric.abc.assignments_sum(), 0.0);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_bool_returning_terminal_kinds_count() {
+        // Regression for issue #372 (lesson #19): before the fix,
+        // `csharp_count_condition` / `csharp_inspect_container` only
+        // recognised invocation / identifier / boolean literal as
+        // terminal-bool operands, so the five idiomatic boolean
+        // expressions in the `if (...)` slots below silently scored
+        // zero conditions:
+        //
+        //   - `cfg.flag`        — MemberAccessExpression
+        //   - `await c.Check()` — AwaitExpression
+        //   - `(bool)v`         — CastExpression
+        //   - `v is not null`   — IsPatternExpression
+        //   - `flags[0]`        — ElementAccessExpression
+        //
+        // expected: 5 conditions (one per `if`), 0 assignments,
+        // 1 branch (the single `c.Check()` invocation; the other
+        // `if`-condition expressions are not invocations).
+        check_metrics::<CsharpParser>(
+            "using System.Threading.Tasks;
+            class A {
+                async Task M(object v, bool[] flags, Cfg cfg, C c) {
+                    if (cfg.flag) { }
+                    if (await c.Check()) { }
+                    if ((bool)v) { }
+                    if (v is not null) { }
+                    if (flags[0]) { }
+                }
+            }
+            class Cfg { public bool flag; }
+            class C { public Task<bool> Check() => null; }",
+            "foo.cs",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 5.0);
+                assert_eq!(metric.abc.assignments_sum(), 0.0);
+                assert_eq!(metric.abc.branches_sum(), 1.0);
             },
         );
     }
