@@ -849,8 +849,9 @@ macro_rules! ts_abc_compute {
                 // `<lang>_inspect_container`'s paren-unwrap handles
                 // the boolean-literal case (`if (true)` counts 1).
                 // The condition sits at child(1) for if and while.
-                // For `do_statement`, the condition is at child(4)
-                // (children: `do`, body, `while`, condition, `;`).
+                // For `do_statement`, the condition is at child(3)
+                // (children: `do`(0), body(1), `while`(2),
+                // parenthesized condition(3), `;`(4)).
                 IfStatement | WhileStatement => {
                     if let Some(cond) = node.child(1) {
                         $inspect_container(&cond, &mut stats.conditions);
@@ -1152,6 +1153,29 @@ fn php_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
     }
 }
 
+// Returns the value slot of a PHP `argument` wrapper node.
+// Positional argument `m(!$a)` has a single named child — the value.
+// Named argument `m(name: !$a)` has children `name`, `:`, value — the
+// last named child is the value. Returns the last named child for
+// both shapes; returns None only when the argument has no named
+// children (grammar-error case).
+fn php_argument_value<'a>(argument: &Node<'a>) -> Option<Node<'a>> {
+    let mut cursor = argument.cursor();
+    let mut last_named = None;
+    if cursor.goto_first_child() {
+        loop {
+            let child = cursor.node();
+            if child.is_named() {
+                last_named = Some(child);
+            }
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+    last_named
+}
+
 fn php_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
     use Php::*;
 
@@ -1164,19 +1188,23 @@ fn php_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             let node_kind = node.kind_id().into();
 
             // PHP wraps each call argument in an `argument` node;
-            // descend one level through that wrapper so the
-            // unary-conditional operand inside is reachable. The
-            // grammar guarantees `argument` has at least one child;
-            // skip the rare grammar-error case where it doesn't.
-            let inner = match (matches!(node_kind, Argument), node.child(0)) {
-                (true, None) => {
+            // descend through that wrapper to the value slot. For
+            // named arguments `m(name: !$a)` the value is the LAST
+            // named child (`name`/`:`/`value`); for positional
+            // arguments `m(!$a)` the value is the only child. Use
+            // the last named child to handle both shapes — and skip
+            // the rare grammar-error case where Argument has no
+            // named children.
+            let inner = if matches!(node_kind, Argument) {
+                let Some(value) = php_argument_value(&node) else {
                     if !cursor.goto_next_sibling() {
                         break;
                     }
                     continue;
-                }
-                (true, Some(child)) => child,
-                (false, _) => node,
+                };
+                value
+            } else {
+                node
             };
             let inner_kind = inner.kind_id().into();
 
@@ -1817,12 +1845,6 @@ fn go_count_condition(condition: &Node, conditions: &mut f64) {
     }
 }
 
-fn go_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
-    if let Some(child) = node.child(idx) {
-        go_count_condition(&child, conditions);
-    }
-}
-
 fn go_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
     use Go as G;
 
@@ -1906,10 +1928,14 @@ impl Abc for GoCode {
             }
             // Phase-2B (issue #403): Rule 6 / 7 condition slots.
             // `if true {}` / `if !a {}` / `if (a) {}` count once.
-            // Go's `if` and `for` have the condition at child(1)
-            // (child(0) is the keyword).
+            // Use `child_by_field_name("condition")` so the
+            // `if x := f(); x { ... }` init-statement form is
+            // handled correctly — its `condition` field is at
+            // child(2) (not child(1), which is the init slot).
             G::IfStatement => {
-                go_inspect_child(node, 1, &mut stats.conditions);
+                if let Some(cond) = node.child_by_field_name("condition") {
+                    go_count_condition(&cond, &mut stats.conditions);
+                }
             }
             // `return value` — Go wraps the return values in an
             // `expression_list` at child(1). Iterate the list's
@@ -2125,7 +2151,18 @@ impl Abc for CppCode {
             // expression). `cpp_inspect_container` handles the
             // `(...)` / `!...` unwrap so `if (true)` and `return !x`
             // each count one condition; bare `return x` reports zero.
-            IfStatement | WhileStatement | ReturnStatement => {
+            // Use `child_by_field_name("condition")` for if/while so
+            // the `if constexpr (cond)` form (where child(1) is the
+            // `constexpr` keyword, not the condition_clause) is
+            // handled correctly. Return uses positional child(1)
+            // — its value field is always at index 1, no optional
+            // attribute precedes it.
+            IfStatement | WhileStatement => {
+                if let Some(cond) = node.child_by_field_name("condition") {
+                    cpp_inspect_container(&cond, &mut stats.conditions);
+                }
+            }
+            ReturnStatement => {
                 cpp_inspect_child(node, 1, &mut stats.conditions);
             }
             // `do { ... } while (cond);` — children: `do`, body,
@@ -5702,6 +5739,25 @@ function f(int $a, int $b): int {
     }
 
     #[test]
+    fn php_named_argument_unary_conditional_counts() {
+        // Regression for the code-review finding: PHP 8 named-argument
+        // syntax `m(name: !$a)` parses as `argument(name, ':',
+        // unary_op_expression)`. Pre-fix, the count walker took
+        // `argument.child(0)` (the name) and missed the value at the
+        // last child. Now it picks the last named child as the value.
+        check_metrics::<PhpParser>(
+            "<?php\nfunction f($a) { m(name: !$a); }\n",
+            "foo.php",
+            |metric| {
+                // 1 call (branch) + 1 unary-conditional named argument.
+                assert_eq!(metric.abc.branches_sum(), 1.0);
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
     fn php_low_precedence_keyword_logical_ops_trigger_walker() {
         // Regression: pre-fix, `$a or $b` reported 0 conditions
         // because the dispatcher only handled `AMPAMP|PIPEPIPE`,
@@ -7843,6 +7899,29 @@ function f(int $a, int $b): int {
     }
 
     #[test]
+    fn go_if_init_statement_condition_counts() {
+        // Regression for the code-review finding: Go's
+        // `if x := f(); x { ... }` init-statement form puts the
+        // short-var declaration at child(1) and the condition at
+        // child(2). Pre-fix, the dispatcher used child(1) and
+        // counted zero conditions for this idiomatic Go shape.
+        // The fix uses `child_by_field_name("condition")` which
+        // returns the condition regardless of init presence.
+        check_metrics::<GoParser>(
+            "package p\nfunc F() { if x := g(); x { } }\n",
+            "foo.go",
+            |metric| {
+                // `x` bare-identifier condition contributes 1
+                // (Rule 6 — bare boolean identifier in if-condition).
+                // `g()` call contributes 1 branch but no condition.
+                assert_eq!(metric.abc.branches_sum(), 1.0);
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
     fn go_if_boolean_literal_condition() {
         check_metrics::<GoParser>(
             "package p\n\
@@ -8398,6 +8477,28 @@ function f(int $a, int $b): int {
             "foo.cpp",
             |metric| {
                 assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_if_constexpr_condition_counts() {
+        // Regression for the code-review finding: C++ `if constexpr
+        // (cond)` puts the `constexpr` keyword at child(1) and the
+        // condition_clause at child(2). Pre-fix, the dispatcher used
+        // child(1) and counted zero conditions for the `constexpr`
+        // form. The fix uses `child_by_field_name("condition")`
+        // which returns the condition_clause regardless of the
+        // optional `constexpr` keyword.
+        check_metrics::<CppParser>(
+            "template <int N> void f() {\n\
+             \x20   if constexpr (true) { }      // +1c\n\
+             \x20   if (false) { }               // +1c\n\
+             }\n",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
