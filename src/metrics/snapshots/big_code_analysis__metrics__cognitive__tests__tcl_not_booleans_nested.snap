@@ -4,8 +4,8 @@ assertion_line: 3373
 expression: metric.cognitive
 ---
 {
-  "sum": 3.0,
-  "average": 3.0,
+  "sum": 2.0,
+  "average": 2.0,
   "min": 0.0,
-  "max": 3.0
+  "max": 2.0
 }

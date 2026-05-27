@@ -29,7 +29,7 @@ use serde::ser::{SerializeStruct, Serializer};
 use std::fmt;
 
 use crate::checker::Checker;
-use crate::macros::{csharp_prefix_unary_expr_kinds, implement_metric_trait};
+use crate::macros::implement_metric_trait;
 use crate::*;
 
 // TODO: Find a way to increment the cognitive complexity value
@@ -272,11 +272,6 @@ impl BoolSequence {
         self.boolean_op = None;
     }
 
-    fn not_operator(&mut self) {
-        // NOT resets the sequence so the next boolean always scores +1
-        self.reset();
-    }
-
     fn eval_based_on_prev(
         &mut self,
         bool_id: u16,
@@ -382,9 +377,6 @@ impl Cognitive for PythonCode {
             ExpressionList | ExpressionStatement | Tuple => {
                 stats.boolean_seq.reset();
             }
-            NotOperator => {
-                stats.boolean_seq.not_operator();
-            }
             BooleanOperator => {
                 if node.count_specific_ancestors::<PythonParser>(
                     |node| node.kind_id() == BooleanOperator,
@@ -446,9 +438,6 @@ impl Cognitive for RustCode {
                     increment_by_one(stats);
                 }
             }
-            UnaryExpression => {
-                stats.boolean_seq.not_operator();
-            }
             // `LetChain` (the visible alias) and `LetChain2` (the hidden
             // `_let_chain` supertype) are Rust 2024 let-chains:
             // `if let Some(x) = a && let Some(y) = b && cond`. Their `&&`
@@ -502,9 +491,6 @@ impl Cognitive for CppCode {
             GotoStatement | Else /* else-if also */ => {
                 increment_by_one(stats);
             }
-            UnaryExpression2 => {
-                stats.boolean_seq.not_operator();
-            }
             BinaryExpression2 => {
                 compute_booleans(node, stats, AMPAMP, PIPEPIPE);
             }
@@ -541,9 +527,6 @@ macro_rules! js_cognitive {
                 ExpressionStatement => {
                     // Reset the boolean sequence
                     stats.boolean_seq.reset();
-                }
-                UnaryExpression => {
-                    stats.boolean_seq.not_operator();
                 }
                 BinaryExpression => {
                     // `??` (`QMARKQMARK`) short-circuits like `&&` /
@@ -632,9 +615,6 @@ impl Cognitive for JavaCode {
             {
                 increment_by_one(stats);
             }
-            UnaryExpression => {
-                stats.boolean_seq.not_operator();
-            }
             BinaryExpression => {
                 compute_booleans(node, stats, AMPAMP, PIPEPIPE);
             }
@@ -681,9 +661,6 @@ impl Cognitive for GroovyCode {
             // structured control flow. Same shape as Java.
             BreakStatement | ContinueStatement if node.is_child(Identifier as u16) => {
                 increment_by_one(stats);
-            }
-            UnaryExpression => {
-                stats.boolean_seq.not_operator();
             }
             BinaryExpression => {
                 compute_booleans(node, stats, AMPAMP, PIPEPIPE);
@@ -743,12 +720,6 @@ impl Cognitive for CsharpCode {
             // the only labeled-jump form to handle here is `goto_statement`.
             GotoStatement => {
                 increment_by_one(stats);
-            }
-            // The grammar emits two aliased `kind_id`s for
-            // `prefix_unary_expression`; both must signal `!` to the
-            // boolean sequence tracker (lesson #2).
-            csharp_prefix_unary_expr_kinds!() => {
-                stats.boolean_seq.not_operator();
             }
             BinaryExpression => {
                 // C#'s null-coalescing `??` short-circuits like `&&` /
@@ -825,9 +796,6 @@ impl Cognitive for PerlCode {
             P::LoopControlStatement if node.is_child(P::Label as u16) => {
                 increment_by_one(stats);
             }
-            P::UnaryExpression => {
-                stats.boolean_seq.not_operator();
-            }
             P::BinaryExpression => {
                 compute_perl_booleans(node, stats);
             }
@@ -874,9 +842,6 @@ impl Cognitive for KotlinCode {
                 if !in_when {
                     increment_by_one(stats);
                 }
-            }
-            UnaryExpression => {
-                stats.boolean_seq.not_operator();
             }
             BinaryExpression => {
                 // Kotlin's Elvis operator `?:` (token `QMARKCOLON`) is a
@@ -930,9 +895,6 @@ impl Cognitive for GoCode {
             }
             G::BreakStatement | G::ContinueStatement if node.is_child(G::LabelName as u16) => {
                 increment_by_one(stats);
-            }
-            G::UnaryExpression => {
-                stats.boolean_seq.not_operator();
             }
             G::BinaryExpression => {
                 compute_booleans(node, stats, G::AMPAMP, G::PIPEPIPE);
@@ -1027,10 +989,6 @@ impl Cognitive for TclCode {
             Catch => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
-            // Track `!` prefix so that `!$a && !$b` counts the && only once.
-            UnaryExpr if node.child(0).is_some_and(|c| c.kind_id() == Tcl::BANG) => {
-                stats.boolean_seq.not_operator();
-            }
             BinopExpr => {
                 compute_booleans(node, stats, AMPAMP, PIPEPIPE);
             }
@@ -1074,9 +1032,6 @@ impl Cognitive for LuaCode {
             // jumps that add cognitive load. Lua has no `continue`.
             ElseStatement | BreakStatement | GotoStatement => {
                 increment_by_one(stats);
-            }
-            UnaryExpression => {
-                stats.boolean_seq.not_operator();
             }
             BinaryExpression => {
                 compute_booleans(node, stats, And, Or);
@@ -1127,9 +1082,6 @@ impl Cognitive for PhpCode {
             }
             ElseClause | ElseClause2 | ElseIfClause | ElseIfClause2 => {
                 increment_branch_extension(stats);
-            }
-            UnaryOpExpression | UnaryOpExpression2 => {
-                stats.boolean_seq.not_operator();
             }
             BinaryExpression => {
                 // PHP's null-coalescing `??` short-circuits like `&&` /
@@ -1336,12 +1288,6 @@ impl Cognitive for ElixirCode {
             E::BinaryOperator | E::BinaryOperator2 | E::BinaryOperator3 => {
                 compute_elixir_booleans(node, stats);
             }
-            // Unary `!` / `not` resets the boolean sequence so the next
-            // `&&` / `||` always scores +1 (matches Java's
-            // `UnaryExpression` rule).
-            E::UnaryOperator => {
-                stats.boolean_seq.not_operator();
-            }
             _ => {}
         }
         nesting_map.insert(node.id(), (nesting, depth, lambda));
@@ -1398,18 +1344,6 @@ impl Cognitive for RubyCode {
             // each add cognitive load.
             R::Break | R::Break2 | R::Next | R::Next2 | R::Redo | R::Retry => {
                 increment_by_one(stats);
-            }
-            // tree-sitter-ruby folds every unary form (`!`, `not`, `-`,
-            // `+`, `~`, `defined?`) into the same `unary` rule (with five
-            // aliased visible kind_ids). Only the logical-not variants
-            // should reset the boolean sequence; arithmetic unaries must
-            // not. Mirrors the explicit BANG gate in Tcl's impl.
-            R::Unary | R::Unary2 | R::Unary3 | R::Unary4 | R::Unary5
-                if node
-                    .child(0)
-                    .is_some_and(|c| matches!(c.kind_id().into(), R::BANG | R::Not)) =>
-            {
-                stats.boolean_seq.not_operator();
             }
             R::Binary | R::Binary2 | R::Binary3 => {
                 // Ruby has four short-circuit forms (`&&`, `||`, `and`,
@@ -2122,8 +2056,14 @@ mod tests {
         );
 
         check_metrics::<RustParser>(
+            // `!` does not break boolean sequences (issue #392): the
+            // outer and inner `&&`s are folded into a single sequence
+            // because pre-order visits the outer BinaryExpression first
+            // (recording `&&` at its end_byte) and the inner `&&` lies
+            // within that span. The `!` arm was dead anyway — it fired
+            // after both BinaryExpressions had already been counted.
             "fn f() {
-                 if a && !(b && c) { // +3 (+1 &&, +1 &&)
+                 if a && !(b && c) { // +2 (+1 if, +1 outer &&; inner && continues)
                      println!(\"test\");
                  }
              }",
@@ -2133,10 +2073,10 @@ mod tests {
                     metric.cognitive,
                     @r###"
                     {
-                      "sum": 3.0,
-                      "average": 3.0,
+                      "sum": 2.0,
+                      "average": 2.0,
                       "min": 0.0,
-                      "max": 3.0
+                      "max": 2.0
                     }"###
                 );
             },
@@ -2165,10 +2105,72 @@ mod tests {
     }
 
     #[test]
+    fn rust_not_does_not_affect_boolean_sequence_392() {
+        // Regression test for issue #392: `!` does not affect cognitive
+        // scoring for a same-operator boolean sequence. `!a && !b && !c`
+        // must score identically to `a && b && c` — both are a single
+        // `&&` chain under SonarSource's rule B1 (only operator switches
+        // start a new sequence). The previously dead `UnaryExpression`
+        // arm could not have affected this case either way (pre-order
+        // visits the BinaryExpressions before the UnaryExpressions), so
+        // this asserts the new and old behaviour agree where it matters.
+        // if(+1) + && sequence(+1) = 2; the two trailing `&&`s are
+        // continuations because all three share the outer pre-order
+        // parent's end_byte.
+        check_metrics::<RustParser>(
+            "fn f() {
+                 if !a && !b && !c {
+                     println!(\"test\");
+                 }
+             }",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 2.0,
+                      "min": 0.0,
+                      "max": 2.0
+                    }"###
+                );
+            },
+        );
+        check_metrics::<RustParser>(
+            "fn f() {
+                 if a && b && c {
+                     println!(\"test\");
+                 }
+             }",
+            "foo.rs",
+            |metric| {
+                // Same sum as the negated form above: `!` is not a
+                // boolean-sequence boundary.
+                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 2.0,
+                      "average": 2.0,
+                      "min": 0.0,
+                      "max": 2.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
     fn c_not_booleans() {
+        // `!` does not break boolean sequences (issue #392): the inner
+        // `&&` is folded into the outer `&&`'s span because pre-order
+        // visits the outer BinaryExpression first.
         check_metrics::<CppParser>(
             "void f() {
-                 if (a && !(b && c)) { // +3 (+1 &&, +1 &&)
+                 if (a && !(b && c)) { // +2 (+1 if, +1 outer &&; inner && continues)
                      printf(\"test\");
                  }
              }",
@@ -2178,10 +2180,10 @@ mod tests {
                     metric.cognitive,
                     @r###"
                     {
-                      "sum": 3.0,
-                      "average": 3.0,
+                      "sum": 2.0,
+                      "average": 2.0,
                       "min": 0.0,
-                      "max": 3.0
+                      "max": 2.0
                     }"###
                 );
             },
@@ -2211,9 +2213,13 @@ mod tests {
 
     #[test]
     fn mozjs_not_booleans() {
+        // `!` does not break boolean sequences (issue #392): inner `&&`
+        // continues the outer `&&` sequence (pre-order visits the outer
+        // BinaryExpression first, so its end_byte already covers the
+        // inner one).
         check_metrics::<MozjsParser>(
             "function f() {
-                 if (a && !(b && c)) { // +3 (+1 &&, +1 &&)
+                 if (a && !(b && c)) { // +2 (+1 if, +1 outer &&; inner && continues)
                      window.print(\"test\");
                  }
              }",
@@ -2223,10 +2229,10 @@ mod tests {
                     metric.cognitive,
                     @r###"
                     {
-                      "sum": 3.0,
-                      "average": 3.0,
+                      "sum": 2.0,
+                      "average": 2.0,
                       "min": 0.0,
-                      "max": 3.0
+                      "max": 2.0
                     }"###
                 );
             },
@@ -3943,10 +3949,14 @@ mod tests {
 
     #[test]
     fn java_not_booleans() {
+        // `!` does not break boolean sequences (issue #392): pre-order
+        // visits the outer `&&` BinaryExpression first; the inner `&&`
+        // lies within that span and is a continuation, not a new
+        // sequence.
         check_metrics::<JavaParser>(
             "class X {
               public static void print(boolean a, boolean b, boolean c, boolean d){
-                if (a && !(b && c)) { // +3 (+1 &&, +1 &&)
+                if (a && !(b && c)) { // +2 (+1 if, +1 outer &&; inner && continues)
                   printf(\"test\");
                 }
               }
@@ -3957,10 +3967,10 @@ mod tests {
                     metric.cognitive,
                     @r###"
                     {
-                      "sum": 3.0,
-                      "average": 3.0,
+                      "sum": 2.0,
+                      "average": 2.0,
                       "min": 0.0,
-                      "max": 3.0
+                      "max": 2.0
                     }"###
                 );
             },
@@ -4303,6 +4313,9 @@ mod tests {
 
     #[test]
     fn csharp_not_booleans() {
+        // `!` does not break boolean sequences (issue #392): pre-order
+        // visits the outer `&&` BinaryExpression first, so the inner
+        // `&&` lies within its span and is a continuation.
         check_metrics::<CsharpParser>(
             "class X {
                 public static void Print(bool a, bool b, bool c) {
@@ -4313,9 +4326,9 @@ mod tests {
             }",
             "foo.cs",
             |metric| {
-                // `if` +1, outer `&&` +1, inner `&&` (different chain after `!`) +1 → 3.
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                // `if` +1, outer `&&` +1, inner `&&` continues outer span → 2.
+                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -4599,9 +4612,12 @@ mod tests {
 
     #[test]
     fn perl_not_booleans() {
+        // `!` does not break boolean sequences (issue #392): pre-order
+        // visits the outer `&&` BinaryExpression first, so the inner
+        // `&&` lies within its span and is a continuation.
         check_metrics::<PerlParser>(
             "sub f {
-                if ($a && !($b && $c)) { # +1 if, +1 &&, +1 inner &&
+                if ($a && !($b && $c)) { # +1 if, +1 outer &&; inner && continues
                     print 'x';
                 }
             }",
@@ -4609,10 +4625,10 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(metric.cognitive, @r#"
                 {
-                  "sum": 3.0,
-                  "average": 3.0,
+                  "sum": 2.0,
+                  "average": 2.0,
                   "min": 0.0,
-                  "max": 3.0
+                  "max": 2.0
                 }
                 "#);
             },
@@ -5657,7 +5673,8 @@ mod tests {
 
     #[test]
     fn tcl_not_booleans_nested() {
-        // `$a && !($b && $c)`: if(+1) + outer &&(+1) + inner && after not_operator(+1) = 3.
+        // `$a && !($b && $c)`: `!` does not break boolean sequences
+        // (issue #392); inner `&&` is a continuation of the outer.
         check_metrics::<TclParser>(
             "proc f {a b c} {
     if {$a && !($b && $c)} {
@@ -5666,9 +5683,9 @@ mod tests {
 }",
             "foo.tcl",
             |metric| {
-                // if(+1) + outer &&(+1) + inner && after `!` (+1) = 3.
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                // if(+1) + outer &&(+1); inner && continues outer's span → 2.
+                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -7666,7 +7683,9 @@ end",
 
     #[test]
     fn php_not_booleans() {
-        // `!` operator resets the boolean sequence so the chain re-counts.
+        // `!` does not break boolean sequences (issue #392): pre-order
+        // visits the outer `&&` BinaryExpression first, so the inner
+        // `&&` lies within its span and is a continuation.
         check_metrics::<PhpParser>(
             "<?php
             function f(bool $a, bool $b, bool $c): bool {
@@ -7674,9 +7693,9 @@ end",
             }",
             "foo.php",
             |metric| {
-                // Outer && (+1) + inner && after `!` (+1) = 2.
-                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
-                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                // Outer && (+1); inner && continues outer's span → 1.
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
