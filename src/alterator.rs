@@ -106,7 +106,14 @@ impl Alterator for CppCode {
         mut children: Vec<AstNode>,
     ) -> AstNode {
         match Cpp::from(node.kind_id()) {
-            Cpp::StringLiteral | Cpp::CharLiteral => {
+            // RawStringLiteral (`R"(…)"`) is flattened alongside
+            // StringLiteral/CharLiteral so the AST dump matches what
+            // `Checker::is_string` already treats as a single
+            // string-like token. Without this arm, raw strings fall
+            // through to `get_default` and render with their
+            // structured delimiter / `string_content` children
+            // — see issue #398 (peer of #391 for Rust).
+            Cpp::StringLiteral | Cpp::CharLiteral | Cpp::RawStringLiteral => {
                 let (text, span) = Self::get_text_span(node, code, span, true);
                 AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
             }
@@ -731,6 +738,49 @@ mod tests {
 
         // The regular StringLiteral arm must still flatten too — confirm
         // the asymmetry that motivated #391 is gone.
+        let mut strings = Vec::new();
+        collect_nodes_by_kind(&root, "string_literal", &mut strings);
+        assert_eq!(strings.len(), 1, "expected exactly one string_literal node");
+        assert_eq!(
+            strings[0].children.len(),
+            0,
+            "string_literal should be flattened (no children)"
+        );
+        assert_eq!(strings[0].value, "\"world\"");
+    }
+
+    #[test]
+    fn cpp_raw_string_literal_flattened() {
+        // Regression for issue #398: `Cpp::RawStringLiteral` was missing
+        // from the `CppCode` Alterator arm, so `R"(hello)"` rendered with
+        // structured delimiter / `string_content` children in the AST
+        // dump while the regular `"hello"` was flattened to a single
+        // text node. `Checker::is_string` already treats both as
+        // equivalent; the alterator now matches. Peer of issue #391
+        // for Rust.
+        let code = br#"int main() { auto s = R"(hello)"; auto t = "world"; }"#;
+        let root = build_ast::<crate::CppParser>(code, "test.cpp");
+
+        let mut raw_strings = Vec::new();
+        collect_nodes_by_kind(&root, "raw_string_literal", &mut raw_strings);
+        assert_eq!(
+            raw_strings.len(),
+            1,
+            "expected exactly one raw_string_literal node"
+        );
+        let raw = raw_strings[0];
+        assert_eq!(
+            raw.children.len(),
+            0,
+            "raw_string_literal should be flattened (no children)"
+        );
+        assert_eq!(
+            raw.value, "R\"(hello)\"",
+            "raw_string_literal should preserve the verbatim source text"
+        );
+
+        // The regular StringLiteral arm must still flatten too — confirm
+        // the asymmetry that motivated #398 is gone.
         let mut strings = Vec::new();
         collect_nodes_by_kind(&root, "string_literal", &mut strings);
         assert_eq!(strings.len(), 1, "expected exactly one string_literal node");
