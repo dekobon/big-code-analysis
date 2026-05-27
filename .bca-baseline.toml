@@ -1629,14 +1629,14 @@ path = "src/macros.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1087897.4930775522
+value = 1272730.9427292247
 
 [[entry]]
 path = "src/macros.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 954.0
+value = 1090.0
 
 [[entry]]
 path = "src/metric_set.rs"
@@ -1678,21 +1678,21 @@ path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "cyclomatic"
-value = 25.0
+value = 26.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 47916181.849616624
+value = 46982286.66741339
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 9020.0
+value = 8862.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
@@ -1725,63 +1725,56 @@ value = 161.0
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "Stats"
-start_line = 127
+start_line = 130
 metric = "nexits"
 value = 14.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "serialize"
-start_line = 128
+start_line = 131
 metric = "cyclomatic"
 value = 15.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "serialize"
-start_line = 128
+start_line = 131
 metric = "nexits"
 value = 14.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "Stats"
-start_line = 176
+start_line = 179
 metric = "halstead.effort"
 value = 287297.79316755506
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "Stats"
-start_line = 176
+start_line = 179
 metric = "nargs"
 value = 21.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "compute"
-start_line = 933
+start_line = 919
 metric = "cyclomatic"
 value = 15.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
-function = "perl_inspect_container"
-start_line = 2685
-metric = "halstead.effort"
-value = 59598.23551209177
-
-[[entry]]
-path = "src/metrics/abc.rs"
 function = "PerlCode"
-start_line = 2792
+start_line = 2676
 metric = "halstead.effort"
 value = 60594.10489533262
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "compute"
-start_line = 2793
+start_line = 2677
 metric = "halstead.effort"
 value = 55232.93141004214
 

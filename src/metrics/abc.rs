@@ -27,8 +27,11 @@ use std::fmt;
 
 use crate::checker::Checker;
 use crate::macros::{
-    csharp_bool_terminal_kinds, csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds,
-    groovy_bool_terminal_kinds, implement_metric_trait, java_bool_terminal_kinds,
+    cpp_bool_terminal_kinds, csharp_bool_terminal_kinds, csharp_paren_expr_kinds,
+    csharp_prefix_unary_expr_kinds, go_bool_terminal_kinds, groovy_bool_terminal_kinds,
+    implement_metric_trait, java_bool_terminal_kinds, js_family_bool_terminal_kinds,
+    lua_bool_terminal_kinds, perl_bool_terminal_kinds, php_bool_terminal_kinds,
+    python_bool_terminal_kinds, rust_bool_terminal_kinds, tcl_bool_terminal_kinds,
 };
 use crate::node::Node;
 use crate::*;
@@ -690,16 +693,7 @@ macro_rules! impl_js_family_unary_walker {
                 node = child;
                 node_kind = node.kind_id().into();
 
-                if matches!(
-                    node_kind,
-                    Identifier
-                        | True
-                        | False
-                        | CallExpression
-                        | NewExpression
-                        | MemberExpression
-                        | SubscriptExpression
-                ) {
+                if matches!(node_kind, js_family_bool_terminal_kinds!($Lang)) {
                     if has_boolean_content {
                         *conditions += 1.;
                     }
@@ -719,19 +713,11 @@ macro_rules! impl_js_family_unary_walker {
                     let node = cursor.node();
                     let node_kind = node.kind_id().into();
 
-                    if matches!(
-                        node_kind,
-                        Identifier
-                            | True
-                            | False
-                            | CallExpression
-                            | NewExpression
-                            | MemberExpression
-                            | SubscriptExpression
-                    ) && matches!(list_kind, BinaryExpression)
+                    if matches!(node_kind, js_family_bool_terminal_kinds!($Lang))
+                        && matches!(list_kind, BinaryExpression)
                     {
                         *conditions += 1.;
-                    } else {
+                    } else if node.is_named() {
                         $inspect(&node, conditions);
                     }
 
@@ -1063,18 +1049,7 @@ fn php_inspect_container(container_node: &Node, conditions: &mut f64) {
         node = child;
         node_kind = node.kind_id().into();
 
-        if matches!(
-            node_kind,
-            Name | VariableName
-                | Boolean
-                | FunctionCallExpression
-                | MemberCallExpression
-                | ScopedCallExpression
-                | NullsafeMemberCallExpression
-                | ObjectCreationExpression
-                | MemberAccessExpression
-                | SubscriptExpression
-        ) {
+        if matches!(node_kind, php_bool_terminal_kinds!()) {
             if has_boolean_content {
                 *conditions += 1.;
             }
@@ -1094,21 +1069,11 @@ fn php_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             let node = cursor.node();
             let node_kind = node.kind_id().into();
 
-            if matches!(
-                node_kind,
-                Name | VariableName
-                    | Boolean
-                    | FunctionCallExpression
-                    | MemberCallExpression
-                    | ScopedCallExpression
-                    | NullsafeMemberCallExpression
-                    | ObjectCreationExpression
-                    | MemberAccessExpression
-                    | SubscriptExpression
-            ) && matches!(list_kind, BinaryExpression)
+            if matches!(node_kind, php_bool_terminal_kinds!())
+                && matches!(list_kind, BinaryExpression)
             {
                 *conditions += 1.;
-            } else {
+            } else if node.is_named() {
                 php_inspect_container(&node, conditions);
             }
 
@@ -1286,10 +1251,7 @@ fn python_inspect_container(container_node: &Node, conditions: &mut f64) {
         node = child;
         node_kind = node.kind_id().into();
 
-        if matches!(
-            node_kind,
-            Identifier | True | False | Call | Attribute | Subscript
-        ) {
+        if matches!(node_kind, python_bool_terminal_kinds!()) {
             if has_boolean_content {
                 *conditions += 1.;
             }
@@ -1309,10 +1271,8 @@ fn python_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             let node = cursor.node();
             let node_kind = node.kind_id().into();
 
-            if matches!(
-                node_kind,
-                Identifier | True | False | Call | Attribute | Subscript
-            ) && matches!(list_kind, BooleanOperator)
+            if matches!(node_kind, python_bool_terminal_kinds!())
+                && matches!(list_kind, BooleanOperator)
             {
                 *conditions += 1.;
             } else if matches!(node_kind, ParenthesizedExpression) {
@@ -1446,10 +1406,7 @@ fn rust_inspect_container(container_node: &Node, conditions: &mut f64) {
         node = child;
         node_kind = node.kind_id().into();
 
-        if matches!(
-            node_kind,
-            Identifier | BooleanLiteral | CallExpression | FieldExpression | IndexExpression
-        ) {
+        if matches!(node_kind, rust_bool_terminal_kinds!()) {
             if has_boolean_content {
                 *conditions += 1.;
             }
@@ -1469,13 +1426,11 @@ fn rust_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             let node = cursor.node();
             let node_kind = node.kind_id().into();
 
-            if matches!(
-                node_kind,
-                Identifier | BooleanLiteral | CallExpression | FieldExpression | IndexExpression
-            ) && matches!(list_kind, BinaryExpression)
+            if matches!(node_kind, rust_bool_terminal_kinds!())
+                && matches!(list_kind, BinaryExpression)
             {
                 *conditions += 1.;
-            } else {
+            } else if node.is_named() {
                 rust_inspect_container(&node, conditions);
             }
 
@@ -1615,16 +1570,7 @@ fn go_inspect_container(container_node: &Node, conditions: &mut f64) {
         node = child;
         node_kind = node.kind_id().into();
 
-        if matches!(
-            node_kind,
-            G::Identifier
-                | G::True
-                | G::False
-                | G::CallExpression
-                | G::SelectorExpression
-                | G::IndexExpression
-                | G::TypeAssertionExpression
-        ) {
+        if matches!(node_kind, go_bool_terminal_kinds!()) {
             if has_boolean_content {
                 *conditions += 1.;
             }
@@ -1644,19 +1590,11 @@ fn go_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             let node = cursor.node();
             let node_kind = node.kind_id().into();
 
-            if matches!(
-                node_kind,
-                G::Identifier
-                    | G::True
-                    | G::False
-                    | G::CallExpression
-                    | G::SelectorExpression
-                    | G::IndexExpression
-                    | G::TypeAssertionExpression
-            ) && matches!(list_kind, G::BinaryExpression)
+            if matches!(node_kind, go_bool_terminal_kinds!())
+                && matches!(list_kind, G::BinaryExpression)
             {
                 *conditions += 1.;
-            } else {
+            } else if node.is_named() {
                 go_inspect_container(&node, conditions);
             }
 
@@ -1772,16 +1710,7 @@ fn cpp_inspect_container(container_node: &Node, conditions: &mut f64) {
         node = child;
         node_kind = node.kind_id().into();
 
-        if matches!(
-            node_kind,
-            Identifier
-                | True
-                | False
-                | CallExpression
-                | CallExpression2
-                | FieldExpression
-                | SubscriptExpression
-        ) {
+        if matches!(node_kind, cpp_bool_terminal_kinds!()) {
             if has_boolean_content {
                 *conditions += 1.;
             }
@@ -1801,19 +1730,11 @@ fn cpp_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             let node = cursor.node();
             let node_kind = node.kind_id().into();
 
-            if matches!(
-                node_kind,
-                Identifier
-                    | True
-                    | False
-                    | CallExpression
-                    | CallExpression2
-                    | FieldExpression
-                    | SubscriptExpression
-            ) && matches!(list_kind, BinaryExpression | BinaryExpression2)
+            if matches!(node_kind, cpp_bool_terminal_kinds!())
+                && matches!(list_kind, BinaryExpression | BinaryExpression2)
             {
                 *conditions += 1.;
-            } else {
+            } else if node.is_named() {
                 cpp_inspect_container(&node, conditions);
             }
 
@@ -2717,26 +2638,7 @@ fn perl_inspect_container(container_node: &Node, conditions: &mut f64) {
         node = child;
         node_kind = node.kind_id().into();
 
-        if matches!(
-            node_kind,
-            P::Identifier
-                | P::Boolean
-                | P::True
-                | P::False
-                | P::ScalarVariable
-                | P::ArrayVariable
-                | P::HashVariable
-                | P::ArrayAccessVariable
-                | P::HashAccessVariable
-                | P::HashAccessVariableSimple
-                | P::CallExpressionWithSpacedArgs
-                | P::CallExpressionWithSub
-                | P::CallExpressionWithArgsWithBrackets
-                | P::CallExpressionWithVariable
-                | P::CallExpressionRecursive
-                | P::CallExpressionWithBareword
-                | P::MethodInvocation
-        ) {
+        if matches!(node_kind, perl_bool_terminal_kinds!()) {
             if has_boolean_content {
                 *conditions += 1.;
             }
@@ -2756,29 +2658,11 @@ fn perl_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             let node = cursor.node();
             let node_kind = node.kind_id().into();
 
-            if matches!(
-                node_kind,
-                P::Identifier
-                    | P::Boolean
-                    | P::True
-                    | P::False
-                    | P::ScalarVariable
-                    | P::ArrayVariable
-                    | P::HashVariable
-                    | P::ArrayAccessVariable
-                    | P::HashAccessVariable
-                    | P::HashAccessVariableSimple
-                    | P::CallExpressionWithSpacedArgs
-                    | P::CallExpressionWithSub
-                    | P::CallExpressionWithArgsWithBrackets
-                    | P::CallExpressionWithVariable
-                    | P::CallExpressionRecursive
-                    | P::CallExpressionWithBareword
-                    | P::MethodInvocation
-            ) && matches!(list_kind, P::BinaryExpression)
+            if matches!(node_kind, perl_bool_terminal_kinds!())
+                && matches!(list_kind, P::BinaryExpression)
             {
                 *conditions += 1.;
-            } else {
+            } else if node.is_named() {
                 perl_inspect_container(&node, conditions);
             }
 
@@ -2921,19 +2805,7 @@ fn lua_inspect_container(container_node: &Node, conditions: &mut f64) {
         node = child;
         node_kind = node.kind_id().into();
 
-        if matches!(
-            node_kind,
-            Lua::Identifier
-                | Lua::True
-                | Lua::False
-                | Lua::Nil
-                | Lua::FunctionCall
-                | Lua::DotIndexExpression
-                | Lua::DotIndexExpression2
-                | Lua::BracketIndexExpression
-                | Lua::MethodIndexExpression
-                | Lua::MethodIndexExpression2
-        ) {
+        if matches!(node_kind, lua_bool_terminal_kinds!()) {
             if has_boolean_content {
                 *conditions += 1.;
             }
@@ -2951,22 +2823,11 @@ fn lua_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             let node = cursor.node();
             let node_kind = node.kind_id().into();
 
-            if matches!(
-                node_kind,
-                Lua::Identifier
-                    | Lua::True
-                    | Lua::False
-                    | Lua::Nil
-                    | Lua::FunctionCall
-                    | Lua::DotIndexExpression
-                    | Lua::DotIndexExpression2
-                    | Lua::BracketIndexExpression
-                    | Lua::MethodIndexExpression
-                    | Lua::MethodIndexExpression2
-            ) && matches!(list_kind, Lua::BinaryExpression)
+            if matches!(node_kind, lua_bool_terminal_kinds!())
+                && matches!(list_kind, Lua::BinaryExpression)
             {
                 *conditions += 1.;
-            } else {
+            } else if node.is_named() {
                 lua_inspect_container(&node, conditions);
             }
 
@@ -3067,17 +2928,7 @@ fn tcl_inspect_container(container_node: &Node, conditions: &mut f64) {
         node = child;
         node_kind = node.kind_id().into();
 
-        if matches!(
-            node_kind,
-            Tcl::SimpleWord
-                | Tcl::BracedWord
-                | Tcl::BracedWordSimple
-                | Tcl::QuotedWord
-                | Tcl::VariableSubstitution
-                | Tcl::CommandSubstitution
-                | Tcl::Boolean
-                | Tcl::Number
-        ) {
+        if matches!(node_kind, tcl_bool_terminal_kinds!()) {
             if has_boolean_content {
                 *conditions += 1.;
             }
@@ -3095,20 +2946,11 @@ fn tcl_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             let node = cursor.node();
             let node_kind = node.kind_id().into();
 
-            if matches!(
-                node_kind,
-                Tcl::SimpleWord
-                    | Tcl::BracedWord
-                    | Tcl::BracedWordSimple
-                    | Tcl::QuotedWord
-                    | Tcl::VariableSubstitution
-                    | Tcl::CommandSubstitution
-                    | Tcl::Boolean
-                    | Tcl::Number
-            ) && matches!(list_kind, Tcl::BinopExpr)
+            if matches!(node_kind, tcl_bool_terminal_kinds!())
+                && matches!(list_kind, Tcl::BinopExpr)
             {
                 *conditions += 1.;
-            } else {
+            } else if node.is_named() {
                 tcl_inspect_container(&node, conditions);
             }
 
@@ -6778,14 +6620,12 @@ function f(int $a, int $b): int {
     #[test]
     fn python_if_multiple_conditions() {
         // Fitzpatrick Rule 9 walker on `and` / `or` (issue #403).
-        // `if a and b and c:` reports 3, `if a or b or c or d:`
-        // reports 4. `not a` counts at the top level (1), `and b`
-        // contributes `b` via walker (1); the `not a and not b`
-        // case below produces 4 = 2 (NotOperator top-level) + 2
-        // (walker counts each NotOperator's `b` peer once via the
-        // walker's terminal sweep — wait, the walker SKIPS
-        // NotOperator children so this is 2 NotOperator + 0 walker
-        // = 2 conditions).
+        //   - `if a or b or c or d:` → 4 (each operand counted once)
+        //   - `if a and b and c:`    → 3
+        //   - `if not a and not b:`  → 2 (two `NotOperator`s counted
+        //     by the top-level dispatcher arm; the walker SKIPS
+        //     `NotOperator` children to avoid double-counting)
+        // Total: 4 + 3 + 2 = 9.
         check_metrics::<PythonParser>(
             "def f(a, b, c, d):\n\
              \x20   if a or b or c or d:           # +4c\n\
@@ -8546,11 +8386,13 @@ function f(int $a, int $b): int {
 
     #[test]
     fn perl_short_circuit_with_boolean_literal_operand() {
-        // `$a && 1` reports 2 conditions: ScalarVariable + Number
-        // ... wait, Number isn't in the terminal set. Use a Boolean
-        // literal (`true` / `false` keyword from `boolean` pragma)
-        // which IS in the terminal set. tree-sitter-perl emits these
-        // as `Boolean` wrappers.
+        // `$a && $b` reports 2 conditions — one walker count per
+        // `ScalarVariable` operand. tree-sitter-perl's `Boolean`
+        // kind only fires on the `boolean` pragma's named `true` /
+        // `false` constants, not on bareword `1` / `0`, so this
+        // test uses two scalar-variable operands as the
+        // grammar-stable terminal-set witness for Perl. Confirms
+        // `ScalarVariable` is in the walker terminal set.
         check_metrics::<PerlParser>(
             "sub f { my ($a) = @_; return $a && $b; }\n",
             "foo.pl",

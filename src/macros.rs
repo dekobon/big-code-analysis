@@ -945,10 +945,146 @@ macro_rules! groovy_bool_terminal_kinds {
     };
 }
 
+// Terminal-bool operand kinds for the Phase-2 unary-conditional walker
+// (issue #403). Each `<lang>_bool_terminal_kinds!()` macro lists the
+// expression kinds whose evaluated value is implicitly boolean in an
+// `if` / `while` / `&&` / `||` operand slot for that language. Each
+// per-language walker pair (`<lang>_inspect_container` +
+// `<lang>_count_unary_conditions`) consumes the same set in both
+// helpers, so hoisting to a macro removes the literal duplication.
+
+macro_rules! rust_bool_terminal_kinds {
+    () => {
+        $crate::Rust::Identifier
+            | $crate::Rust::BooleanLiteral
+            | $crate::Rust::CallExpression
+            | $crate::Rust::FieldExpression
+            | $crate::Rust::IndexExpression
+    };
+}
+
+macro_rules! go_bool_terminal_kinds {
+    () => {
+        $crate::Go::Identifier
+            | $crate::Go::True
+            | $crate::Go::False
+            | $crate::Go::CallExpression
+            | $crate::Go::SelectorExpression
+            | $crate::Go::IndexExpression
+            | $crate::Go::TypeAssertionExpression
+    };
+}
+
+macro_rules! cpp_bool_terminal_kinds {
+    () => {
+        $crate::Cpp::Identifier
+            | $crate::Cpp::True
+            | $crate::Cpp::False
+            | $crate::Cpp::CallExpression
+            | $crate::Cpp::CallExpression2
+            | $crate::Cpp::FieldExpression
+            | $crate::Cpp::SubscriptExpression
+    };
+}
+
+macro_rules! php_bool_terminal_kinds {
+    () => {
+        $crate::Php::Name
+            | $crate::Php::VariableName
+            | $crate::Php::Boolean
+            | $crate::Php::FunctionCallExpression
+            | $crate::Php::MemberCallExpression
+            | $crate::Php::ScopedCallExpression
+            | $crate::Php::NullsafeMemberCallExpression
+            | $crate::Php::ObjectCreationExpression
+            | $crate::Php::MemberAccessExpression
+            | $crate::Php::SubscriptExpression
+    };
+}
+
+macro_rules! python_bool_terminal_kinds {
+    () => {
+        $crate::Python::Identifier
+            | $crate::Python::True
+            | $crate::Python::False
+            | $crate::Python::Call
+            | $crate::Python::Attribute
+            | $crate::Python::Subscript
+    };
+}
+
+macro_rules! perl_bool_terminal_kinds {
+    () => {
+        $crate::Perl::Identifier
+            | $crate::Perl::Boolean
+            | $crate::Perl::True
+            | $crate::Perl::False
+            | $crate::Perl::ScalarVariable
+            | $crate::Perl::ArrayVariable
+            | $crate::Perl::HashVariable
+            | $crate::Perl::ArrayAccessVariable
+            | $crate::Perl::HashAccessVariable
+            | $crate::Perl::HashAccessVariableSimple
+            | $crate::Perl::CallExpressionWithSpacedArgs
+            | $crate::Perl::CallExpressionWithSub
+            | $crate::Perl::CallExpressionWithArgsWithBrackets
+            | $crate::Perl::CallExpressionWithVariable
+            | $crate::Perl::CallExpressionRecursive
+            | $crate::Perl::CallExpressionWithBareword
+            | $crate::Perl::MethodInvocation
+    };
+}
+
+macro_rules! lua_bool_terminal_kinds {
+    () => {
+        $crate::Lua::Identifier
+            | $crate::Lua::True
+            | $crate::Lua::False
+            | $crate::Lua::Nil
+            | $crate::Lua::FunctionCall
+            | $crate::Lua::DotIndexExpression
+            | $crate::Lua::DotIndexExpression2
+            | $crate::Lua::BracketIndexExpression
+            | $crate::Lua::MethodIndexExpression
+            | $crate::Lua::MethodIndexExpression2
+    };
+}
+
+macro_rules! tcl_bool_terminal_kinds {
+    () => {
+        $crate::Tcl::SimpleWord
+            | $crate::Tcl::BracedWord
+            | $crate::Tcl::BracedWordSimple
+            | $crate::Tcl::QuotedWord
+            | $crate::Tcl::VariableSubstitution
+            | $crate::Tcl::CommandSubstitution
+            | $crate::Tcl::Boolean
+            | $crate::Tcl::Number
+    };
+}
+
+// JS-family share an identical terminal-bool set; the macro is
+// invoked from the four-language `impl_js_family_unary_walker!`
+// at each instantiation site.
+macro_rules! js_family_bool_terminal_kinds {
+    ($Lang:ident) => {
+        $crate::$Lang::Identifier
+            | $crate::$Lang::True
+            | $crate::$Lang::False
+            | $crate::$Lang::CallExpression
+            | $crate::$Lang::NewExpression
+            | $crate::$Lang::MemberExpression
+            | $crate::$Lang::SubscriptExpression
+    };
+}
+
 pub(crate) use implement_metric_trait;
 pub(crate) use {
-    csharp_bool_terminal_kinds, csharp_invocation_expr_kinds, csharp_paren_expr_kinds,
-    csharp_prefix_unary_expr_kinds, csharp_var_decl_kinds, csharp_var_declarator_kinds,
-    get_language, groovy_bool_terminal_kinds, java_bool_terminal_kinds, mk_action, mk_code,
-    mk_emacs_mode, mk_extensions, mk_lang, mk_langs,
+    cpp_bool_terminal_kinds, csharp_bool_terminal_kinds, csharp_invocation_expr_kinds,
+    csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds, csharp_var_decl_kinds,
+    csharp_var_declarator_kinds, get_language, go_bool_terminal_kinds, groovy_bool_terminal_kinds,
+    java_bool_terminal_kinds, js_family_bool_terminal_kinds, lua_bool_terminal_kinds, mk_action,
+    mk_code, mk_emacs_mode, mk_extensions, mk_lang, mk_langs, perl_bool_terminal_kinds,
+    php_bool_terminal_kinds, python_bool_terminal_kinds, rust_bool_terminal_kinds,
+    tcl_bool_terminal_kinds,
 };
