@@ -129,6 +129,32 @@ for historical reference.
   (https://github.com/dekobon/big-code-analysis/issues/395).
   Fixes
   [#403](https://github.com/dekobon/big-code-analysis/issues/403).
+- ABC metric (Phase 2B alias / coverage close-out, findings.md):
+  closes three latent under-counts from the Phase-2 walker land
+  surfaced by a follow-up audit. (a) Go gains a `for`-condition
+  dispatcher arm: `for true {}` / `for !ready {}` now count one
+  Fitzpatrick condition; for-loops with `init; cond; post` and
+  `range` clauses fall through harmlessly. (b) Lua's terminal-
+  bool set adds `Number`: `if 1 then end` and `return a and 2`
+  now count their numeric-truthy operands once each, matching
+  the existing inline comment that already promised numbers
+  were terminal-bool. (c) The per-language `*_bool_terminal_kinds!()`
+  macros now include every aliased `kind_id` the runtime grammar
+  emits (lesson #2): Go `Identifier2/3`, C++ `QualifiedIdentifier`
+  / `QualifiedIdentifier2/3/4`, PHP `Name2`, `MemberAccessExpression2/3`,
+  `NullsafeMemberAccessExpression` / `NullsafeMemberAccessExpression2`,
+  `SubscriptExpression2/3`, JS/Mozjs/TS/Tsx `MemberExpression2/3`
+  (plus 4 for TS / Tsx) and `CallExpression2` (plus 3/4 for TS /
+  Tsx), JS / Mozjs / Tsx `Identifier2`, TS / Tsx `SubscriptExpression2`.
+  Pre-fix, idiomatic shapes like `if (n::flag) {}` in C++,
+  `if (o.x) {}` in JS, `$obj?->prop` chains in PHP, and bare-
+  identifier `for` conditions in Go silently reported zero
+  conditions because the runtime kind_id (e.g., `MemberExpression2 =
+  208` for JS `obj.x`) did not match the primary-only macro. The
+  JS-family shared macro is split into four per-language macros
+  to accommodate TypeScript's missing `Identifier2`. Integration-
+  snapshot submodule refreshed accordingly. Closes the alias-leak
+  gap noted in the Phase 2B review.
 - ABC metric (Phase 2B follow-up): `if`/`while`/`do-while`,
   `return`, and argument-list slots also route through the
   per-language unary-conditional walker. `if (true) {}` (and

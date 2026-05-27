@@ -964,8 +964,14 @@ macro_rules! rust_bool_terminal_kinds {
 }
 
 macro_rules! go_bool_terminal_kinds {
+    // Aliased Identifier kind_ids (lesson #2): tree-sitter-go emits
+    // `identifier` under three numeric ids (1, 60, 61) depending on
+    // the production rule path. Halstead's getter already matches
+    // all three at `src/getter.rs:881`.
     () => {
         $crate::Go::Identifier
+            | $crate::Go::Identifier2
+            | $crate::Go::Identifier3
             | $crate::Go::True
             | $crate::Go::False
             | $crate::Go::CallExpression
@@ -976,6 +982,10 @@ macro_rules! go_bool_terminal_kinds {
 }
 
 macro_rules! cpp_bool_terminal_kinds {
+    // `QualifiedIdentifier` has four numeric kind_ids (573..576) per
+    // tree-sitter-cpp's production-rule path. Halstead's getter
+    // already matches all four; the ABC walker needs them too so
+    // `if (ns::flag) {}` reaches the terminal-bool count.
     () => {
         $crate::Cpp::Identifier
             | $crate::Cpp::True
@@ -984,12 +994,26 @@ macro_rules! cpp_bool_terminal_kinds {
             | $crate::Cpp::CallExpression2
             | $crate::Cpp::FieldExpression
             | $crate::Cpp::SubscriptExpression
+            | $crate::Cpp::QualifiedIdentifier
+            | $crate::Cpp::QualifiedIdentifier2
+            | $crate::Cpp::QualifiedIdentifier3
+            | $crate::Cpp::QualifiedIdentifier4
     };
 }
 
 macro_rules! php_bool_terminal_kinds {
+    // Aliased kind_ids (lesson #2):
+    //   - `name` has two ids (1, 211)
+    //   - `member_access_expression` has three (328, 329, 360)
+    //   - `nullsafe_member_access_expression` has two (330, 331)
+    //   - `subscript_expression` has three (351, 352, 363)
+    // The matching `*_call_expression` kinds remain singular at the
+    // pinned grammar version. Including the property-access form
+    // (`$x?->y` and `$x->y`) closes the bool-typed-property-access
+    // gap that the call-form alone left open.
     () => {
         $crate::Php::Name
+            | $crate::Php::Name2
             | $crate::Php::VariableName
             | $crate::Php::Boolean
             | $crate::Php::FunctionCallExpression
@@ -998,7 +1022,13 @@ macro_rules! php_bool_terminal_kinds {
             | $crate::Php::NullsafeMemberCallExpression
             | $crate::Php::ObjectCreationExpression
             | $crate::Php::MemberAccessExpression
+            | $crate::Php::MemberAccessExpression2
+            | $crate::Php::MemberAccessExpression3
+            | $crate::Php::NullsafeMemberAccessExpression
+            | $crate::Php::NullsafeMemberAccessExpression2
             | $crate::Php::SubscriptExpression
+            | $crate::Php::SubscriptExpression2
+            | $crate::Php::SubscriptExpression3
     };
 }
 
@@ -1041,6 +1071,7 @@ macro_rules! lua_bool_terminal_kinds {
             | $crate::Lua::True
             | $crate::Lua::False
             | $crate::Lua::Nil
+            | $crate::Lua::Number
             | $crate::Lua::FunctionCall
             | $crate::Lua::DotIndexExpression
             | $crate::Lua::DotIndexExpression2
@@ -1063,9 +1094,94 @@ macro_rules! tcl_bool_terminal_kinds {
     };
 }
 
-// JS-family share an identical terminal-bool set; the macro is
-// invoked from the four-language `impl_js_family_unary_walker!`
-// at each instantiation site.
+// The JS-family languages diverge on which aliased `kind_id`s the
+// grammar emits — JavaScript, Mozjs, and Tsx have `Identifier2`,
+// TypeScript does not; TypeScript has `MemberExpression4` /
+// `CallExpression4` / `SubscriptExpression2` that the others do not.
+// Per lesson #2, every alias the grammar emits at runtime must be
+// matched at compile time. Four per-language macros below replace
+// the original single `js_family_bool_terminal_kinds!($Lang)`
+// generic, which silently dropped `MemberExpression2` (the kind
+// runtime emits for `obj.foo`) for all four languages.
+
+macro_rules! javascript_bool_terminal_kinds {
+    () => {
+        $crate::Javascript::Identifier
+            | $crate::Javascript::Identifier2
+            | $crate::Javascript::True
+            | $crate::Javascript::False
+            | $crate::Javascript::CallExpression
+            | $crate::Javascript::CallExpression2
+            | $crate::Javascript::NewExpression
+            | $crate::Javascript::MemberExpression
+            | $crate::Javascript::MemberExpression2
+            | $crate::Javascript::MemberExpression3
+            | $crate::Javascript::SubscriptExpression
+    };
+}
+
+macro_rules! mozjs_bool_terminal_kinds {
+    () => {
+        $crate::Mozjs::Identifier
+            | $crate::Mozjs::Identifier2
+            | $crate::Mozjs::True
+            | $crate::Mozjs::False
+            | $crate::Mozjs::CallExpression
+            | $crate::Mozjs::CallExpression2
+            | $crate::Mozjs::NewExpression
+            | $crate::Mozjs::MemberExpression
+            | $crate::Mozjs::MemberExpression2
+            | $crate::Mozjs::MemberExpression3
+            | $crate::Mozjs::SubscriptExpression
+    };
+}
+
+macro_rules! typescript_bool_terminal_kinds {
+    () => {
+        $crate::Typescript::Identifier
+            | $crate::Typescript::True
+            | $crate::Typescript::False
+            | $crate::Typescript::CallExpression
+            | $crate::Typescript::CallExpression2
+            | $crate::Typescript::CallExpression3
+            | $crate::Typescript::CallExpression4
+            | $crate::Typescript::NewExpression
+            | $crate::Typescript::MemberExpression
+            | $crate::Typescript::MemberExpression2
+            | $crate::Typescript::MemberExpression3
+            | $crate::Typescript::MemberExpression4
+            | $crate::Typescript::SubscriptExpression
+            | $crate::Typescript::SubscriptExpression2
+    };
+}
+
+macro_rules! tsx_bool_terminal_kinds {
+    () => {
+        $crate::Tsx::Identifier
+            | $crate::Tsx::Identifier2
+            | $crate::Tsx::True
+            | $crate::Tsx::False
+            | $crate::Tsx::CallExpression
+            | $crate::Tsx::CallExpression2
+            | $crate::Tsx::CallExpression3
+            | $crate::Tsx::CallExpression4
+            | $crate::Tsx::NewExpression
+            | $crate::Tsx::MemberExpression
+            | $crate::Tsx::MemberExpression2
+            | $crate::Tsx::MemberExpression3
+            | $crate::Tsx::MemberExpression4
+            | $crate::Tsx::SubscriptExpression
+            | $crate::Tsx::SubscriptExpression2
+    };
+}
+
+// Legacy single-macro form, no longer consumed by the walker after
+// the per-language split above. Kept here strictly for documentation
+// of the former (Identifier|True|False|CallExpression|NewExpression|
+// MemberExpression|SubscriptExpression) intersection that all four
+// JS-family languages share — every per-language macro above is a
+// strict superset.
+#[allow(unused_macros)]
 macro_rules! js_family_bool_terminal_kinds {
     ($Lang:ident) => {
         $crate::$Lang::Identifier
@@ -1083,8 +1199,9 @@ pub(crate) use {
     cpp_bool_terminal_kinds, csharp_bool_terminal_kinds, csharp_invocation_expr_kinds,
     csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds, csharp_var_decl_kinds,
     csharp_var_declarator_kinds, get_language, go_bool_terminal_kinds, groovy_bool_terminal_kinds,
-    java_bool_terminal_kinds, js_family_bool_terminal_kinds, lua_bool_terminal_kinds, mk_action,
-    mk_code, mk_emacs_mode, mk_extensions, mk_lang, mk_langs, perl_bool_terminal_kinds,
-    php_bool_terminal_kinds, python_bool_terminal_kinds, rust_bool_terminal_kinds,
-    tcl_bool_terminal_kinds,
+    java_bool_terminal_kinds, javascript_bool_terminal_kinds, lua_bool_terminal_kinds, mk_action,
+    mk_code, mk_emacs_mode, mk_extensions, mk_lang, mk_langs, mozjs_bool_terminal_kinds,
+    perl_bool_terminal_kinds, php_bool_terminal_kinds, python_bool_terminal_kinds,
+    rust_bool_terminal_kinds, tcl_bool_terminal_kinds, tsx_bool_terminal_kinds,
+    typescript_bool_terminal_kinds,
 };

@@ -29,9 +29,10 @@ use crate::checker::Checker;
 use crate::macros::{
     cpp_bool_terminal_kinds, csharp_bool_terminal_kinds, csharp_paren_expr_kinds,
     csharp_prefix_unary_expr_kinds, go_bool_terminal_kinds, groovy_bool_terminal_kinds,
-    implement_metric_trait, java_bool_terminal_kinds, js_family_bool_terminal_kinds,
-    lua_bool_terminal_kinds, perl_bool_terminal_kinds, php_bool_terminal_kinds,
-    python_bool_terminal_kinds, rust_bool_terminal_kinds, tcl_bool_terminal_kinds,
+    implement_metric_trait, java_bool_terminal_kinds, javascript_bool_terminal_kinds,
+    lua_bool_terminal_kinds, mozjs_bool_terminal_kinds, perl_bool_terminal_kinds,
+    php_bool_terminal_kinds, python_bool_terminal_kinds, rust_bool_terminal_kinds,
+    tcl_bool_terminal_kinds, tsx_bool_terminal_kinds, typescript_bool_terminal_kinds,
 };
 use crate::node::Node;
 use crate::*;
@@ -683,7 +684,7 @@ implement_metric_trait!(Abc, PreprocCode, CcommentCode);
 // — every expression kind whose evaluated value is implicitly boolean
 // in an `if` / `while` / ternary slot.
 macro_rules! impl_js_family_unary_walker {
-    ($Lang:ident, $inspect:ident, $count:ident) => {
+    ($Lang:ident, $inspect:ident, $count:ident, $terminals:path) => {
         fn $inspect(container_node: &Node, conditions: &mut f64) {
             use $Lang::*;
 
@@ -715,7 +716,7 @@ macro_rules! impl_js_family_unary_walker {
                 node = child;
                 node_kind = node.kind_id().into();
 
-                if matches!(node_kind, js_family_bool_terminal_kinds!($Lang)) {
+                if matches!(node_kind, $terminals!()) {
                     if has_boolean_content {
                         *conditions += 1.;
                     }
@@ -735,9 +736,7 @@ macro_rules! impl_js_family_unary_walker {
                     let node = cursor.node();
                     let node_kind = node.kind_id().into();
 
-                    if matches!(node_kind, js_family_bool_terminal_kinds!($Lang))
-                        && matches!(list_kind, BinaryExpression)
-                    {
+                    if matches!(node_kind, $terminals!()) && matches!(list_kind, BinaryExpression) {
                         *conditions += 1.;
                     } else if node.is_named() {
                         $inspect(&node, conditions);
@@ -755,15 +754,27 @@ macro_rules! impl_js_family_unary_walker {
 impl_js_family_unary_walker!(
     Typescript,
     typescript_inspect_container,
-    typescript_count_unary_conditions
+    typescript_count_unary_conditions,
+    typescript_bool_terminal_kinds
 );
-impl_js_family_unary_walker!(Tsx, tsx_inspect_container, tsx_count_unary_conditions);
+impl_js_family_unary_walker!(
+    Tsx,
+    tsx_inspect_container,
+    tsx_count_unary_conditions,
+    tsx_bool_terminal_kinds
+);
 impl_js_family_unary_walker!(
     Javascript,
     javascript_inspect_container,
-    javascript_count_unary_conditions
+    javascript_count_unary_conditions,
+    javascript_bool_terminal_kinds
 );
-impl_js_family_unary_walker!(Mozjs, mozjs_inspect_container, mozjs_count_unary_conditions);
+impl_js_family_unary_walker!(
+    Mozjs,
+    mozjs_inspect_container,
+    mozjs_count_unary_conditions,
+    mozjs_bool_terminal_kinds
+);
 
 // TypeScript / TSX share the same expression / statement vocabulary; the
 // `ts_abc_compute!` macro expands the same token-level Fitzpatrick rules
@@ -1934,6 +1945,20 @@ impl Abc for GoCode {
             // child(2) (not child(1), which is the init slot).
             G::IfStatement => {
                 if let Some(cond) = node.child_by_field_name("condition") {
+                    go_count_condition(&cond, &mut stats.conditions);
+                }
+            }
+            // Phase-2B follow-up (findings.md #1): Go's `for` is its
+            // only loop with a bare-condition slot. Children:
+            //   `for cond {}`           → child(1) = condition
+            //   `for init; cond; post`  → child(1) = `for_clause`
+            //   `for range items {}`    → child(1) = `range_clause`
+            // `go_count_condition` filters non-terminal /
+            // non-paren / non-unary kinds, so `for_clause` and
+            // `range_clause` fall through harmlessly without a
+            // dedicated guard.
+            G::ForStatement => {
+                if let Some(cond) = node.child(1) {
                     go_count_condition(&cond, &mut stats.conditions);
                 }
             }
@@ -7950,6 +7975,38 @@ function f(int $a, int $b): int {
     }
 
     #[test]
+    fn go_for_bare_condition_counts() {
+        // Regression for findings.md #1: `for true {}` / `for !ready {}`
+        // are Go's only loop-condition slot. Pre-fix, the Phase-2B
+        // dispatcher had no `G::ForStatement` arm, so bare-boolean
+        // and `!`-wrapped `for` conditions silently reported zero.
+        // `go_count_condition`'s terminal-bool / paren / unary filter
+        // makes the arm safe across all three for-statement shapes:
+        // bare condition, `for_clause` (init; cond; post), and
+        // `range_clause` (the latter two fall through harmlessly).
+        check_metrics::<GoParser>(
+            "package p\n\
+             func F(ready bool) {\n\
+             \x20   for true { break }      // +1c\n\
+             \x20   for !ready { break }    // +1c\n\
+             \x20   for i := 0; i < 3; i++ { _ = i }    // +1c (the `<`)\n\
+             }\n",
+            "foo.go",
+            |metric| {
+                // `for true`: walker counts True (+1).
+                // `for !ready`: walker on unary unwraps to `ready`
+                //   (+1).
+                // `for_clause` falls through go_count_condition with
+                //   no count; the inner `i < 3` contributes 1 via the
+                //   pre-existing LT/GT arm.
+                // Total: 3.
+                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
     fn go_if_init_statement_condition_counts() {
         // Regression for the code-review finding: Go's
         // `if x := f(); x { ... }` init-statement form puts the
@@ -8556,6 +8613,27 @@ function f(int $a, int $b): int {
     }
 
     #[test]
+    fn cpp_qualified_identifier_condition_counts() {
+        // Regression for findings.md #3 (C++): tree-sitter-cpp emits
+        // `qualified_identifier` under four kind_ids (573..576) per
+        // the production-rule path; runtime kind for `ns::flag` is
+        // 574 (`QualifiedIdentifier2`). Pre-fix the
+        // `cpp_bool_terminal_kinds!()` macro listed neither the
+        // primary nor any alias, so `if (n::flag) {}` reported zero
+        // conditions. The macro now includes all four variants
+        // (lesson #2).
+        check_metrics::<CppParser>(
+            "namespace n { extern bool flag; }\n\
+             void f() { if (n::flag) { } }\n",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
     fn cpp_if_boolean_literal_condition() {
         check_metrics::<CppParser>(
             "void f() {\n\
@@ -8847,6 +8925,30 @@ function f(int $a, int $b): int {
     }
 
     // ----- JS / TS / Tsx / Mozjs Phase-2B condition slots -----
+
+    #[test]
+    fn javascript_member_expression_condition_counts() {
+        // Regression for findings.md #3 (JS-family): tree-sitter-
+        // javascript emits `member_expression` under three kind_ids
+        // (191 primary, 208, 228 — `MemberExpression2/3`) depending
+        // on the production rule path. The verifier in this audit
+        // confirmed runtime kind for `o.x` is 208. Pre-fix the
+        // shared `js_family_bool_terminal_kinds!()` macro listed
+        // only the primary, so every `if (o.x) {}` / `o.x && o.y`
+        // condition silently reported zero. The per-language macro
+        // now includes all three aliases (lesson #2).
+        check_metrics::<JavascriptParser>(
+            "function f(o) {\n\
+             \x20   if (o.x) {}                  // +1c\n\
+             \x20   return o.x && o.y;           // +2c (walker on &&)\n\
+             }\n",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
 
     #[test]
     fn javascript_if_boolean_literal_condition() {
@@ -9812,6 +9914,34 @@ function f(int $a, int $b): int {
             assert_eq!(metric.abc.conditions_sum(), 2.0);
             insta::assert_json_snapshot!(metric.abc);
         });
+    }
+
+    #[test]
+    fn lua_number_truthy_condition_counts() {
+        // Regression for findings.md #2: Lua treats every non-nil,
+        // non-false value as truthy, so `if 1 then ... end` and
+        // `return a and 2` should each count their numeric literal
+        // as a Fitzpatrick Rule 6 / 7 unary condition. Pre-fix,
+        // `lua_bool_terminal_kinds!()` listed `True` / `False` /
+        // `Nil` but omitted `Number`, so the walker dropped every
+        // numeric-truthy operand. The walker comment at the top of
+        // `lua_inspect_container` already promised numbers were
+        // terminal-bool kinds; this commit closes the gap.
+        check_metrics::<LuaParser>(
+            "function f(a)\n\
+             \x20   if 1 then return 1 end\n\
+             \x20   return a and 2\n\
+             end",
+            "foo.lua",
+            |metric| {
+                // `if 1 then` → walker counts the Number literal (+1).
+                // `a and 2` → `and` walker counts both operands:
+                //   identifier `a` (+1), Number `2` (+1).
+                // Total: 3.
+                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
     }
 
     #[test]
