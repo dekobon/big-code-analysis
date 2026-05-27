@@ -127,6 +127,71 @@ fn check_requires_at_least_one_threshold() {
         .stderr(predicate::str::contains("no thresholds configured"));
 }
 
+/// A 1-edit typo on `--threshold` must surface a "did you mean ..."
+/// hint pointing at the canonical name. Regression for #381.
+#[test]
+fn check_unknown_metric_close_typo_suggests_correction() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
+
+    cli()
+        .args(["--paths", &path, "check", "--threshold", "cyclic=15"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("did you mean"))
+        .stderr(predicate::str::contains("cyclomatic"));
+}
+
+/// A typo inside a dotted/compound metric name must still resolve
+/// to the right neighbour. Verifies the suggester treats the whole
+/// name as one string rather than splitting on `.`.
+#[test]
+fn check_unknown_metric_dotted_typo_suggests_correction() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
+
+    cli()
+        .args(["--paths", &path, "check", "--threshold", "halstead.efort=1"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("did you mean"))
+        .stderr(predicate::str::contains("halstead.effort"));
+}
+
+/// Garbage input with no close match must keep the original
+/// "unknown metric" error and not invent a suggestion. Without this,
+/// short or unrelated inputs would point users at unrelated metrics.
+#[test]
+fn check_unknown_metric_unrelated_input_omits_suggestion() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
+
+    cli()
+        .args(["--paths", &path, "check", "--threshold", "xyznonexistent=1"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("unknown threshold metric"))
+        .stderr(predicate::str::contains("did you mean").not());
+}
+
+/// `[thresholds]` TOML config keys flow through the same validator,
+/// so a typo there must produce the same suggestion as a CLI typo.
+#[test]
+fn check_unknown_metric_in_toml_config_suggests_correction() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
+    let config_path = dir.path().join("bca.toml");
+    fs::write(&config_path, "[thresholds]\ncyclomatc = 15\n").expect("write config");
+    let config_str = config_path.to_str().expect("utf8 config path");
+
+    cli()
+        .args(["--paths", &path, "check", "--config", config_str])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("did you mean"))
+        .stderr(predicate::str::contains("cyclomatic"));
+}
+
 #[test]
 fn check_with_no_matching_files_exits_one() {
     // A directory that exists but contains no source files should produce

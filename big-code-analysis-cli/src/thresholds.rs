@@ -378,9 +378,11 @@ impl ThresholdSet {
         let mut entries = Vec::with_capacity(raw.len());
         for (name, limit) in raw {
             let extractor = lookup_extractor(name).ok_or_else(|| {
+                let known = known_metric_names();
                 format!(
-                    "unknown threshold metric {name:?}; known metrics: {}",
-                    known_metric_names().join(", ")
+                    "unknown threshold metric {name:?}{}; known metrics: {}",
+                    crate::threshold_suggestion::format_suggestion(name, &known),
+                    known.join(", ")
                 )
             })?;
             if !limit.is_finite() || *limit < 0.0 {

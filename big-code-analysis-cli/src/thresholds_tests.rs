@@ -445,3 +445,90 @@ fn render_covered_falls_back_to_unprefixed() {
     let out = render_violation_line(&v, Some(&Coverage::Covered { recorded: 30.0 }));
     assert_eq!(out, format!("{v}"));
 }
+
+#[test]
+fn closest_metric_names_suggests_single_typo() {
+    // Levenshtein-1 from `cyclomatic`: the only candidate within the
+    // cutoff. The suggester must surface exactly one name, not the
+    // whole registry.
+    let names = known_metric_names();
+    let suggestions = crate::threshold_suggestion::closest_names("cyclomatc", &names);
+    assert_eq!(suggestions, vec!["cyclomatic"]);
+}
+
+#[test]
+fn closest_metric_names_suggests_dotted_typo() {
+    // A typo in the post-dot portion of a compound metric name must
+    // still find the right candidate — verifies the suggester is
+    // string-based, not segmented on `.`.
+    let names = known_metric_names();
+    let suggestions = crate::threshold_suggestion::closest_names("halstead.efort", &names);
+    assert_eq!(suggestions, vec!["halstead.effort"]);
+}
+
+#[test]
+fn closest_metric_names_suggests_truncation() {
+    // Truncation case from the issue title: `cyclic` -> `cyclomatic`
+    // (4-edit Levenshtein, but a 4-byte shared prefix). The shared-
+    // prefix strategy must rescue this so the error is actionable.
+    let names = known_metric_names();
+    let suggestions = crate::threshold_suggestion::closest_names("cyclic", &names);
+    assert!(
+        suggestions.contains(&"cyclomatic"),
+        "expected `cyclomatic` in {suggestions:?}"
+    );
+}
+
+#[test]
+fn closest_metric_names_returns_empty_for_unrelated_input() {
+    // Pure garbage input must produce no suggestion so the existing
+    // "unknown metric" error remains the primary signal.
+    let names = known_metric_names();
+    let suggestions = crate::threshold_suggestion::closest_names("xyznonexistent", &names);
+    assert!(suggestions.is_empty(), "{suggestions:?}");
+}
+
+#[test]
+fn closest_metric_names_returns_empty_for_very_short_input() {
+    // A 1-character input falls below the prefix-strategy minimum
+    // and has cutoff 0 under the edit-distance strategy, so it must
+    // produce no suggestion. Without this, every short candidate
+    // would match by trivial substitution.
+    let names = known_metric_names();
+    assert!(crate::threshold_suggestion::closest_names("z", &names).is_empty());
+}
+
+#[test]
+fn build_unknown_metric_error_includes_suggestion() {
+    let mut raw = BTreeMap::new();
+    raw.insert("cyclomatc".to_string(), 1.0);
+    let err = ThresholdSet::build(&raw).expect_err("unknown name");
+    assert!(err.contains("did you mean"), "{err}");
+    assert!(err.contains("cyclomatic"), "{err}");
+}
+
+#[test]
+fn build_unknown_metric_error_omits_suggestion_for_unrelated_input() {
+    let mut raw = BTreeMap::new();
+    raw.insert("xyznonexistent".to_string(), 1.0);
+    let err = ThresholdSet::build(&raw).expect_err("unknown name");
+    assert!(!err.contains("did you mean"), "{err}");
+    assert!(err.contains("unknown threshold metric"), "{err}");
+}
+
+#[test]
+fn edit_distance_with_cutoff_short_circuits_far_apart() {
+    // Inputs whose length difference alone exceeds the cutoff must
+    // be rejected without doing the full DP — verifies the early
+    // exit path. `cutoff + 1` is the documented sentinel.
+    let d = crate::threshold_suggestion::edit_distance_with_cutoff("ab", "abcdefghij", 2);
+    assert!(d > 2, "{d}");
+}
+
+#[test]
+fn edit_distance_with_cutoff_handles_equal_strings() {
+    assert_eq!(
+        crate::threshold_suggestion::edit_distance_with_cutoff("cyclomatic", "cyclomatic", 2),
+        0
+    );
+}

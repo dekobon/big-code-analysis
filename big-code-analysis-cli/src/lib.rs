@@ -39,6 +39,7 @@ mod formats;
 mod html_report;
 mod markdown_report;
 mod metric_catalog;
+mod threshold_suggestion;
 mod thresholds;
 
 pub use commands::run;
