@@ -412,10 +412,14 @@ fn lexical_normalize_preserves_escaping_parents() {
 #[cfg(unix)]
 #[test]
 fn anchor_for_strips_baseline_filename() {
-    let dir = std::env::temp_dir().join("bca-anchor-test");
-    let _ = std::fs::create_dir_all(&dir);
-    let baseline = dir.join("baseline.toml");
-    assert_eq!(anchor_for(&baseline), dir);
+    // `anchor_for` is lexical-only — no filesystem access — so the
+    // assertion can be a pure path comparison against synthetic
+    // input. Pinning to a fixed prefix keeps the test independent
+    // of `$TMPDIR` shape across CI hosts.
+    assert_eq!(
+        anchor_for(Path::new("/tmp/bca-anchor-test/baseline.toml")),
+        Path::new("/tmp/bca-anchor-test"),
+    );
 }
 
 #[cfg(unix)]

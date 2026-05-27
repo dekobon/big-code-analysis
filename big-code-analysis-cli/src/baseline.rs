@@ -336,9 +336,7 @@ fn lexical_normalize(p: &Path) -> PathBuf {
             Component::Prefix(_) | Component::RootDir | Component::Normal(_) => out.push(c),
             Component::CurDir => {}
             Component::ParentDir => {
-                let last_is_normal =
-                    matches!(out.components().next_back(), Some(Component::Normal(_)));
-                if last_is_normal {
+                if matches!(out.components().next_back(), Some(Component::Normal(_))) {
                     out.pop();
                 } else {
                     out.push(c);
