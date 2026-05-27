@@ -34,7 +34,13 @@ tree-sitter-language="0.1.0"
 [build-dependencies]
 cc = "^1.0"
 # This dependency is not used at all for this crate, but it is here so that
-# dependabot can send notifications when there are updates for this grammar
+# dependabot can send notifications when there are updates for this grammar.
+#
+# IMPORTANT: bumping this version is a NOTIFICATION HOOK ONLY — it does NOT
+# regenerate the bundled `src/parser.c` / `src/scanner.c`. Any version bump
+# MUST be accompanied by re-running `./generate-grammars/generate-mozcpp.sh`
+# and committing the regenerated sources in the same PR. See #400 for the
+# audit trail on the related tree-sitter-mozjs marker.
 tree-sitter-cpp = "0.23.4"
 
 [package.metadata.cargo-udeps.ignore]
