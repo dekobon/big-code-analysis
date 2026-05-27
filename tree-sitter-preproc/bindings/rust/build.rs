@@ -19,9 +19,15 @@ fn main() {
     let mut cpp_config = cc::Build::new();
     cpp_config.cpp(true);
     cpp_config.include(src_dir);
+    // -Wno-sign-compare: scanner.cc compares `lexer->lookahead` (int32_t)
+    // against `wchar_t` containers. The pattern is inherited from upstream
+    // tree-sitter scanner conventions and is wiped by recreate-grammars
+    // regeneration, so the suppression must live in this build.rs rather
+    // than in the C++ source. See #399.
     cpp_config
         .flag_if_supported("-Wno-unused-parameter")
-        .flag_if_supported("-Wno-unused-but-set-variable");
+        .flag_if_supported("-Wno-unused-but-set-variable")
+        .flag_if_supported("-Wno-sign-compare");
     let scanner_path = src_dir.join("scanner.cc");
     cpp_config.file(&scanner_path);
     println!("cargo:rerun-if-changed={}", scanner_path.to_str().unwrap());
