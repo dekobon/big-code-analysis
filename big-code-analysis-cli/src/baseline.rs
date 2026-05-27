@@ -172,11 +172,14 @@ impl Baseline {
             // will surface as `New`).
             //
             // `is_sign_negative()` catches `-0.0` too (which `< 0.0`
-            // misses under IEEE 754: `-0.0 < 0.0` is false). A hand-
-            // crafted `-0.0` entry would otherwise pass the filter and
-            // store `recorded = -0.0`, then `format_regressed_tag`
-            // would divide by zero producing an `inf`-flavoured
-            // `[regr +-N%]` tag.
+            // misses under IEEE 754: `-0.0 < 0.0` is false). `-0.0`
+            // itself is benign for the renderer (`recorded == 0.0`
+            // hits the `[regr from 0]` early-return in
+            // `format_regressed_tag`), but dropping it here keeps the
+            // write-side and read-side filters bit-symmetric: a
+            // round-trip through `from_violations` -> `from_str` of
+            // any caller-constructed value preserves the same set of
+            // surviving entries.
             if !e.value.is_finite() || e.value.is_sign_negative() {
                 continue;
             }
@@ -278,11 +281,14 @@ pub(crate) fn from_violations(violations: Vec<Violation>, anchor: &Path) -> Base
             }
             // Drop negative values (including `-0.0`, which `< 0.0`
             // would miss under IEEE 754) so write and read sides stay
-            // round-trip-symmetric — `from_str` filters the same set,
-            // and `format_regressed_tag` cannot divide by a negative
-            // `recorded`. Production metric extractors never emit
-            // negative values, so this only matters for hand-crafted
-            // Violations and adversarial TOML inputs.
+            // round-trip-symmetric — `from_str` filters the same set.
+            // A genuinely-negative `recorded` (e.g. `-1.0` from a
+            // hand-edited TOML) would also produce a double-signed
+            // `[regr +-N%]` tag downstream; `-0.0` is benign for the
+            // renderer but dropped here to keep both filters identical.
+            // Production metric extractors never emit negative values,
+            // so this only matters for hand-crafted Violations and
+            // adversarial TOML inputs.
             if v.value.is_sign_negative() {
                 eprintln!(
                     "warning: skipping negative value for {}:{}-{}: {} = {}",
