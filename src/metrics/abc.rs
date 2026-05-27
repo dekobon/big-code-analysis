@@ -9368,13 +9368,17 @@ function f(int $a, int $b): int {
     }
 
     #[test]
-    fn perl_if_boolean_literal_condition() {
-        // Perl's `Boolean` kind only fires for the `boolean`
-        // pragma's named constants. tree-sitter-perl's `Array`
-        // wrapper still unwraps via `perl_inspect_container`;
-        // `if (1)` reaches an Integer/Number leaf which is not
-        // in the terminal-bool set, so this test uses a
-        // scalar-variable condition (which IS in the set).
+    fn perl_if_scalar_variable_condition() {
+        // Renamed from the cross-language
+        // `_if_boolean_literal_condition` convention because
+        // Perl has no readily-grammar-exposed boolean literal in
+        // an `if (cond)` slot at the pinned grammar version:
+        // tree-sitter-perl's `Boolean` kind only fires for the
+        // `boolean` pragma's named constants (not bareword `1` /
+        // `0`, which surface as `Integer` / not in the
+        // terminal-bool set). A scalar-variable condition is the
+        // grammar-stable witness — `if ($a)` reaches
+        // `scalar_variable` via the `Array` paren unwrap.
         check_metrics::<PerlParser>(
             "sub f { my ($a) = @_; if ($a) { return 1; } }\n",
             "foo.pl",
@@ -9395,6 +9399,13 @@ function f(int $a, int $b): int {
             "sub f { my ($a, $b) = @_; call($a, $b); call(!$a, !$b); }\n",
             "foo.pl",
             |metric| {
+                // Two calls × 1 branch each = 2 branches.
+                // `call(!$a, !$b)` contributes 2 walker conditions
+                // (one per `!`-wrapped scalar-variable argument);
+                // `call($a, $b)` contributes 0 (bare-args don't
+                // count via the Arguments walker — list_kind !=
+                // BinaryExpression).
+                assert_eq!(metric.abc.branches_sum(), 2.0);
                 assert_eq!(metric.abc.conditions_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.abc);
             },

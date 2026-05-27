@@ -1685,14 +1685,14 @@ path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 57490315.444698475
+value = 57544813.22712086
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 9943.0
+value = 9954.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
