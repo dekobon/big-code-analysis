@@ -44,9 +44,8 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::output::numfmt::MessageMetric;
-use crate::output::offenders::{
-    OffenderRecord, Severity, TOOL_ID, rule_description, warn_non_utf8_path,
-};
+use crate::output::offenders::{OffenderRecord, Severity, TOOL_ID, warn_non_utf8_path};
+use crate::output::rule_descriptions::{is_lower_is_worse, rule_description};
 
 /// Number of leading SHA-256 bytes retained in each fingerprint
 /// (matches the issue spec — 128 bits is enough to keep collision
@@ -172,7 +171,7 @@ fn severity_band(metric: &str, value: f64, limit: f64, severity: Severity) -> &'
     if !value.is_finite() || !limit.is_finite() || limit <= 0.0 || value <= 0.0 {
         return fallback();
     }
-    let ratio = if metric.starts_with("mi.") {
+    let ratio = if is_lower_is_worse(metric) {
         limit / value
     } else {
         value / limit

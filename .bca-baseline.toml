@@ -2588,14 +2588,14 @@ path = "src/output/code_climate.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1257044.5452770973
+value = 1258804.0979427292
 
 [[entry]]
 path = "src/output/code_climate.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 673.0
+value = 672.0
 
 [[entry]]
 path = "src/output/code_climate.rs"
@@ -2945,21 +2945,21 @@ path = "src/output/offenders.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 104369.70794753898
+value = 76119.05395705439
 
 [[entry]]
 path = "src/output/sarif.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 895428.0843514435
+value = 895600.0053285874
 
 [[entry]]
 path = "src/output/sarif.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 472.0
+value = 473.0
 
 [[entry]]
 path = "src/output/sarif.rs"

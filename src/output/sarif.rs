@@ -27,7 +27,8 @@ use serde::Serialize;
 
 #[cfg(test)]
 use crate::output::offenders::Severity;
-use crate::output::offenders::{OffenderRecord, TOOL_ID, rule_description, warn_non_utf8_path};
+use crate::output::offenders::{OffenderRecord, TOOL_ID, warn_non_utf8_path};
+use crate::output::rule_descriptions::rule_description;
 
 /// SARIF schema URL — pinned to 2.1.0 (the version GitHub Code
 /// Scanning ingests).
