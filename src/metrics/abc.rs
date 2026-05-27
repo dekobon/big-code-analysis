@@ -759,7 +759,7 @@ impl_js_family_unary_walker!(Mozjs, mozjs_inspect_container, mozjs_count_unary_c
 // keep the `Var` slot. Augmented assignments (`+=`) and update
 // expressions (`++`, `--`) always count.
 macro_rules! ts_abc_compute {
-    ($lang:ident, $count_unary:path) => {
+    ($lang:ident, $count_unary:path, $inspect_container:path) => {
         fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
             use $lang::*;
 
@@ -821,6 +821,37 @@ macro_rules! ts_abc_compute {
                         $count_unary(&parent, &mut stats.conditions);
                     }
                 }
+                // Phase-2B (issue #403): condition slots. JS / TS
+                // wrap `if (...)` / `while (...)` / `do {…} while
+                // (...)` in `parenthesized_expression`, so
+                // `<lang>_inspect_container`'s paren-unwrap handles
+                // the boolean-literal case (`if (true)` counts 1).
+                // The condition sits at child(1) for if and while.
+                // For `do_statement`, the condition is at child(4)
+                // (children: `do`, body, `while`, condition, `;`).
+                IfStatement | WhileStatement => {
+                    if let Some(cond) = node.child(1) {
+                        $inspect_container(&cond, &mut stats.conditions);
+                    }
+                }
+                DoStatement => {
+                    // children: `do`(0), body(1), `while`(2),
+                    // parenthesized condition(3), `;`(4).
+                    if let Some(cond) = node.child(3) {
+                        $inspect_container(&cond, &mut stats.conditions);
+                    }
+                }
+                // `return value;` — value at child(1). The bare
+                // `return;` (no value) form has no child(1).
+                ReturnStatement => {
+                    if let Some(value) = node.child(1) {
+                        $inspect_container(&value, &mut stats.conditions);
+                    }
+                }
+                // Method-argument walker for `f(!a, !b)`.
+                Arguments => {
+                    $count_unary(node, &mut stats.conditions);
+                }
                 _ => {}
             }
         }
@@ -828,11 +859,15 @@ macro_rules! ts_abc_compute {
 }
 
 impl Abc for TypescriptCode {
-    ts_abc_compute!(Typescript, typescript_count_unary_conditions);
+    ts_abc_compute!(
+        Typescript,
+        typescript_count_unary_conditions,
+        typescript_inspect_container
+    );
 }
 
 impl Abc for TsxCode {
-    ts_abc_compute!(Tsx, tsx_count_unary_conditions);
+    ts_abc_compute!(Tsx, tsx_count_unary_conditions, tsx_inspect_container);
 }
 
 // JavaScript / Mozjs share TypeScript's expression / statement
@@ -852,7 +887,7 @@ impl Abc for TsxCode {
 //      bindings can be reassigned and the initial value is the first
 //      assignment of the binding's lifetime.
 macro_rules! js_abc_compute {
-    ($lang:ident, $count_unary:path) => {
+    ($lang:ident, $count_unary:path, $inspect_container:path) => {
         fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
             use $lang::*;
 
@@ -892,6 +927,29 @@ macro_rules! js_abc_compute {
                         $count_unary(&parent, &mut stats.conditions);
                     }
                 }
+                // Phase-2B (issue #403): condition slots. Same shape
+                // as the TypeScript impl above — see that macro's
+                // arm-block for the per-child-index rationale.
+                IfStatement | WhileStatement => {
+                    if let Some(cond) = node.child(1) {
+                        $inspect_container(&cond, &mut stats.conditions);
+                    }
+                }
+                DoStatement => {
+                    // children: `do`(0), body(1), `while`(2),
+                    // parenthesized condition(3), `;`(4).
+                    if let Some(cond) = node.child(3) {
+                        $inspect_container(&cond, &mut stats.conditions);
+                    }
+                }
+                ReturnStatement => {
+                    if let Some(value) = node.child(1) {
+                        $inspect_container(&value, &mut stats.conditions);
+                    }
+                }
+                Arguments => {
+                    $count_unary(node, &mut stats.conditions);
+                }
                 _ => {}
             }
         }
@@ -899,11 +957,15 @@ macro_rules! js_abc_compute {
 }
 
 impl Abc for JavascriptCode {
-    js_abc_compute!(Javascript, javascript_count_unary_conditions);
+    js_abc_compute!(
+        Javascript,
+        javascript_count_unary_conditions,
+        javascript_inspect_container
+    );
 }
 
 impl Abc for MozjsCode {
-    js_abc_compute!(Mozjs, mozjs_count_unary_conditions);
+    js_abc_compute!(Mozjs, mozjs_count_unary_conditions, mozjs_inspect_container);
 }
 
 // Fitzpatrick's ABC rules adapted for Kotlin syntax. Kotlin shares the
@@ -1058,6 +1120,16 @@ fn php_inspect_container(container_node: &Node, conditions: &mut f64) {
     }
 }
 
+// Phase-2B helper (issue #403): pass `node.child(idx)` through
+// `php_inspect_container`. PHP wraps `if (...)` / `while (...)` /
+// `do {…} while (...)` in `parenthesized_expression`, so the paren
+// unwrap handles the boolean-literal case (`if (true)` counts 1).
+fn php_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
+    if let Some(child) = node.child(idx) {
+        php_inspect_container(&child, conditions);
+    }
+}
+
 fn php_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
     use Php::*;
 
@@ -1069,12 +1141,22 @@ fn php_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
             let node = cursor.node();
             let node_kind = node.kind_id().into();
 
-            if matches!(node_kind, php_bool_terminal_kinds!())
+            // PHP wraps each call argument in an `argument` node;
+            // descend through that wrapper so the unary-conditional
+            // operand inside is reachable.
+            let inner = if matches!(node_kind, Argument) {
+                node.child(0).unwrap_or(node)
+            } else {
+                node
+            };
+            let inner_kind = inner.kind_id().into();
+
+            if matches!(inner_kind, php_bool_terminal_kinds!())
                 && matches!(list_kind, BinaryExpression)
             {
                 *conditions += 1.;
-            } else if node.is_named() {
-                php_inspect_container(&node, conditions);
+            } else if inner.is_named() {
+                php_inspect_container(&inner, conditions);
             }
 
             if !cursor.goto_next_sibling() {
@@ -1147,6 +1229,21 @@ impl Abc for PhpCode {
                 if let Some(parent) = node.parent() {
                     php_count_unary_conditions(&parent, &mut stats.conditions);
                 }
+            }
+            // Phase-2B (issue #403): condition slots. PHP wraps
+            // `if (...)` / `while (...)` in `parenthesized_expression`
+            // at child(1); `return value;` exposes the value at the
+            // same index. `do {…} while (...)` has the parenthesized
+            // condition at child(3).
+            IfStatement | WhileStatement | ReturnStatement => {
+                php_inspect_child(node, 1, &mut stats.conditions);
+            }
+            DoStatement => {
+                php_inspect_child(node, 3, &mut stats.conditions);
+            }
+            // `f(!$a, !$b)` — argument list walker.
+            Arguments => {
+                php_count_unary_conditions(node, &mut stats.conditions);
             }
             _ => {}
         }
@@ -1265,6 +1362,32 @@ fn python_inspect_container(container_node: &Node, conditions: &mut f64) {
     }
 }
 
+// Phase-2B (issue #403): Python `if` / `while` condition slot.
+// Python has no paren wrap around if-conditions and no top-level
+// terminal arm, so the condition has to be classified directly:
+//   - Identifier / True / False / Call / Attribute / Subscript at
+//     the top level counts once (Rule 6: bare-boolean condition).
+//   - ParenthesizedExpression unwraps via `python_inspect_container`.
+//   - NotOperator / ComparisonOperator / BooleanOperator are
+//     skipped: each is counted by its own top-level dispatcher arm
+//     (the `Or`/`And` keyword walker, the `NotOperator` arm, and
+//     the `ComparisonOperator` arm at lines `~1334-1390`).
+fn python_count_condition(condition: &Node, conditions: &mut f64) {
+    use Python::*;
+    let kind = condition.kind_id().into();
+    if matches!(kind, python_bool_terminal_kinds!()) {
+        *conditions += 1.;
+    } else if matches!(kind, ParenthesizedExpression) {
+        python_inspect_container(condition, conditions);
+    }
+}
+
+fn python_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
+    if let Some(child) = node.child(idx) {
+        python_count_condition(&child, conditions);
+    }
+}
+
 fn python_count_unary_conditions(list_node: &Node, conditions: &mut f64) {
     use Python::*;
 
@@ -1362,6 +1485,18 @@ impl Abc for PythonCode {
                     python_count_unary_conditions(&parent, &mut stats.conditions);
                 }
             }
+            // Phase-2B (issue #403): `if` / `while` condition slot.
+            // Python has no paren wrap around if-conditions, so the
+            // condition has to be classified directly. NotOperator,
+            // ComparisonOperator, BooleanOperator children each have
+            // their own dispatcher arms and are not re-counted here.
+            // `for` has no condition slot; ReturnStatement /
+            // ArgumentList do not need walker arms because every
+            // unary-conditional content node (NotOperator,
+            // ComparisonOperator) already has its own top-level arm.
+            IfStatement | WhileStatement => {
+                python_inspect_child(node, 1, &mut stats.conditions);
+            }
             _ => {}
         }
     }
@@ -1417,6 +1552,30 @@ fn rust_inspect_container(container_node: &Node, conditions: &mut f64) {
             }
             break;
         }
+    }
+}
+
+// Phase-2B helpers (issue #403): classify a condition slot directly.
+// Used for the `if (cond)` / `while (cond)` / `return value` arms —
+// Fitzpatrick's Rule 6 / 7 ("unary conditional expression"). If the
+// condition itself is a terminal-bool kind (`if true {}`, `if a {}`),
+// it counts as one condition; if wrapped in `(...)` or `!...`,
+// `rust_inspect_container` unwraps until a terminal is found. Mirrors
+// the `java_count_condition` / `java_inspect_child` helper pair used
+// by `java_walk_ternary` / `java_walk_for_statement`.
+fn rust_count_condition(condition: &Node, conditions: &mut f64) {
+    use Rust::*;
+    let kind = condition.kind_id().into();
+    if matches!(kind, rust_bool_terminal_kinds!()) {
+        *conditions += 1.;
+    } else if matches!(kind, ParenthesizedExpression | UnaryExpression) {
+        rust_inspect_container(condition, conditions);
+    }
+}
+
+fn rust_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
+    if let Some(child) = node.child(idx) {
+        rust_count_condition(&child, conditions);
     }
 }
 
@@ -1546,6 +1705,32 @@ impl Abc for RustCode {
                     rust_count_unary_conditions(&parent, &mut stats.conditions);
                 }
             }
+            // Phase-2B (issue #403): Fitzpatrick Rule 6 / 7 condition
+            // slots. `if true {}` / `if !a {}` count their condition
+            // once via `rust_count_condition` (terminal-at-top or
+            // paren / unary unwrap). The condition sits at child(1)
+            // for `if_expression` and `while_expression` (child(0)
+            // is the keyword). Rust has no `do_statement`, no
+            // ternary, and no for-condition slot.
+            IfExpression | WhileExpression => {
+                rust_inspect_child(node, 1, &mut stats.conditions);
+            }
+            // `return value;` — `value` sits at child(1). Use the
+            // bare `inspect_container` path (no top-level terminal
+            // count) so that `return x` reports zero conditions
+            // while `return !x` reports one. Matches Java's policy
+            // (`java_return_without_conditions`): a bare identifier
+            // in the return slot is not a unary conditional.
+            ReturnExpression => {
+                if let Some(value) = node.child(1) {
+                    rust_inspect_container(&value, &mut stats.conditions);
+                }
+            }
+            // Method-argument walker: `m(!a, !b)` contributes one
+            // condition per unary-conditional argument.
+            Arguments => {
+                rust_count_unary_conditions(node, &mut stats.conditions);
+            }
             _ => {}
         }
     }
@@ -1589,6 +1774,23 @@ fn go_inspect_container(container_node: &Node, conditions: &mut f64) {
             }
             break;
         }
+    }
+}
+
+// Phase-2B (issue #403): condition-slot dispatcher for Go.
+fn go_count_condition(condition: &Node, conditions: &mut f64) {
+    use Go as G;
+    let kind = condition.kind_id().into();
+    if matches!(kind, go_bool_terminal_kinds!()) {
+        *conditions += 1.;
+    } else if matches!(kind, G::ParenthesizedExpression | G::UnaryExpression) {
+        go_inspect_container(condition, conditions);
+    }
+}
+
+fn go_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
+    if let Some(child) = node.child(idx) {
+        go_count_condition(&child, conditions);
     }
 }
 
@@ -1673,6 +1875,44 @@ impl Abc for GoCode {
                     go_count_unary_conditions(&parent, &mut stats.conditions);
                 }
             }
+            // Phase-2B (issue #403): Rule 6 / 7 condition slots.
+            // `if true {}` / `if !a {}` / `if (a) {}` count once.
+            // Go's `if` and `for` have the condition at child(1)
+            // (child(0) is the keyword).
+            G::IfStatement => {
+                go_inspect_child(node, 1, &mut stats.conditions);
+            }
+            // `return value` — Go wraps the return values in an
+            // `expression_list` at child(1). Iterate the list's
+            // children and route each through `inspect_container`
+            // (NOT the terminal-at-top form): `return !x` counts
+            // the wrapped Identifier once, while `return x` (bare
+            // identifier in the return slot) reports zero
+            // conditions. Matches Java's policy in
+            // `java_return_without_conditions`. Bare `return`
+            // (no values) has no child(1).
+            G::ReturnStatement => {
+                if let Some(expr_list) = node.child(1) {
+                    let mut cursor = expr_list.cursor();
+                    if cursor.goto_first_child() {
+                        loop {
+                            let child = cursor.node();
+                            if child.is_named() {
+                                go_inspect_container(&child, &mut stats.conditions);
+                            }
+                            if !cursor.goto_next_sibling() {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            // Method-argument-list walker for `f(!a, !b)`. Two
+            // aliases — `argument_list` is emitted as ArgumentList
+            // or ArgumentList2 depending on production rule path.
+            G::ArgumentList | G::ArgumentList2 => {
+                go_count_unary_conditions(node, &mut stats.conditions);
+            }
             _ => {}
         }
     }
@@ -1705,9 +1945,14 @@ fn cpp_inspect_container(container_node: &Node, conditions: &mut f64) {
             .is_none_or(|prev| !matches!(prev.kind_id().into(), QMARK | COLON)));
 
     loop {
+        // `ConditionClause` is the C++-grammar wrapper around an
+        // `if (...)` / `while (...)` head — same `(`, content, `)`
+        // shape as `parenthesized_expression`, so it unwraps the
+        // same way at child(1). `do { ... } while (...)`'s trailing
+        // condition is a plain `parenthesized_expression`.
         let is_parens = matches!(
             node_kind,
-            ParenthesizedExpression | ParenthesizedExpression2
+            ParenthesizedExpression | ParenthesizedExpression2 | ConditionClause
         );
         let is_not = matches!(node_kind, UnaryExpression | UnaryExpression2)
             && node.child(0).is_some_and(|c| c.kind_id() == BANG as u16);
@@ -1729,6 +1974,18 @@ fn cpp_inspect_container(container_node: &Node, conditions: &mut f64) {
             }
             break;
         }
+    }
+}
+
+// Phase-2B helpers (issue #403): condition-slot dispatcher for C++.
+// `if (cond)` / `while (cond)` / `return value` slots are
+// paren-wrapped in C++; `cpp_inspect_container` already handles the
+// `(...)` / `!...` unwrap chain and the boolean-context seed from
+// the parent kind. No top-level terminal counter is needed because
+// the paren wrapper provides the unwrap step.
+fn cpp_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
+    if let Some(child) = node.child(idx) {
+        cpp_inspect_container(&child, conditions);
     }
 }
 
@@ -1842,6 +2099,27 @@ impl Abc for CppCode {
                 if let Some(parent) = node.parent() {
                     cpp_count_unary_conditions(&parent, &mut stats.conditions);
                 }
+            }
+            // Phase-2B (issue #403): condition slots. C++ wraps every
+            // `if (...)` / `while (...)` / `do {…} while (...)` /
+            // `return value` in a paren / parenthesized expression
+            // (return is unparenthesized but its child(1) is the
+            // expression). `cpp_inspect_container` handles the
+            // `(...)` / `!...` unwrap so `if (true)` and `return !x`
+            // each count one condition; bare `return x` reports zero.
+            IfStatement | WhileStatement | ReturnStatement => {
+                cpp_inspect_child(node, 1, &mut stats.conditions);
+            }
+            // `do { ... } while (cond);` — children: `do`, body,
+            // `while`, condition (parenthesized). Condition at child(3).
+            DoStatement => {
+                cpp_inspect_child(node, 3, &mut stats.conditions);
+            }
+            // `f(!a, !b)` — argument list walker. Two aliases —
+            // `argument_list` is emitted as ArgumentList or
+            // ArgumentList2 depending on production rule path.
+            ArgumentList | ArgumentList2 => {
+                cpp_count_unary_conditions(node, &mut stats.conditions);
             }
             _ => {}
         }
@@ -2636,7 +2914,11 @@ fn perl_inspect_container(container_node: &Node, conditions: &mut f64) {
             .is_none_or(|prev| !matches!(prev.kind_id().into(), P::QMARK | P::COLON)));
 
     loop {
-        let is_parens = matches!(node_kind, P::ParenthesizedArgument);
+        // `Array` is the tree-sitter-perl grammar's name for the
+        // `(...)` wrapper around `if` / `while` / `unless` / `until`
+        // condition slots — same `(`, content, `)` shape as
+        // `ParenthesizedArgument` despite the unrelated kind name.
+        let is_parens = matches!(node_kind, P::ParenthesizedArgument | P::Array);
         let is_not = matches!(node_kind, P::UnaryExpression)
             && node.child(0).is_some_and(|c| c.kind_id() == P::BANG as u16);
 
@@ -2657,6 +2939,17 @@ fn perl_inspect_container(container_node: &Node, conditions: &mut f64) {
             }
             break;
         }
+    }
+}
+
+// Phase-2B (issue #403): pass `node.child(idx)` through
+// `perl_inspect_container`. Perl wraps `if (cond)` / `while (cond)` /
+// `unless (cond)` / `until (cond)` conditions in a
+// `parenthesized_argument`, so the paren unwrap handles the
+// boolean-literal case.
+fn perl_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
+    if let Some(child) = node.child(idx) {
+        perl_inspect_container(&child, conditions);
     }
 }
 
@@ -2766,6 +3059,43 @@ impl Abc for PerlCode {
                     perl_count_unary_conditions(&parent, &mut stats.conditions);
                 }
             }
+            // Phase-2B (issue #403): condition slots. Perl wraps
+            // `if (cond)` / `while (cond)` / `unless (cond)` /
+            // `until (cond)` in the `Array` `(...)` shape (the
+            // grammar's name for parenthesized expressions in
+            // statement-modifier slots) — the paren unwrap handles
+            // boolean-literal cases. Condition sits at child(1)
+            // (child(0) is the `if` / `while` keyword).
+            // `return value`'s value also sits at child(1); merged
+            // into the same arm body to satisfy `match_same_arms`.
+            P::IfStatement
+            | P::UnlessStatement
+            | P::WhileStatement
+            | P::UntilStatement
+            | P::ReturnExpression => {
+                perl_inspect_child(node, 1, &mut stats.conditions);
+            }
+            // `call(!$a, !$b)` — argument list walker. Perl wraps
+            // call-argument lists in an `Array` node (same kind name
+            // as the `(...)` wrapper around `if` / `while`
+            // conditions). To avoid re-handling condition slots that
+            // were already walked through inspect_container, only
+            // dispatch when the parent is a call-expression form.
+            P::Array
+                if node.parent().is_some_and(|p| {
+                    matches!(
+                        p.kind_id().into(),
+                        P::CallExpressionWithArgsWithBrackets
+                            | P::CallExpressionWithSpacedArgs
+                            | P::CallExpressionWithSub
+                            | P::CallExpressionWithVariable
+                            | P::CallExpressionRecursive
+                            | P::MethodInvocation
+                    )
+                }) =>
+            {
+                perl_count_unary_conditions(node, &mut stats.conditions);
+            }
             _ => {}
         }
     }
@@ -2798,7 +3128,7 @@ fn lua_inspect_container(container_node: &Node, conditions: &mut f64) {
     let mut node = *container_node;
     let mut node_kind = node.kind_id().into();
     let Some(parent) = node.parent() else { return };
-    let has_boolean_content = matches!(
+    let mut has_boolean_content = matches!(
         parent.kind_id().into(),
         Lua::BinaryExpression | Lua::IfStatement | Lua::WhileStatement | Lua::RepeatStatement
     );
@@ -2813,6 +3143,11 @@ fn lua_inspect_container(container_node: &Node, conditions: &mut f64) {
         if !is_parens && !is_not {
             break;
         }
+        // A `not` wrapper proves the operand is boolean even when
+        // the parent context didn't — matches the JS/Java/etc.
+        // pattern. Without this, `m(not a)` and other call-argument
+        // contexts would never propagate has_boolean_content.
+        has_boolean_content |= is_not;
 
         let Some(child) = node.child(1) else { break };
         node = child;
@@ -2824,6 +3159,26 @@ fn lua_inspect_container(container_node: &Node, conditions: &mut f64) {
             }
             break;
         }
+    }
+}
+
+// Phase-2B (issue #403): Lua `if` / `while` / `repeat` condition
+// slots. Lua has no paren wrap, so the condition has to be classified
+// directly: terminal-bool kinds (Identifier, True, False, Nil,
+// FunctionCall, etc.) count at the top level; `(...)` / `not ...`
+// route through `lua_inspect_container`.
+fn lua_count_condition(condition: &Node, conditions: &mut f64) {
+    let kind = condition.kind_id().into();
+    if matches!(kind, lua_bool_terminal_kinds!()) {
+        *conditions += 1.;
+    } else if matches!(kind, Lua::ParenthesizedExpression | Lua::UnaryExpression) {
+        lua_inspect_container(condition, conditions);
+    }
+}
+
+fn lua_inspect_child(node: &Node, idx: usize, conditions: &mut f64) {
+    if let Some(child) = node.child(idx) {
+        lua_count_condition(&child, conditions);
     }
 }
 
@@ -2876,6 +3231,44 @@ impl Abc for LuaCode {
                 if let Some(parent) = node.parent() {
                     lua_count_unary_conditions(&parent, &mut stats.conditions);
                 }
+            }
+            // Phase-2B (issue #403): condition slots. Lua has no
+            // paren wrap around `if` / `while` / `repeat …` conditions,
+            // so `lua_count_condition` classifies the slot directly.
+            // `if` / `while` have condition at child(1) (child(0) is
+            // the keyword). `repeat … until cond` has the condition at
+            // child(3) (children: `repeat`, block, `until`, condition).
+            Lua::IfStatement | Lua::WhileStatement => {
+                lua_inspect_child(node, 1, &mut stats.conditions);
+            }
+            Lua::RepeatStatement => {
+                lua_inspect_child(node, 3, &mut stats.conditions);
+            }
+            // `return value` — Lua wraps return values in
+            // `expression_list` at child(1). Route each named child
+            // through `inspect_container` (no top-level terminal
+            // count) so `return not x` counts the unary unwrap once
+            // while `return x` (bare) reports zero. Bare `return`
+            // (no values) has no child(1).
+            Lua::ReturnStatement => {
+                if let Some(expr_list) = node.child(1) {
+                    let mut cursor = expr_list.cursor();
+                    if cursor.goto_first_child() {
+                        loop {
+                            let child = cursor.node();
+                            if child.is_named() {
+                                lua_inspect_container(&child, &mut stats.conditions);
+                            }
+                            if !cursor.goto_next_sibling() {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            // `f(not a, not b)` — argument-list walker.
+            Lua::Arguments => {
+                lua_count_unary_conditions(node, &mut stats.conditions);
             }
             _ => {}
         }
@@ -5242,6 +5635,58 @@ function f(int $a, int $b): int {
     }
 
     #[test]
+    fn php_if_boolean_literal_condition() {
+        check_metrics::<PhpParser>(
+            "<?php\n\
+             function f() {\n\
+             \x20   if (true) {}                 // +1c\n\
+             \x20   if (!false) {}               // +1c\n\
+             \x20   while (true) {}              // +1c\n\
+             \x20   do {} while (false);         // +1c\n\
+             }\n",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn php_methods_arguments_with_conditions() {
+        check_metrics::<PhpParser>(
+            "<?php\n\
+             function f($a, $b) {\n\
+             \x20   m($a, $b);                   // +1b\n\
+             \x20   m(!$a, !$b);                 // +1b +2c\n\
+             }\n",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn php_return_with_conditions() {
+        check_metrics::<PhpParser>(
+            "<?php\n\
+             function m1($z) { return !($z >= 0); }\n\
+             function m2($x) { return (((!$x))); }\n\
+             function m3($x, $y) { return $x && $y; }\n",
+            "foo.php",
+            |metric| {
+                // m1: `>=` (1). m2: walker unwraps to $x (1).
+                // m3: `&&` walker counts both (2). Sum: 4.
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
     fn php_low_precedence_keyword_logical_ops_trigger_walker() {
         // Regression: pre-fix, `$a or $b` reported 0 conditions
         // because the dispatcher only handled `AMPAMP|PIPEPIPE`,
@@ -6707,6 +7152,69 @@ function f(int $a, int $b): int {
     }
 
     #[test]
+    fn python_if_boolean_literal_condition() {
+        // Phase 2B (issue #403): bare-boolean conditions count once.
+        // Python has no paren wrap around if-conditions, so the
+        // condition node is checked directly. The existing
+        // NotOperator / ComparisonOperator arms continue to fire
+        // for those shapes; only the bare-terminal cases (Identifier,
+        // True, False, etc.) are added by the new arm.
+        check_metrics::<PythonParser>(
+            "def f(a):\n\
+             \x20   if True: pass        # +1c\n\
+             \x20   if False: pass       # +1c\n\
+             \x20   while True: break    # +1c\n\
+             \x20   if a: pass           # +1c (Rule 6 — bare identifier as condition)\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn python_methods_arguments_with_conditions() {
+        // `m(not a, not b)` reports 2 conditions — both `NotOperator`
+        // nodes are counted by Python's pre-existing top-level
+        // NotOperator dispatcher arm. The argument-list walker does
+        // not need a separate Python arm.
+        check_metrics::<PythonParser>(
+            "def f(a, b):\n\
+             \x20   m(a, b)             # +1b\n\
+             \x20   m(not a, not b)     # +1b +2c\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn python_return_with_conditions() {
+        // Phase 2B (issue #403). Python uses the pre-existing top-
+        // level NotOperator / ComparisonOperator arms for return
+        // expressions; no dedicated ReturnStatement walker arm is
+        // needed.
+        check_metrics::<PythonParser>(
+            "def m1(z): return not (z >= 0)\n\
+             def m2(x): return (((not x)))\n\
+             def m3(x, y): return x and y\n",
+            "foo.py",
+            |metric| {
+                // m1: NotOperator (1) + ComparisonOperator (1) = 2.
+                // m2: NotOperator (1).
+                // m3: walker on `and` counts both operands = 2.
+                // Sum: 5.
+                assert_eq!(metric.abc.conditions_sum(), 5.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
     fn rust_empty_unit_zero() {
         // No code at all → A=B=C=0. Establishes the trait is wired up
         // and the per-language compute is reachable.
@@ -7011,6 +7519,84 @@ function f(int $a, int $b): int {
     }
 
     #[test]
+    fn rust_if_boolean_literal_condition() {
+        // Phase 2B (issue #403): a condition whose entire body is a
+        // boolean literal counts as one Fitzpatrick condition.
+        // `if true {}` → 1, `if !false {}` → 1 (unary unwrap), and
+        // `while true { break }` → 1.
+        check_metrics::<RustParser>(
+            "fn f() {\n\
+             \x20   if true { }                  // +1c\n\
+             \x20   if !false { }                // +1c\n\
+             \x20   while true { break; }        // +1c\n\
+             }\n",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_methods_arguments_with_conditions() {
+        // Phase 2B (issue #403): unary-conditional arguments to a
+        // call each count once. `m(!a, !b)` → 2 conditions + 1
+        // branch (the call itself). Bare identifier arguments do
+        // NOT count (they reach the count_unary_conditions list with
+        // list_kind = Arguments, not BinaryExpression).
+        check_metrics::<RustParser>(
+            "fn f(a: bool, b: bool) {\n\
+             \x20   m(a, b);                     // +1b\n\
+             \x20   m(!a, !b);                   // +1b +2c\n\
+             \x20   m(!a, b, !a);                // +1b +2c\n\
+             }\n",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 3.0);
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_return_with_conditions() {
+        // Phase 2B (issue #403). Mirrors `java_return_with_conditions`
+        // — `return !a` / `return x && y` count their unary
+        // conditional operands. Per Fitzpatrick Rule 7, a `!`-wrapped
+        // relational expression contributes ONE condition (the
+        // relational op itself) — the `!` does not add a second
+        // count when its operand is already a comparison.
+        check_metrics::<RustParser>(
+            "fn m1(z: i32) -> bool { return !(z >= 0); }\n\
+             fn m2(x: bool) -> bool { return (((!x))); }\n\
+             fn m3(x: bool, y: bool) -> bool { return x && y; }\n\
+             fn m4(y: bool, z: i32) -> bool { return y || (z < 0); }\n",
+            "foo.rs",
+            |metric| {
+                // m1: !(z >= 0) → the `>=` contributes 1; the unary
+                //     `!` wraps a paren'd BinaryExpression, which
+                //     inspect_container does not unwrap further →
+                //     no walker count. Total: 1.
+                // m2: (((!x))) → ReturnExpression arm walks (((!x))).
+                //     inspect_container unwraps three parens and one
+                //     unary, reaches Identifier `x`, has_boolean_content
+                //     was seeded true by the unary-not flip. +1.
+                // m3: x && y → `&&` walker counts both terminals → 2.
+                // m4: y || (z < 0) → `||` walker counts `y` (terminal,
+                //     +1); the `<` contributes 1 via its own arm; the
+                //     paren'd BinaryExpression `(z < 0)` is not
+                //     terminal under the walker → no extra count.
+                //     Total: 2.
+                // Sum: 1 + 1 + 2 + 2 = 6.
+                assert_eq!(metric.abc.conditions_sum(), 6.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
     fn rust_short_circuit_with_boolean_literal_operand() {
         // `if a && true` reports 2 conditions: one for the identifier
         // operand, one for the boolean-literal operand. Confirms the
@@ -7235,6 +7821,60 @@ function f(int $a, int $b): int {
              }\n",
             "foo.go",
             |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn go_if_boolean_literal_condition() {
+        check_metrics::<GoParser>(
+            "package p\n\
+             func F() {\n\
+             \x20   if true {}                  // +1c\n\
+             \x20   if !false {}                // +1c\n\
+             }\n",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn go_methods_arguments_with_conditions() {
+        check_metrics::<GoParser>(
+            "package p\n\
+             func F(a, b bool) {\n\
+             \x20   m(a, b)                     // +1b\n\
+             \x20   m(!a, !b)                   // +1b +2c\n\
+             }\n",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn go_return_with_conditions() {
+        check_metrics::<GoParser>(
+            "package p\n\
+             func M1(z int) bool { return !(z >= 0) }\n\
+             func M2(x bool) bool { return !x }\n\
+             func M3(x, y bool) bool { return x && y }\n",
+            "foo.go",
+            |metric| {
+                // M1: `>=` (1). `!(z >= 0)` walker on the unary
+                //     doesn't reach a terminal — stops at the
+                //     BinaryExpression z>=0 inside the parens. +1.
+                // M2: walker on `!x` → 1.
+                // M3: `&&` walker counts both → 2.
+                // Sum: 1 + 1 + 2 = 4.
                 assert_eq!(metric.abc.conditions_sum(), 4.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
@@ -7749,6 +8389,63 @@ function f(int $a, int $b): int {
     }
 
     #[test]
+    fn cpp_if_boolean_literal_condition() {
+        check_metrics::<CppParser>(
+            "void f() {\n\
+             \x20   if (true) {}                 // +1c\n\
+             \x20   if (!false) {}               // +1c\n\
+             \x20   while (true) {}              // +1c\n\
+             \x20   do {} while (false);         // +1c\n\
+             }\n",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_methods_arguments_with_conditions() {
+        check_metrics::<CppParser>(
+            "void f(bool a, bool b) {\n\
+             \x20   m(a, b);                     // +1b\n\
+             \x20   m(!a, !b);                   // +1b +2c\n\
+             }\n",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn cpp_return_with_conditions() {
+        check_metrics::<CppParser>(
+            "bool m1(int z) { return !(z >= 0); }\n\
+             bool m2(bool x) { return (((!x))); }\n\
+             bool m3(bool x, bool y) { return x && y; }\n",
+            "foo.cpp",
+            |metric| {
+                // m1: !(z >= 0) → `>=` (1). `!` wraps a paren'd
+                //     BinaryExpression — inspect_container reaches
+                //     the inner BinaryExpression and stops, no
+                //     walker count. +1.
+                // m2: (((!x))) → ReturnStatement → inspect_container
+                //     unwraps three parens + one unary → reaches `x`
+                //     in has_boolean_content=true (seeded by the
+                //     unary `!`). +1.
+                // m3: x && y → `&&` walker counts both → +2.
+                // Sum: 1 + 1 + 2 = 4.
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
     fn cpp_short_circuit_with_boolean_literal_operand() {
         // `a && true` reports 2 conditions: one for the identifier
         // operand, one for the `True` literal operand.
@@ -7977,6 +8674,198 @@ function f(int $a, int $b): int {
                 assert_eq!(metric.abc.assignments_sum(), 7.0);
                 assert_eq!(metric.abc.branches_sum(), 2.0);
                 assert_eq!(metric.abc.conditions_sum(), 9.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    // ----- JS / TS / Tsx / Mozjs Phase-2B condition slots -----
+
+    #[test]
+    fn javascript_if_boolean_literal_condition() {
+        check_metrics::<JavascriptParser>(
+            "function f() {\n\
+             \x20   if (true) {}                 // +1c\n\
+             \x20   if (!false) {}               // +1c\n\
+             \x20   while (true) {}              // +1c\n\
+             \x20   do {} while (false);         // +1c\n\
+             }\n",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_methods_arguments_with_conditions() {
+        check_metrics::<JavascriptParser>(
+            "function f(a, b) {\n\
+             \x20   m(a, b);                     // +1b\n\
+             \x20   m(!a, !b);                   // +1b +2c\n\
+             }\n",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_return_with_conditions() {
+        check_metrics::<JavascriptParser>(
+            "function m1(z) { return !(z >= 0); }\n\
+             function m2(x) { return (((!x))); }\n\
+             function m3(x, y) { return x && y; }\n",
+            "foo.js",
+            |metric| {
+                // m1: 1 (`>=`). m2: 1 (walker unwraps to `x`).
+                // m3: 2 (`&&` walker counts both terminals).
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_if_boolean_literal_condition() {
+        check_metrics::<TypescriptParser>(
+            "function f() {\n\
+             \x20   if (true) {}\n\
+             \x20   if (!false) {}\n\
+             \x20   while (true) {}\n\
+             \x20   do {} while (false);\n\
+             }\n",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_methods_arguments_with_conditions() {
+        check_metrics::<TypescriptParser>(
+            "function f(a: boolean, b: boolean) {\n\
+             \x20   m(a, b);\n\
+             \x20   m(!a, !b);\n\
+             }\n",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_return_with_conditions() {
+        check_metrics::<TypescriptParser>(
+            "function m1(z: number): boolean { return !(z >= 0); }\n\
+             function m2(x: boolean): boolean { return (((!x))); }\n\
+             function m3(x: boolean, y: boolean): boolean { return x && y; }\n",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_if_boolean_literal_condition() {
+        check_metrics::<TsxParser>(
+            "function f() {\n\
+             \x20   if (true) {}\n\
+             \x20   if (!false) {}\n\
+             \x20   while (true) {}\n\
+             \x20   do {} while (false);\n\
+             }\n",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_methods_arguments_with_conditions() {
+        check_metrics::<TsxParser>(
+            "function f(a: boolean, b: boolean) {\n\
+             \x20   m(a, b);\n\
+             \x20   m(!a, !b);\n\
+             }\n",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_return_with_conditions() {
+        check_metrics::<TsxParser>(
+            "function m1(z: number): boolean { return !(z >= 0); }\n\
+             function m2(x: boolean): boolean { return (((!x))); }\n\
+             function m3(x: boolean, y: boolean): boolean { return x && y; }\n",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_if_boolean_literal_condition() {
+        check_metrics::<MozjsParser>(
+            "function f() {\n\
+             \x20   if (true) {}\n\
+             \x20   if (!false) {}\n\
+             \x20   while (true) {}\n\
+             \x20   do {} while (false);\n\
+             }\n",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_methods_arguments_with_conditions() {
+        check_metrics::<MozjsParser>(
+            "function f(a, b) {\n\
+             \x20   m(a, b);\n\
+             \x20   m(!a, !b);\n\
+             }\n",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn mozjs_return_with_conditions() {
+        check_metrics::<MozjsParser>(
+            "function m1(z) { return !(z >= 0); }\n\
+             function m2(x) { return (((!x))); }\n\
+             function m3(x, y) { return x && y; }\n",
+            "foo.js",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8463,6 +9352,63 @@ function f(int $a, int $b): int {
         );
     }
 
+    #[test]
+    fn perl_if_boolean_literal_condition() {
+        // Perl's `Boolean` kind only fires for the `boolean`
+        // pragma's named constants. tree-sitter-perl's `Array`
+        // wrapper still unwraps via `perl_inspect_container`;
+        // `if (1)` reaches an Integer/Number leaf which is not
+        // in the terminal-bool set, so this test uses a
+        // scalar-variable condition (which IS in the set).
+        check_metrics::<PerlParser>(
+            "sub f { my ($a) = @_; if ($a) { return 1; } }\n",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_methods_arguments_with_conditions() {
+        // `call(!$a, !$b)` — argument list walker counts each
+        // unary-conditional argument once. Cannot use `m(...)` as
+        // the function name — tree-sitter-perl parses `m(...)` as
+        // the regex-match operator, not a function call.
+        check_metrics::<PerlParser>(
+            "sub f { my ($a, $b) = @_; call($a, $b); call(!$a, !$b); }\n",
+            "foo.pl",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_return_with_conditions() {
+        // `return !$a` reports 1 condition via the walker (unary
+        // unwrap to scalar-variable terminal). `return $a` reports
+        // 0 (no paren / unary wrap, has_boolean_content stays
+        // false from ReturnExpression parent).
+        check_metrics::<PerlParser>(
+            "sub m1 { my ($z) = @_; return !($z); }\n\
+             sub m2 { my ($x) = @_; return (((!$x))); }\n\
+             sub m3 { my ($x, $y) = @_; return $x && $y; }\n",
+            "foo.pl",
+            |metric| {
+                // m1: !($z) → walker on `!` unwraps paren to $z (1).
+                // m2: (((!$x))) → walker unwraps three parens + one
+                //     unary to $x (1).
+                // m3: $x && $y → walker on `&&` counts both (2).
+                // Sum: 4.
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
     // ---------- Lua ABC tests ----------
 
     #[test]
@@ -8653,6 +9599,66 @@ function f(int $a, int $b): int {
             assert_eq!(metric.abc.conditions_sum(), 2.0);
             insta::assert_json_snapshot!(metric.abc);
         });
+    }
+
+    #[test]
+    fn lua_if_boolean_literal_condition() {
+        check_metrics::<LuaParser>(
+            "function f()\n\
+                 if true then end                  -- +1c\n\
+                 if not false then end             -- +1c\n\
+                 while true do break end           -- +1c\n\
+                 repeat break until false          -- +1c\n\
+             end",
+            "foo.lua",
+            |metric| {
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_methods_arguments_with_conditions() {
+        // `m(not a, not b)` — argument list walker counts each
+        // unary-conditional argument once. Bare-identifier args
+        // (`m(a, b)`) do not count (list_kind != BinaryExpression).
+        check_metrics::<LuaParser>(
+            "function f(a, b) m(a, b); m(not a, not b) end",
+            "foo.lua",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 2.0);
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn lua_return_with_conditions() {
+        // `return not (z >= 0)` → walker on `not` unwraps the paren
+        // chain and reaches the inner BinaryExpression; the inner
+        // `>=` comparison is the actual Fitzpatrick condition.
+        check_metrics::<LuaParser>(
+            "function m1(z) return not (z >= 0) end\n\
+             function m2(x) return (((not x))) end\n\
+             function m3(x, y) return x and y end",
+            "foo.lua",
+            |metric| {
+                // m1: `>=` (1). `not` wraps a paren'd
+                //     BinaryExpression — Lua's lua_inspect_container
+                //     reaches the inner BinaryExpression and stops,
+                //     no walker count. +1.
+                // m2: ReturnStatement → iterate expression_list →
+                //     inspect_container on the outermost paren →
+                //     unwraps to `x` in has_boolean_content-true
+                //     (seeded by the `not`). +1.
+                // m3: x and y → `and` walker counts both → +2.
+                // Sum: 4.
+                assert_eq!(metric.abc.conditions_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
     }
 
     // ---------- Tcl ABC tests ----------

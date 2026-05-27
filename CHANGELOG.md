@@ -129,6 +129,22 @@ for historical reference.
   (https://github.com/dekobon/big-code-analysis/issues/395).
   Fixes
   [#403](https://github.com/dekobon/big-code-analysis/issues/403).
+- ABC metric (Phase 2B follow-up): `if`/`while`/`do-while`,
+  `return`, and argument-list slots also route through the
+  per-language unary-conditional walker. `if (true) {}` (and
+  `if true {}` for grammars without paren wrap — Rust, Go,
+  Python, Lua) now counts 1 condition. `m(!a, !b)` counts 2
+  (one per `!`-wrapped argument). `return !x` counts 1 (a
+  bare `return x` continues to report zero, matching
+  Fitzpatrick's "bare identifier in return slot is not a unary
+  conditional" policy). 10 of the 11 Phase-2A languages ship
+  Phase 2B arms — Tcl is deferred pending a per-grammar audit
+  of its expression / command shape. Additional regression
+  tests `<lang>_if_boolean_literal_condition`,
+  `<lang>_methods_arguments_with_conditions`, and
+  `<lang>_return_with_conditions` cover the new slots per
+  language. Continues
+  [#403](https://github.com/dekobon/big-code-analysis/issues/403).
 - ABC metric: `&&` / `||` (and per-language equivalents — Python's
   `and` / `or`, Lua's `and` / `or`, Tcl's `&&` / `||`, Perl's
   `&&` / `||` / `//` / `and` / `or` / `xor`) are no longer counted

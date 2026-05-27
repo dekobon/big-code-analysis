@@ -810,7 +810,7 @@ path = "big-code-analysis-py/src/sarif.rs"
 function = "collect_offenders"
 start_line = 357
 metric = "abc"
-value = 49.03060268852505
+value = 49.558046773455466
 
 [[entry]]
 path = "big-code-analysis-py/src/sarif.rs"
@@ -1678,28 +1678,28 @@ path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "cyclomatic"
-value = 26.0
+value = 32.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 47174401.815072946
+value = 56362747.98229855
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 8922.0
+value = 9928.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 478.0
+value = 541.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
@@ -1713,14 +1713,14 @@ path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "nom"
-value = 682.0
+value = 760.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "wmc"
-value = 161.0
+value = 193.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
@@ -1760,23 +1760,58 @@ value = 21.0
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "compute"
-start_line = 919
+start_line = 981
 metric = "cyclomatic"
 value = 15.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
-function = "PerlCode"
-start_line = 2689
+function = "compute"
+start_line = 1617
+metric = "cyclomatic"
+value = 16.0
+
+[[entry]]
+path = "src/metrics/abc.rs"
+function = "GoCode"
+start_line = 1823
 metric = "halstead.effort"
-value = 60594.10489533262
+value = 54595.304451875854
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "compute"
-start_line = 2690
+start_line = 1824
+metric = "cyclomatic"
+value = 16.0
+
+[[entry]]
+path = "src/metrics/abc.rs"
+function = "compute"
+start_line = 1824
 metric = "halstead.effort"
-value = 55232.93141004214
+value = 50124.60028924274
+
+[[entry]]
+path = "src/metrics/abc.rs"
+function = "PerlCode"
+start_line = 2982
+metric = "halstead.effort"
+value = 89033.85331998218
+
+[[entry]]
+path = "src/metrics/abc.rs"
+function = "compute"
+start_line = 2983
+metric = "halstead.effort"
+value = 81475.64985497753
+
+[[entry]]
+path = "src/metrics/abc.rs"
+function = "compute"
+start_line = 3210
+metric = "cyclomatic"
+value = 15.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
@@ -2938,7 +2973,7 @@ path = "src/output/dump.rs"
 function = "dump_tree_helper"
 start_line = 75
 metric = "abc"
-value = 49.53786430600334
+value = 50.73460357586329
 
 [[entry]]
 path = "src/output/dump.rs"
@@ -3463,7 +3498,7 @@ path = "src/spaces.rs"
 function = "metrics_inner"
 start_line = 997
 metric = "abc"
-value = 51.81698563212646
+value = 52.64978632435273
 
 [[entry]]
 path = "src/spaces.rs"
