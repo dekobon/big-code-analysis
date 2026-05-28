@@ -50,7 +50,7 @@ FIND_EXCLUDE   := $(foreach dir,$(EXCLUDE_DIRS),! -path './$(dir)/*')
 # warnings on `$(2)`, e.g. $(call find-by-ext,md,).
 find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name "*.$(1)" -type f $(FIND_EXCLUDE))
 
-.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors check-versions enums-check self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom lint clippy udeps insta-review insta-accept clean install install-cli install-web doc doc-open doc-check book book-serve book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local py-fmt py-fmt-check py-lint py-typecheck py-test _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-check-versions _pc-enums-check _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-check-versions _ci-enums-check _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test
+.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors check-versions enums-check self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom lint clippy udeps insta-review insta-accept clean install install-cli install-web doc doc-open doc-check book book-serve book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local py-bootstrap py-sync py-fmt py-fmt-check py-lint py-typecheck py-test _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-check-versions _pc-enums-check _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-check-versions _ci-enums-check _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test
 
 # Default target
 help:
@@ -97,12 +97,13 @@ help:
 	@echo "  lint                                 Run all linters"
 	@echo ""
 	@echo "Python bindings (big-code-analysis-py):"
+	@echo "  py-bootstrap                         Create .venv from uv.lock (alias: py-sync) — requires uv"
 	@echo "  py-fmt                               Format Python sources with ruff"
 	@echo "  py-fmt-check                         Verify Python formatting"
 	@echo "  py-lint                              Lint Python sources with ruff"
 	@echo "  py-typecheck                         Type-check with mypy --strict + pyright"
 	@echo "  py-test                              maturin develop + pytest (needs active venv)"
-	@echo "  (install: 'mise install' or 'pipx install ruff/mypy/pyright/maturin')"
+	@echo "  (first-time setup: 'make py-bootstrap' — installs uv-managed venv from uv.lock)"
 	@echo ""
 	@echo "Maintenance:"
 	@echo "  clean                                Remove build artifacts"
@@ -388,12 +389,16 @@ self-scan-write-baseline-headroom:
 # ---------------------------------------------------------------------------
 # Python tooling (big-code-analysis-py)
 #
-# Targets gracefully no-op when the corresponding tool is absent —
-# matching how the markdown / TOML lint families behave on a
-# barebones host. CI installs all tools, so the skip path never fires
-# there.
+# Most targets in this section gracefully no-op when the corresponding
+# tool is absent — matching how the markdown / TOML lint families
+# behave on a barebones host. CI installs all tools, so the skip path
+# never fires there. Exception: `py-bootstrap` is the documented
+# setup entry point and hard-fails when `uv` is missing, so a
+# contributor sees the install instruction immediately rather than
+# silently skipping.
 #
 # Tools used:
+#   uv       — Python env / lockfile manager (required for py-bootstrap)
 #   ruff     — lint + format
 #   mypy     — type check (strict mode, invoked from the bindings dir)
 #   pyright  — type check (strict mode, second opinion)
@@ -402,27 +407,42 @@ self-scan-write-baseline-headroom:
 # `py-test` requires an active venv that maturin can write the .so
 # into. The recipe does NOT create one — if `VIRTUAL_ENV` is not set,
 # maturin will fail with a clear error. CI explicitly creates one per
-# matrix leg (see `.github/workflows/ci.yml`). Locally,
-# `cd big-code-analysis-py && python -m venv .venv && source .venv/bin/activate`
-# once.
+# matrix leg (see `.github/workflows/ci.yml`). Locally, run
+# `make py-bootstrap` once to create big-code-analysis-py/.venv from
+# the checked-in uv.lock.
 # ---------------------------------------------------------------------------
+
+# Bootstrap the bindings dev environment from uv.lock. Hard-fails if
+# uv is missing — there is no pip fallback because uv.lock is the
+# project's source of truth for the resolved dev set, and consuming
+# it requires uv. `uv sync` creates big-code-analysis-py/.venv,
+# installs the locked `dev` extra into it, and is idempotent.
+py-bootstrap:
+	@command -v uv >/dev/null 2>&1 || { \
+	  echo "ERROR: uv missing — install via 'curl -LsSf https://astral.sh/uv/install.sh | sh' (or 'brew install uv', 'pipx install uv')"; \
+	  exit 1; }
+	@cd "$(BCA_PY_DIR)" && uv sync --extra dev
+
+# Alias so contributors familiar with `uv sync` find the right target.
+py-sync: py-bootstrap
+
 py-fmt:
 	@if command -v ruff >/dev/null 2>&1; then \
 	  echo "Formatting Python sources..."; \
-	  ruff format $(BCA_PY_DIR); \
+	  ruff format "$(BCA_PY_DIR)"; \
 	else echo "ruff not found; skipping py-fmt"; fi
 
 py-fmt-check:
 	@if command -v ruff >/dev/null 2>&1; then \
 	  echo "Checking Python formatting..."; \
-	  ruff format --check $(BCA_PY_DIR) || \
+	  ruff format --check "$(BCA_PY_DIR)" || \
 	    { echo "Python files not formatted (run 'make py-fmt')"; exit 1; }; \
 	else echo "ruff not found; skipping py-fmt-check"; fi
 
 py-lint:
 	@if command -v ruff >/dev/null 2>&1; then \
 	  echo "Linting Python sources..."; \
-	  ruff check $(BCA_PY_DIR) || { echo "ruff lint found issues"; exit 1; }; \
+	  ruff check "$(BCA_PY_DIR)" || { echo "ruff lint found issues"; exit 1; }; \
 	else echo "ruff not found; skipping py-lint"; fi
 
 py-typecheck:
@@ -433,22 +453,22 @@ py-typecheck:
 	@# host's PATH when the venv hasn't been provisioned (CI sets
 	@# `VIRTUAL_ENV` and uses PATH-resolved binaries). A pipx-isolated
 	@# system `mypy` can't see the bindings dir's pytest stubs.
-	@if [ -x $(BCA_PY_DIR)/.venv/bin/mypy ]; then \
+	@if [ -x "$(BCA_PY_DIR)/.venv/bin/mypy" ]; then \
 	  echo "Type-checking with mypy --strict (venv)..."; \
-	  (cd $(BCA_PY_DIR) && .venv/bin/mypy --strict python tests examples) || \
+	  (cd "$(BCA_PY_DIR)" && .venv/bin/mypy --strict python tests examples) || \
 	    { echo "mypy --strict found issues"; exit 1; }; \
 	elif command -v mypy >/dev/null 2>&1; then \
 	  echo "Type-checking with mypy --strict..."; \
-	  (cd $(BCA_PY_DIR) && mypy --strict python tests examples) || \
+	  (cd "$(BCA_PY_DIR)" && mypy --strict python tests examples) || \
 	    { echo "mypy --strict found issues"; exit 1; }; \
 	else echo "mypy not found; skipping mypy stage of py-typecheck"; fi
-	@if [ -x $(BCA_PY_DIR)/.venv/bin/pyright ]; then \
+	@if [ -x "$(BCA_PY_DIR)/.venv/bin/pyright" ]; then \
 	  echo "Type-checking with pyright (strict, venv)..."; \
-	  (cd $(BCA_PY_DIR) && .venv/bin/pyright) || \
+	  (cd "$(BCA_PY_DIR)" && .venv/bin/pyright) || \
 	    { echo "pyright found issues"; exit 1; }; \
 	elif command -v pyright >/dev/null 2>&1; then \
 	  echo "Type-checking with pyright (strict)..."; \
-	  (cd $(BCA_PY_DIR) && pyright) || \
+	  (cd "$(BCA_PY_DIR)" && pyright) || \
 	    { echo "pyright found issues"; exit 1; }; \
 	else echo "pyright not found; skipping pyright stage of py-typecheck"; fi
 
@@ -471,15 +491,15 @@ py-test:
 	@# `VIRTUAL_ENV` and uses PATH-resolved binaries — both paths
 	@# reach the same wheel because `maturin develop` installs into
 	@# whichever venv it finds.
-	@if [ -x $(BCA_PY_DIR)/.venv/bin/maturin ] && [ -x $(BCA_PY_DIR)/.venv/bin/python ]; then \
+	@if [ -x "$(BCA_PY_DIR)/.venv/bin/maturin" ] && [ -x "$(BCA_PY_DIR)/.venv/bin/python" ]; then \
 	  echo "Building extension + running pytest (venv)..."; \
-	  find $(BASE_DIR)target -name 'libbig_code_analysis_py*' -delete 2>/dev/null || true; \
-	  (cd $(BCA_PY_DIR) && .venv/bin/maturin develop --quiet && .venv/bin/python -m pytest) || \
+	  find "$(BASE_DIR)target" -name 'libbig_code_analysis_py*' -delete 2>/dev/null || true; \
+	  (cd "$(BCA_PY_DIR)" && .venv/bin/maturin develop --quiet && .venv/bin/python -m pytest) || \
 	    { echo "py-test failed"; exit 1; }; \
 	elif command -v maturin >/dev/null 2>&1; then \
 	  echo "Building extension + running pytest..."; \
-	  find $(BASE_DIR)target -name 'libbig_code_analysis_py*' -delete 2>/dev/null || true; \
-	  (cd $(BCA_PY_DIR) && maturin develop --quiet && python -m pytest) || \
+	  find "$(BASE_DIR)target" -name 'libbig_code_analysis_py*' -delete 2>/dev/null || true; \
+	  (cd "$(BCA_PY_DIR)" && maturin develop --quiet && python -m pytest) || \
 	    { echo "py-test failed"; exit 1; }; \
 	else echo "maturin not found; skipping py-test"; fi
 
@@ -706,7 +726,7 @@ _pc-self-scan-headroom: _pc-self-scan
 # _pc-udeps to avoid lock contention with the cargo pipeline.
 _pc-py-fmt: _pc-fmt
 	@if command -v ruff >/dev/null 2>&1; then \
-	  ruff format $(BCA_PY_DIR) && ruff check --fix $(BCA_PY_DIR); \
+	  ruff format "$(BCA_PY_DIR)" && ruff check --fix "$(BCA_PY_DIR)"; \
 	else echo "ruff not found; skipping _pc-py-fmt"; fi
 
 _pc-py-typecheck: _pc-fmt

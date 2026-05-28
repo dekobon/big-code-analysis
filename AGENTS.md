@@ -107,6 +107,16 @@ and `cargo run -p big-code-analysis-web --`.
   `replace_symbol_body`).
 - **External docs**: prefer Context7 / `cargo doc` over web search for
   library / crate documentation.
+- **Python environment**: `uv` is the canonical, lockfile-driven
+  bootstrap for `big-code-analysis-py`. `make py-bootstrap` runs
+  `uv sync --extra dev` from the checked-in `uv.lock`, producing a
+  reproducible dev environment that matches CI. Install uv with
+  `curl -LsSf https://astral.sh/uv/install.sh | sh`, `brew install uv`,
+  or `pipx install uv`. Alternative provisioning paths (`mise install`
+  via `mise.toml`, direct `pipx install`, plain `pip install -e .[dev]`)
+  remain functional for contributors who prefer them, but only the
+  uv-managed path is pinned to `uv.lock` — divergence from CI is
+  possible on the other paths.
 - **GitHub Actions linting**: any edit under `.github/workflows/`
   must be validated with `make actionlint` before commit. The
   Makefile target invokes `actionlint` at the repo root, which

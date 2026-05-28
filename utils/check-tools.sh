@@ -139,6 +139,18 @@ fi
 
 echo ""
 echo "Optional Tools (Python tooling — big-code-analysis-py):"
+echo "  (any work on big-code-analysis-py needs uv + the four py-* tools;"
+echo "   skip this section entirely if you only touch Rust)"
+
+uv_missing=0
+if command -v uv >/dev/null 2>&1; then
+	uv_version=$(uv --version 2>/dev/null | awk '{print $2; exit}' || true)
+	uv_version=${uv_version:-unknown}
+	echo "  ✓ uv (version: $uv_version)"
+else
+	echo "  ✗ uv (not found)"
+	uv_missing=1
+fi
 
 ruff_missing=0
 if command -v ruff >/dev/null 2>&1; then
@@ -175,7 +187,7 @@ fi
 echo ""
 
 core_missing=$((cargo_missing + nightly_missing + udeps_missing + insta_missing + checkmake_missing))
-optional_missing=$((rumdl_missing + fd_missing + taplo_missing + shellcheck_missing + shfmt_missing + actionlint_missing + mdbook_missing + ruff_missing + mypy_missing + pyright_missing + maturin_py_missing))
+optional_missing=$((rumdl_missing + fd_missing + taplo_missing + shellcheck_missing + shfmt_missing + actionlint_missing + mdbook_missing + uv_missing + ruff_missing + mypy_missing + pyright_missing + maturin_py_missing))
 
 if [ "$core_missing" -gt 0 ]; then
 	echo "Missing core tools:"
@@ -222,17 +234,23 @@ if [ "$optional_missing" -gt 0 ]; then
 	if [ "$mdbook_missing" -eq 1 ]; then
 		echo "  - mdbook: Install with: cargo install --locked mdbook (needed for 'make book')"
 	fi
+	if [ "$uv_missing" -eq 1 ]; then
+		echo "  - uv: needed for 'make py-bootstrap' (creates .venv from uv.lock)."
+		echo "        Install with: curl -LsSf https://astral.sh/uv/install.sh | sh"
+		echo "        (alternatives: brew install uv | pipx install uv)"
+	fi
 	if [ "$ruff_missing" -eq 1 ]; then
-		echo "  - ruff: Install with: pipx install ruff (or run 'mise install')"
+		echo "  - ruff: Install with 'make py-bootstrap' (preferred — pinned via uv.lock)"
+		echo "          or standalone via 'pipx install ruff'"
 	fi
 	if [ "$mypy_missing" -eq 1 ]; then
-		echo "  - mypy: Install with: pipx install mypy (or run 'mise install')"
+		echo "  - mypy: Install with 'make py-bootstrap' (uses project's strict config + .venv)"
 	fi
 	if [ "$pyright_missing" -eq 1 ]; then
-		echo "  - pyright: Install with: pipx install pyright (or run 'mise install')"
+		echo "  - pyright: Install with 'make py-bootstrap' (uses pyrightconfig.json + .venv)"
 	fi
 	if [ "$maturin_py_missing" -eq 1 ]; then
-		echo "  - maturin: Install with: pipx install maturin (or run 'mise install')"
+		echo "  - maturin: Install with 'make py-bootstrap' (builds the PyO3 extension into .venv)"
 	fi
 	echo ""
 	echo "Warning: Optional tools are missing. Some targets will fail."

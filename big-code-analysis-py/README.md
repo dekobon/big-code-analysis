@@ -48,15 +48,26 @@ docs.
 ## Installation
 
 The package is not yet published on PyPI. For development, build
-locally via [maturin](https://www.maturin.rs/):
+locally via [maturin](https://www.maturin.rs/). The recommended
+bootstrap uses [uv](https://docs.astral.sh/uv/) so the resolved
+dev set matches `uv.lock` (and therefore CI):
 
 ```bash
+make py-bootstrap          # runs `uv sync --extra dev` in big-code-analysis-py/
+                           # creates .venv with ruff, mypy, pyright, maturin, pytest
 cd big-code-analysis-py
-uv venv .venv && source .venv/bin/activate
-uv pip install -e ".[dev]"  # pulls maturin, pytest, mypy, ruff, pyright
-maturin develop
+source .venv/bin/activate
+maturin develop            # builds the compiled extension into .venv
 python -c "import big_code_analysis; print(big_code_analysis.__version__)"
 ```
+
+Install `uv` via
+`curl -LsSf https://astral.sh/uv/install.sh | sh`, `brew install uv`,
+or `pipx install uv`. Alternative provisioning paths (`mise install`,
+direct `pipx install ruff/mypy/pyright/maturin`, plain
+`pip install -e ".[dev]"`) still work — see
+[CONTRIBUTING.md](../CONTRIBUTING.md) — but only the uv-managed path
+is pinned to `uv.lock`.
 
 ## Usage
 
