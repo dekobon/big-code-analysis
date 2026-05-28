@@ -21,11 +21,12 @@ Regenerate the baseline after a verified regen with:
     ./check-grammar-marker-sync.py --update
 
 `--update` rewrites both the `marker` and `version` values of
-existing sections in place (or inserts missing fields), preserving
-per-section audit comments and ordering. New sections are
-appended with a minimal template. Orphan sections (in the baseline
-but not in `VENDORED_CRATES`) are not removed but a warning is
-emitted so the maintainer can decide.
+existing sections in place, preserving per-section audit
+comments, ordering, and any maintainer-added subsections. New
+sections are appended with a minimal template. The baseline
+itself is REQUIRED on disk — if it has been deleted (e.g.,
+during a merge conflict), restore it from git history rather
+than regenerating from --update.
 
 See AGENTS.md "Validation gates" and #400 for context.
 """
@@ -33,6 +34,7 @@ See AGENTS.md "Validation gates" and #400 for context.
 from __future__ import annotations
 
 import argparse
+import datetime as _dt
 import pathlib
 import re
 import sys
@@ -60,20 +62,29 @@ except ImportError:
 REPO_ROOT = pathlib.Path(__file__).resolve().parent
 BASELINE_PATH = REPO_ROOT / ".grammar-marker-baseline.toml"
 
+# `--update` produced invalid TOML for a tree that load_baseline
+# itself accepts. Distinct from a user-side file corruption
+# (exit 2) — this is a bug in the editor and warrants a different
+# signal so it can be filtered in CI dashboards.
+_EXIT_EDITOR_BUG = 3
+
 
 class CrateMarker(NamedTuple):
-    """One row in `VENDORED_CRATES` paired with its observed version.
-
-    Built up while iterating `VENDORED_CRATES` in `main`; each field
-    has exactly one source of truth and stays positionally stable
-    across the script's three downstream consumers (write_baseline,
-    drift comparison, success print).
-    """
+    """One row in `VENDORED_CRATES` paired with its observed version."""
 
     key: str
     marker: str
     manifest_rel: str
     version: str
+
+
+class CargoTomlParseError(Exception):
+    """`read_marker` could not parse a manifest.
+
+    Carries the manifest-relative path and the underlying cause so
+    main() can produce a structured exit-2 message rather than
+    letting tomllib's traceback leak through.
+    """
 
 
 # Vendored grammar crate metadata: the baseline section key, the
@@ -83,64 +94,111 @@ VENDORED_CRATES: tuple[tuple[str, str, str], ...] = (
     ("mozcpp", "tree-sitter-cpp", "tree-sitter-mozcpp/Cargo.toml"),
 )
 
-# Cargo dependency sections to consult. The markers currently live
-# under `[build-dependencies]`, but moving them to another standard
-# section is a legitimate refactor and should not blind the gate.
-_CARGO_DEP_SECTIONS = (
-    "build-dependencies",
-    "dependencies",
-    "dev-dependencies",
-)
+# How deep the recursive Cargo dep-tree walk goes. Cargo's
+# deepest standard form is `[target.'cfg(...)'.build-dependencies]`
+# (3 levels); 6 gives headroom for future workspace / profile
+# nesting without admitting pathological recursion.
+_DEP_SCAN_MAX_DEPTH = 6
+
+
+def _scan_for_marker(data: Any, marker: str, depth: int = 0) -> str | None:
+    """Recursively walk a TOML tree for `marker` as a dep entry.
+
+    Accepts both the bare-string form (`marker = "X.Y.Z"`) and the
+    inline-table form (`marker = { version = "...", features = [...] }`).
+    Walks every nested table so `[build-dependencies]`,
+    `[dev-dependencies]`, `[workspace.dependencies]`,
+    `[target.'cfg(unix)'.build-dependencies]`, and any other
+    legitimate Cargo dep-bearing section all resolve.
+    """
+    if depth > _DEP_SCAN_MAX_DEPTH or not isinstance(data, dict):
+        return None
+    for key, value in data.items():
+        if key == marker:
+            if isinstance(value, str):
+                return value
+            if isinstance(value, dict):
+                version = value.get("version")
+                if isinstance(version, str):
+                    return version
+        elif isinstance(value, dict):
+            found = _scan_for_marker(value, marker, depth + 1)
+            if found is not None:
+                return found
+    return None
 
 
 def read_marker(manifest: pathlib.Path, marker: str) -> str | None:
     """Extract the marker version from a Cargo manifest.
 
-    Uses a real TOML parse so the bare-string form
-    (`marker = "X.Y.Z"`), the inline-table form
-    (`marker = { version = "...", features = [...] }`), and a
-    marker name that legitimately appears inside a TOML multi-line
-    string literal (delimited by three double-quotes) all
-    resolve correctly.
-
-    Returns None if the manifest is missing, malformed, or does
-    not declare the marker in any standard dependency section.
+    Returns None if the marker is genuinely absent. Raises
+    `CargoTomlParseError` if the manifest can't be read or parsed
+    — main() catches this and surfaces a structured exit-2
+    message rather than leaking a Python traceback.
     """
     try:
         text = manifest.read_text(encoding="utf-8")
     except FileNotFoundError:
         return None
+    except OSError as exc:
+        raise CargoTomlParseError(f"cannot read {manifest}: {exc}") from exc
     try:
         data: dict[str, Any] = tomllib.loads(text)
-    except tomllib.TOMLDecodeError:
+    except tomllib.TOMLDecodeError as exc:
+        raise CargoTomlParseError(
+            f"{manifest} is not valid TOML: {exc}"
+        ) from exc
+    return _scan_for_marker(data, marker)
+
+
+def _coerce_baseline_value(
+    section_key: str, field_key: str, value: Any
+) -> str | None:
+    """Convert a parsed baseline value to its string form.
+
+    Strings pass through. Scalars (int / float / bool / TOML
+    date) are coerced to their canonical text form so the drift
+    message surfaces the actual value the user typed. Composite
+    types (lists, sub-tables) return None and emit a warning —
+    they can't be a marker name or a version and the user must
+    fix the type.
+    """
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bool):
+        # Test bool BEFORE int — `bool` is a subclass of `int` in
+        # Python, so a naked `isinstance(v, int)` would swallow
+        # booleans into the scalar branch and lose the warning.
+        coerced = "true" if value else "false"
+    elif isinstance(value, (int, float)):
+        coerced = str(value)
+    elif isinstance(value, (_dt.date, _dt.datetime, _dt.time)):
+        coerced = value.isoformat()
+    else:
+        sys.stderr.write(
+            f"warning: baseline [{section_key}].{field_key} is "
+            f"{type(value).__name__}; expected a quoted string. "
+            "Treating as missing — quote the value in the baseline.\n"
+        )
         return None
-    for section_name in _CARGO_DEP_SECTIONS:
-        section = data.get(section_name)
-        if not isinstance(section, dict):
-            continue
-        entry = section.get(marker)
-        if isinstance(entry, str):
-            return entry
-        if isinstance(entry, dict):
-            version = entry.get("version")
-            if isinstance(version, str):
-                return version
-    return None
+    sys.stderr.write(
+        f"warning: baseline [{section_key}].{field_key} = {value!r} "
+        f"is {type(value).__name__}; expected a quoted string. "
+        "Drift message will show the coerced form.\n"
+    )
+    return coerced
 
 
 def load_baseline() -> dict[str, dict[str, str]] | None:
     """Parse the baseline file.
 
-    Returns None when the baseline is missing so the caller can
-    surface the actionable "run --update to create it" hint. Exits
-    with code 2 on malformed TOML — leaking the raw `tomllib`
-    traceback to the user is a UX regression compared to the rest
-    of the script's error reporting.
-
-    Scalars inside each section are coerced to strings via `str()`
-    rather than filtered, so a hand-edited `version = 0.25` (TOML
-    float) surfaces as a wrong-value drift rather than as
-    "baseline None" / "key missing".
+    Returns None when the baseline is missing (caller renders the
+    "run --update to create it" hint — but `--update` itself
+    refuses this case; see `write_baseline`). Exits with code 2
+    on malformed TOML. Non-string scalars trip a warning and are
+    coerced so the drift message remains informative; non-scalar
+    values (lists, tables) trip a warning and are treated as
+    missing.
     """
     if not BASELINE_PATH.exists():
         return None
@@ -157,32 +215,65 @@ def load_baseline() -> dict[str, dict[str, str]] | None:
     for key, value in parsed.items():
         if not isinstance(value, dict):
             continue
-        out[key] = {k: str(v) for k, v in value.items()}
+        coerced: dict[str, str] = {}
+        for field_key, field_value in value.items():
+            text = _coerce_baseline_value(key, field_key, field_value)
+            if text is not None:
+                coerced[field_key] = text
+        out[key] = coerced
     return out
 
 
-# Section header matchers. Both accept an inline trailing comment
-# (`[mozjs] # the JS one`), which is valid TOML.
-_NAMED_SECTION_HEADER_RE_CACHE: dict[str, re.Pattern[str]] = {}
-_ANY_SECTION_HEADER_RE = re.compile(r"^\[[^\]]+\]\s*(?:#.*)?$")
-_TOP_SECTION_HEADER_RE = re.compile(r"^\[([^.\]]+)\]\s*(?:#.*)?$")
+# Section-header detector. Tolerates leading whitespace (valid
+# TOML), trailing inline comments, and arbitrarily-spaced
+# brackets. Captures the (possibly dotted) section name with
+# internal whitespace stripped.
+_SECTION_HEADER_RE = re.compile(
+    r"^\s*\[\s*([^\]]+?)\s*\]\s*(?:#.*)?$"
+)
+# Array-of-tables header (`[[name]]`). Treated as a section
+# boundary for body-range scans so a hand-maintained
+# `[[mozjs.audit]]` subsection doesn't get clobbered.
+_AOT_HEADER_RE = re.compile(
+    r"^\s*\[\[\s*([^\]]+?)\s*\]\]\s*(?:#.*)?$"
+)
 
 
-def _named_section_header_re(section: str) -> re.Pattern[str]:
-    cached = _NAMED_SECTION_HEADER_RE_CACHE.get(section)
-    if cached is not None:
-        return cached
-    compiled = re.compile(rf"^\[{re.escape(section)}\]\s*(?:#.*)?$")
-    _NAMED_SECTION_HEADER_RE_CACHE[section] = compiled
-    return compiled
+def _is_section_boundary(line: str) -> bool:
+    stripped = line.rstrip("\n")
+    return bool(
+        _SECTION_HEADER_RE.match(stripped) or _AOT_HEADER_RE.match(stripped)
+    )
 
 
-# Lines we know how to rewrite in place. We capture the
-# pre-quote prefix (`group(1)`) and the post-quote suffix
-# (`group(2)`, typically a trailing inline comment) so the
-# rewrite preserves surrounding whitespace and comments.
-_MARKER_LINE_RE = re.compile(r'^(\s*marker\s*=\s*)"[^"]*"(.*)$')
-_VERSION_LINE_RE = re.compile(r'^(\s*version\s*=\s*)"[^"]*"(.*)$')
+def _replace_field_value(
+    line: str, field_name: str, new_value: str
+) -> str | None:
+    """Return `line` with `field_name`'s quoted value replaced.
+
+    Recognizes both TOML string forms: basic (`"..."`) and
+    literal (`'...'`). Output is always normalized to the basic
+    form, which is the canonical shape on disk. Returns None if
+    the line does not match the `<field> = <string>` shape.
+    """
+    pattern = re.compile(
+        rf'^(\s*{re.escape(field_name)}\s*=\s*)'
+        rf"(?:\"[^\"]*\"|'[^']*')"
+        r"(.*)$"
+    )
+    body, sep, _ = line.partition("\n")
+    m = pattern.match(body)
+    if m is None:
+        return None
+    rewritten = f'{m.group(1)}"{new_value}"{m.group(2)}'
+    return rewritten + sep
+
+
+def _named_section_header(section: str, line: str) -> bool:
+    """True if `line` is a `[section]` header for `section`."""
+    stripped = line.rstrip("\n")
+    m = _SECTION_HEADER_RE.match(stripped)
+    return m is not None and m.group(1) == section
 
 
 def _update_section(
@@ -191,49 +282,55 @@ def _update_section(
     """Update `[section]`'s `marker` and `version` lines in place.
 
     Behavior:
-    * If `[section]` is missing, append a fresh template at end of
-      file (the only path that creates a new section).
-    * If `[section]` exists, update `marker = "..."` and
-      `version = "..."` in place. Missing fields are INSERTED at
-      the end of the section body — never as a duplicate section
-      header. The body ends at the next `[...]` header line of
-      ANY shape (including dotted children such as
-      `[mozjs.notes]`), so a hand-added child table doesn't pull
-      its `version = "..."` line into `[section]`'s scope.
+    * If `[section]` is missing, append a fresh template at end
+      of file (the only path that creates a new section).
+    * If `[section]` exists, rewrite the first `marker = "..."`
+      and first `version = "..."` line in its body. Missing
+      fields are INSERTED at the end of the body. The body ends
+      at the next `[...]` or `[[...]]` header line of any shape
+      (including dotted child tables and AoT subsections), so
+      hand-maintained child content is never pulled into
+      `[section]`'s scope. The body insertion path also ensures
+      a trailing newline on the prior body line so the inserted
+      field doesn't concatenate onto a comment or value.
     """
     lines = text.splitlines(keepends=True)
-    named = _named_section_header_re(section)
 
     sec_idx = -1
     for i, line in enumerate(lines):
-        if named.match(line.rstrip("\n")):
+        if _named_section_header(section, line):
             sec_idx = i
             break
 
     if sec_idx < 0:
         return _append_new_section(text, section, marker, version)
 
-    # Body spans (sec_idx, end_idx]. End at the next [...] header
-    # of ANY shape — dotted child tables count as boundaries.
+    # Body spans (sec_idx, end_idx]. End at the next `[...]` or
+    # `[[...]]` header of any shape — dotted child tables and
+    # AoT subsections both count as boundaries.
     end_idx = len(lines)
     for i in range(sec_idx + 1, len(lines)):
-        if _ANY_SECTION_HEADER_RE.match(lines[i].rstrip("\n")):
+        if _is_section_boundary(lines[i]):
             end_idx = i
             break
 
     marker_seen = False
     version_seen = False
     for i in range(sec_idx + 1, end_idx):
-        stripped = lines[i].rstrip("\n")
-        m = _MARKER_LINE_RE.match(stripped)
-        if m:
-            lines[i] = f'{m.group(1)}"{marker}"{m.group(2)}\n'
-            marker_seen = True
-            continue
-        v = _VERSION_LINE_RE.match(stripped)
-        if v:
-            lines[i] = f'{v.group(1)}"{version}"{v.group(2)}\n'
-            version_seen = True
+        # Break on first match per field so a maintainer-added
+        # secondary `version = "..."` annotation in the body is
+        # NOT silently clobbered along with the canonical one.
+        if not marker_seen:
+            new = _replace_field_value(lines[i], "marker", marker)
+            if new is not None:
+                lines[i] = new
+                marker_seen = True
+                continue
+        if not version_seen:
+            new = _replace_field_value(lines[i], "version", version)
+            if new is not None:
+                lines[i] = new
+                version_seen = True
 
     inserts: list[str] = []
     if not marker_seen:
@@ -248,6 +345,14 @@ def _update_section(
         insert_at = end_idx
         while insert_at > sec_idx + 1 and lines[insert_at - 1].strip() == "":
             insert_at -= 1
+        # Ensure the line immediately preceding the insertion
+        # ends with a newline. Without this guard, a section
+        # whose last body line lacks `\n` (hand-edit, partial
+        # merge) would have the inserted `version = "..."` line
+        # concatenated onto the prior text, silently corrupting
+        # the TOML (the value or comment swallows the field).
+        if insert_at > 0 and lines[insert_at - 1] and not lines[insert_at - 1].endswith("\n"):
+            lines[insert_at - 1] = lines[insert_at - 1] + "\n"
         lines = lines[:insert_at] + inserts + lines[insert_at:]
 
     return "".join(lines)
@@ -269,64 +374,95 @@ def _append_new_section(
     )
 
 
-# Minimal header for `--update` runs that have no on-disk baseline
-# to start from (only fires on a fresh checkout that deleted the
-# file). Kept intentionally short so it cannot drift far from the
-# canonical on-disk header — a test asserts the live file starts
-# with these lines.
-_BASELINE_HEADER = """\
-# Grammar-marker-sync baseline.
-# Records the upstream-grammar crate version that was in effect
-# when the vendored sources under tree-sitter-{mozjs,mozcpp}/src/
-# were last regenerated. See #400 for context.
-
-"""
-
-
 def write_baseline(entries: list[CrateMarker]) -> list[str]:
     """Rewrite the baseline in place.
 
+    Validates the existing file before editing — duplicate
+    sections, malformed TOML, or any other pre-existing issue
+    fail loudly with exit 2 rather than silently producing more
+    corruption. Validates the post-edit result before writing —
+    a `_update_section` bug fails with exit 3 and a "this is an
+    editor bug" message rather than shipping a broken file.
+
+    Refuses to operate when the baseline is missing on disk: a
+    `--update` from-scratch path would diverge from the canonical
+    on-disk header. Restore from git history instead.
+
     Returns the list of orphan section keys (present in the
-    baseline but absent from `entries`) so `main` can surface a
-    non-fatal warning. Orphans are NOT automatically removed —
-    silently deleting hand-written content is a footgun.
+    baseline but absent from `entries`) so main() can surface a
+    non-fatal warning.
     """
-    if BASELINE_PATH.exists():
-        text = BASELINE_PATH.read_text(encoding="utf-8")
-    else:
-        text = _BASELINE_HEADER
+    if not BASELINE_PATH.exists():
+        rel = BASELINE_PATH.relative_to(REPO_ROOT)
+        sys.stderr.write(
+            f"error: {rel} is missing.\n"
+            "       --update refuses to regenerate from scratch (a fresh\n"
+            "       baseline would lack the per-section audit history\n"
+            "       checked into git). Restore the file with:\n"
+            f"           git checkout HEAD -- {rel}\n"
+            "       then re-run --update.\n"
+        )
+        sys.exit(2)
+
+    text = BASELINE_PATH.read_text(encoding="utf-8")
+    try:
+        existing: dict[str, Any] = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:
+        sys.stderr.write(
+            f"error: existing {BASELINE_PATH.relative_to(REPO_ROOT)} "
+            f"is not valid TOML: {exc}\n"
+            "       Fix the baseline manually before running --update.\n"
+        )
+        sys.exit(2)
 
     for entry in entries:
         text = _update_section(text, entry.key, entry.marker, entry.version)
 
+    # Verify the edit. A failure here means `_update_section`
+    # produced invalid TOML — the editor has a bug. Refuse to
+    # write so the on-disk file remains the (still valid)
+    # pre-edit content.
+    try:
+        new_parsed: dict[str, Any] = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:
+        sys.stderr.write(
+            "error: --update produced invalid TOML; refusing to write.\n"
+            f"       This is a bug in _update_section: {exc}\n"
+            "       Please file an issue with the pre-edit baseline content.\n"
+        )
+        sys.exit(_EXIT_EDITOR_BUG)
+
     BASELINE_PATH.write_text(text, encoding="utf-8")
 
-    # Re-parse for orphan detection. Failure here means a section
-    # name collision (e.g. dotted child colliding with parent),
-    # which is fatal in `tomllib`.
-    try:
-        parsed: dict[str, Any] = tomllib.loads(text)
-    except tomllib.TOMLDecodeError:
-        return []
     known = {e.key for e in entries}
-    return [k for k in parsed if k not in known and isinstance(parsed[k], dict)]
+    return [
+        k for k in new_parsed
+        if k not in known and isinstance(new_parsed[k], dict)
+    ]
 
 
 def _read_current() -> tuple[list[CrateMarker], list[str]]:
     """Walk `VENDORED_CRATES` and read each manifest's marker.
 
-    Returns (entries, missing_messages). Each entry has its
-    `manifest_rel` set so downstream failure messages can cite the
-    exact manifest without a second lookup.
+    Returns (entries, error_messages). On any `CargoTomlParseError`
+    the manifest's relative path and the underlying cause are
+    appended to error_messages and processing continues with the
+    next manifest, so the user sees all problems in one go.
     """
     current: list[CrateMarker] = []
-    missing: list[str] = []
+    problems: list[str] = []
     for crate_key, marker, manifest_rel in VENDORED_CRATES:
         manifest = REPO_ROOT / manifest_rel
-        version = read_marker(manifest, marker)
+        try:
+            version = read_marker(manifest, marker)
+        except CargoTomlParseError as exc:
+            problems.append(str(exc))
+            continue
         if version is None:
-            missing.append(
-                f"{manifest_rel}: no {marker!r} marker line found"
+            problems.append(
+                f"{manifest_rel}: marker {marker!r} not found in any "
+                f"dependency table (scanned to depth "
+                f"{_DEP_SCAN_MAX_DEPTH})"
             )
             continue
         current.append(
@@ -337,7 +473,17 @@ def _read_current() -> tuple[list[CrateMarker], list[str]]:
                 version=version,
             )
         )
-    return current, missing
+    return current, problems
+
+
+def _warn_orphans(orphans: list[str]) -> None:
+    """Emit a non-fatal warning for each baseline section not in
+    VENDORED_CRATES. Same shape on both the gate and --update paths."""
+    for orphan in orphans:
+        sys.stderr.write(
+            f"warning: baseline contains [{orphan}] section not in "
+            f"VENDORED_CRATES; remove it manually if no longer needed.\n"
+        )
 
 
 def main() -> int:
@@ -364,10 +510,10 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    current, missing = _read_current()
-    if missing:
-        sys.stderr.write("grammar-marker-sync: marker line(s) not found\n")
-        for line in missing:
+    current, problems = _read_current()
+    if problems:
+        sys.stderr.write("grammar-marker-sync: cannot read manifest(s)\n")
+        for line in problems:
             sys.stderr.write(f"  {line}\n")
         return 2
 
@@ -377,11 +523,7 @@ def main() -> int:
         print(f"Baseline updated: {rel}")
         for entry in current:
             print(f"  [{entry.key}] {entry.marker} = {entry.version}")
-        for orphan in orphans:
-            sys.stderr.write(
-                f"warning: baseline contains [{orphan}] section not in "
-                f"VENDORED_CRATES; remove it manually if no longer needed.\n"
-            )
+        _warn_orphans(orphans)
         return 0
 
     baseline = load_baseline()
@@ -389,20 +531,12 @@ def main() -> int:
         sys.stderr.write(
             f"error: baseline file missing: "
             f"{BASELINE_PATH.relative_to(REPO_ROOT)}\n"
-            "       run with --update to create it.\n"
+            "       restore it from git history.\n"
         )
         return 2
 
-    # Surface orphans on the gate path too, so a stale section
-    # (e.g. left behind after a vendored crate is dropped) gets
-    # caught at the next CI run instead of festering.
     known_keys = {e.key for e in current}
-    for orphan in baseline:
-        if orphan not in known_keys:
-            sys.stderr.write(
-                f"warning: baseline contains [{orphan}] section not in "
-                f"VENDORED_CRATES; remove it manually if no longer needed.\n"
-            )
+    _warn_orphans([k for k in baseline if k not in known_keys])
 
     failures: list[str] = []
     for entry in current:

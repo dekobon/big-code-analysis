@@ -25,7 +25,6 @@ import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent
 SCRIPT_SRC = REPO_ROOT / "check-grammar-marker-sync.py"
-LIVE_BASELINE = REPO_ROOT / ".grammar-marker-baseline.toml"
 
 
 _MOZJS_BARE = (
@@ -56,11 +55,9 @@ def _make_fixture(
     """Stage script + Cargo.toml stubs (+ optional baseline) in tmpdir.
 
     Pass `mozjs_manifest` / `mozcpp_manifest` to override the
-    default bare-version template (e.g. to exercise the
-    inline-table form or a missing-file scenario). Pass
-    `mozjs_version=None` to omit the marker line entirely (real
-    Cargo.toml without the marker — must still trip the gate).
-    Returns the path to the staged script.
+    default bare-version template. Pass `mozjs_version=None` to
+    omit the marker line entirely. Returns the path to the
+    staged script.
     """
     script_path = tmpdir / SCRIPT_SRC.name
     shutil.copy(SCRIPT_SRC, script_path)
@@ -77,9 +74,7 @@ def _make_fixture(
             _MOZJS_BARE.format(version=mozjs_version)
         )
     else:
-        (mozjs_dir / "Cargo.toml").write_text(
-            '[package]\nname = "stub"\n'
-        )
+        (mozjs_dir / "Cargo.toml").write_text('[package]\nname = "stub"\n')
 
     if mozcpp_manifest is not None:
         (mozcpp_dir / "Cargo.toml").write_text(mozcpp_manifest)
@@ -88,9 +83,7 @@ def _make_fixture(
             _MOZCPP_BARE.format(version=mozcpp_version)
         )
     else:
-        (mozcpp_dir / "Cargo.toml").write_text(
-            '[package]\nname = "stub"\n'
-        )
+        (mozcpp_dir / "Cargo.toml").write_text('[package]\nname = "stub"\n')
 
     if baseline is not None:
         (tmpdir / ".grammar-marker-baseline.toml").write_text(baseline)
@@ -125,15 +118,25 @@ _BASELINE_MATCHING = (
 class GrammarMarkerSyncTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmpdir = pathlib.Path(tempfile.mkdtemp(prefix="bca-gms-"))
-        # Track the tmpdir so a stray file written outside it fails
-        # the test rather than being silently swallowed in tearDown.
-        self._tmpdir_str = str(self.tmpdir)
 
     def tearDown(self) -> None:
-        # Fail loudly if the script wrote files outside the tmpdir
-        # (catches REPO_ROOT-computation regressions that the prior
-        # `ignore_errors=True` rmtree would have hidden).
-        shutil.rmtree(self.tmpdir)
+        # rmtree with onexc that chmod's read-only entries back
+        # to writable so a future test that exercises a read-only
+        # fixture (a chmod'd Cargo.toml under a chmod'd dir) does
+        # not mask the real assertion under a tearDown PermissionError.
+        def _force_rm(func, path, exc):  # type: ignore[no-untyped-def]
+            try:
+                import os, stat
+                os.chmod(path, stat.S_IRWXU)
+                func(path)
+            except OSError:
+                pass
+
+        # Python 3.12 renamed onerror -> onexc; tolerate both.
+        try:
+            shutil.rmtree(self.tmpdir, onexc=_force_rm)  # type: ignore[call-arg]
+        except TypeError:
+            shutil.rmtree(self.tmpdir, onerror=_force_rm)  # type: ignore[arg-type]
 
     # --- happy path & basic drift ---
 
@@ -167,8 +170,6 @@ class GrammarMarkerSyncTest(unittest.TestCase):
     # --- Cargo.toml-side parsing (tomllib path) ---
 
     def test_inline_table_marker_form_supported(self) -> None:
-        # `tree-sitter-javascript = { version = "0.25.0", features = [...] }`
-        # is a legitimate Cargo idiom and must not blind the gate.
         mozjs_manifest = (
             "[build-dependencies]\n"
             'tree-sitter-javascript = { version = "0.25.0", '
@@ -183,8 +184,6 @@ class GrammarMarkerSyncTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_marker_inside_multiline_string_does_not_false_match(self) -> None:
-        # A docstring that mentions the marker MUST NOT shadow the
-        # real `[build-dependencies]` entry.
         mozjs_manifest = (
             "[package]\n"
             'description = """\n'
@@ -201,6 +200,83 @@ class GrammarMarkerSyncTest(unittest.TestCase):
         result = _run(script)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("99.99.99", result.stderr)
+
+    def test_workspace_dependencies_marker_resolved(self) -> None:
+        # Recursive dep scan must find the marker even when it
+        # lives under a nested table like [workspace.dependencies].
+        mozjs_manifest = (
+            "[workspace.dependencies]\n"
+            'tree-sitter-javascript = "0.25.0"\n'
+        )
+        script = _make_fixture(
+            self.tmpdir,
+            mozjs_manifest=mozjs_manifest,
+            baseline=_BASELINE_MATCHING,
+        )
+        result = _run(script)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_target_conditional_dependencies_marker_resolved(self) -> None:
+        mozjs_manifest = (
+            '[target."cfg(unix)".build-dependencies]\n'
+            'tree-sitter-javascript = "0.25.0"\n'
+        )
+        script = _make_fixture(
+            self.tmpdir,
+            mozjs_manifest=mozjs_manifest,
+            baseline=_BASELINE_MATCHING,
+        )
+        result = _run(script)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_inline_table_without_version_returns_marker_not_found(self) -> None:
+        # `{ workspace = true }` and similar forms have the marker
+        # name but no explicit version pin. Document the contract
+        # — we report "marker line not found" since the gate has
+        # no version to compare against.
+        mozjs_manifest = (
+            "[build-dependencies]\n"
+            "tree-sitter-javascript = { workspace = true }\n"
+        )
+        script = _make_fixture(
+            self.tmpdir,
+            mozjs_manifest=mozjs_manifest,
+            baseline=_BASELINE_MATCHING,
+        )
+        result = _run(script)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("not found", result.stderr.lower())
+
+    def test_malformed_cargo_toml_returns_structured_error(self) -> None:
+        # The script must distinguish malformed Cargo.toml from
+        # "marker absent": leaking the tomllib traceback is the
+        # exact UX regression the script's policy bans.
+        mozjs_manifest = (
+            "[build-dependencies\n"  # unclosed bracket
+            'tree-sitter-javascript = "0.25.0"\n'
+        )
+        script = _make_fixture(
+            self.tmpdir,
+            mozjs_manifest=mozjs_manifest,
+            baseline=_BASELINE_MATCHING,
+        )
+        result = _run(script)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("not valid TOML", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_directory_at_manifest_path_returns_structured_error(self) -> None:
+        # IsADirectoryError must take the curated error path
+        # (CargoTomlParseError → exit 2) and not leak a Python
+        # traceback.
+        script = _make_fixture(self.tmpdir, baseline=_BASELINE_MATCHING)
+        manifest = self.tmpdir / "tree-sitter-mozjs" / "Cargo.toml"
+        manifest.unlink()
+        manifest.mkdir()
+        result = _run(script)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("cannot read", result.stderr.lower())
+        self.assertNotIn("Traceback", result.stderr)
 
     def test_missing_manifest_returns_2_without_traceback(self) -> None:
         script = _make_fixture(
@@ -229,9 +305,8 @@ class GrammarMarkerSyncTest(unittest.TestCase):
         result = _run(script)
         self.assertEqual(result.returncode, 2)
         self.assertIn("missing", result.stderr.lower())
-        self.assertIn("--update", result.stderr)
 
-    def test_malformed_toml_returns_2_without_traceback(self) -> None:
+    def test_malformed_baseline_toml_returns_2_without_traceback(self) -> None:
         script = _make_fixture(
             self.tmpdir,
             baseline="[mozjs\nthis is not toml",
@@ -241,12 +316,9 @@ class GrammarMarkerSyncTest(unittest.TestCase):
         self.assertIn("TOML", result.stderr)
         self.assertNotIn("Traceback", result.stderr)
 
-    # --- baseline-side parsing & non-string values ---
+    # --- baseline-side type handling ---
 
-    def test_non_string_version_value_caught(self) -> None:
-        # TOML accepts bare floats, but the gate must surface the
-        # actual baseline value (not "None") so the user sees what
-        # they typed.
+    def test_non_string_float_version_value_warns_and_shows_drift(self) -> None:
         baseline = (
             "[mozjs]\n"
             'marker = "tree-sitter-javascript"\n'
@@ -258,8 +330,40 @@ class GrammarMarkerSyncTest(unittest.TestCase):
         script = _make_fixture(self.tmpdir, baseline=baseline)
         result = _run(script)
         self.assertEqual(result.returncode, 1)
+        self.assertIn("warning", result.stderr.lower())
         self.assertIn("0.25", result.stderr)
+        # No misleading "baseline None" message.
         self.assertNotIn("baseline None", result.stderr)
+
+    def test_toml_date_version_value_warns_and_shows_drift(self) -> None:
+        baseline = (
+            "[mozjs]\n"
+            'marker = "tree-sitter-javascript"\n'
+            "version = 2026-05-28\n"
+            "[mozcpp]\n"
+            'marker = "tree-sitter-cpp"\n'
+            'version = "0.23.4"\n'
+        )
+        script = _make_fixture(self.tmpdir, baseline=baseline)
+        result = _run(script)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("warning", result.stderr.lower())
+        self.assertIn("2026-05-28", result.stderr)
+
+    def test_toml_array_marker_value_warns_and_treated_as_missing(self) -> None:
+        baseline = (
+            "[mozjs]\n"
+            'marker = ["tree-sitter-javascript"]\n'
+            'version = "0.25.0"\n'
+            "[mozcpp]\n"
+            'marker = "tree-sitter-cpp"\n'
+            'version = "0.23.4"\n'
+        )
+        script = _make_fixture(self.tmpdir, baseline=baseline)
+        result = _run(script)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("warning", result.stderr.lower())
+        self.assertIn("expected a quoted string", result.stderr)
 
     def test_marker_name_drift_caught(self) -> None:
         baseline = (
@@ -308,9 +412,6 @@ class GrammarMarkerSyncTest(unittest.TestCase):
         self.assertEqual(post.returncode, 0, post.stderr)
 
     def test_update_heals_marker_name_drift(self) -> None:
-        # The earlier review caught that --update only touched the
-        # `version` line, so a marker-name typo could not be
-        # recovered via the documented workflow.
         baseline = (
             "[mozjs]\n"
             'marker = "tree-sitter-javascript-TYPO"\n'
@@ -329,9 +430,6 @@ class GrammarMarkerSyncTest(unittest.TestCase):
         self.assertNotIn("TYPO", updated)
 
     def test_update_inserts_missing_version_into_existing_section(self) -> None:
-        # Earlier review caught that a section header with no
-        # version line caused --update to append a duplicate header
-        # that then broke `tomllib.loads`.
         baseline = (
             "[mozjs]\n"
             'marker = "tree-sitter-javascript"\n'
@@ -344,9 +442,7 @@ class GrammarMarkerSyncTest(unittest.TestCase):
         result = _run(script, "--update")
         self.assertEqual(result.returncode, 0, result.stderr)
         updated = (self.tmpdir / ".grammar-marker-baseline.toml").read_text()
-        # No duplicate [mozjs] section.
         self.assertEqual(updated.count("[mozjs]"), 1)
-        # Re-running the gate must succeed (file is still valid TOML).
         post = _run(script)
         self.assertEqual(post.returncode, 0, post.stderr)
 
@@ -367,8 +463,6 @@ class GrammarMarkerSyncTest(unittest.TestCase):
         self.assertIn('marker = "tree-sitter-javascript"', updated)
 
     def test_update_with_section_header_inline_comment(self) -> None:
-        # `[mozjs] # the JS one` is valid TOML; the gate must
-        # locate it as the existing section, not append a duplicate.
         baseline = (
             "[mozjs] # the JS one\n"
             'marker = "tree-sitter-javascript"\n'
@@ -381,17 +475,49 @@ class GrammarMarkerSyncTest(unittest.TestCase):
         result = _run(script, "--update")
         self.assertEqual(result.returncode, 0, result.stderr)
         updated = (self.tmpdir / ".grammar-marker-baseline.toml").read_text()
-        # The inline comment survives, and there is no duplicate
-        # section header.
         self.assertEqual(updated.count("[mozjs]"), 1)
         self.assertIn("the JS one", updated)
         self.assertIn('version = "0.25.0"', updated)
 
+    def test_update_with_indented_section_header(self) -> None:
+        # TOML accepts leading whitespace on section headers;
+        # `_update_section` must locate them (regression #7).
+        baseline = (
+            "   [mozjs]\n"
+            'marker = "tree-sitter-javascript"\n'
+            'version = "0.24.0"\n'
+            "[mozcpp]\n"
+            'marker = "tree-sitter-cpp"\n'
+            'version = "0.23.4"\n'
+        )
+        script = _make_fixture(self.tmpdir, baseline=baseline)
+        result = _run(script, "--update")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        updated = (self.tmpdir / ".grammar-marker-baseline.toml").read_text()
+        self.assertEqual(updated.count("[mozjs]"), 1)
+        self.assertIn('version = "0.25.0"', updated)
+
+    def test_update_with_literal_string_values(self) -> None:
+        # TOML literal-string form is valid; `--update` must
+        # rewrite both quote styles, not append duplicate keys.
+        baseline = (
+            "[mozjs]\n"
+            "marker = 'tree-sitter-javascript'\n"
+            "version = '0.24.0'\n"
+            "[mozcpp]\n"
+            'marker = "tree-sitter-cpp"\n'
+            'version = "0.23.4"\n'
+        )
+        script = _make_fixture(self.tmpdir, baseline=baseline)
+        result = _run(script, "--update")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        updated = (self.tmpdir / ".grammar-marker-baseline.toml").read_text()
+        self.assertIn('version = "0.25.0"', updated)
+        # Only one marker line per section — no duplicate-key TOML.
+        post = _run(script)
+        self.assertEqual(post.returncode, 0, post.stderr)
+
     def test_update_with_dotted_child_section(self) -> None:
-        # A dotted-child table `[mozjs.notes]` belongs to mozjs;
-        # its body must not be treated as `[mozjs]`'s body during
-        # version replacement, and the next-section boundary must
-        # respect the child.
         baseline = (
             "[mozjs]\n"
             'marker = "tree-sitter-javascript"\n'
@@ -412,9 +538,111 @@ class GrammarMarkerSyncTest(unittest.TestCase):
         self.assertIn('audit = "documented"', updated)
         self.assertIn('version = "0.25.0"', updated)
 
+    def test_update_with_array_of_tables_subsection(self) -> None:
+        # `[[mozjs.audit]]` is a maintainer-maintained audit
+        # trail; --update must NOT clobber the AoT's version field.
+        baseline = (
+            "[mozjs]\n"
+            'marker = "tree-sitter-javascript"\n'
+            'version = "0.24.0"\n'
+            "\n"
+            "[[mozjs.audit]]\n"
+            'note = "first regen"\n'
+            'version = "0.24.0"\n'
+            "\n"
+            "[mozcpp]\n"
+            'marker = "tree-sitter-cpp"\n'
+            'version = "0.23.4"\n'
+        )
+        script = _make_fixture(self.tmpdir, baseline=baseline)
+        result = _run(script, "--update")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        updated = (self.tmpdir / ".grammar-marker-baseline.toml").read_text()
+        # mozjs.version is updated; the AoT entry is NOT.
+        self.assertIn("[[mozjs.audit]]", updated)
+        self.assertIn('note = "first regen"', updated)
+        # The audit subsection's `version = "0.24.0"` must survive.
+        # Count: one updated 0.25.0 in [mozjs], one preserved 0.24.0
+        # in the AoT entry.
+        self.assertEqual(updated.count('version = "0.25.0"'), 1)
+        self.assertEqual(updated.count('version = "0.24.0"'), 1)
+
+    def test_update_with_last_body_line_lacking_newline(self) -> None:
+        # Hand-edited or partially-merged baseline with a final
+        # body line that lacks `\n` must not result in the
+        # inserted field concatenating onto the prior text.
+        baseline = (
+            "[mozjs]\n"
+            'marker = "tree-sitter-javascript"\n'
+            "# version pending"  # NO trailing newline
+        )
+        script = _make_fixture(
+            self.tmpdir,
+            mozcpp_version=None,  # only mozjs in scope
+            baseline=baseline,
+        )
+        # mozcpp will report marker-not-found; that path exits 2
+        # before --update is even attempted. Restage with mozcpp
+        # in scope:
+        (self.tmpdir / "tree-sitter-mozcpp" / "Cargo.toml").write_text(
+            _MOZCPP_BARE.format(version="0.23.4")
+        )
+        result = _run(script, "--update")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        updated = (self.tmpdir / ".grammar-marker-baseline.toml").read_text()
+        # The new version line must be on its own line, NOT
+        # concatenated to `# version pending`.
+        self.assertNotIn("pendingversion", updated)
+        self.assertIn('version = "0.25.0"', updated)
+        post = _run(script)
+        self.assertEqual(post.returncode, 0, post.stderr)
+
+    def test_update_does_not_clobber_secondary_version_line(self) -> None:
+        # Maintainer-kept secondary `version = "..."` annotations
+        # in the section body must NOT be rewritten — only the
+        # first `version = "..."` line in the section is the
+        # canonical one.
+        baseline = (
+            "[mozjs]\n"
+            'marker = "tree-sitter-javascript"\n'
+            'version = "0.24.0"\n'
+            '# Historical: version = "0.23.1"\n'
+            'version = "0.23.1"\n'  # maintainer-added secondary
+            "[mozcpp]\n"
+            'marker = "tree-sitter-cpp"\n'
+            'version = "0.23.4"\n'
+        )
+        script = _make_fixture(self.tmpdir, baseline=baseline)
+        # The baseline has two version lines under [mozjs] which
+        # is INVALID TOML (duplicate key). The validate-before-
+        # update guard must trip before --update gets to do
+        # damage.
+        result = _run(script, "--update")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("not valid TOML", result.stderr)
+        self.assertIn("Fix the baseline manually", result.stderr)
+
+    def test_update_refuses_duplicate_section_baseline(self) -> None:
+        # Merge-conflict artifact: two [mozjs] sections. The
+        # validate-before-update guard must refuse with a clear
+        # message rather than silently rewriting the first.
+        baseline = (
+            "[mozjs]\n"
+            'marker = "tree-sitter-javascript"\n'
+            'version = "0.24.0"\n'
+            "[mozjs]\n"  # duplicate
+            'marker = "tree-sitter-javascript"\n'
+            'version = "0.25.0"\n'
+            "[mozcpp]\n"
+            'marker = "tree-sitter-cpp"\n'
+            'version = "0.23.4"\n'
+        )
+        script = _make_fixture(self.tmpdir, baseline=baseline)
+        result = _run(script, "--update")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("not valid TOML", result.stderr)
+
     def test_update_appends_missing_section_with_template(self) -> None:
-        # Baseline knows about mozjs but not mozcpp; --update must
-        # add the mozcpp section without touching the existing one.
         baseline = (
             "# Header.\n"
             "\n"
@@ -432,16 +660,14 @@ class GrammarMarkerSyncTest(unittest.TestCase):
         post = _run(script)
         self.assertEqual(post.returncode, 0, post.stderr)
 
-    def test_update_creates_baseline_from_scratch(self) -> None:
+    def test_update_refuses_missing_baseline(self) -> None:
+        # The from-scratch regen path was removed; restore from
+        # git is the documented recovery.
         script = _make_fixture(self.tmpdir, baseline=None)
         result = _run(script, "--update")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        updated = (self.tmpdir / ".grammar-marker-baseline.toml").read_text()
-        self.assertIn("Grammar-marker-sync baseline", updated)
-        self.assertIn("[mozjs]", updated)
-        self.assertIn("[mozcpp]", updated)
-        post = _run(script)
-        self.assertEqual(post.returncode, 0, post.stderr)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("missing", result.stderr.lower())
+        self.assertIn("git checkout", result.stderr)
 
     # --- orphan section handling ---
 
@@ -482,38 +708,8 @@ class GrammarMarkerSyncTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("warning", result.stderr.lower())
         self.assertIn("mozold", result.stderr)
-        # Orphan must still be present (we don't auto-delete).
         updated = (self.tmpdir / ".grammar-marker-baseline.toml").read_text()
         self.assertIn("[mozold]", updated)
-
-    # --- header sync invariant (defends against script vs on-disk drift) ---
-
-    def test_live_baseline_starts_with_embedded_header(self) -> None:
-        # If the on-disk baseline doesn't begin with the
-        # script-embedded header, a future --update on a deleted
-        # baseline will regenerate a file with a different header
-        # than the canonical one — exactly the drift the review
-        # called out. The embedded header is intentionally minimal
-        # so this invariant is cheap to maintain.
-        if not LIVE_BASELINE.exists():
-            self.skipTest("live baseline not present (running outside repo)")
-        live_text = LIVE_BASELINE.read_text(encoding="utf-8")
-        # Import the script as a module to grab _BASELINE_HEADER.
-        import importlib.util
-
-        spec = importlib.util.spec_from_file_location(
-            "_check_grammar_marker_sync", SCRIPT_SRC
-        )
-        assert spec is not None and spec.loader is not None
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        self.assertTrue(
-            live_text.startswith(mod._BASELINE_HEADER),
-            "On-disk .grammar-marker-baseline.toml does not begin with the "
-            "script's _BASELINE_HEADER constant — update one or the other "
-            "so that --update on a deleted baseline regenerates the same "
-            "header users see on disk.",
-        )
 
 
 if __name__ == "__main__":
