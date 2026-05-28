@@ -88,7 +88,8 @@ each row attributed to the figure that introduces it.
 | Rule | Counted as `A` | First defined in |
 |------|----------------|------------------|
 | Plain assignment (`=`) | one per occurrence | Figure 2 (C) |
-| Compound assignment (`+=`, `-=`, `*=`, `/=`, `%=`, `<<=`, `>>=`, `>>>=`, `&=`, `\|=`, `^=`) | one per occurrence | Figure 2 (C) / Figure 4 (Java) |
+| Compound assignment (`+=`, `-=`, `*=`, `/=`, `%=`, `<<=`, `>>=`, `&=`, `\|=`, `^=`) | one per occurrence | Figure 2 (C) / Figure 4 (Java) |
+| Java unsigned-right-shift-assign (`>>>=`) | one per occurrence | Figure 4 (Java) |
 | Pre- or post-increment / decrement (`++`, `--`) | one per occurrence | Figure 2 (C) |
 | Initializing constructor invocation | one per occurrence | Figure 3 (C++) |
 
@@ -99,7 +100,7 @@ each row attributed to the figure that introduces it.
 | Function or method call | one per call site | Figure 2 (C) / Figure 4 (Java) |
 | `new` operator | one per occurrence | Figure 3 (C++) / Figure 4 (Java) |
 | `delete` operator | one per occurrence | Figure 3 (C++) |
-| `goto label`, `break label`, `continue label` | one per occurrence | Figure 2 (C) / Figure 3 (C++) |
+| `goto label`, `break label`, `continue label` | one per occurrence | Figure 2 (C) / Figure 3 (C++) / Figure 4 (Java, labeled `break` / `continue` only — Java has no `goto`) |
 
 #### Conditions
 
@@ -109,7 +110,7 @@ each row attributed to the figure that introduces it.
 | Ternary `? :` | one per occurrence | Figure 2, Rule 5 |
 | `else`, `case`, `default` | one per occurrence | Figure 2, Rule 5 |
 | Preprocessor `#else`, `#elif` | one per occurrence | Figure 2, Rule 5 |
-| `try`, `catch` | one per occurrence | Figure 3, Rule 7 / Figure 4, Rule 9 |
+| `try`, `catch` | one per occurrence | Figure 3 (C++) / Figure 4 (Java) |
 | Unary conditional expression | one per non-comparison operand of `&&` / `\|\|` (and per `!`-wrapped or bare-truthy condition in `if` / `while` / argument / `return` slots) | Figure 3, Rule 7 / Figure 4, Rule 9 |
 
 The short-circuit logical operators (`&&`, `||`, and per-language
@@ -182,9 +183,10 @@ if (am_in_range || force_letter) {
 
 the walker counts `am_in_range` and `force_letter` once each
 (Rule 7 / 9 unary conditional). The `||` operator itself
-contributes zero. Combined with the surrounding `else` (if any)
-and the `c = 'C'` assignment, this matches the worked count in
-Listing 2 of the paper.
+contributes zero. This matches Fitzpatrick's Rule 7 / 9 worked
+example in the paper: `if (x || y) printf("test failure\n");`
+"there are two unary conditions since both x and y are tested as
+conditional expressions."
 
 #### Comparison with other ABC tools
 
