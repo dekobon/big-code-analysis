@@ -53,7 +53,12 @@ rm -rf "$CRATE_OUTPUT" "$CRATE_DIR"
 # Enter the mozcpp directory
 pushd tree-sitter-mozcpp || exit
 
-# Create tree-sitter-cpp directory
+# Create a fresh tree-sitter-cpp directory. Remove any leftover from
+# an interrupted prior run first: under `set -e` a stale clone would
+# wedge the next run at `git remote add origin` ("remote origin
+# already exists", exit 3). Starting clean keeps the script
+# idempotent and avoids stale partial-clone state.
+rm -rf "$TS_CPP_CRATE"
 mkdir -p "$TS_CPP_CRATE"
 
 # Enter tree-sitter-cpp directory
