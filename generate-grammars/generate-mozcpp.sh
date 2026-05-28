@@ -3,6 +3,21 @@
 # This script updates the mozcpp grammar automatically.
 #
 # Usage: ./generate-grammars/generate-mozcpp.sh
+#
+# Toolchain requirement: the tree-sitter CLI is pinned to 0.26.9 in
+# tree-sitter-mozcpp/package.json (to match the workspace
+# `tree-sitter = "=0.26.9"` runtime). The npm-distributed 0.26.9
+# binary is built against GLIBC 2.39, so on older hosts (e.g.
+# Ubuntu 22.04 / glibc 2.35) `tree-sitter generate` aborts with
+# `version 'GLIBC_2.39' not found`. If you hit that, build the CLI
+# from source and put it on PATH ahead of the npm one:
+#     cargo install tree-sitter-cli --version 0.26.9 --locked
+# (cargo compiles against the local glibc, sidestepping the issue).
+
+# Fail loud rather than limp on with a half-regenerated, garbage
+# parser: a failed download / npm install / fetch must abort the
+# run, not silently fall through to `tree-sitter generate`.
+set -euo pipefail
 
 # Name of the tree-sitter-cpp crate
 TS_CPP_CRATE="tree-sitter-cpp"

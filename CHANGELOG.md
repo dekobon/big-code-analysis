@@ -170,10 +170,15 @@ for historical reference.
   `big-code-analysis-output` integration snapshots are unchanged. The
   `tree-sitter-cpp = "0.23.4"` grammar marker (and the
   grammar-marker-sync baseline from #400) are unchanged — this is a
-  codegen-toolchain alignment, not a grammar-version bump. Also fixes
-  a latent bug in `generate-mozcpp.sh` where the crates.io download
-  used a bare `wget` that now receives HTTP 403 (crates.io requires a
-  User-Agent).
+  codegen-toolchain alignment, not a grammar-version bump. Also
+  hardens `generate-mozcpp.sh`: it now runs under `set -euo
+  pipefail` (a failed download / install / fetch aborts instead of
+  silently producing a half-regenerated parser), fixes a latent bug
+  where the crates.io download used a bare `wget` that now receives
+  HTTP 403 (crates.io requires a User-Agent), and documents that the
+  npm-distributed tree-sitter CLI 0.26.9 needs glibc ≥ 2.39 (build it
+  with `cargo install tree-sitter-cli --version 0.26.9` on older
+  hosts).
 - `big-code-analysis-py/uv.lock` is now tracked in git (was
   `.gitignore`d as a "per-developer cache"). It pins the dev set
   (ruff/mypy/pyright/maturin/pytest) for every contributor using
