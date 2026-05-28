@@ -12,6 +12,16 @@ categories = ["parsing", "text-editors"]
 repository = "https://github.com/dekobon/big-code-analysis"
 # Upstream grammar this fork is derived from; preserved so the
 # crates.io landing page links back to the source-of-truth grammar.
+#
+# Regeneration: unlike the mozjs/mozcpp/ccomment/preproc forks, this
+# crate ships no `grammar.js` or `package.json` — only the vendored
+# `src/` (parser.c, scanner.c, grammar.json, node-types.json). There
+# is therefore no local `tree-sitter generate` path and no floating
+# `tree-sitter-cli` axis to pin (cf. #407). The committed sources are
+# the source of truth; the `tree-sitter v0.25.3` stamp in parser.c is
+# upstream's, not produced by our toolchain. Updating the grammar
+# means re-vendoring `src/` from the upstream homepage above — a
+# deliberate grammar-version change, not a reproducibility regen.
 homepage = "https://github.com/tree-sitter-grammars/tree-sitter-tcl"
 edition = "2021"
 license = "MIT"

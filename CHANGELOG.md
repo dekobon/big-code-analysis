@@ -153,6 +153,57 @@ for historical reference.
 
 ### Changed
 
+- `tree-sitter-mozjs` is regenerated against its declared
+  `tree-sitter-javascript` `0.25.0` base grammar (with `tree-sitter`
+  CLI `0.26.9`), and its floating `tree-sitter-cli` `^0.25.3`
+  devDependency is pinned to `0.26.9`. Investigation for
+  [#407](https://github.com/dekobon/big-code-analysis/issues/407)
+  found the bundled mozjs parser was **stale at JS `0.23.1`**: the
+  `0.23.1` → `0.25.0` marker bump (#1207) shipped without the
+  matching regen, and #400 then pinned the grammar-marker-sync
+  baseline at `0.25.0` on the incorrect belief that the regen was a
+  no-op. The real `0.25.0` regen is **not** a no-op — it adds the
+  `using` / `await using` explicit-resource-management declaration
+  (`using_declaration`), so the generated `Mozjs` node-kind enum in
+  `language_mozjs.rs` gains `Using` and `UsingDeclaration` variants
+  (the pre-existing `switch_default` node is renumbered, not added).
+  The bump
+  is **metric-neutral for the existing fixture corpus** (no fixture
+  uses a `using` declaration and the parse-table renumbering does not
+  change parse results for existing constructs), so no snapshot or
+  `big-code-analysis-output` integration movement. The new capability
+  is pinned by a drift-marker test
+  (`checker::tests::mozjs_parses_using_declaration`) that fails
+  against the pre-#407 parser. The grammar-marker-sync baseline stays
+  at `0.25.0` (now honestly matching the bundled sources) with its
+  history comment corrected.
+- `tree-sitter-ccomment` and `tree-sitter-preproc` regeneration is
+  now reproducible: their floating `tree-sitter-cli` `^0.25.3`
+  devDependency is pinned to `0.26.9` and the bundled `src/parser.c`
+  is regenerated with that CLI (previously stamped `0.25.3`),
+  mirroring the #406 mozcpp fix. Both are leaf grammars (no upstream
+  base grammar to pin) and the regen is **metric-neutral**:
+  `grammar.json` and `node-types.json` are byte-identical, only the
+  `parser.c` version-stamp comment changes, `parser.h` drops the
+  redundant `TSLanguageMetadata` forward declaration, and
+  `src/tree_sitter/array.h` advances to the 0.26.9 strict-aliasing
+  runtime template. Resolves the sibling reproducibility gap tracked
+  in [#407](https://github.com/dekobon/big-code-analysis/issues/407).
+- `tree-sitter-mozcpp/src/tree_sitter/array.h` is advanced to the
+  0.26.9 strict-aliasing runtime template, closing a #406 gap: that
+  regen updated `parser.c` (version stamp) and `parser.h` (forward
+  declaration) to 0.26.9 form but left `array.h` at the pre-0.26
+  layout, leaving the crate internally inconsistent and a bare regen
+  non-reproducible. The header is byte-identical to the
+  ccomment/preproc/mozjs runtime template. Metric-neutral (a runtime
+  memory helper; does not affect parsing).
+- `tree-sitter-tcl` regeneration is documented in its `Cargo.toml`:
+  it ships no `grammar.js`/`package.json`, so there is no local
+  `tree-sitter generate` path and no floating `tree-sitter-cli` axis
+  to pin. The committed `src/` is the source of truth; updating it
+  means re-vendoring from upstream (a deliberate grammar-version
+  change, not a reproducibility regen). No code change — confirms the
+  open question in [#407](https://github.com/dekobon/big-code-analysis/issues/407).
 - `tree-sitter-mozcpp` grammar regeneration is now reproducible and
   the bundled `src/parser.c` is regenerated with `tree-sitter` CLI
   `0.26.9`, matching the workspace's `tree-sitter = "=0.26.9"`

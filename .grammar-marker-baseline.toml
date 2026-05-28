@@ -23,18 +23,32 @@
 [mozjs]
 marker = "tree-sitter-javascript"
 version = "0.25.0"
-# Last source regen: #1141 (2025-03-30, marker was at 0.23.1).
-# The 0.23.1 -> 0.25.0 marker bump (#1207, 2026-01-20) shipped
-# without the matching regen; #400 confirmed that the 0.25.0 regen
-# is a no-op against tree-sitter CLI 0.26.9 so the baseline is
-# pinned at the current marker.
+# Last source regen: #407 (2026-05-28) at tree-sitter-javascript
+# 0.25.0 with tree-sitter CLI 0.26.9.
+# History: the 0.23.1 -> 0.25.0 marker bump (#1207, 2026-01-20)
+# shipped without the matching regen, and #400 pinned the baseline
+# at 0.25.0 on the belief that the regen was a no-op. That belief
+# was wrong: #407 ran the real 0.25.0 regen and it is NOT a no-op —
+# it adds the `using` / `await using` explicit-resource-management
+# declaration (`using_declaration`) that 0.23.1 lacked (the
+# pre-existing `switch_default` node is renumbered, not added). The
+# bundled sources were genuinely stale at 0.23.1 until #407. The
+# bump is metric-neutral for the existing fixture corpus (no fixture
+# uses `using`), so no snapshot or `big-code-analysis-output`
+# movement; the new capability is pinned by
+# `checker::tests::mozjs_parses_using_declaration`.
 
 [mozcpp]
 marker = "tree-sitter-cpp"
 version = "0.23.4"
-# Last source regen: #1141 (2025-03-30).
-# A 0.23.4 regen run on 2026-05-28 produced a non-empty diff
-# (1.5M-line parser.c churn + metric-value shifts) — handling
-# that snapshot review is deferred to a separate PR (see
-# follow-up issue #406). The baseline stays at 0.23.4 until that
-# review lands.
+# Last source regen: #406 (2026-05-28) at tree-sitter-cpp 0.23.4
+# (base tree-sitter-c 0.23.1) with tree-sitter CLI 0.26.9.
+# #406 confirmed that regen is metric-neutral: grammar.json /
+# node-types.json are byte-identical and the parser.c parse table
+# is unchanged (only the version stamp). The "1.5M-line parser.c
+# churn + metric-value shifts" originally attributed here came from
+# a contaminated working tree (#405 enums-codegen drift), not the
+# real regen. #407 then advanced src/tree_sitter/array.h to the
+# 0.26.9 runtime template (the residual #406 gap). The baseline
+# stays at 0.23.4 — a codegen-toolchain alignment, not a
+# grammar-version bump.

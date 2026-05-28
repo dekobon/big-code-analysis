@@ -1104,14 +1104,14 @@ path = "src/checker.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 12669893.23999494
+value = 12738387.474583384
 
 [[entry]]
 path = "src/checker.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 2536.0
+value = 2553.0
 
 [[entry]]
 path = "src/checker.rs"
@@ -1132,7 +1132,7 @@ path = "src/checker.rs"
 function = "<file>"
 start_line = 1
 metric = "nom"
-value = 241.0
+value = 242.0
 
 [[entry]]
 path = "src/checker.rs"

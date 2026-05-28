@@ -2533,4 +2533,21 @@ mod tests {
         // Groovy: identifier-only method body.
         assert_no_string_matches!(GroovyParser, &path, b"def m() { def x = y }\n", "Groovy");
     }
+
+    #[test]
+    fn mozjs_parses_using_declaration() {
+        // Drift marker for the JS-base-grammar bump 0.23.1 -> 0.25.0
+        // (#407): the `using` / `await using` explicit-resource-
+        // management declaration is a 0.25.0 grammar feature. The
+        // bundled mozjs parser was previously stale at 0.23.1 while
+        // its marker claimed 0.25.0 (the #400 baseline lie), so this
+        // node could not appear. Asserting it surfaces pins the regen
+        // against reversion — it fails against the pre-#407 parser.
+        let src = "function f() {\n  using r = acquire();\n  return r;\n}\n";
+        let parser = MozjsParser::new(src.as_bytes().to_vec(), &PathBuf::from("t.js"), None);
+        assert!(
+            ast_has_kind_id(&parser, Mozjs::UsingDeclaration as u16),
+            "expected Mozjs::UsingDeclaration to appear in the parse",
+        );
+    }
 }
