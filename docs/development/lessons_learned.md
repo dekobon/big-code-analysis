@@ -2678,3 +2678,142 @@ ci`, mirroring `enums-check` from lesson #15) — `--workspace`
 doesn't touch them.
 
 ---
+
+## 52. Pre-order traversal evaluates parents before children — child-arm state resets fire too late
+
+A state-machine metric that walks the AST in pre-order *cannot* use a
+child node's visit to influence the parent's already-completed
+evaluation. The model is tempting: "when we see a `!` / `not` /
+`NotOperator`, reset the running boolean sequence so the next
+combinator scores +1." But pre-order visits the `BinaryExpression`
+parent first, evaluates the combinator against the prior-sibling
+sequence, and only *then* descends into the `UnaryExpression` operand
+where the reset fires. The reset still happens, but the value it was
+supposed to alter has already been counted. The arm looks live, the
+test suite passes (because the test suite asserts the values currently
+emitted, not the values the algorithm claims to compute), and the
+intent encoded in the comment quietly diverges from runtime behaviour.
+The bug is invisible from any single language module read in isolation
+— it is visible only by tracing the *order* of node visits against the
+*order* of state mutations.
+
+**`BoolSequence::not_operator()` was dead code at 15 call sites
+across 18 language impls** (#392, `0b30837`). Cognitive's
+`BoolSequence` state machine had a `not_operator()` method that
+called `reset()`, with the documented intent "NOT resets the sequence
+so the next boolean always scores +1." Every cognitive impl —
+`PythonCode`, `RustCode`, `CppCode`, the `js_cognitive!` macro
+(invoked once for each of Mozjs/JavaScript/TypeScript/TSX, so one
+source call site expanding to four), `JavaCode`, `GroovyCode`,
+`CSharpCode`, `PerlCode`, `KotlinCode`, `GoCode`, `TclCode`,
+`LuaCode`, `PhpCode`, `ElixirCode`, `RubyCode` — matched a unary
+node (`NotOperator`, `UnaryExpression`,
+`UnaryExpression2`, …) and called the reset. In pre-order, the
+`BinaryExpression` parent of `!a && !b && !c` was visited *first* —
+`eval_based_on_prev` ran against the empty prior sequence and the `&&`
+combinator scored its +1 — and only then did the walker descend to the
+`UnaryExpression` children where the reset fired. By the time the
+reset ran, the `&&` had already been counted, and the only thing the
+reset could affect was *future, unvisited* `BinaryExpression` nodes,
+which `eval_based_on_prev`'s span check already prevented from
+continuing the sequence. Empirically `if !a && !b && !c`, `if *a && *b
+&& *c` (the over-broad `UnaryExpression` arm also matched
+dereference / negate / bitwise-NOT), and `if a && b && c` all scored
+identically in Rust, C++, and Python. The arms were removed wholesale;
+the only behaviour change was that nested `a && !(b && c)` collapsed
+into a single boolean sequence (the inner `BinaryExpression` visited
+after its `UnaryExpression` parent — the one case where the reset
+genuinely fired before the value it should affect — now matches the
+SonarSource intent that `!` does not start a new sequence). Three
+parent-repo snapshots (`csharp_not_booleans`, `php_not_booleans`,
+`tcl_not_booleans_nested`) plus five integration snapshots in the
+`big-code-analysis-output` submodule absorbed the shift.
+
+**Lesson:** Any AST-walking metric written in pre-order treats the
+parent's combinator as a *completed* value before any child node has
+been visited. Arms keyed on a child node that try to influence the
+parent's already-computed result — "the `!` resets the sequence,"
+"the modifier downgrades the score," "the keyword retroactively
+changes the operator class" — are running too late to do what their
+comment says. The reverse direction (parent-visit mutates state that
+the child-visit then reads) works, but child-visit-mutates-parent-
+result does not. When proposing such an arm, write the failing test
+*first* (e.g., assert `cognitive("!a && !b && !c") >
+cognitive("a && b && c")`); if the test passes against the
+current implementation, the arm was probably already dead. If the
+test fails, the fix has to live at the token level — dispatch on the
+`AMPAMP` / `PIPEPIPE` token (visited after its `UnaryExpression`
+siblings in pre-order, not its `BinaryExpression` parent) — not at
+the expression level. The dead-code arm should not stay in the
+codebase as documentation of intent; it misleads every subsequent
+maintainer about what the algorithm actually does.
+
+---
+
+## 53. Positional `node.child(idx)` breaks when the grammar permits an optional preamble slot
+
+Tree-sitter grammars frequently expose statement shapes whose
+*positions* differ by syntactic mode: `if (cond)` vs `if (init; cond)`,
+`if (cond)` vs `if constexpr (cond)`, `m(value)` (positional) vs
+`m(name: value)` (named-argument), `repeat … until cond` with body
+present vs body BLANK ALIAS, …. A dispatcher arm that reaches for the
+condition via `node.child(1)` works on the form the test fixture
+happened to write and silently returns the wrong child on every other
+form. The grammar exposes the role-by-name (`child_by_field_name(
+"condition")`, `child_by_field_name("value")`, …) precisely because
+the position is not load-bearing; positional lookups are valid only
+when the grammar guarantees no optional preamble can appear at the
+chosen index. Each language's grammar makes a slightly different
+choice about which slots are optional, so the bug is per-language and
+per-statement-kind, not per-walker.
+
+**Phase 2B condition-slot dispatcher had four positional-child bugs
+from one code-review pass** (#395 / #403, `57547a1`, `5db8078`). The
+unary-conditional walker was extended from Java/Groovy/C# to 11 more
+languages, and a recall-biased review pass across the new code
+surfaced four silent miscounts — three closed immediately in
+`57547a1` and the deferred Lua finding closed in `5db8078`:
+(1) PHP `Argument` wraps both `m(!$a)` (positional, one named child)
+and `m(name: !$a)` (named, three children: name, `:`, value); the
+dispatcher took `child(0)` (the *name*) and missed the value at the
+last child — `m(name: !$a)` reported zero conditions. (2) Go's
+`if x := f(); x { … }` puts the `short_var_declaration` at `child(1)`
+and the condition expression at `child(2)`; the dispatcher used
+`child(1)` unconditionally and counted the assignment instead of the
+condition. (3) C++'s `if constexpr (cond) { … }` shifts the
+`condition_clause` from `child(1)` (where it sits in the plain `if (
+cond)` form) to `child(2)`; the constexpr form returned zero. (4)
+Lua's `repeat … until cond` exposes a `condition` field on if /
+while / repeat in `tree-sitter-lua`, but the dispatcher used
+positional `child(1)` / `child(3)` — fragile to body-BLANK-ALIAS
+shifts and unnecessarily so. All four fixes followed the same shape:
+switch to `child_by_field_name("condition")` (or the equivalent
+field name) when the grammar exposes the field; iterate named
+children and pick by role when it does not (the PHP `Argument`
+case — `child_by_field_name("name")` and "last named child" together
+distinguish the two forms). The bugs survived the Phase 2B feature
+commit (`11bf750`) and a simplify-rust pass (`5153f19`) and an
+audit-tests review pass (`e896a7b`) because no pre-existing test
+exercised the optional-preamble form for any of the four languages —
+the fixture corpus had grown around the simpler shape.
+
+**Lesson:** When writing a dispatcher arm against a tree-sitter
+statement node, prefer `child_by_field_name(role)` over positional
+`node.child(idx)` for any slot whose grammar permits an optional
+preamble (init-statement, constexpr-keyword, async-modifier,
+named-argument label, BLANK ALIAS bodies). The field lookup is
+grammar-version-robust — when upstream tree-sitter re-orders or
+inserts a new optional slot, the field name carries; the positional
+index does not. If the grammar does not expose a field for the slot
+you need (some grammars expose `condition` on `if` but not on
+`while`, or vice versa), iterate `node.named_children(cursor)` and
+pick by role with an explicit comment naming the variant set you
+verified against the grammar. The minimum new-test bar for a new
+dispatcher arm is *at least one fixture exercising every optional
+preamble the grammar permits* — `if (cond)` and `if (init; cond)`,
+`if (cond)` and `if constexpr (cond)`, `m(positional)` and
+`m(named: value)` — not just the form the existing corpus already
+has. The drift surface is per-language; the fix shape is uniform
+(field-name lookup); the test discipline is per-arm.
+
+---
