@@ -1629,14 +1629,14 @@ path = "src/macros.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1544253.5844012196
+value = 1582358.0895281597
 
 [[entry]]
 path = "src/macros.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1207.0
+value = 1238.0
 
 [[entry]]
 path = "src/metric_set.rs"
@@ -1685,35 +1685,35 @@ path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 59044414.22387502
+value = 62060484.62676522
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 10271.0
+value = 10464.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 549.0
+value = 557.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "nexits"
-value = 50.0
+value = 51.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "<file>"
 start_line = 1
 metric = "nom"
-value = 779.0
+value = 794.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
@@ -1725,91 +1725,91 @@ value = 189.0
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "Stats"
-start_line = 131
+start_line = 132
 metric = "nexits"
 value = 14.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "serialize"
-start_line = 132
+start_line = 133
 metric = "cyclomatic"
 value = 15.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "serialize"
-start_line = 132
+start_line = 133
 metric = "nexits"
 value = 14.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "Stats"
-start_line = 180
+start_line = 181
 metric = "halstead.effort"
 value = 287297.79316755506
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "Stats"
-start_line = 180
+start_line = 181
 metric = "nargs"
 value = 21.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "compute"
-start_line = 1015
+start_line = 1018
 metric = "cyclomatic"
 value = 15.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "compute"
-start_line = 1685
+start_line = 1688
 metric = "cyclomatic"
 value = 16.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "GoCode"
-start_line = 1885
+start_line = 1888
 metric = "halstead.effort"
 value = 51348.53958809567
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "compute"
-start_line = 1886
+start_line = 1889
 metric = "cyclomatic"
 value = 15.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "compute"
-start_line = 2088
+start_line = 2091
 metric = "cyclomatic"
 value = 15.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "perl_inspect_container"
-start_line = 2977
+start_line = 2980
 metric = "halstead.effort"
 value = 53345.08959628053
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "PerlCode"
-start_line = 3121
+start_line = 3124
 metric = "halstead.effort"
 value = 74315.72438997906
 
 [[entry]]
 path = "src/metrics/abc.rs"
 function = "compute"
-start_line = 3122
+start_line = 3125
 metric = "halstead.effort"
 value = 67862.8313802447
 

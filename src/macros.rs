@@ -954,12 +954,20 @@ macro_rules! groovy_bool_terminal_kinds {
 // helpers, so hoisting to a macro removes the literal duplication.
 
 macro_rules! rust_bool_terminal_kinds {
+    // `ScopedIdentifier` (`crate::FLAG`, `ns::flag`) and
+    // `AwaitExpression` (`ready().await`) are both idiomatic shapes
+    // for a boolean-valued condition operand. Adding them mirrors
+    // the C# fix in #372 (lesson 19), which closed the same gap
+    // for `CastExpression`, `MemberAccessExpression`, and
+    // `AwaitExpression` on the C# side.
     () => {
         $crate::Rust::Identifier
             | $crate::Rust::BooleanLiteral
             | $crate::Rust::CallExpression
             | $crate::Rust::FieldExpression
             | $crate::Rust::IndexExpression
+            | $crate::Rust::ScopedIdentifier
+            | $crate::Rust::AwaitExpression
     };
 }
 
@@ -986,6 +994,9 @@ macro_rules! cpp_bool_terminal_kinds {
     // tree-sitter-cpp's production-rule path. Halstead's getter
     // already matches all four; the ABC walker needs them too so
     // `if (ns::flag) {}` reaches the terminal-bool count.
+    //
+    // `CastExpression` (`(bool)v`) evaluates to a boolean in
+    // idiomatic C++ — mirrors the C# fix in #372 (lesson 19).
     () => {
         $crate::Cpp::Identifier
             | $crate::Cpp::True
@@ -994,6 +1005,7 @@ macro_rules! cpp_bool_terminal_kinds {
             | $crate::Cpp::CallExpression2
             | $crate::Cpp::FieldExpression
             | $crate::Cpp::SubscriptExpression
+            | $crate::Cpp::CastExpression
             | $crate::Cpp::QualifiedIdentifier
             | $crate::Cpp::QualifiedIdentifier2
             | $crate::Cpp::QualifiedIdentifier3
@@ -1002,15 +1014,16 @@ macro_rules! cpp_bool_terminal_kinds {
 }
 
 macro_rules! php_bool_terminal_kinds {
-    // Aliased kind_ids (lesson #2):
+    // Aliased kind_ids (lesson 2):
     //   - `name` has two ids (1, 211)
     //   - `member_access_expression` has three (328, 329, 360)
     //   - `nullsafe_member_access_expression` has two (330, 331)
+    //   - `scoped_property_access_expression` has two (332, 333)
     //   - `subscript_expression` has three (351, 352, 363)
     // The matching `*_call_expression` kinds remain singular at the
     // pinned grammar version. Including the property-access form
-    // (`$x?->y` and `$x->y`) closes the bool-typed-property-access
-    // gap that the call-form alone left open.
+    // (`$x?->y`, `$x->y`, and `Cls::$x`) closes the bool-typed-
+    // property-access gap that the call-form alone left open.
     () => {
         $crate::Php::Name
             | $crate::Php::Name2
@@ -1026,6 +1039,8 @@ macro_rules! php_bool_terminal_kinds {
             | $crate::Php::MemberAccessExpression3
             | $crate::Php::NullsafeMemberAccessExpression
             | $crate::Php::NullsafeMemberAccessExpression2
+            | $crate::Php::ScopedPropertyAccessExpression
+            | $crate::Php::ScopedPropertyAccessExpression2
             | $crate::Php::SubscriptExpression
             | $crate::Php::SubscriptExpression2
             | $crate::Php::SubscriptExpression3
@@ -1033,6 +1048,9 @@ macro_rules! php_bool_terminal_kinds {
 }
 
 macro_rules! python_bool_terminal_kinds {
+    // `Await` (`await ready()`) evaluates to a boolean in idiomatic
+    // async Python — mirrors the C# fix in #372 (lesson 19) which
+    // closed the same gap for `AwaitExpression`.
     () => {
         $crate::Python::Identifier
             | $crate::Python::True
@@ -1040,6 +1058,7 @@ macro_rules! python_bool_terminal_kinds {
             | $crate::Python::Call
             | $crate::Python::Attribute
             | $crate::Python::Subscript
+            | $crate::Python::Await
     };
 }
 
@@ -1105,6 +1124,8 @@ macro_rules! tcl_bool_terminal_kinds {
 // runtime emits for `obj.foo`) for all four languages.
 
 macro_rules! javascript_bool_terminal_kinds {
+    // `AwaitExpression` (`await ready()`) is in the terminal set
+    // mirroring the C# reference (lesson 19).
     () => {
         $crate::Javascript::Identifier
             | $crate::Javascript::Identifier2
@@ -1117,10 +1138,13 @@ macro_rules! javascript_bool_terminal_kinds {
             | $crate::Javascript::MemberExpression2
             | $crate::Javascript::MemberExpression3
             | $crate::Javascript::SubscriptExpression
+            | $crate::Javascript::AwaitExpression
     };
 }
 
 macro_rules! mozjs_bool_terminal_kinds {
+    // `AwaitExpression` (`await ready()`) is in the terminal set
+    // mirroring the C# reference (lesson 19).
     () => {
         $crate::Mozjs::Identifier
             | $crate::Mozjs::Identifier2
@@ -1133,10 +1157,13 @@ macro_rules! mozjs_bool_terminal_kinds {
             | $crate::Mozjs::MemberExpression2
             | $crate::Mozjs::MemberExpression3
             | $crate::Mozjs::SubscriptExpression
+            | $crate::Mozjs::AwaitExpression
     };
 }
 
 macro_rules! typescript_bool_terminal_kinds {
+    // `AwaitExpression` (`await ready()`) is in the terminal set
+    // mirroring the C# reference (lesson 19).
     () => {
         $crate::Typescript::Identifier
             | $crate::Typescript::True
@@ -1152,10 +1179,13 @@ macro_rules! typescript_bool_terminal_kinds {
             | $crate::Typescript::MemberExpression4
             | $crate::Typescript::SubscriptExpression
             | $crate::Typescript::SubscriptExpression2
+            | $crate::Typescript::AwaitExpression
     };
 }
 
 macro_rules! tsx_bool_terminal_kinds {
+    // `AwaitExpression` (`await ready()`) is in the terminal set
+    // mirroring the C# reference (lesson 19).
     () => {
         $crate::Tsx::Identifier
             | $crate::Tsx::Identifier2
@@ -1172,6 +1202,7 @@ macro_rules! tsx_bool_terminal_kinds {
             | $crate::Tsx::MemberExpression4
             | $crate::Tsx::SubscriptExpression
             | $crate::Tsx::SubscriptExpression2
+            | $crate::Tsx::AwaitExpression
     };
 }
 

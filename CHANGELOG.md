@@ -163,7 +163,8 @@ for historical reference.
   (one per `!`-wrapped argument). `return !x` counts 1 (a
   bare `return x` continues to report zero, matching
   Fitzpatrick's "bare identifier in return slot is not a unary
-  conditional" policy). 10 of the 11 Phase-2A languages ship
+  conditional" policy). 11 of the 12 Phase-2A languages (Rust,
+  Go, JS, TS, TSX, Mozjs, PHP, C++, Python, Perl, Lua) ship
   Phase 2B arms — Tcl is deferred pending a per-grammar audit
   of its expression / command shape. Additional regression
   tests `<lang>_if_boolean_literal_condition`,
