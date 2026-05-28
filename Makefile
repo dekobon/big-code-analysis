@@ -473,16 +473,31 @@ py-typecheck:
 	    { echo "pyright found issues"; exit 1; }; \
 	else echo "pyright not found; skipping pyright stage of py-typecheck"; fi
 
-# Why the pre-build cleanup: maturin 1.13's `develop` plus cargo's
-# incremental cache reliably emit a 0-byte .so on the second
-# back-to-back invocation when neither sources nor deps changed (the
-# wheel-build step truncates target/maturin/libbig_code_analysis_py.so
-# before cargo decides "no rebuild needed" and skips the relink). The
-# defensive `find ... -delete` forces cargo to relink each time. This
-# is roughly free (~50ms) and prevents the failure mode entirely. CI
-# does NOT need this guard because each CI job starts from a fresh
+# Two pre-build cleanups defend against distinct failure modes:
+#
+# 1. `find $(BASE_DIR)target -name 'libbig_code_analysis_py*' -delete`
+#    Defeats a maturin 1.13 + cargo-incremental-cache interaction that
+#    reliably emits a 0-byte .so on the second back-to-back invocation
+#    when neither sources nor deps changed (the wheel-build step
+#    truncates target/maturin/libbig_code_analysis_py.so before cargo
+#    decides "no rebuild needed" and skips the relink). Forcing a
+#    relink each time is roughly free (~50ms).
+#
+# 2. `rm -f $(BCA_PY_DIR)/python/big_code_analysis/_native*.so`
+#    Removes the previous editable-install extension before
+#    `maturin develop` writes a fresh one. A contributor who has
+#    switched build modes (non-abi3 → abi3, or vice versa) ends up
+#    with both `_native.cpython-3XX-<plat>.so` AND `_native.abi3.so`
+#    in the source tree — Python's loader prefers the more-specific
+#    cpython-tagged filename, shadowing the fresh build. Symptom:
+#    ImportError for any symbol added since the last non-abi3 build,
+#    even though maturin reports a successful rebuild. Glob covers
+#    every tag variant in one shot.
+#
+# CI does NOT need these guards: each CI job starts from a fresh
 # checkout (target/ is restored from cache but the .so is rebuilt on
-# every job invocation, not repeated within a single job).
+# every job invocation, not repeated within a single job), and the
+# editable install dir is never populated before the build step.
 py-test:
 	@# Prefer the bindings dir's `.venv/bin/{maturin,python}` over the
 	@# host's PATH for the same reason `py-typecheck` does: the venv
@@ -495,11 +510,13 @@ py-test:
 	@if [ -x "$(BCA_PY_DIR)/.venv/bin/maturin" ] && [ -x "$(BCA_PY_DIR)/.venv/bin/python" ]; then \
 	  echo "Building extension + running pytest (venv)..."; \
 	  find "$(BASE_DIR)target" -name 'libbig_code_analysis_py*' -delete 2>/dev/null || true; \
+	  rm -f "$(BCA_PY_DIR)/python/big_code_analysis/"_native*.so; \
 	  (cd "$(BCA_PY_DIR)" && .venv/bin/maturin develop --quiet && .venv/bin/python -m pytest) || \
 	    { echo "py-test failed"; exit 1; }; \
 	elif command -v maturin >/dev/null 2>&1; then \
 	  echo "Building extension + running pytest..."; \
 	  find "$(BASE_DIR)target" -name 'libbig_code_analysis_py*' -delete 2>/dev/null || true; \
+	  rm -f "$(BCA_PY_DIR)/python/big_code_analysis/"_native*.so; \
 	  (cd "$(BCA_PY_DIR)" && maturin develop --quiet && python -m pytest) || \
 	    { echo "py-test failed"; exit 1; }; \
 	else echo "maturin not found; skipping py-test"; fi
