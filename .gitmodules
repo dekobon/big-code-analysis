@@ -10,3 +10,16 @@
 [submodule "tests/repositories/big-code-analysis-output"]
 	path = tests/repositories/big-code-analysis-output
 	url = https://github.com/dekobon/big-code-analysis-output
+	# The integration-snapshot submodule's `main` is force-pushed
+	# often enough that prior parent commits routinely reference
+	# orphaned SHAs (see lesson #8 in docs/development/lessons_learned.md).
+	# Without this setting, every `git pull` that crosses such a
+	# commit fails at the submodule auto-fetch ("upload-pack: not
+	# our ref <sha>"). Disabling auto-fetch means `git pull`
+	# succeeds; contributors who actually need the snapshot fixtures
+	# (cargo integration tests, `make pre-commit`) must run
+	# `git submodule update --init --recursive` explicitly — at
+	# which point any unreachable SHA fails loudly at the point it
+	# actually matters, not deep inside a pull that's otherwise
+	# unrelated to integration tests.
+	fetchRecurseSubmodules = false
