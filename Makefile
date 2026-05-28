@@ -50,7 +50,7 @@ FIND_EXCLUDE   := $(foreach dir,$(EXCLUDE_DIRS),! -path './$(dir)/*')
 # warnings on `$(2)`, e.g. $(call find-by-ext,md,).
 find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name "*.$(1)" -type f $(FIND_EXCLUDE))
 
-.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors check-versions enums-check self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check book book-serve book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-check-versions _pc-enums-check _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-check-versions _ci-enums-check _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test
+.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors grammar-marker-sync check-versions enums-check self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check book book-serve book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-grammar-marker-sync _pc-check-versions _pc-enums-check _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-check-versions _ci-enums-check _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test
 
 # Default target
 help:
@@ -88,6 +88,7 @@ help:
 	@echo "  makefile-check                       Lint Makefile with checkmake"
 	@echo "  actionlint                           Lint GitHub Actions workflows with actionlint"
 	@echo "  snapshot-anchors                     Block new bare insta snapshots"
+	@echo "  grammar-marker-sync                  Block grammar-marker bumps without source regen"
 	@echo "  check-versions                       Enforce lockstep version invariant across owned crates"
 	@echo "  enums-check                          cargo clippy + cargo test on workspace-excluded enums crate"
 	@echo "  self-scan                            bca threshold gate against this repo (hard: 100%)"
@@ -250,6 +251,15 @@ actionlint:
 snapshot-anchors:
 	@echo "Checking insta snapshot anchors..."
 	@python3 $(BASE_DIR)check-snapshot-anchors.py
+
+# Grammar-marker-sync gate. Blocks the failure mode from #400:
+# bumping the notification-only `tree-sitter-{javascript,cpp}`
+# marker in `tree-sitter-{mozjs,mozcpp}/Cargo.toml` without
+# re-running the matching `./generate-grammars/generate-*.sh`.
+# Static lint — no network, no cargo, runs in milliseconds.
+grammar-marker-sync:
+	@echo "Checking grammar-marker sync against baseline..."
+	@python3 $(BASE_DIR)check-grammar-marker-sync.py
 
 # Regenerate the man pages under `man/` from the live clap schema.
 # Auto-fix flavour: `cargo xtask` rewrites every `.1` file so a
@@ -559,7 +569,7 @@ lint:
 	$(MAKE) -j --output-sync=target \
 	  _ci-clippy \
 	  _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check \
-	  _ci-actionlint _ci-snapshot-anchors _ci-check-versions _ci-enums-check
+	  _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-check-versions _ci-enums-check
 
 # ---------------------------------------------------------------------------
 # Maintenance
@@ -653,7 +663,7 @@ pre-commit:
 	$(MAKE) -j --output-sync=target \
 	  _pc-test \
 	  _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check \
-	  _pc-actionlint _pc-snapshot-anchors _pc-check-versions _pc-enums-check \
+	  _pc-actionlint _pc-snapshot-anchors _pc-grammar-marker-sync _pc-check-versions _pc-enums-check \
 	  _pc-manpages \
 	  _pc-self-scan _pc-self-scan-headroom \
 	  _pc-py-fmt _pc-py-typecheck _pc-py-test
@@ -664,7 +674,7 @@ ci:
 	$(MAKE) -j --output-sync=target \
 	  _ci-cargo-pipeline \
 	  _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check \
-	  _ci-actionlint _ci-snapshot-anchors _ci-check-versions _ci-enums-check \
+	  _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-check-versions _ci-enums-check \
 	  _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test
 	@echo "CI checks passed"
 
@@ -693,6 +703,7 @@ ci:
 #    ├── _pc-makefile-check
 #    ├── _pc-actionlint
 #    ├── _pc-snapshot-anchors
+#    ├── _pc-grammar-marker-sync
 #    ├── _pc-check-versions
 #    ├── _pc-enums-check
 #    ├── _pc-py-fmt
@@ -759,6 +770,9 @@ _pc-actionlint: _pc-fmt
 _pc-snapshot-anchors: _pc-fmt
 	$(MAKE) snapshot-anchors
 
+_pc-grammar-marker-sync: _pc-fmt
+	$(MAKE) grammar-marker-sync
+
 _pc-check-versions: _pc-fmt
 	$(MAKE) check-versions
 
@@ -817,8 +831,8 @@ _pc-py-test: _pc-self-scan-headroom
 #      _ci-cargo-pipeline: clippy → test → build → doc-check → udeps
 #                          → manpages → self-scan → self-scan-headroom
 #      _ci-shellcheck, _ci-markdown-lint, _ci-toml-lint, _ci-makefile-check,
-#      _ci-actionlint, _ci-snapshot-anchors, _ci-check-versions,
-#      _ci-enums-check
+#      _ci-actionlint, _ci-snapshot-anchors, _ci-grammar-marker-sync,
+#      _ci-check-versions, _ci-enums-check
 #
 # _ci-enums-check runs on `enums/Cargo.toml`, which has its own `target/`
 # (workspace-excluded), so it does NOT share the workspace cargo lock and
@@ -861,6 +875,9 @@ _ci-actionlint:
 
 _ci-snapshot-anchors:
 	$(MAKE) snapshot-anchors
+
+_ci-grammar-marker-sync:
+	$(MAKE) grammar-marker-sync
 
 _ci-check-versions:
 	$(MAKE) check-versions

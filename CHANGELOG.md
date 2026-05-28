@@ -35,6 +35,26 @@ for historical reference.
 - `make distclean` target — chains `py-clean` and `cargo clean` for a
   full-wipe before a from-scratch bootstrap. `make clean` continues
   to do `cargo clean` only.
+- `grammar-marker-sync` static lint (`check-grammar-marker-sync.py`,
+  baseline at `.grammar-marker-baseline.toml`) blocking the failure
+  mode from
+  [#400](https://github.com/dekobon/big-code-analysis/issues/400):
+  bumping the notification-only `tree-sitter-javascript` /
+  `tree-sitter-cpp` marker in `tree-sitter-{mozjs,mozcpp}/Cargo.toml`
+  without re-running the matching
+  `./generate-grammars/generate-*.sh` script ships a marker that
+  lies about the bundled `src/parser.c` version. The gate compares
+  the live marker against the baseline and fails on drift in either
+  direction (marker bumped without regen, or regen without baseline
+  refresh — `--update` after a verified regen). Wired into `make
+  lint`, `make pre-commit`, `make ci`, the `.pre-commit-config.yaml`
+  system hook, and a defensive explicit `lint` job step in
+  `.github/workflows/ci.yml`. Verified against the
+  `tree-sitter-javascript` 0.23.1 → 0.25.0 marker bump (#1207) that
+  motivated #400: regen against the live 0.25.0 marker confirmed
+  no source diff under
+  `tree-sitter-mozjs/src/{parser.c,scanner.c,grammar.json,node-types.json}`
+  with `tree-sitter` CLI 0.26.9.
 
 - `bca check` actionable failure output (umbrella
   [#356](https://github.com/dekobon/big-code-analysis/issues/356)

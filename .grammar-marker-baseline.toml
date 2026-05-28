@@ -1,0 +1,40 @@
+# Grammar-marker-sync baseline
+#
+# Records the upstream-grammar crate version that was in effect when
+# the vendored sources under `tree-sitter-{mozjs,mozcpp}/src/` were
+# last regenerated. The marker dependency in each vendored crate's
+# Cargo.toml (`tree-sitter-javascript` for mozjs, `tree-sitter-cpp`
+# for mozcpp) is a Dependabot notification hook only — Cargo never
+# compiles it, and bumping it does NOT regenerate the bundled
+# `src/parser.c` / `src/scanner.c`.
+#
+# The `check-grammar-marker-sync.py` gate compares the live marker
+# line in each `Cargo.toml` against the value below. Drift fails the
+# gate.
+#
+# When you re-run `./generate-grammars/generate-{mozjs,mozcpp}.sh`
+# and commit the regenerated sources, update the matching entry
+# here in the SAME commit (or via `./check-grammar-marker-sync.py
+# --update`). When you bump only the marker (e.g. Dependabot PR),
+# the gate must fail until the regen lands.
+#
+# See #400 for the audit trail and the policy this enforces.
+
+[mozjs]
+marker = "tree-sitter-javascript"
+version = "0.25.0"
+# Last source regen: #1141 (2025-03-30, marker was at 0.23.1).
+# The 0.23.1 -> 0.25.0 marker bump (#1207, 2026-01-20) shipped
+# without the matching regen; #400 confirmed that the 0.25.0 regen
+# is a no-op against tree-sitter CLI 0.26.9 so the baseline is
+# pinned at the current marker.
+
+[mozcpp]
+marker = "tree-sitter-cpp"
+version = "0.23.4"
+# Last source regen: #1141 (2025-03-30).
+# A 0.23.4 regen run on 2026-05-28 produced a non-empty diff
+# (1.5M-line parser.c churn + metric-value shifts) — handling
+# that snapshot review is deferred to a separate PR (see
+# follow-up issue). The baseline stays at 0.23.4 until that
+# review lands.

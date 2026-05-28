@@ -360,6 +360,12 @@ jobs:
       # refactor drops it from the aggregate recipe.
       - name: check-versions (explicit)
         run: python3 check-versions.py
+      # Defensive twin for the grammar-marker-sync gate (#400): bumping
+      # the notification-only marker in tree-sitter-{mozjs,mozcpp}/
+      # Cargo.toml without re-running the matching generate-*.sh
+      # ships a marker that lies about the bundled grammar version.
+      - name: grammar-marker-sync (explicit)
+        run: python3 check-grammar-marker-sync.py
       # Defensive: the prior `make lint` step already runs enums-check
       # as part of its aggregate. Repeating it here protects against a
       # regression to that aggregate (e.g., enums-check accidentally

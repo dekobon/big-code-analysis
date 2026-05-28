@@ -80,6 +80,20 @@ repos:
         entry: python3 check-snapshot-anchors.py
         pass_filenames: false
 
+      # Block grammar-marker bumps in tree-sitter-{mozjs,mozcpp}
+      # without a matching source regen (see #400). The marker is
+      # a Dependabot notification hook only — Cargo never compiles
+      # it, and bumping it does NOT regenerate the bundled
+      # `src/parser.c` / `src/scanner.c`. The gate compares the
+      # live marker line in each vendored Cargo.toml against
+      # `.grammar-marker-baseline.toml`; drift fails.
+      - id: grammar-marker-sync
+        name: grammar-marker-sync
+        language: system
+        files: '^(tree-sitter-(mozjs|mozcpp)/Cargo\.toml|\.grammar-marker-baseline\.toml|check-grammar-marker-sync\.py)$'
+        entry: python3 check-grammar-marker-sync.py
+        pass_filenames: false
+
       # Catch clap-vs-man-page drift before push. The
       # `.github/workflows/ci.yml` `manpage` job (Regenerate, then
       # `git diff --exit-code -- man/`) is the upstream backstop;
