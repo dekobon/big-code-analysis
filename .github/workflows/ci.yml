@@ -364,11 +364,17 @@ jobs:
       # the notification-only marker in tree-sitter-{mozjs,mozcpp}/
       # Cargo.toml without re-running the matching generate-*.sh
       # ships a marker that lies about the bundled grammar version.
-      # `make grammar-marker-sync` runs the gate's unittest suite
-      # before the gate itself so a refactor of the script gets the
-      # same coverage CI applies to `make lint`.
+      # Invokes the script directly (matching the snapshot-anchors
+      # and check-versions defensive twins above) so a regression
+      # in the `make lint` aggregate cannot silently disable this
+      # check.
       - name: grammar-marker-sync (explicit)
-        run: make grammar-marker-sync
+        run: python3 check-grammar-marker-sync.py
+      # Run the gate's own unittests as their own explicit step
+      # so a refactor that breaks the script can't disable the
+      # gate without surfacing the regression in CI.
+      - name: grammar-marker-sync self-tests (explicit)
+        run: python3 -m unittest -q check-grammar-marker-sync-test.py
       # Defensive: the prior `make lint` step already runs enums-check
       # as part of its aggregate. Repeating it here protects against a
       # regression to that aggregate (e.g., enums-check accidentally
