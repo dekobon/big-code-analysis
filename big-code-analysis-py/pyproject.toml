@@ -30,9 +30,26 @@ dynamic = ["version"]
 [project.urls]
 Repository = "https://github.com/dekobon/big-code-analysis"
 
+# Restrict uv's resolver to platforms the project actually ships on.
+# `requires-python = ">=3.12"` is unbounded above, and the bindings
+# are PyO3-built native extensions — they cannot load on emscripten /
+# pyodide without a pyodide-specific build that this project does not
+# produce. Without these markers, `uv lock` produces resolution
+# entries for `sys_platform == 'emscripten'` and `python_full_version
+# >= '3.15'` that inflate the lockfile and invite resolver work for
+# matrices the project will never serve.
+[tool.uv]
+environments = [
+  "sys_platform != 'emscripten' and python_full_version < '3.15'",
+]
+
 [project.optional-dependencies]
-# Test/lint dependencies. Hermetic — `uv pip install -e .[dev]` is
-# the supported development install. Pinned floors track the
+# Test/lint dependencies. The canonical install path is
+# `make py-bootstrap` (which runs `uv sync --locked --extra dev` so
+# the resolved set matches the checked-in `uv.lock`). `uv pip install
+# -e .[dev]` and `pip install -e .[dev]` still work but bypass the
+# lockfile — they re-resolve from the version bounds below and can
+# drift from CI / from peers. Pinned floors track the earliest
 # versions exercised by CI; the upper bound on maturin stays open
 # within the 1.x series.
 dev = [

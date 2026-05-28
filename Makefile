@@ -50,7 +50,7 @@ FIND_EXCLUDE   := $(foreach dir,$(EXCLUDE_DIRS),! -path './$(dir)/*')
 # warnings on `$(2)`, e.g. $(call find-by-ext,md,).
 find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name "*.$(1)" -type f $(FIND_EXCLUDE))
 
-.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors check-versions enums-check self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom lint clippy udeps insta-review insta-accept clean py-clean install install-cli install-web doc doc-open doc-check book book-serve book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local py-bootstrap py-sync py-fmt py-fmt-check py-lint py-typecheck py-test _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-check-versions _pc-enums-check _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-check-versions _ci-enums-check _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test
+.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors check-versions enums-check self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check book book-serve book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-check-versions _pc-enums-check _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-check-versions _ci-enums-check _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test
 
 # Default target
 help:
@@ -98,6 +98,8 @@ help:
 	@echo ""
 	@echo "Python bindings (big-code-analysis-py):"
 	@echo "  py-bootstrap                         Create .venv from uv.lock (alias: py-sync) — requires uv"
+	@echo "  py-relock                            Regenerate uv.lock from pyproject.toml (run after editing deps)"
+	@echo "  py-clean                             Remove .venv, _native*.so, *_cache, __pycache__"
 	@echo "  py-fmt                               Format Python sources with ruff"
 	@echo "  py-fmt-check                         Verify Python formatting"
 	@echo "  py-lint                              Lint Python sources with ruff"
@@ -106,8 +108,8 @@ help:
 	@echo "  (first-time setup: 'make py-bootstrap' — installs uv-managed venv from uv.lock)"
 	@echo ""
 	@echo "Maintenance:"
-	@echo "  clean                                Remove cargo + Python build artifacts (calls py-clean then cargo clean)"
-	@echo "  py-clean                             Remove Python-only artifacts (.venv, _native*.so, *_cache, __pycache__)"
+	@echo "  clean                                Remove cargo build artifacts (target/) only"
+	@echo "  distclean                            Remove cargo + Python artifacts (full wipe — chains py-clean and clean)"
 	@echo "  install                              Install both CLI and web binaries"
 	@echo "  install-cli                          Install bca"
 	@echo "  install-web                          Install bca-web"
@@ -416,16 +418,30 @@ self-scan-write-baseline-headroom:
 # Bootstrap the bindings dev environment from uv.lock. Hard-fails if
 # uv is missing — there is no pip fallback because uv.lock is the
 # project's source of truth for the resolved dev set, and consuming
-# it requires uv. `uv sync` creates big-code-analysis-py/.venv,
-# installs the locked `dev` extra into it, and is idempotent.
+# it requires uv. `uv sync --locked` creates big-code-analysis-py/.venv,
+# installs the locked `dev` extra into it, and is idempotent. The
+# `--locked` flag refuses to mutate uv.lock — if pyproject.toml has
+# drifted from the lockfile, this target fails loudly and points at
+# `make py-relock` instead of silently rewriting the lockfile on
+# every contributor's machine.
 py-bootstrap:
 	@command -v uv >/dev/null 2>&1 || { \
 	  echo "ERROR: uv missing — install via 'curl -LsSf https://astral.sh/uv/install.sh | sh' (or 'brew install uv', 'pipx install uv')"; \
 	  exit 1; }
-	@cd "$(BCA_PY_DIR)" && uv sync --extra dev
+	@cd "$(BCA_PY_DIR)" && uv sync --locked --extra dev
 
 # Alias so contributors familiar with `uv sync` find the right target.
 py-sync: py-bootstrap
+
+# Regenerate uv.lock after editing pyproject.toml (e.g. bumping a
+# dev-extra floor). Separated from py-bootstrap so lockfile churn is
+# always a deliberate, reviewable act — `make py-bootstrap` will not
+# silently update the lockfile on contributors' machines.
+py-relock:
+	@command -v uv >/dev/null 2>&1 || { \
+	  echo "ERROR: uv missing — install via 'curl -LsSf https://astral.sh/uv/install.sh | sh' (or 'brew install uv', 'pipx install uv')"; \
+	  exit 1; }
+	@cd "$(BCA_PY_DIR)" && uv lock
 
 py-fmt:
 	@if command -v ruff >/dev/null 2>&1; then \
@@ -499,6 +515,11 @@ py-typecheck:
 # every job invocation, not repeated within a single job), and the
 # editable install dir is never populated before the build step.
 py-test:
+	@# Pre-build cleanups (see header comment) are hoisted before the
+	@# if/elif so a future fix to either guard lands in one place; the
+	@# rm/find are safe no-ops on missing files.
+	@find "$(BASE_DIR)target" -name 'libbig_code_analysis_py*' -delete 2>/dev/null || true
+	@rm -f "$(BCA_PY_DIR)/python/big_code_analysis/"_native*.so
 	@# Prefer the bindings dir's `.venv/bin/{maturin,python}` over the
 	@# host's PATH for the same reason `py-typecheck` does: the venv
 	@# has pytest (declared as a dev-dependency in
@@ -509,14 +530,10 @@ py-test:
 	@# whichever venv it finds.
 	@if [ -x "$(BCA_PY_DIR)/.venv/bin/maturin" ] && [ -x "$(BCA_PY_DIR)/.venv/bin/python" ]; then \
 	  echo "Building extension + running pytest (venv)..."; \
-	  find "$(BASE_DIR)target" -name 'libbig_code_analysis_py*' -delete 2>/dev/null || true; \
-	  rm -f "$(BCA_PY_DIR)/python/big_code_analysis/"_native*.so; \
 	  (cd "$(BCA_PY_DIR)" && .venv/bin/maturin develop --quiet && .venv/bin/python -m pytest) || \
 	    { echo "py-test failed"; exit 1; }; \
 	elif command -v maturin >/dev/null 2>&1; then \
 	  echo "Building extension + running pytest..."; \
-	  find "$(BASE_DIR)target" -name 'libbig_code_analysis_py*' -delete 2>/dev/null || true; \
-	  rm -f "$(BCA_PY_DIR)/python/big_code_analysis/"_native*.so; \
 	  (cd "$(BCA_PY_DIR)" && maturin develop --quiet && python -m pytest) || \
 	    { echo "py-test failed"; exit 1; }; \
 	else echo "maturin not found; skipping py-test"; fi
@@ -553,20 +570,36 @@ lint:
 # install's compiled extension (matches both abi3 and per-version
 # tagged variants — switching build modes leaves stale `.so` files
 # that Python's loader prefers over the fresh one), the per-tool
-# caches, and `__pycache__` trees. Does NOT remove `uv.lock` (treated
-# as a checked-in artifact) or `target/maturin/` (handled by
-# `cargo clean`).
+# caches, and `__pycache__` trees. Does NOT remove `uv.lock` (a
+# checked-in artifact) or `target/maturin/` (handled by `cargo
+# clean`).
+#
+# Best-effort: `rm -rf` and `rm -f` are no-ops on missing paths, and
+# `find` swallows its own missing-root errors via `2>/dev/null || true`
+# (matching the idiom used by py-test on `find $(BASE_DIR)target`).
+# A missing BCA_PY_DIR (sparse checkout, experimental removal) leaves
+# every line as a silent no-op and the recipe still exits 0 under
+# `.SHELLFLAGS := -eu -o pipefail -c`.
 py-clean:
 	@echo "Removing Python build artifacts..."
-	rm -rf "$(BCA_PY_DIR)/.venv"
-	rm -rf "$(BCA_PY_DIR)/.pytest_cache"
-	rm -rf "$(BCA_PY_DIR)/.mypy_cache"
-	rm -rf "$(BCA_PY_DIR)/.ruff_cache"
-	rm -f  "$(BCA_PY_DIR)/python/big_code_analysis/"_native*.so
-	find "$(BCA_PY_DIR)" -type d -name '__pycache__' -prune -exec rm -rf {} +
+	@rm -rf "$(BCA_PY_DIR)/.venv"
+	@rm -rf "$(BCA_PY_DIR)/.pytest_cache"
+	@rm -rf "$(BCA_PY_DIR)/.mypy_cache"
+	@rm -rf "$(BCA_PY_DIR)/.ruff_cache"
+	@rm -f  "$(BCA_PY_DIR)/python/big_code_analysis/"_native*.so
+	@find "$(BCA_PY_DIR)" -type d -name '__pycache__' -prune -exec rm -rf {} + 2>/dev/null || true
 
-clean: py-clean
+# `clean` stays cargo-only by default — a Rust-only contributor running
+# `make clean` to reset incremental state should not lose their
+# uv-managed venv as collateral (forcing a multi-step rebootstrap on
+# the next Python invocation). Use `make distclean` for the full wipe.
+clean:
 	cargo clean
+
+# Full wipe: cargo target/ AND every Python artifact (.venv, caches,
+# editable-install .so, __pycache__). Useful before a fresh-checkout
+# bootstrap or when reproducing CI from scratch.
+distclean: py-clean clean
 
 install: install-cli install-web
 
