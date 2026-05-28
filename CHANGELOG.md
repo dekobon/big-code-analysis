@@ -153,6 +153,27 @@ for historical reference.
 
 ### Changed
 
+- `tree-sitter-mozcpp` grammar regeneration is now reproducible and
+  the bundled `src/parser.c` is regenerated with `tree-sitter` CLI
+  `0.26.9`, matching the workspace's `tree-sitter = "=0.26.9"`
+  runtime (the bundled parser was previously generated with CLI
+  `0.25.3`). Two floating toolchain pins that made the regen
+  non-deterministic are now exact: `tree-sitter-cli` in
+  `tree-sitter-mozcpp/package.json` (`^0.25.3` → `0.26.9`) and the
+  upstream `tree-sitter-c` base grammar that `tree-sitter-cpp`
+  extends, pinned to `=0.23.1` in `generate-grammars/generate-mozcpp.sh`.
+  Investigation for [#406](https://github.com/dekobon/big-code-analysis/issues/406)
+  confirmed the regen is **metric-neutral**: `grammar.json` and
+  `node-types.json` are byte-identical to the previous output and the
+  parse table in `parser.c` is unchanged (only the version-stamp
+  comment differs), so no metric values shift and the
+  `big-code-analysis-output` integration snapshots are unchanged. The
+  `tree-sitter-cpp = "0.23.4"` grammar marker (and the
+  grammar-marker-sync baseline from #400) are unchanged — this is a
+  codegen-toolchain alignment, not a grammar-version bump. Also fixes
+  a latent bug in `generate-mozcpp.sh` where the crates.io download
+  used a bare `wget` that now receives HTTP 403 (crates.io requires a
+  User-Agent).
 - `big-code-analysis-py/uv.lock` is now tracked in git (was
   `.gitignore`d as a "per-developer cache"). It pins the dev set
   (ruff/mypy/pyright/maturin/pytest) for every contributor using

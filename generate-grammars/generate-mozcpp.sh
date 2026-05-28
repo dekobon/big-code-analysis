@@ -20,8 +20,11 @@ CRATE_OUTPUT="$TS_CPP_CRATE-download.gz"
 # Link of the current tree-sitter-cpp crate on crates.io
 CRATES_IO_LINK="https://crates.io/api/v1/crates/$TS_CPP_CRATE/$TS_CPP_VERSION/download"
 
-# Download the crate from crates.io and uncompress it
-wget -O "$CRATE_OUTPUT" "$CRATES_IO_LINK" && tar -xf "$CRATE_OUTPUT"
+# Download the crate from crates.io and uncompress it.
+# crates.io rejects requests without a User-Agent (HTTP 403), so one
+# must be supplied explicitly — a bare `wget` no longer works.
+wget --header="User-Agent: big-code-analysis grammar regen" \
+	-O "$CRATE_OUTPUT" "$CRATES_IO_LINK" && tar -xf "$CRATE_OUTPUT"
 
 # Uncompressed directory name
 CRATE_DIR="$TS_CPP_CRATE-$TS_CPP_VERSION"
@@ -49,6 +52,16 @@ git checkout FETCH_HEAD
 
 # Install tree-sitter-cpp dependencies
 npm install -y
+
+# Pin the tree-sitter-c base grammar that tree-sitter-cpp's grammar.js
+# extends (`require('tree-sitter-c/grammar')`). tree-sitter-cpp declares
+# it as a floating `^0.23.1`, so a bare install would silently float to
+# the latest 0.23.x and change the generated parser — the second
+# non-reproducible axis behind issue #406 (the first being the
+# tree-sitter-cli version, pinned in tree-sitter-mozcpp/package.json).
+# 0.23.1 is the version the committed grammar.json/node-types.json
+# correspond to; pinning it keeps the regen byte-reproducible.
+npm install --no-save tree-sitter-c@0.23.1
 
 # Exit tree-sitter-cpp directory
 popd || exit
