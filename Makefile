@@ -50,7 +50,7 @@ FIND_EXCLUDE   := $(foreach dir,$(EXCLUDE_DIRS),! -path './$(dir)/*')
 # warnings on `$(2)`, e.g. $(call find-by-ext,md,).
 find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name "*.$(1)" -type f $(FIND_EXCLUDE))
 
-.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors check-versions enums-check self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom lint clippy udeps insta-review insta-accept clean install install-cli install-web doc doc-open doc-check book book-serve book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local py-bootstrap py-sync py-fmt py-fmt-check py-lint py-typecheck py-test _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-check-versions _pc-enums-check _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-check-versions _ci-enums-check _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test
+.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors check-versions enums-check self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom lint clippy udeps insta-review insta-accept clean py-clean install install-cli install-web doc doc-open doc-check book book-serve book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local py-bootstrap py-sync py-fmt py-fmt-check py-lint py-typecheck py-test _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-check-versions _pc-enums-check _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-check-versions _ci-enums-check _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test
 
 # Default target
 help:
@@ -106,7 +106,8 @@ help:
 	@echo "  (first-time setup: 'make py-bootstrap' — installs uv-managed venv from uv.lock)"
 	@echo ""
 	@echo "Maintenance:"
-	@echo "  clean                                Remove build artifacts"
+	@echo "  clean                                Remove cargo + Python build artifacts (calls py-clean then cargo clean)"
+	@echo "  py-clean                             Remove Python-only artifacts (.venv, _native*.so, *_cache, __pycache__)"
 	@echo "  install                              Install both CLI and web binaries"
 	@echo "  install-cli                          Install bca"
 	@echo "  install-web                          Install bca-web"
@@ -529,7 +530,25 @@ lint:
 # ---------------------------------------------------------------------------
 # Maintenance
 # ---------------------------------------------------------------------------
-clean:
+
+# Python-only clean. Removes everything maturin / pytest / ruff / mypy
+# can recreate from sources: the uv-managed venv, the editable
+# install's compiled extension (matches both abi3 and per-version
+# tagged variants — switching build modes leaves stale `.so` files
+# that Python's loader prefers over the fresh one), the per-tool
+# caches, and `__pycache__` trees. Does NOT remove `uv.lock` (treated
+# as a checked-in artifact) or `target/maturin/` (handled by
+# `cargo clean`).
+py-clean:
+	@echo "Removing Python build artifacts..."
+	rm -rf "$(BCA_PY_DIR)/.venv"
+	rm -rf "$(BCA_PY_DIR)/.pytest_cache"
+	rm -rf "$(BCA_PY_DIR)/.mypy_cache"
+	rm -rf "$(BCA_PY_DIR)/.ruff_cache"
+	rm -f  "$(BCA_PY_DIR)/python/big_code_analysis/"_native*.so
+	find "$(BCA_PY_DIR)" -type d -name '__pycache__' -prune -exec rm -rf {} +
+
+clean: py-clean
 	cargo clean
 
 install: install-cli install-web
