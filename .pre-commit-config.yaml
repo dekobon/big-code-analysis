@@ -84,14 +84,14 @@ repos:
       # without a matching source regen (see #400). The marker is
       # a Dependabot notification hook only — Cargo never compiles
       # it, and bumping it does NOT regenerate the bundled
-      # `src/parser.c` / `src/scanner.c`. The gate compares the
-      # live marker line in each vendored Cargo.toml against
-      # `.grammar-marker-baseline.toml`; drift fails.
+      # `src/parser.c` / `src/scanner.c`. The hook delegates to the
+      # `grammar-marker-sync` Makefile target so the gate's own
+      # unittest suite runs alongside the gate itself.
       - id: grammar-marker-sync
         name: grammar-marker-sync
         language: system
-        files: '^(tree-sitter-(mozjs|mozcpp)/Cargo\.toml|\.grammar-marker-baseline\.toml|check-grammar-marker-sync\.py)$'
-        entry: python3 check-grammar-marker-sync.py
+        files: '^(tree-sitter-(mozjs|mozcpp)/Cargo\.toml|\.grammar-marker-baseline\.toml|check-grammar-marker-sync(-test)?\.py)$'
+        entry: make grammar-marker-sync
         pass_filenames: false
 
       # Catch clap-vs-man-page drift before push. The

@@ -257,7 +257,11 @@ snapshot-anchors:
 # marker in `tree-sitter-{mozjs,mozcpp}/Cargo.toml` without
 # re-running the matching `./generate-grammars/generate-*.sh`.
 # Static lint — no network, no cargo, runs in milliseconds.
+# Runs the gate's own test suite first so a refactor that breaks
+# the script can't silently disable the gate.
 grammar-marker-sync:
+	@echo "Running grammar-marker-sync self-tests..."
+	@python3 -m unittest -q $(BASE_DIR)check-grammar-marker-sync-test.py
 	@echo "Checking grammar-marker sync against baseline..."
 	@python3 $(BASE_DIR)check-grammar-marker-sync.py
 
