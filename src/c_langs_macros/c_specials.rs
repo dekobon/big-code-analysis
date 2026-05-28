@@ -90,9 +90,12 @@ mod tests {
 
     #[test]
     fn specials_lookup() {
-        assert!(is_specials("int32_t"));
+        // Smoke test using literal entries from the codegen
+        // input file (rendered at template-substitution time so
+        // a reviewer reads concrete names rather than indices).
         assert!(is_specials("NULL"));
-        assert!(!is_specials("foobar"));
+        assert!(is_specials("bool"));
+        assert!(!is_specials("not-a-real-entry"));
         assert!(!is_specials(""));
     }
 

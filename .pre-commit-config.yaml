@@ -108,6 +108,19 @@ repos:
         entry: python3 -m unittest -q check-grammar-marker-sync-test.py
         pass_filenames: false
 
+      # Block enums codegen drift (#405). Runs the codegen into a
+      # tempdir and diffs against the checked-in
+      # `src/c_langs_macros/*.rs` and `src/languages/language_*.rs`
+      # files. Triggered by edits to anything that can change the
+      # codegen output: the templates, the source crate, the input
+      # data files, or the checked-in artifacts themselves.
+      - id: enums-codegen-drift
+        name: enums-codegen-drift
+        language: system
+        files: '^(enums/.+|src/(c_langs_macros|languages)/[^/]+\.rs|check-enums-codegen-drift\.sh)$'
+        entry: bash check-enums-codegen-drift.sh
+        pass_filenames: false
+
       # Catch clap-vs-man-page drift before push. The
       # `.github/workflows/ci.yml` `manpage` job (Regenerate, then
       # `git diff --exit-code -- man/`) is the upstream backstop;

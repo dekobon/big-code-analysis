@@ -249,9 +249,12 @@ mod tests {
 
     #[test]
     fn predefined_macros_lookup() {
-        assert!(is_predefined_macros("INT32_MAX"));
-        assert!(is_predefined_macros("UINT8_C"));
-        assert!(!is_predefined_macros("FOOBAR"));
+        // Smoke test using literal entries from the codegen
+        // input file (rendered at template-substitution time so
+        // a reviewer reads concrete names rather than indices).
+        assert!(is_predefined_macros("INT16_C"));
+        assert!(is_predefined_macros("INT16_MAX"));
+        assert!(!is_predefined_macros("not-a-real-entry"));
         assert!(!is_predefined_macros(""));
     }
 

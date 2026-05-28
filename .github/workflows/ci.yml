@@ -375,6 +375,14 @@ jobs:
       # gate without surfacing the regression in CI.
       - name: grammar-marker-sync self-tests (explicit)
         run: python3 -m unittest -q check-grammar-marker-sync-test.py
+      # Defensive twin for the enums-codegen-drift gate (#405):
+      # running any grammar regen previously regenerated
+      # `src/c_langs_macros/*.rs` to a pre-optimization form
+      # silently. The gate diffs codegen output against
+      # checked-in files; running it explicitly here guards
+      # against `make lint` ever dropping it from the aggregate.
+      - name: enums-codegen-drift (explicit)
+        run: bash check-enums-codegen-drift.sh
       # Defensive: the prior `make lint` step already runs enums-check
       # as part of its aggregate. Repeating it here protects against a
       # regression to that aggregate (e.g., enums-check accidentally

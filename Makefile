@@ -50,7 +50,7 @@ FIND_EXCLUDE   := $(foreach dir,$(EXCLUDE_DIRS),! -path './$(dir)/*')
 # warnings on `$(2)`, e.g. $(call find-by-ext,md,).
 find-by-ext = $(if $(FD),$(FD) --extension $(1) $(FD_EXCLUDE) $(2),find . -name "*.$(1)" -type f $(FIND_EXCLUDE))
 
-.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors grammar-marker-sync grammar-marker-sync-test check-versions enums-check self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check book book-serve book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-enums-check _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-enums-check _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test
+.PHONY: help check-tools build build-release check test test-doc fmt fmt-check markdown-fmt markdown-lint shellcheck sh-fmt sh-fmt-check toml-fmt toml-fmt-check toml-lint makefile-check actionlint snapshot-anchors grammar-marker-sync grammar-marker-sync-test check-versions enums-check enums-codegen-drift self-scan self-scan-headroom self-scan-write-baseline self-scan-write-baseline-headroom lint clippy udeps insta-review insta-accept clean distclean install install-cli install-web doc doc-open doc-check book book-serve book-deploy all pre-commit ci release-check verify-changelog pkg-deb-local pkg-rpm-local py-bootstrap py-sync py-relock py-clean py-fmt py-fmt-check py-lint py-typecheck py-test _check-find _pc-fmt _pc-clippy _pc-test _pc-doc-check _pc-udeps _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check _pc-actionlint _pc-snapshot-anchors _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-enums-check _pc-enums-codegen-drift _pc-self-scan _pc-self-scan-headroom _pc-py-fmt _pc-py-typecheck _pc-py-test _ci-fmt-check _ci-clippy _ci-test _ci-doc-check _ci-build _ci-udeps _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-enums-check _ci-enums-codegen-drift _ci-self-scan _ci-self-scan-headroom _ci-cargo-pipeline _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test
 
 # Default target
 help:
@@ -92,6 +92,7 @@ help:
 	@echo "  grammar-marker-sync-test             Self-tests for the grammar-marker-sync gate"
 	@echo "  check-versions                       Enforce lockstep version invariant across owned crates"
 	@echo "  enums-check                          cargo clippy + cargo test on workspace-excluded enums crate"
+	@echo "  enums-codegen-drift                  Block enums codegen output drifting from checked-in files"
 	@echo "  self-scan                            bca threshold gate against this repo (hard: 100%)"
 	@echo "  self-scan-headroom                   bca threshold gate (soft: BCA_HEADROOM, default 0.95)"
 	@echo "  self-scan-write-baseline             Refresh .bca-baseline.toml at the hard thresholds"
@@ -261,6 +262,15 @@ snapshot-anchors:
 grammar-marker-sync:
 	@echo "Checking grammar-marker sync against baseline..."
 	@python3 $(BASE_DIR)check-grammar-marker-sync.py
+
+# Enums-codegen drift gate. Closes #405: running any
+# `recreate-grammars.sh` invocation silently regenerated
+# `src/c_langs_macros/{c_macros,c_specials}.rs` to a pre-
+# optimization form. This gate runs the codegen into a tempdir
+# and diffs against the checked-in files; drift fails.
+enums-codegen-drift:
+	@echo "Checking enums codegen drift..."
+	@bash $(BASE_DIR)check-enums-codegen-drift.sh
 
 # Self-tests for the grammar-marker-sync gate. Kept separate from
 # the gate target so the gate stays a one-line invariant check
@@ -579,7 +589,7 @@ lint:
 	$(MAKE) -j --output-sync=target \
 	  _ci-clippy \
 	  _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check \
-	  _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-enums-check
+	  _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-enums-check _ci-enums-codegen-drift
 
 # ---------------------------------------------------------------------------
 # Maintenance
@@ -673,7 +683,7 @@ pre-commit:
 	$(MAKE) -j --output-sync=target \
 	  _pc-test \
 	  _pc-shellcheck _pc-markdown-lint _pc-toml-lint _pc-makefile-check \
-	  _pc-actionlint _pc-snapshot-anchors _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-enums-check \
+	  _pc-actionlint _pc-snapshot-anchors _pc-grammar-marker-sync _pc-grammar-marker-sync-test _pc-check-versions _pc-enums-check _pc-enums-codegen-drift \
 	  _pc-manpages \
 	  _pc-self-scan _pc-self-scan-headroom \
 	  _pc-py-fmt _pc-py-typecheck _pc-py-test
@@ -684,7 +694,7 @@ ci:
 	$(MAKE) -j --output-sync=target \
 	  _ci-cargo-pipeline \
 	  _ci-shellcheck _ci-markdown-lint _ci-toml-lint _ci-makefile-check \
-	  _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-enums-check \
+	  _ci-actionlint _ci-snapshot-anchors _ci-grammar-marker-sync _ci-grammar-marker-sync-test _ci-check-versions _ci-enums-check _ci-enums-codegen-drift \
 	  _ci-py-fmt-check _ci-py-lint _ci-py-typecheck _ci-py-test
 	@echo "CI checks passed"
 
@@ -717,6 +727,7 @@ ci:
 #    ├── _pc-grammar-marker-sync-test
 #    ├── _pc-check-versions
 #    ├── _pc-enums-check
+#    ├── _pc-enums-codegen-drift (chained after _pc-enums-check)
 #    ├── _pc-py-fmt
 #    └── _pc-py-typecheck
 #
@@ -793,6 +804,13 @@ _pc-check-versions: _pc-fmt
 _pc-enums-check: _pc-fmt
 	$(MAKE) enums-check
 
+# Chain after enums-check so the cargo build for the enums binary
+# is already warm — the drift gate re-runs `cargo run` against the
+# same crate, but the binary build is cached so the second invocation
+# is essentially free.
+_pc-enums-codegen-drift: _pc-enums-check
+	$(MAKE) enums-codegen-drift
+
 # Man-page drift gate. Uses the verify flavour (`manpages-check`,
 # not `manpages`) so `make pre-commit` exits non-zero when man
 # pages drift — matching CI semantics. Chains after `_pc-udeps`
@@ -846,7 +864,8 @@ _pc-py-test: _pc-self-scan-headroom
 #                          → manpages → self-scan → self-scan-headroom
 #      _ci-shellcheck, _ci-markdown-lint, _ci-toml-lint, _ci-makefile-check,
 #      _ci-actionlint, _ci-snapshot-anchors, _ci-grammar-marker-sync,
-#      _ci-grammar-marker-sync-test, _ci-check-versions, _ci-enums-check
+#      _ci-grammar-marker-sync-test, _ci-check-versions, _ci-enums-check,
+#      _ci-enums-codegen-drift
 #
 # _ci-enums-check runs on `enums/Cargo.toml`, which has its own `target/`
 # (workspace-excluded), so it does NOT share the workspace cargo lock and
@@ -901,6 +920,11 @@ _ci-check-versions:
 
 _ci-enums-check:
 	$(MAKE) enums-check
+
+# Chain after enums-check so the cargo build is warm. See the
+# matching _pc-enums-codegen-drift comment.
+_ci-enums-codegen-drift: _ci-enums-check
+	$(MAKE) enums-codegen-drift
 
 # Check-only man-page drift gate. Mirrors `.github/workflows/ci.yml`'s
 # `manpage` job so `make ci` produces the same verdict as the CI

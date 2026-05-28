@@ -55,6 +55,21 @@ for historical reference.
   no source diff under
   `tree-sitter-mozjs/src/{parser.c,scanner.c,grammar.json,node-types.json}`
   with `tree-sitter` CLI 0.26.9.
+- `enums-codegen-drift` static lint
+  (`check-enums-codegen-drift.sh`) blocking the failure mode from
+  [#405](https://github.com/dekobon/big-code-analysis/issues/405):
+  running any `recreate-grammars.sh` invocation silently
+  regenerated `src/c_langs_macros/{c_macros,c_specials}.rs` to a
+  pre-optimization form (linear `.contains()` lookup + missing
+  sorted-invariant tests), undoing months of hand-improved work.
+  The `enums/templates/c_macros.rs` template now emits the
+  `binary_search`-based lookup plus the `*_is_sorted`,
+  `*_lookup`, and `*_lookup_boundaries` test modules; the gate
+  runs the codegen into a tempdir and diffs against the
+  checked-in files so any future divergence fails CI. Wired into
+  `make lint`, `make pre-commit`, `make ci`, the
+  `.pre-commit-config.yaml` system hook, and a defensive
+  explicit `lint`-job step in `.github/workflows/ci.yml`.
 
 - `bca check` actionable failure output (umbrella
   [#356](https://github.com/dekobon/big-code-analysis/issues/356)
