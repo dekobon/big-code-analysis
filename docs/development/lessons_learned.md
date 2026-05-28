@@ -2817,3 +2817,67 @@ has. The drift surface is per-language; the fix shape is uniform
 (field-name lookup); the test discipline is per-arm.
 
 ---
+
+## 54. A "no-op regen" must be proven by an actual regen + diff, never asserted — and a marker is not the artifact
+
+A version marker, a baseline file, or a pin records an *intended*
+version; it is not evidence that the generated artifact was actually
+rebuilt at that version. A gate that compares one declaration against
+another (marker string vs baseline string) stays green over a stale
+artifact, because nothing in the comparison ever touches the bytes the
+artifact is built from. The same trap catches a human who eyeballs
+"what the regen changed" and commits the subset they expected instead
+of the generator's complete output. In both cases the committed
+generated file was never produced by a real run of the generator at
+the declared version — and the discrepancy is invisible until someone
+finally runs the tool and diffs.
+
+**The bundled `tree-sitter-mozjs` parser was stale at JavaScript
+0.23.1 for months while every declaration claimed 0.25.0** (#407,
+`48bc293`; root cause in #1207 / #400). The `tree-sitter-javascript`
+marker was bumped `0.23.1 → 0.25.0` in #1207 without re-running
+`generate-grammars/generate-mozjs.sh`, and #400 then pinned the
+`grammar-marker-sync` baseline at 0.25.0 on the recorded belief that
+"the 0.25.0 regen is a no-op against tree-sitter CLI 0.26.9." That
+belief was never verified by an actual regen. The real regen against
+the genuine 0.25.0 base grammar rewrites ~110k lines of `parser.c` and
+adds the `using` / `await using` explicit-resource-management
+declaration (`using_declaration`) that 0.23.1 lacked — `grammar.json`
+is ABI-independent, so this is a true base-grammar difference, not an
+ABI-14-vs-15 artifact. The
+`grammar-marker-sync` gate stayed green the entire time because it
+compares the marker in `Cargo.toml` against the baseline string, never
+against the bundled `src/parser.c`. The bump turned out metric-neutral
+for the existing corpus (no fixture uses `using`), but that was luck,
+not design — a drift-marker test (`mozjs_parses_using_declaration`)
+now pins the capability so a reversion fails loudly.
+
+**The same root cause shipped a subtler half-regen in
+`tree-sitter-mozcpp`** (#406, `c3c58930`; gap fixed in #407,
+`48bc293`). That fix advanced `parser.c` (version stamp) and
+`parser.h` (dropped a forward declaration) to the 0.26.9 form but
+left `src/tree_sitter/array.h` at the pre-0.26 layout — so the crate was
+stamped as 0.26.9 output yet a bare `tree-sitter generate` would
+re-diff `array.h` every time. The mismatch was caught only because a
+*full* regen on a sibling leaf grammar (run for #407) surfaced it: the
+runtime-header template (which is grammar-independent and therefore
+byte-identical across all forks) did not match mozcpp's committed one.
+Committing the subset of generated output you expected to change, in
+place of the tool's complete output, is the same stale-artifact bug
+wearing a smaller hat.
+
+**Lesson:** Treat any "this regeneration is a no-op / metric-neutral"
+claim as a hypothesis that must be discharged by running the generator
+at the pinned version and diffing the *full* output — `grammar.json`,
+`node-types.json`, `parser.c`, and every file under
+`src/tree_sitter/` — never by asserting it from a marker, a baseline,
+or a previous contributor's note. When you bump a notification-only
+marker, run the matching `generate-grammars/generate-*.sh` in the same
+change; when you hand-apply generated output, commit exactly what the
+tool emits, not the hunks you anticipated. A drift gate that compares
+two declarations (marker vs baseline) gives false confidence unless it
+is paired with a test that exercises a construct only the *declared*
+version can parse — that test, not the gate, is what actually pins the
+artifact.
+
+---
