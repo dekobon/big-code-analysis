@@ -76,33 +76,50 @@ udeps`, the test suite, `ruff-check` + `ruff-format`, and a local
 
 The Python bindings use `ruff` for lint + format and `mypy --strict`
 plus `pyright` for type checking. `make pre-commit` and `make ci`
-run these alongside the Rust gates when the tools are on `$PATH`. Install
-them via `mise install` (recommended — picks up the `pipx:ruff`,
-`pipx:mypy`, `pipx:pyright`, `pipx:maturin` entries in `mise.toml`)
-or via individual `pipx` invocations:
+run these alongside the Rust gates when the tools are present.
 
-```bash
-pipx install ruff
-pipx install mypy
-pipx install pyright
-pipx install maturin
-```
+**Canonical install path: `make py-bootstrap`** (requires
+[uv](https://docs.astral.sh/uv/) — `curl -LsSf https://astral.sh/uv/install.sh | sh`,
+`brew install uv`, or `pipx install uv`). This runs
+`uv sync --locked --extra dev` against the checked-in `uv.lock`, so
+the resolved ruff/mypy/pyright/maturin/pytest versions are identical
+across every contributor on this path.
 
-(`pipx install` accepts one package per call — chain them as shown.)
+After editing the `dev` extra in `pyproject.toml`, run
+`make py-relock` (which runs `uv lock`) to regenerate the lockfile.
+`make py-bootstrap` will refuse to silently rewrite `uv.lock` —
+intentional, so lockfile churn is always a deliberate, reviewable
+commit. Resolve `uv.lock` rebase conflicts by re-running
+`make py-relock` rather than hand-merging the file. CI does **not**
+yet consume `uv.lock` (workflows pip-install pyproject floors); a
+follow-up will move them onto `uv sync --frozen` so the contributor
+path and the CI matrix resolve from the same source of truth.
 
-For local Python tests:
+Alternative install paths (`mise install` via `mise.toml`, direct
+`pipx install ruff/mypy/pyright/maturin`, `python -m venv .venv &&
+pip install -e ".[dev]"`) still work but bypass `uv.lock` — resolved
+versions can drift from peers and from CI. They remain documented
+for contributors with environment constraints that preclude uv.
+
+Then build and test:
 
 ```bash
 cd big-code-analysis-py
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+source .venv/bin/activate
 maturin develop
 python -m pytest
 ```
 
-CI runs the same flow across Linux / macOS / Windows on Python 3.12
-and 3.13 (six matrix legs), gated by a `dorny/paths-filter` job so
-Rust-only PRs skip it entirely.
+Or simply `make py-test` from the repo root, which performs the
+maturin-develop step implicitly. CI runs the same flow across
+Linux / macOS / Windows on Python 3.12 and 3.13 (six matrix legs),
+gated by a `dorny/paths-filter` job so Rust-only PRs skip it
+entirely.
+
+To remove Python build artifacts (`.venv`, compiled extension,
+per-tool caches, `__pycache__` trees), run `make py-clean`. For a
+full wipe of both cargo `target/` and Python state, run
+`make distclean`.
 
 ## Snapshot anchors
 

@@ -109,14 +109,18 @@ and `cargo run -p big-code-analysis-web --`.
   library / crate documentation.
 - **Python environment**: `uv` is the canonical, lockfile-driven
   bootstrap for `big-code-analysis-py`. `make py-bootstrap` runs
-  `uv sync --extra dev` from the checked-in `uv.lock`, producing a
-  reproducible dev environment that matches CI. Install uv with
-  `curl -LsSf https://astral.sh/uv/install.sh | sh`, `brew install uv`,
-  or `pipx install uv`. Alternative provisioning paths (`mise install`
-  via `mise.toml`, direct `pipx install`, plain `pip install -e .[dev]`)
-  remain functional for contributors who prefer them, but only the
-  uv-managed path is pinned to `uv.lock` — divergence from CI is
-  possible on the other paths.
+  `uv sync --locked --extra dev` from the checked-in `uv.lock`,
+  producing a reproducible dev environment shared across contributors
+  who use this path. After editing `pyproject.toml` deps, run
+  `make py-relock` (which runs `uv lock`) to regenerate the lockfile;
+  bootstrap will fail-loud rather than silently rewriting it. Install
+  uv with `curl -LsSf https://astral.sh/uv/install.sh | sh`,
+  `brew install uv`, or `pipx install uv`. Alternative provisioning
+  paths (`mise install` via `mise.toml`, direct `pipx install`, plain
+  `pip install -e .[dev]`) remain functional but bypass `uv.lock` —
+  resolved versions can drift from peers and from CI. CI itself does
+  not yet consume `uv.lock` (workflows pip-install pyproject floors);
+  closing that gap is tracked as a follow-up.
 - **GitHub Actions linting**: any edit under `.github/workflows/`
   must be validated with `make actionlint` before commit. The
   Makefile target invokes `actionlint` at the repo root, which

@@ -16,12 +16,8 @@ big-code-analysis-py/.mypy_cache/
 # `maturin develop` drops the compiled extension directly into the
 # python source tree (next to `_native.pyi`); it must not be checked in.
 big-code-analysis-py/python/big_code_analysis/_native*.so
-# Note: `big-code-analysis-py/uv.lock` IS tracked (intentionally). It
-# pins the dev set (ruff/mypy/pyright/maturin/pytest) so every
-# contributor and the CI matrix resolve the same versions. `make
-# py-bootstrap` consumes it via `uv sync --extra dev`; CI is expected
-# to consume it via `uv sync --frozen --extra dev` once the workflows
-# converge on uv (see the PR 2 plan). The bindings still have no
-# Python-side runtime deps to pin — only the dev set matters here.
+# Note: `big-code-analysis-py/uv.lock` IS tracked (intentionally) —
+# see the "Python bindings" section of CONTRIBUTING.md for the
+# tracking policy and the regenerate workflow (`make py-relock`).
 *.pyc
 abuild-keys/

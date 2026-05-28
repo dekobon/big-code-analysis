@@ -49,8 +49,12 @@ docs.
 
 The package is not yet published on PyPI. For development, build
 locally via [maturin](https://www.maturin.rs/). The recommended
-bootstrap uses [uv](https://docs.astral.sh/uv/) so the resolved
-dev set matches `uv.lock` (and therefore CI):
+bootstrap uses [uv](https://docs.astral.sh/uv/) so the resolved dev
+set matches the checked-in `uv.lock` — every contributor on this
+path gets the same ruff/mypy/pyright/maturin/pytest versions. CI
+does not yet consume `uv.lock` (its `python-*` jobs still pip-install
+the pyproject floors directly); convergence is tracked as a follow-up
+in the PR-2 plan committed alongside this work:
 
 ```bash
 make py-bootstrap          # runs `uv sync --extra dev` in big-code-analysis-py/

@@ -23,6 +23,19 @@ for historical reference.
 
 ### Added
 
+- Python bindings dev environment: `make py-bootstrap`, `make py-sync`
+  (alias), `make py-relock`, and `make py-clean` Makefile targets.
+  Bootstrap provisions `big-code-analysis-py/.venv` from the
+  checked-in `uv.lock` via `uv sync --locked --extra dev`; relock
+  regenerates `uv.lock` after a `pyproject.toml` edit; py-clean
+  removes `.venv`, the editable-install compiled extension, per-tool
+  caches (`.pytest_cache`, `.mypy_cache`, `.ruff_cache`), and
+  `__pycache__` trees. Requires `uv` to be installed locally; see
+  CONTRIBUTING.md for the install one-liners.
+- `make distclean` target — chains `py-clean` and `cargo clean` for a
+  full-wipe before a from-scratch bootstrap. `make clean` continues
+  to do `cargo clean` only.
+
 - `bca check` actionable failure output (umbrella
   [#356](https://github.com/dekobon/big-code-analysis/issues/356)
   now complete):
@@ -104,6 +117,25 @@ for historical reference.
   [#381](https://github.com/dekobon/big-code-analysis/issues/381).
 
 ### Changed
+
+- `big-code-analysis-py/uv.lock` is now tracked in git (was
+  `.gitignore`d as a "per-developer cache"). It pins the dev set
+  (ruff/mypy/pyright/maturin/pytest) for every contributor using
+  `make py-bootstrap`. Alternative install paths (`mise install`,
+  `pipx install`, `pip install -e .[dev]`) remain functional but
+  bypass the lockfile — see the "Python bindings" section of
+  CONTRIBUTING.md for the policy and rebase-conflict resolution.
+  CI workflows are unchanged in this release and still pip-install
+  pyproject floors; converging them onto `uv sync --frozen` is a
+  follow-up.
+- `make py-test`'s pre-build cleanup now also removes
+  `big-code-analysis-py/python/big_code_analysis/_native*.so` before
+  invoking `maturin develop`. Contributors who switch between abi3
+  and per-version maturin build modes can otherwise end up with two
+  compiled extensions in the editable install dir, where Python's
+  loader prefers the more-specific cpython-tagged filename over the
+  fresh abi3 build — producing `ImportError` for any symbol added
+  since the older build.
 
 - ABC metric: the unary-conditional walker that previously
   applied to Java, Groovy, and C# now also runs for Rust, Go,
