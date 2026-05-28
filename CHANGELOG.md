@@ -137,6 +137,25 @@ for historical reference.
   fresh abi3 build — producing `ImportError` for any symbol added
   since the older build.
 
+- ABC metric (Phase 3 docs): the
+  [book chapter on ABC](https://dekobon.github.io/big-code-analysis/metrics.html#abc)
+  gains a *Counting rules* section that reproduces Fitzpatrick's
+  Figure 2 / 3 / 4 rule tables (split into Assignments, Branches,
+  and Conditions sub-tables, each row attributed to the figure
+  that introduces it), a per-language deviation table (the
+  `try` / `catch`-less languages, `default`-fallthrough
+  exclusions for C++ / Go / Python / Rust, Ruby's `rescue`
+  substitution, Tcl Phase-2 deferral, the Phase-2B `if` /
+  `while` / `return` / argument-list slot coverage), a worked
+  `if (am >= 0 && am <= 0xF)` example walking through each
+  token's contribution, and an explicit comparison with
+  RuboCop's `Metrics/AbcSize` (counts `and` / `or` directly),
+  StepicOrg/abcmeter, and eoinnoble/python-abc. The module-level
+  doc on `crate::metrics::abc::Stats` is expanded to quote
+  Fitzpatrick's Rule 7 / Rule 9 worked example
+  (`if (x || y) printf("test failure\n");` → two unary
+  conditions) and to link to the new book chapter. Fixes
+  [#404](https://github.com/dekobon/big-code-analysis/issues/404).
 - ABC metric: the unary-conditional walker that previously
   applied to Java, Groovy, and C# now also runs for Rust, Go,
   JavaScript, TypeScript, TSX, Mozjs, PHP, C++, Python, Perl,

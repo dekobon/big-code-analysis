@@ -70,20 +70,35 @@ use crate::*;
 /// as `accc` — three conditions for `>=`, `<=`, `?`, zero for
 /// `&&`.
 ///
-/// Fitzpatrick's Rule 7 / 9 ("Add one to the condition count for
-/// each unary conditional expression") instead counts each non-
-/// comparison operand of a `&&` / `||` chain once. The walker
-/// machinery for this — modelled on `java_count_unary_conditions`
-/// / `java_inspect_container` — is present today for Java, Groovy,
+/// Fitzpatrick's Rule 7 (Figure 3, C++) / Rule 9 (Figure 4, Java) —
+/// "Add one to the condition count for each unary conditional
+/// expression" — instead counts each non-comparison operand of a
+/// `&&` / `||` chain once. The paper's worked example for this
+/// rule is `if (x || y) printf("test failure\n");`, annotated:
+/// "there are two unary conditions since both `x` and `y` are
+/// tested as conditional expressions" (so `||` contributes zero,
+/// `x` contributes one, `y` contributes one, and `printf(...)`
+/// contributes one branch). The walker machinery for this —
+/// modelled on `java_count_unary_conditions` /
+/// `java_inspect_container` — is present today for Java, Groovy,
 /// C#, Rust, Go, JavaScript, TypeScript, TSX, Mozjs, PHP, C++,
 /// Python, Perl, and Lua. So `if (a && b)` reports 2 conditions
-/// across this set, matching the worked example in Fitzpatrick's
-/// Listing 2. Tcl remains on the Phase-1 baseline (the `&&` / `||`
-/// walker does not yet wire its condition slots) — its `expr {…}` /
-/// `command` grammar needs a separate per-grammar audit.
+/// across this set, matching the paper. Tcl remains on the
+/// Phase-1 baseline (the `&&` / `||` walker does not yet wire its
+/// condition slots) — its `expr {…}` / `command` grammar needs a
+/// separate per-grammar audit.
 ///
-/// See issue #395 for the cross-language policy alignment, and
-/// issue #404 for the book-level documentation effort.
+/// This policy is paper-faithful and deviates from RuboCop's
+/// `Metrics/AbcSize` (which counts `and` / `or` as conditions
+/// directly) while matching `StepicOrg/abcmeter` and
+/// `eoinnoble/python-abc`. The book's *ABC counting rules*
+/// section reproduces the rule tables, a per-language deviation
+/// table, and worked examples — see the chapter at
+/// <https://dekobon.github.io/big-code-analysis/metrics.html#abc>.
+///
+/// See issue #395 for the Phase-1 cross-language policy
+/// alignment, #403 for the Phase-2 unary-conditional walker
+/// fan-out, and #404 for the Phase-3 book documentation.
 #[derive(Debug, Clone)]
 pub struct Stats {
     assignments: f64,

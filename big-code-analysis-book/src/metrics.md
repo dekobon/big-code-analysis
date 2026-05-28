@@ -61,16 +61,12 @@ three-dimensional vector. Each component counts one kind of operation:
 - **C**onditions — boolean tests: comparison operators (`==`, `!=`,
   `<=`, `>=`, `<`, `>`), ternary operators (`?`), and the fixed
   keyword set (`else`, `case`, `default`, `try`, `catch`). The
-  short-circuit logical operators `&&` and `||` are **not** counted
-  on their own — Fitzpatrick's Rule 5 lists only comparison
-  operators, and his worked Listing 2 annotates `(am >= 0 &&
-  am <= 0xF) ? '/' : 'C'` as `accc` (one assignment, three
-  conditions: `>=`, `<=`, `?`, zero for `&&`). His Rule 7 / 9
-  "unary conditional expression" instead counts each non-
-  comparison operand of a `&&` / `||` chain once; the walker for
-  this rule is implemented today for Java, Groovy, and C# and is
-  being extended to every other supported language under
-  [issue 403](https://github.com/dekobon/big-code-analysis/issues/403).
+  short-circuit logical operators `&&` and `||` are **not**
+  counted on their own — instead, each non-comparison operand of
+  a `&&` / `||` chain contributes one condition via Fitzpatrick's
+  "unary conditional expression" rule. The next subsection walks
+  through the rules, the per-language deviations, and worked
+  examples.
 
 The metric was introduced by Jerry Fitzpatrick in the 1997 C++ Report
 article *Applying the ABC metric to C, C++ and Java*. The current
@@ -78,6 +74,130 @@ canonical specification, including the rules for what counts as an
 *A*, *B*, or *C* in modern languages, is maintained on Fitzpatrick's
 [Software Renovation](https://www.softwarerenovation.com/Articles.aspx)
 site.
+
+### Counting rules
+
+Fitzpatrick's paper enumerates the rules in three figures — Figure
+2 (C), Figure 3 (C++, which extends Figure 2), and Figure 4 (Java).
+Big-code-analysis implements those rule sets directly per language;
+the table below summarises what counts in each component, with
+each row attributed to the figure that introduces it.
+
+#### Assignments
+
+| Rule | Counted as `A` | First defined in |
+|------|----------------|------------------|
+| Plain assignment (`=`) | one per occurrence | Figure 2 (C) |
+| Compound assignment (`+=`, `-=`, `*=`, `/=`, `%=`, `<<=`, `>>=`, `>>>=`, `&=`, `\|=`, `^=`) | one per occurrence | Figure 2 (C) / Figure 4 (Java) |
+| Pre- or post-increment / decrement (`++`, `--`) | one per occurrence | Figure 2 (C) |
+| Initializing constructor invocation | one per occurrence | Figure 3 (C++) |
+
+#### Branches
+
+| Rule | Counted as `B` | First defined in |
+|------|----------------|------------------|
+| Function or method call | one per call site | Figure 2 (C) / Figure 4 (Java) |
+| `new` operator | one per occurrence | Figure 3 (C++) / Figure 4 (Java) |
+| `delete` operator | one per occurrence | Figure 3 (C++) |
+| `goto label`, `break label`, `continue label` | one per occurrence | Figure 2 (C) / Figure 3 (C++) |
+
+#### Conditions
+
+| Rule | Counted as `C` | First defined in |
+|------|----------------|------------------|
+| Comparison operator (`==`, `!=`, `<=`, `>=`, `<`, `>`) | one per occurrence | Figure 2, Rule 5 |
+| Ternary `? :` | one per occurrence | Figure 2, Rule 5 |
+| `else`, `case`, `default` | one per occurrence | Figure 2, Rule 5 |
+| Preprocessor `#else`, `#elif` | one per occurrence | Figure 2, Rule 5 |
+| `try`, `catch` | one per occurrence | Figure 3, Rule 7 / Figure 4, Rule 9 |
+| Unary conditional expression | one per non-comparison operand of `&&` / `\|\|` (and per `!`-wrapped or bare-truthy condition in `if` / `while` / argument / `return` slots) | Figure 3, Rule 7 / Figure 4, Rule 9 |
+
+The short-circuit logical operators (`&&`, `||`, and per-language
+equivalents — Ruby `and` / `or`, Python `and` / `or`, Perl `and` /
+`or` / `xor`, Lua `and` / `or`, Tcl `&&` / `||`) do **not**
+contribute a condition on their own. Each non-comparison operand
+contributes one instead, via the unary-conditional rule. The
+paper makes this explicit twice:
+
+1. **Listing 2** annotates `(am >= 0 && am <= 0xF) ? '/' : 'C'` as
+   `accc` — one assignment plus three conditions, where the three
+   conditions are the two comparisons (`>=`, `<=`) and the
+   ternary (`?`). The `&&` itself contributes zero.
+2. **Rule 7 / Rule 9** instead counts each operand: for
+   `if (x || y) printf("test failure\n");` the paper writes "there
+   are two unary conditions since both `x` and `y` are tested as
+   conditional expressions". The `||` again contributes zero; `x`
+   and `y` each contribute one.
+
+#### Per-language deviations
+
+Per-language `impl Abc` blocks narrow the paper rule set where the
+language has no equivalent construct, or where strict literal
+application would over-count.
+
+| Language | Deviation | Reason |
+|----------|-----------|--------|
+| C, Go, Rust | `try` / `catch` omitted | No `try`/`catch` keyword in the grammar; error-handling uses `errno` / `Result` / `Result`-like sums. |
+| Ruby | `Rescue` substitutes for `catch` | Ruby's exception-handling keyword is `rescue`; the AST node `Rescue` plays the role of Java's `catch`. |
+| C++, Go, Python, Rust | `default` excluded from the condition set | Falls through unconditionally to the default arm — counting it inflates `C` on every `switch` / `match` regardless of body. Aligns with the Rust `_ =>` and existing Java `default:` precedent. |
+| Tcl | Unary-conditional walker not yet wired | Phase 2 walker is deferred pending an audit of Tcl's `expr {…}` / command-substitution grammar. `if {$a && $b}` reports zero conditions today; a follow-up will close this. |
+| All Phase 2 languages (Java, Groovy, C#, Rust, Go, JavaScript, TypeScript, TSX, Mozjs, PHP, C++, Python, Perl, Lua) | `if (true) {}`, `m(!a, !b)`, `return !x` count their operand(s) | Phase 2B routes `if` / `while` / `do-while` / argument-list / `return` / ternary slots through the same walker, so the rule applies uniformly across decision-bearing positions. A bare `return x` continues to report zero — Fitzpatrick treats an identifier in a return slot as a value, not a unary conditional. |
+
+#### Worked example
+
+Consider this C function:
+
+```c
+char digit_or_C(int am) {
+    char c;
+    if (am >= 0 && am <= 0xF) {
+        c = '/';
+    } else {
+        c = 'C';
+    }
+    return c;
+}
+```
+
+Walking the function body:
+
+| Token / construct | Component | Why |
+|-------------------|-----------|-----|
+| `am >= 0` | C += 1 | Comparison (Rule 5, `>=`) |
+| `am <= 0xF` | C += 1 | Comparison (Rule 5, `<=`) |
+| `&&` | — | Logical operator — does not contribute on its own. |
+| `if`/`else` | C += 1 | `else` keyword (Rule 5) |
+| `c = '/'` | A += 1 | Assignment (Rule 1) |
+| `c = 'C'` | A += 1 | Assignment (Rule 1) |
+
+Total: `<A,B,C> = <2, 0, 3>`, magnitude `√13 ≈ 3.61`.
+
+If the same body is rewritten with a unary conditional —
+
+```c
+if (am_in_range || force_letter) {
+    c = 'C';
+}
+```
+
+the walker counts `am_in_range` and `force_letter` once each
+(Rule 7 / 9 unary conditional). The `||` operator itself
+contributes zero. Combined with the surrounding `else` (if any)
+and the `c = 'C'` assignment, this matches the worked count in
+Listing 2 of the paper.
+
+#### Comparison with other ABC tools
+
+The project follows Fitzpatrick's original paper for `&&` / `||`:
+the operator does not count; each non-comparison operand counts
+once as a unary conditional. This deviates from
+[RuboCop's `Metrics/AbcSize`](https://docs.rubocop.org/rubocop/cops_metrics.html#metricsabcsize)
+(which counts `and` / `or` directly) and matches
+[`StepicOrg/abcmeter`](https://github.com/StepicOrg/abcmeter) and
+[`eoinnoble/python-abc`](https://github.com/eoinnoble/python-abc).
+When comparing ABC numbers across tools, the operator-counting
+choice is the single biggest source of disagreement on the same
+source.
 
 ### Algorithm
 
