@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import enum
 import pathlib
 import re
 import sys
@@ -101,7 +102,24 @@ VENDORED_CRATES: tuple[tuple[str, str, str], ...] = (
 _DEP_SCAN_MAX_DEPTH = 6
 
 
-def _scan_for_marker(data: Any, marker: str, depth: int = 0) -> str | None:
+class _MarkerStatus(enum.Enum):
+    """States distinct from a found version string.
+
+    `read_marker` returns `str` for the normal "found with version"
+    case, `None` for "absent everywhere", and this enum's
+    `NO_VERSION_PIN` for "present in a dep table but has no
+    explicit `version = \"...\"` field" — e.g. an inline table of
+    the form `{ workspace = true }` or `{ path = \"...\" }`. The
+    distinction lets the caller emit "marker present without a
+    version pin" rather than the misleading "marker not found".
+    """
+
+    NO_VERSION_PIN = enum.auto()
+
+
+def _scan_for_marker(
+    data: Any, marker: str, depth: int = 0
+) -> str | _MarkerStatus | None:
     """Recursively walk a TOML tree for `marker` as a dep entry.
 
     Accepts both the bare-string form (`marker = "X.Y.Z"`) and the
@@ -110,9 +128,18 @@ def _scan_for_marker(data: Any, marker: str, depth: int = 0) -> str | None:
     `[dev-dependencies]`, `[workspace.dependencies]`,
     `[target.'cfg(unix)'.build-dependencies]`, and any other
     legitimate Cargo dep-bearing section all resolve.
+
+    Returns:
+        * `str` — marker resolved with a version pin.
+        * `_MarkerStatus.NO_VERSION_PIN` — marker is present in
+          some dep table but without an explicit `version` field
+          (e.g. `{ workspace = true }`).
+        * `None` — marker is absent everywhere within the
+          recursion depth limit.
     """
     if depth > _DEP_SCAN_MAX_DEPTH or not isinstance(data, dict):
         return None
+    found_without_version = False
     for key, value in data.items():
         if key == marker:
             if isinstance(value, str):
@@ -121,19 +148,26 @@ def _scan_for_marker(data: Any, marker: str, depth: int = 0) -> str | None:
                 version = value.get("version")
                 if isinstance(version, str):
                     return version
+                found_without_version = True
         elif isinstance(value, dict):
-            found = _scan_for_marker(value, marker, depth + 1)
-            if found is not None:
-                return found
-    return None
+            result = _scan_for_marker(value, marker, depth + 1)
+            if isinstance(result, str):
+                return result
+            if result is _MarkerStatus.NO_VERSION_PIN:
+                found_without_version = True
+    return _MarkerStatus.NO_VERSION_PIN if found_without_version else None
 
 
-def read_marker(manifest: pathlib.Path, marker: str) -> str | None:
+def read_marker(
+    manifest: pathlib.Path, marker: str
+) -> str | _MarkerStatus | None:
     """Extract the marker version from a Cargo manifest.
 
-    Returns None if the marker is genuinely absent. Raises
-    `CargoTomlParseError` if the manifest can't be read or parsed
-    — main() catches this and surfaces a structured exit-2
+    Returns the version string when the marker is present with a
+    version pin, `_MarkerStatus.NO_VERSION_PIN` when present
+    without one, and `None` when the marker is absent everywhere.
+    Raises `CargoTomlParseError` if the manifest can't be read or
+    parsed — main() catches this and surfaces a structured exit-2
     message rather than leaking a Python traceback.
     """
     try:
@@ -406,7 +440,7 @@ def write_baseline(entries: list[CrateMarker]) -> list[str]:
 
     text = BASELINE_PATH.read_text(encoding="utf-8")
     try:
-        existing: dict[str, Any] = tomllib.loads(text)
+        tomllib.loads(text)
     except tomllib.TOMLDecodeError as exc:
         sys.stderr.write(
             f"error: existing {BASELINE_PATH.relative_to(REPO_ROOT)} "
@@ -418,10 +452,7 @@ def write_baseline(entries: list[CrateMarker]) -> list[str]:
     for entry in entries:
         text = _update_section(text, entry.key, entry.marker, entry.version)
 
-    # Verify the edit. A failure here means `_update_section`
-    # produced invalid TOML — the editor has a bug. Refuse to
-    # write so the on-disk file remains the (still valid)
-    # pre-edit content.
+    # Syntactic check: `_update_section` must produce valid TOML.
     try:
         new_parsed: dict[str, Any] = tomllib.loads(text)
     except tomllib.TOMLDecodeError as exc:
@@ -432,12 +463,52 @@ def write_baseline(entries: list[CrateMarker]) -> list[str]:
         )
         sys.exit(_EXIT_EDITOR_BUG)
 
+    # Semantic check: the intended marker/version must actually
+    # have landed under each section. Catches the case where
+    # `_update_section`'s line scanner rewrites a line that
+    # looks like a field but is inside a TOML multi-line string
+    # body — the result parses but the outer field is unchanged.
+    for entry in entries:
+        section = new_parsed.get(entry.key)
+        if not isinstance(section, dict):
+            sys.stderr.write(
+                f"error: --update wrote valid TOML but [{entry.key}] is\n"
+                f"       not a table after the edit. This is a bug in\n"
+                f"       _update_section. Refusing to write.\n"
+            )
+            sys.exit(_EXIT_EDITOR_BUG)
+        got_marker = section.get("marker")
+        got_version = section.get("version")
+        if got_marker != entry.marker or got_version != entry.version:
+            sys.stderr.write(
+                "error: --update produced valid TOML but the intended "
+                f"values did not land in [{entry.key}].\n"
+                f"       Expected marker={entry.marker!r}, "
+                f"version={entry.version!r}\n"
+                f"       Got      marker={got_marker!r}, "
+                f"version={got_version!r}\n"
+                "       This is a bug in _update_section "
+                "(possibly a TOML multi-line string or other shape\n"
+                "       the line scanner doesn't understand). "
+                "Refusing to write.\n"
+            )
+            sys.exit(_EXIT_EDITOR_BUG)
+
     BASELINE_PATH.write_text(text, encoding="utf-8")
 
-    known = {e.key for e in entries}
+    return _orphan_keys(new_parsed, {e.key for e in entries})
+
+
+def _orphan_keys(parsed: dict[str, Any], known: set[str]) -> list[str]:
+    """Return baseline top-level table keys not in `known`.
+
+    Filters non-dict values so a stray top-level scalar (e.g.,
+    `weirdkey = 5`) doesn't get surfaced as if it were a
+    forgotten crate section.
+    """
     return [
-        k for k in new_parsed
-        if k not in known and isinstance(new_parsed[k], dict)
+        k for k, v in parsed.items()
+        if k not in known and isinstance(v, dict)
     ]
 
 
@@ -458,21 +529,30 @@ def _read_current() -> tuple[list[CrateMarker], list[str]]:
         except CargoTomlParseError as exc:
             problems.append(str(exc))
             continue
-        if version is None:
+        if isinstance(version, str):
+            current.append(
+                CrateMarker(
+                    key=crate_key,
+                    marker=marker,
+                    manifest_rel=manifest_rel,
+                    version=version,
+                )
+            )
+        elif version is _MarkerStatus.NO_VERSION_PIN:
+            problems.append(
+                f"{manifest_rel}: marker {marker!r} is present but "
+                "specifies no version pin (e.g. declared as "
+                "`{ workspace = true }` or `{ path = \"...\" }`). "
+                "Add a `version = \"...\"` field or switch to the "
+                "bare-string form so the gate has a version to "
+                "compare against."
+            )
+        else:  # version is None — truly absent
             problems.append(
                 f"{manifest_rel}: marker {marker!r} not found in any "
                 f"dependency table (scanned to depth "
                 f"{_DEP_SCAN_MAX_DEPTH})"
             )
-            continue
-        current.append(
-            CrateMarker(
-                key=crate_key,
-                marker=marker,
-                manifest_rel=manifest_rel,
-                version=version,
-            )
-        )
     return current, problems
 
 
@@ -535,8 +615,7 @@ def main() -> int:
         )
         return 2
 
-    known_keys = {e.key for e in current}
-    _warn_orphans([k for k in baseline if k not in known_keys])
+    _warn_orphans(_orphan_keys(baseline, {e.key for e in current}))
 
     failures: list[str] = []
     for entry in current:

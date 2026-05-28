@@ -233,11 +233,11 @@ class GrammarMarkerSyncTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("OK", result.stdout)
 
-    def test_inline_table_without_version_returns_marker_not_found(self) -> None:
+    def test_inline_table_without_version_reports_no_version_pin(self) -> None:
         # `{ workspace = true }` and similar forms have the marker
-        # name but no explicit version pin. Document the contract
-        # — we report "marker line not found" since the gate has
-        # no version to compare against.
+        # name but no explicit version pin. The error must report
+        # "present but no version pin" (so the user knows the
+        # marker IS visible) rather than the misleading "not found".
         mozjs_manifest = (
             "[build-dependencies]\n"
             "tree-sitter-javascript = { workspace = true }\n"
@@ -249,7 +249,28 @@ class GrammarMarkerSyncTest(unittest.TestCase):
         )
         result = _run(script)
         self.assertEqual(result.returncode, 2)
-        self.assertIn("not found", result.stderr.lower())
+        self.assertIn("present but specifies no version pin", result.stderr)
+        # Must NOT use the misleading "not found" phrasing for
+        # this case — the marker IS present.
+        self.assertNotIn(
+            "not found in any dependency table", result.stderr
+        )
+
+    def test_path_only_dependency_reports_no_version_pin(self) -> None:
+        # `{ path = "..." }` is another legitimate Cargo form
+        # without a version pin.
+        mozjs_manifest = (
+            "[build-dependencies]\n"
+            'tree-sitter-javascript = { path = "../vendor/ts-js" }\n'
+        )
+        script = _make_fixture(
+            self.tmpdir,
+            mozjs_manifest=mozjs_manifest,
+            baseline=_BASELINE_MATCHING,
+        )
+        result = _run(script)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("present but specifies no version pin", result.stderr)
 
     def test_malformed_cargo_toml_returns_structured_error(self) -> None:
         # The script must distinguish malformed Cargo.toml from
@@ -353,6 +374,71 @@ class GrammarMarkerSyncTest(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("warning", result.stderr.lower())
         self.assertIn("2026-05-28", result.stderr)
+
+    def test_toml_int_version_value_warns_and_shows_drift(self) -> None:
+        baseline = (
+            "[mozjs]\n"
+            'marker = "tree-sitter-javascript"\n'
+            "version = 25\n"
+            "[mozcpp]\n"
+            'marker = "tree-sitter-cpp"\n'
+            'version = "0.23.4"\n'
+        )
+        script = _make_fixture(self.tmpdir, baseline=baseline)
+        result = _run(script)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("warning", result.stderr.lower())
+        self.assertIn("25", result.stderr)
+
+    def test_toml_bool_version_value_warns_and_shows_drift(self) -> None:
+        # Defends the `isinstance(value, bool)` check that appears
+        # BEFORE `isinstance(value, (int, float))` in
+        # _coerce_baseline_value: a regression that swaps the order
+        # would let `version = true` slip through as a plain int.
+        baseline = (
+            "[mozjs]\n"
+            'marker = "tree-sitter-javascript"\n'
+            "version = true\n"
+            "[mozcpp]\n"
+            'marker = "tree-sitter-cpp"\n'
+            'version = "0.23.4"\n'
+        )
+        script = _make_fixture(self.tmpdir, baseline=baseline)
+        result = _run(script)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("warning", result.stderr.lower())
+        # Must use "true" (bool canonical), not "1" (int branch).
+        self.assertIn("true", result.stderr.lower())
+
+    def test_toml_datetime_version_value_warns_and_shows_drift(self) -> None:
+        baseline = (
+            "[mozjs]\n"
+            'marker = "tree-sitter-javascript"\n'
+            "version = 2026-05-28T10:00:00\n"
+            "[mozcpp]\n"
+            'marker = "tree-sitter-cpp"\n'
+            'version = "0.23.4"\n'
+        )
+        script = _make_fixture(self.tmpdir, baseline=baseline)
+        result = _run(script)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("warning", result.stderr.lower())
+        self.assertIn("2026-05-28T10:00:00", result.stderr)
+
+    def test_toml_time_version_value_warns_and_shows_drift(self) -> None:
+        baseline = (
+            "[mozjs]\n"
+            'marker = "tree-sitter-javascript"\n'
+            "version = 10:00:00\n"
+            "[mozcpp]\n"
+            'marker = "tree-sitter-cpp"\n'
+            'version = "0.23.4"\n'
+        )
+        script = _make_fixture(self.tmpdir, baseline=baseline)
+        result = _run(script)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("warning", result.stderr.lower())
+        self.assertIn("10:00:00", result.stderr)
 
     def test_toml_array_marker_value_warns_and_treated_as_missing(self) -> None:
         baseline = (
@@ -471,6 +557,61 @@ class GrammarMarkerSyncTest(unittest.TestCase):
         updated = (self.tmpdir / ".grammar-marker-baseline.toml").read_text()
         self.assertEqual(updated.count("[mozjs]"), 1)
         self.assertIn('marker = "tree-sitter-javascript"', updated)
+
+    def test_update_preserves_field_line_trailing_comment(self) -> None:
+        # `_replace_field_value` captures the post-quote suffix as
+        # group(2) and re-emits it on rewrite, so a trailing
+        # comment on the rewritten line survives. A regression
+        # that drops group(2) would silently lose audit history.
+        baseline = (
+            "[mozjs]\n"
+            'marker = "tree-sitter-javascript"\n'
+            'version = "0.24.0"  # bumped 2026-01-20 via #1207\n'
+            "[mozcpp]\n"
+            'marker = "tree-sitter-cpp"\n'
+            'version = "0.23.4"\n'
+        )
+        script = _make_fixture(self.tmpdir, baseline=baseline)
+        result = _run(script, "--update")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        updated = (self.tmpdir / ".grammar-marker-baseline.toml").read_text()
+        self.assertIn(
+            'version = "0.25.0"  # bumped 2026-01-20 via #1207',
+            updated,
+        )
+
+    def test_marker_at_recursion_depth_limit_resolved(self) -> None:
+        # 6 segments → recursion lands at depth=6, which is at the
+        # inclusive boundary of _DEP_SCAN_MAX_DEPTH = 6.
+        mozjs_manifest = (
+            "[a.b.c.d.e.f]\n"
+            'tree-sitter-javascript = "0.25.0"\n'
+        )
+        script = _make_fixture(
+            self.tmpdir,
+            mozjs_manifest=mozjs_manifest,
+            baseline=_BASELINE_MATCHING,
+        )
+        result = _run(script)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("OK", result.stdout)
+
+    def test_marker_beyond_recursion_depth_not_found(self) -> None:
+        # 7 segments → recursion would land at depth=7, beyond the
+        # limit. The scan returns None and the gate reports the
+        # marker as not found.
+        mozjs_manifest = (
+            "[a.b.c.d.e.f.g]\n"
+            'tree-sitter-javascript = "0.25.0"\n'
+        )
+        script = _make_fixture(
+            self.tmpdir,
+            mozjs_manifest=mozjs_manifest,
+            baseline=_BASELINE_MATCHING,
+        )
+        result = _run(script)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("not found in any dependency table", result.stderr)
 
     def test_update_with_section_header_inline_comment(self) -> None:
         baseline = (
