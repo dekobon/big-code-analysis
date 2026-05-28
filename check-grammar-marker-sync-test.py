@@ -182,6 +182,7 @@ class GrammarMarkerSyncTest(unittest.TestCase):
         )
         result = _run(script)
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("OK", result.stdout)
 
     def test_marker_inside_multiline_string_does_not_false_match(self) -> None:
         mozjs_manifest = (
@@ -199,6 +200,7 @@ class GrammarMarkerSyncTest(unittest.TestCase):
         )
         result = _run(script)
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("OK", result.stdout)
         self.assertNotIn("99.99.99", result.stderr)
 
     def test_workspace_dependencies_marker_resolved(self) -> None:
@@ -215,6 +217,7 @@ class GrammarMarkerSyncTest(unittest.TestCase):
         )
         result = _run(script)
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("OK", result.stdout)
 
     def test_target_conditional_dependencies_marker_resolved(self) -> None:
         mozjs_manifest = (
@@ -228,6 +231,7 @@ class GrammarMarkerSyncTest(unittest.TestCase):
         )
         result = _run(script)
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("OK", result.stdout)
 
     def test_inline_table_without_version_returns_marker_not_found(self) -> None:
         # `{ workspace = true }` and similar forms have the marker
@@ -443,6 +447,12 @@ class GrammarMarkerSyncTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         updated = (self.tmpdir / ".grammar-marker-baseline.toml").read_text()
         self.assertEqual(updated.count("[mozjs]"), 1)
+        # Inserted line must be literally present (catches the case
+        # where --update is a no-op but the post-gate check happens
+        # to also be skipped by an unrelated regression).
+        self.assertIn('version = "0.25.0"', updated)
+        # The pending-verification comment must be preserved.
+        self.assertIn("# version pending verification", updated)
         post = _run(script)
         self.assertEqual(post.returncode, 0, post.stderr)
 
@@ -597,26 +607,23 @@ class GrammarMarkerSyncTest(unittest.TestCase):
         post = _run(script)
         self.assertEqual(post.returncode, 0, post.stderr)
 
-    def test_update_does_not_clobber_secondary_version_line(self) -> None:
-        # Maintainer-kept secondary `version = "..."` annotations
-        # in the section body must NOT be rewritten — only the
-        # first `version = "..."` line in the section is the
-        # canonical one.
+    def test_update_refuses_baseline_with_duplicate_version_key(self) -> None:
+        # Two `version = "..."` lines under one [mozjs] section is
+        # invalid TOML (duplicate key). The validate-before-update
+        # guard must refuse with a structured message rather than
+        # let `_update_section` rewrite the first line and ship
+        # corruption.
         baseline = (
             "[mozjs]\n"
             'marker = "tree-sitter-javascript"\n'
             'version = "0.24.0"\n'
             '# Historical: version = "0.23.1"\n'
-            'version = "0.23.1"\n'  # maintainer-added secondary
+            'version = "0.23.1"\n'
             "[mozcpp]\n"
             'marker = "tree-sitter-cpp"\n'
             'version = "0.23.4"\n'
         )
         script = _make_fixture(self.tmpdir, baseline=baseline)
-        # The baseline has two version lines under [mozjs] which
-        # is INVALID TOML (duplicate key). The validate-before-
-        # update guard must trip before --update gets to do
-        # damage.
         result = _run(script, "--update")
         self.assertEqual(result.returncode, 2)
         self.assertIn("not valid TOML", result.stderr)
