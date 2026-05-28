@@ -39,9 +39,7 @@ Repository = "https://github.com/dekobon/big-code-analysis"
 # >= '3.15'` that inflate the lockfile and invite resolver work for
 # matrices the project will never serve.
 [tool.uv]
-environments = [
-  "sys_platform != 'emscripten' and python_full_version < '3.15'",
-]
+environments = ["sys_platform != 'emscripten' and python_full_version < '3.15'"]
 
 [project.optional-dependencies]
 # Test/lint dependencies. The canonical install path is
