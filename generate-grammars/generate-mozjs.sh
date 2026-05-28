@@ -20,8 +20,11 @@ CRATE_OUTPUT="$TS_JS_CRATE-download.gz"
 # Link of the current tree-sitter-javascript crate on crates.io
 CRATES_IO_LINK="https://crates.io/api/v1/crates/$TS_JS_CRATE/$TS_JS_VERSION/download"
 
-# Download the crate from crates.io and uncompress it
-wget -O "$CRATE_OUTPUT" "$CRATES_IO_LINK" && tar -xf "$CRATE_OUTPUT"
+# Download the crate from crates.io and uncompress it.
+# crates.io rejects requests without a User-Agent (HTTP 403), so one
+# must be supplied explicitly — a bare `wget` no longer works.
+wget --header="User-Agent: big-code-analysis grammar regen" \
+	-O "$CRATE_OUTPUT" "$CRATES_IO_LINK" && tar -xf "$CRATE_OUTPUT"
 
 # Uncompressed directory name
 CRATE_DIR="$TS_JS_CRATE-$TS_JS_VERSION"
