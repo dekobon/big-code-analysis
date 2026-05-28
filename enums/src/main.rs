@@ -53,29 +53,23 @@ struct Opts {
     file_template: String,
 }
 
-fn main() {
+fn main() -> std::process::ExitCode {
     let opts = Opts::parse();
 
-    match opts.language {
-        OutputLanguage::Rust => {
-            if let Some(err) = generate_rust(&opts.output, &opts.file_template).err() {
-                eprintln!("{:?}", err);
-            }
-        }
-        OutputLanguage::Go => {
-            if let Some(err) = generate_go(&opts.output, &opts.file_template).err() {
-                eprintln!("{:?}", err);
-            }
-        }
-        OutputLanguage::Json => {
-            if let Some(err) = generate_json(&opts.output, &opts.file_template).err() {
-                eprintln!("{:?}", err);
-            }
-        }
-        OutputLanguage::CMacros => {
-            if let Some(err) = generate_macros(&opts.output).err() {
-                eprintln!("{:?}", err);
-            }
-        }
+    let result = match opts.language {
+        OutputLanguage::Rust => generate_rust(&opts.output, &opts.file_template),
+        OutputLanguage::Go => generate_go(&opts.output, &opts.file_template),
+        OutputLanguage::Json => generate_json(&opts.output, &opts.file_template),
+        OutputLanguage::CMacros => generate_macros(&opts.output),
+    };
+    if let Err(err) = result {
+        // Print the io::Error and exit non-zero so callers
+        // (drift gate, recreate-grammars.sh) can detect failure.
+        // The prior `if let Some(err) = ...err() { eprintln!(...) }`
+        // pattern swallowed the error and exited 0, silently
+        // shipping a partial / empty output tree.
+        eprintln!("enums: {err:?}");
+        return std::process::ExitCode::from(2);
     }
+    std::process::ExitCode::SUCCESS
 }

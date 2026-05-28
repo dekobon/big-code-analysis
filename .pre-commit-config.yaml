@@ -111,13 +111,17 @@ repos:
       # Block enums codegen drift (#405). Runs the codegen into a
       # tempdir and diffs against the checked-in
       # `src/c_langs_macros/*.rs` and `src/languages/language_*.rs`
-      # files. Triggered by edits to anything that can change the
-      # codegen output: the templates, the source crate, the input
-      # data files, or the checked-in artifacts themselves.
+      # files. Triggered by edits to inputs that actually affect
+      # codegen output: the source crate's src/, templates, data
+      # files, and Cargo.toml — plus the checked-in artifacts
+      # themselves. `enums/tests/`, `enums/target/`, and
+      # `enums/Cargo.lock` are intentionally excluded; they
+      # do not change codegen output and would force a 30-60s
+      # cargo build on every unrelated commit touching them.
       - id: enums-codegen-drift
         name: enums-codegen-drift
         language: system
-        files: '^(enums/.+|src/(c_langs_macros|languages)/[^/]+\.rs|check-enums-codegen-drift\.sh)$'
+        files: '^(enums/(src|templates|data)/.+|enums/Cargo\.toml|src/c_langs_macros/[^/]+\.rs|src/languages/language_[^/]+\.rs|check-enums-codegen-drift\.sh)$'
         entry: bash check-enums-codegen-drift.sh
         pass_filenames: false
 

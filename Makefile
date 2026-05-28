@@ -804,10 +804,14 @@ _pc-check-versions: _pc-fmt
 _pc-enums-check: _pc-fmt
 	$(MAKE) enums-check
 
-# Chain after enums-check so the cargo build for the enums binary
-# is already warm — the drift gate re-runs `cargo run` against the
-# same crate, but the binary build is cached so the second invocation
-# is essentially free.
+# Chain after enums-check so the cargo invocations share warm
+# dependency fingerprints. The two stages target different
+# build profiles (clippy/test vs run), so the leaf binary still
+# needs its own build pass; the win is dependency-fingerprint
+# reuse, not zero-cost. Note this ordering applies only inside
+# the Makefile pipeline — the pre-commit framework's own hook
+# scheduling does NOT honor it, so direct hook invocations pay
+# a cold cargo build.
 _pc-enums-codegen-drift: _pc-enums-check
 	$(MAKE) enums-codegen-drift
 
@@ -921,8 +925,9 @@ _ci-check-versions:
 _ci-enums-check:
 	$(MAKE) enums-check
 
-# Chain after enums-check so the cargo build is warm. See the
-# matching _pc-enums-codegen-drift comment.
+# Chain after enums-check for warm dependency fingerprints. See
+# the matching _pc-enums-codegen-drift comment for the scope of
+# the cache reuse.
 _ci-enums-codegen-drift: _ci-enums-check
 	$(MAKE) enums-codegen-drift
 

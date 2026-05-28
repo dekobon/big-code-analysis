@@ -66,6 +66,14 @@ fn create_macros_file(output: &Path, filename: &str, u_name: &str) -> std::io::R
             names.push(tok.to_owned());
         }
     }
+    // Sort + dedup so the emitted template's `binary_search`-
+    // based lookup is correct regardless of input-file ordering
+    // and a hand-edit that introduces a duplicate entry doesn't
+    // leak two adjacent rows into the slice. The generated
+    // `*_is_sorted` test defends against a future refactor that
+    // drops the sort.
+    names.sort();
+    names.dedup();
     let l_name = u_name.to_lowercase();
 
     let path = output.join(format!("{}.rs", filename));
