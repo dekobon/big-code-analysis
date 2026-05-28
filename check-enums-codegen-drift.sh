@@ -21,13 +21,15 @@ set -euo pipefail
 # string and reporting drift on a non-existent path.
 shopt -s nullglob
 
-# `ROOT` derivation. `git rev-parse --show-toplevel` fails outside
-# a git work tree; fall back to the script's own directory so
-# release-tarball / packaging-script invocations still work
-# rather than dying with an opaque `fatal: not a git repository`.
-if ! ROOT=$(git rev-parse --show-toplevel 2>/dev/null); then
-	ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-fi
+# `ROOT` is the directory containing the script (which is also
+# the directory containing `enums/`, `src/`, etc.). Using
+# `BASH_SOURCE` dirname rather than `git rev-parse
+# --show-toplevel` keeps the gate hermetic: it doesn't matter
+# what the caller's cwd is (e.g., a different git repo or
+# `/tmp` in test fixtures), the script always operates on its
+# own sibling directories. This also works under release
+# tarballs / packaging-script invocations that have no `.git`.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Use a script-local variable name (NOT `TMPDIR`) so the caller's
 # `$TMPDIR` env var is preserved for cargo / rustfmt / etc. The
@@ -47,17 +49,16 @@ if ! cargo build --manifest-path "$MANIFEST" --quiet; then
 fi
 
 # Each codegen mode pairs an `enums -l<mode>` flag with the
-# target subdir under `src/`. Looping keeps the cargo invocations
-# and the diff loop below in sync — adding a third codegen
-# language is now a single-line append.
-declare -a MODES=(
-	"rust:languages"
-	"c_macros:c_langs_macros"
-)
+# target subdir under `src/`. Parallel arrays (rather than a
+# `:`-separated single array) keep this safe if a future mode
+# name ever contains `:` and stay bash-3 compatible (no
+# associative-array dependency for macOS contributors).
+MODES=("rust" "c_macros")
+SUBDIRS=("languages" "c_langs_macros")
 
-for mode_pair in "${MODES[@]}"; do
-	mode="${mode_pair%%:*}"
-	subdir="${mode_pair##*:}"
+for i in "${!MODES[@]}"; do
+	mode="${MODES[$i]}"
+	subdir="${SUBDIRS[$i]}"
 	if ! cargo run --manifest-path "$MANIFEST" --quiet -- \
 		-l"$mode" -o "$WORK_DIR/$subdir"; then
 		echo "error: enums codegen (-l$mode) failed" >&2
@@ -69,6 +70,10 @@ done
 # checked-in files isn't tripped by whitespace. `fd` per
 # CLAUDE.md tool-choice rules (never `find`). The empty-tree
 # case is a no-op: `fd -X` skips invocation when no matches.
+#
+# `--edition 2024` must track the workspace + enums Cargo.toml
+# `edition = "2024"` setting; a workspace edition migration
+# requires updating this flag in lockstep with both manifests.
 if ! command -v fd >/dev/null 2>&1; then
 	# Some Debian/Ubuntu images ship `fdfind` rather than `fd`.
 	if command -v fdfind >/dev/null 2>&1; then
@@ -108,19 +113,30 @@ diff_dir() {
 		fi
 		if ! diff -q "$checked_in" "$f" >/dev/null 2>&1; then
 			echo "drift: $target_subdir/$base" >&2
-			# Wrap in `|| true` so SIGPIPE from `head` closing
-			# the pipe early (diff > 40 lines) doesn't trip
-			# `set -e` + `pipefail` and abort before subsequent
-			# files are checked or the remediation message is
-			# printed.
-			{ diff -u "$checked_in" "$f" 2>/dev/null || true; } \
-				| head -40 >&2 || true
+			# Capture the full diff once so we can both show
+			# the truncated head AND report how much was
+			# hidden. The `|| true` lets diff's non-zero exit
+			# (it's expected here) flow into the script
+			# without tripping `set -e + pipefail`.
+			local full_diff
+			full_diff="$(diff -u "$checked_in" "$f" 2>/dev/null || true)"
+			local total_lines
+			total_lines=$(printf '%s\n' "$full_diff" | wc -l)
+			printf '%s\n' "$full_diff" | head -40 >&2
+			if [ "$total_lines" -gt 40 ]; then
+				echo "  ... ($((total_lines - 40)) more diff lines hidden;" \
+					"run the regen locally for the full output)" >&2
+			fi
 			fail=1
 		fi
 	done
 
 	# Reverse: checked-in → codegen output. Skip `mod.rs`
-	# (hand-maintained module index, not generated).
+	# (hand-maintained module index, not generated). If a
+	# future hand-maintained file is added to either target
+	# subdir (e.g., a `src/languages/shared.rs`), extend the
+	# skip list — flagged orphans would otherwise look like
+	# real drift to a confused reviewer.
 	for f in "$checked_in_dir"/*.rs; do
 		local base
 		base=$(basename "$f")

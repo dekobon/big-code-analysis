@@ -911,6 +911,13 @@ metric = "abc"
 value = 69.0
 
 [[entry]]
+path = "check-enums-codegen-drift.sh"
+function = "<file>"
+start_line = 1
+metric = "halstead.effort"
+value = 104861.80086447662
+
+[[entry]]
 path = "src/alterator.rs"
 function = "<file>"
 start_line = 1
