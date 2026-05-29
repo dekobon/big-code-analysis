@@ -2358,6 +2358,99 @@ end",
         });
     }
 
+    /// Regression #413, sub-fix (1): `await` was double-counted because the
+    /// operator arm listed both the await-expression node (Await=237) and the
+    /// nested `await` keyword token (Await2=95). Only the node should count,
+    /// mirroring how `yield` counts only the Yield node.
+    #[test]
+    fn python_await_counted_once_per_use() {
+        check_metrics::<PythonParser>(
+            "async def f():\n    await a()\n    await b()\n    await c()\n",
+            "foo.py",
+            |metric| {
+                // expected operators: async, def, await  (3 unique)
+                //   await used three times -> N1 counts: async(1) def(1) await(3) = 5
+                //   Before #413, Await + Await2 both matched, so `await` was a
+                //   distinct operator twice: n1=4, N1=8.
+                assert_eq!(metric.halstead.u_operators(), 3.0);
+                assert_eq!(metric.halstead.operators(), 5.0);
+            },
+        );
+    }
+
+    /// Regression #413, sub-fix (3): `lambda` was dropped entirely. Only the
+    /// `lambda` keyword token (Lambda3=73) is classified, not the wrapping
+    /// Lambda/Lambda2 expression nodes, to avoid an await-style double count.
+    #[test]
+    fn python_lambda_counted_once() {
+        check_metrics::<PythonParser>("g = lambda x: x + 1\n", "foo.py", |metric| {
+            // expected operators: =, lambda, +  (3 unique, each used once)
+            // Before #413, lambda was absent: only =, + were counted.
+            assert_eq!(metric.halstead.u_operators(), 3.0);
+            assert_eq!(metric.halstead.operators(), 3.0);
+        });
+    }
+
+    /// Regression #413, sub-fix (2): `match` / `case` keyword tokens
+    /// (Match=26, Case=27) were dropped. Each should now count as an operator,
+    /// matching the cyclomatic metric which already counts every `case`.
+    #[test]
+    fn python_match_case_counted() {
+        check_metrics::<PythonParser>(
+            "match x:\n    case 1:\n        pass\n    case _:\n        pass\n",
+            "foo.py",
+            |metric| {
+                // expected operators: match, case, pass  (3 unique)
+                //   match(1) + case(2) + pass(2) = 5 total occurrences.
+                // Before #413, neither match nor case was counted (only pass).
+                assert_eq!(metric.halstead.u_operators(), 3.0);
+                assert_eq!(metric.halstead.operators(), 5.0);
+            },
+        );
+    }
+
+    /// Regression #413, sub-fix (2): `nonlocal` (Nonlocal=41) was dropped while
+    /// `global` was already classified. Both should count, for parity.
+    #[test]
+    fn python_nonlocal_and_global_counted() {
+        check_metrics::<PythonParser>(
+            "def f():\n    global a\n    nonlocal b\n",
+            "foo.py",
+            |metric| {
+                // expected operators: def, global, nonlocal  (3 unique)
+                // Before #413, nonlocal was absent: only def, global counted.
+                assert_eq!(metric.halstead.u_operators(), 3.0);
+                assert_eq!(metric.halstead.operators(), 3.0);
+            },
+        );
+    }
+
+    /// Regression #413, sub-fix (4): `not in` (Notin=193) and `is not`
+    /// (Isnot=194) are single compound operators. The parent-guard suppresses
+    /// the inner Not/In/Is leaves only under those compounds, so standalone
+    /// `not x`, `a in b`, `a is b`, and `for x in y` still count their leaves.
+    #[test]
+    fn python_not_in_is_not_counted_as_single_operator() {
+        check_metrics::<PythonParser>(
+            "a not in b\na is not b\nnot c\nd in e\nf is g\nfor h in i:\n    pass\n",
+            "foo.py",
+            |metric| {
+                // expected operators (7 unique):
+                //   "not in" (compound, once), "is not" (compound, once),
+                //   "not" (standalone `not c`, once),
+                //   "in" (standalone `d in e` + `for h in i` = twice),
+                //   "is" (standalone `f is g`, once),
+                //   "for" (once), "pass" (once)
+                // Total occurrences: 1+1+1+2+1+1+1 = 8.
+                // Before #413, `a not in b` counted not+in (two) and
+                // `a is not b` counted is+not (two); the compounds were
+                // never classified.
+                assert_eq!(metric.halstead.u_operators(), 7.0);
+                assert_eq!(metric.halstead.operators(), 8.0);
+            },
+        );
+    }
+
     #[test]
     fn bash_operators_and_operands() {
         check_metrics::<BashParser>(

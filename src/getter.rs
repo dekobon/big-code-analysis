@@ -162,13 +162,43 @@ impl Getter for PythonCode {
         use Python::*;
 
         match node.kind_id().into() {
+            // The `not` / `in` / `is` leaf tokens are operators on their own
+            // (`not x`, `a in b`, `a is b`, `for x in y`), but the grammar
+            // also nests them inside the compound `not in` (Notin) and
+            // `is not` (Isnot) nodes. When the leaf's parent is one of those
+            // compounds, the compound itself is classified as the single
+            // operator below, so the leaf must yield Unknown — otherwise
+            // `a not in b` would count `not` + `in` as two operators (#413).
+            Not | In | Is => match node.parent().map(|p| p.kind_id().into()) {
+                Some(Notin | Isnot) => HalsteadType::Unknown,
+                _ => HalsteadType::Operator,
+            },
             Import | DOT | From | COMMA | As | STAR | GTGT | Assert | COLONEQ | Return | Def
-            | Del | Raise | Pass | Break | Continue | If | Elif | Else | Async | For | In
-            | While | Try | Except | Finally | With | DASHGT | EQ | Global | Exec | AT | Not
-            | And | Or | PLUS | DASH | SLASH | PERCENT | SLASHSLASH | STARSTAR | PIPE | AMP
-            | CARET | LTLT | TILDE | LT | LTEQ | EQEQ | BANGEQ | GTEQ | GT | LTGT | Is | PLUSEQ
-            | DASHEQ | STAREQ | SLASHEQ | ATEQ | SLASHSLASHEQ | PERCENTEQ | STARSTAREQ | GTGTEQ
-            | LTLTEQ | AMPEQ | CARETEQ | PIPEEQ | Yield | Await | Await2 | Print => {
+            | Del | Raise | Pass | Break | Continue | If | Elif | Else | Async | For
+            | While | Try | Except | Finally | With | DASHGT | EQ | Global | Nonlocal | Exec
+            | AT | And | Or | PLUS | DASH | SLASH | PERCENT | SLASHSLASH | STARSTAR | PIPE
+            | AMP | CARET | LTLT | TILDE | LT | LTEQ | EQEQ | BANGEQ | GTEQ | GT | LTGT
+            | PLUSEQ | DASHEQ | STAREQ | SLASHEQ | ATEQ | SLASHSLASHEQ | PERCENTEQ | STARSTAREQ
+            | GTGTEQ | LTLTEQ | AMPEQ | CARETEQ | PIPEEQ | Yield | Print
+            // `not in` / `is not` compounds count as one operator each; the
+            // inner Not/In/Is leaves are suppressed by the parent-guard arm
+            // above (#413).
+            | Notin | Isnot
+            // `match` / `case` keyword tokens (Match=26, Case=27), mirroring
+            // the cyclomatic metric which already counts each `case` clause
+            // and the Rust Halstead which counts `match` (#413).
+            | Match | Case
+            // `nonlocal` keyword token, for parity with `global` which was
+            // already classified (#413).
+            // `await`: count only the await-expression node (Await=237);
+            // Await2 (keyword token 95) is the nested keyword and was being
+            // double-counted, mirroring how `yield` counts only the Yield
+            // node and not its keyword leaf (#413).
+            | Await
+            // `lambda`: count only the keyword token (Lambda3=73), not the
+            // Lambda/Lambda2 expression nodes that wrap it, to avoid the same
+            // node+keyword double count fixed for await (#413).
+            | Lambda3 => {
                 HalsteadType::Operator
             }
             Identifier | Integer | Float | True | False | None => HalsteadType::Operand,
