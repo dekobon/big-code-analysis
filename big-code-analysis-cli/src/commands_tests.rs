@@ -533,6 +533,7 @@ fn effective_config_toml_roundtrips_through_threshold_config_schema() {
             paths_from: None,
             baseline: None,
             config: None,
+            manifest: None,
             no_fail: false,
             no_suppress: false,
             no_ignore: false,
@@ -570,6 +571,7 @@ fn effective_config_json_serializes_threshold_overrides() {
             paths_from: None,
             baseline: None,
             config: None,
+            manifest: None,
             no_fail: false,
             no_suppress: false,
             no_ignore: false,
@@ -617,7 +619,7 @@ fn effective_config_reflects_resolved_threshold_set() {
     };
     let args = check_args_for_remediation(None, None, false);
 
-    let effective = EffectiveConfig::from_resolved(&globals, &args, &set);
+    let effective = EffectiveConfig::from_resolved(&globals, &args, &set, None);
     assert_eq!(effective.thresholds.get("cyclomatic"), Some(&11.0));
     assert_eq!(effective.thresholds.get("cognitive"), Some(&13.0));
     assert_eq!(effective.check.paths, vec!["src/".to_owned()]);

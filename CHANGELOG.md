@@ -23,6 +23,24 @@ for historical reference.
 
 ### Added
 
+- `bca.toml` manifest — auto-discovered at (or above) the working
+  directory, consolidating the flags every local-gate recipe used to
+  thread through each invocation
+  ([#374](https://github.com/dekobon/big-code-analysis/issues/374)).
+  Top-level keys `paths`, `exclude_from`, `num_jobs`, `include`,
+  `exclude`, `baseline`, and `headroom`, plus an inline `[thresholds]`
+  table, map to the corresponding flags. Explicit CLI flags always win
+  over manifest keys; `--config <file>` merges on top of the manifest
+  `[thresholds]` table (resolution order: manifest `[thresholds]` →
+  `--config` → `--headroom` scaling → `--threshold` overrides). Relative
+  manifest paths resolve against the manifest's directory. A new global
+  `--no-config` flag skips discovery for fully-explicit invocations
+  (`bca init` also ignores any existing manifest, since it scaffolds
+  config rather than consuming it).
+  Unrecognized keys (forthcoming `[thresholds.soft]`, `[check]`,
+  `exit_codes`) are ignored with a one-line warning so projects can
+  pre-adopt schema additions. `bca check --print-effective-config` gains
+  a `manifest` provenance line. Additive, minor bump.
 - `bca check --headroom <ratio>` — scales every threshold from
   `--config` (or `bca.toml`'s `[thresholds]`) by a ratio in `(0, 1]`
   before the offender comparison, implementing the soft-tier

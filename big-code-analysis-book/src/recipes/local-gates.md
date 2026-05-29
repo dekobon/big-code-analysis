@@ -75,10 +75,99 @@ environment variable rather than maintaining a parallel
 `bca-thresholds-soft.toml` that will drift out of sync with the
 hard config the first time anyone forgets to update both files.
 
-## Skeleton: GNU Make
+## Zero-config: the `bca.toml` manifest
 
-The four recipes below are a self-contained drop-in. Adjust the
-`BCA` variable to point at whatever invocation gives you the
+Rather than thread `--paths`, `--exclude-from`, `--num-jobs`,
+`--config`, `--baseline`, and `--headroom` through every recipe,
+drop a `bca.toml` at the repo root and let `bca check` discover it:
+
+```toml
+# bca.toml — discovered automatically at (or above) the working dir.
+paths        = ["."]
+exclude_from = ".bcaignore"
+num_jobs     = "auto"          # or an integer
+baseline     = ".bca-baseline.toml"
+
+[thresholds]
+cognitive    = 25
+cyclomatic   = 15
+"halstead.effort" = 50000
+nom          = 30
+nargs        = 7
+nexits       = 5
+abc          = 50
+wmc          = 60
+```
+
+> Leave `headroom` **out** of the manifest. A top-level `headroom`
+> applies to *every* `bca check` run, which would silently scale the
+> hard tier too. Keep the soft-tier scale on the soft recipe's
+> `--headroom` flag (below) so `bca check` stays the exact CI mirror.
+> (Once per-metric `[thresholds.soft]` and `--tier=soft` land, the
+> manifest gains a tier-scoped home for soft limits.)
+
+With that file in place the four recipes collapse to one flag each:
+
+<!-- rumdl-disable MD010 -->
+
+```make
+.PHONY: self-scan self-scan-headroom \
+        self-scan-write-baseline self-scan-write-baseline-headroom
+
+self-scan:                          # hard tier (CI mirror)
+	bca check
+self-scan-headroom:                 # soft tier (early warning)
+	bca check --headroom 0.95
+self-scan-write-baseline:           # absorb hard-tier offenders
+	bca check --write-baseline .bca-baseline.toml
+self-scan-write-baseline-headroom:  # absorb soft-tier offenders
+	bca check --headroom 0.95 --write-baseline .bca-baseline.toml
+```
+
+<!-- rumdl-enable MD010 -->
+
+### Discovery and precedence
+
+- `bca` climbs from the working directory to the repo root (the
+  directory containing `.git`) looking for `bca.toml`; the first
+  match wins. Relative paths inside the manifest resolve against the
+  manifest's own directory, so a `bca.toml` above the current
+  directory still points at the right files.
+- **CLI flags always win.** Any explicit `--paths`, `--baseline`,
+  `--headroom`, etc. overrides the corresponding manifest key.
+  `--config <file>` *merges* on top of the manifest `[thresholds]`
+  table (config keys win on collision), and repeated
+  `--threshold name=value` flags apply last as absolute limits. The
+  full resolution order — `[thresholds]` → `--config` → `--headroom`
+  scaling → `--threshold` overrides — is shared across all of
+  `--config` / `--headroom` / the manifest.
+- `--no-config` skips discovery entirely, for reproducible
+  fully-explicit invocations that must not pick up repo-level config.
+  `bca init` also ignores any existing manifest — it scaffolds config
+  rather than consuming it.
+- The top-level `include` / `exclude` keys are the global file-filter
+  globs (the `--include` / `--exclude` flags) that decide which files
+  are *analysed at all*. They are distinct from the forthcoming
+  `[check] exclude` table (analysed-but-ungated paths, tracked under a
+  separate issue).
+- Unrecognized keys (forthcoming options such as `[thresholds.soft]`
+  and `[check]`) are ignored with a one-line warning, so you can
+  pre-adopt schema additions without breaking older `bca` builds.
+- `bca check --print-effective-config` prints the resolved view,
+  including a `manifest` provenance line, so you can see exactly what
+  the merge produced.
+
+> The explicit-flag skeletons below remain fully supported — the
+> manifest is sugar over the same flags, not a replacement. Reach for
+> them when you can't drop a file at the repo root, or when one CI job
+> needs a different layout than the committed manifest (pair the flags
+> with `--no-config`).
+
+## Skeleton: GNU Make (explicit flags)
+
+The four recipes below are a self-contained drop-in that thread every
+flag explicitly — the long form of the manifest recipe above. Adjust
+the `BCA` variable to point at whatever invocation gives you the
 checker (a pinned release binary, `cargo run --release`, an npm /
 pip wrapper). Adjust `PATHS` and `EXCLUDE_FROM` to match your
 layout.

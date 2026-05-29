@@ -37,6 +37,7 @@ mod dispatch;
 mod format_util;
 mod formats;
 mod html_report;
+mod manifest;
 mod markdown_report;
 mod metric_catalog;
 mod threshold_suggestion;
@@ -261,6 +262,14 @@ struct GlobalOpts {
     /// flag.
     #[clap(long = "exclude-tests", global = true)]
     exclude_tests: bool,
+    /// Skip auto-discovery of a `bca.toml` manifest. By default `bca`
+    /// climbs from the working directory to the repo root looking for
+    /// `bca.toml` and merges its keys *under* any explicit CLI flags.
+    /// Pass this for raw, fully-explicit invocations that must not pick
+    /// up repo-level config (e.g. a reproducible CI one-liner). When no
+    /// manifest is discovered this flag is a no-op.
+    #[clap(long = "no-config", global = true)]
+    no_config: bool,
 }
 
 #[derive(Subcommand, Debug)]

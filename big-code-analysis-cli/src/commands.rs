@@ -16,7 +16,8 @@ use std::process;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use clap::Parser;
+use clap::parser::ValueSource;
+use clap::{ArgMatches, CommandFactory, FromArgMatches};
 
 use big_code_analysis::{Count, PreprocResults, SuppressionPolicy};
 use big_code_analysis::{fix_includes, write_file};
@@ -27,6 +28,7 @@ use crate::diff;
 use crate::format_util::MetricScalar;
 use crate::formats::{CBOR_STDOUT_ERROR, MetricsDispatch, MetricsFormat, ReportFormat};
 use crate::html_report::generate_html_report;
+use crate::manifest::{self, Manifest};
 use crate::markdown_report::{FunctionSummary, generate_report};
 use crate::metric_catalog::write_metrics;
 use crate::thresholds::{ThresholdSet, Violation, render_violation_line};
@@ -37,14 +39,30 @@ use crate::{
     write_stdout_or_die,
 };
 
-fn run_check(globals: GlobalOpts, args: CheckArgs, preproc: Option<Arc<PreprocResults>>) {
-    let set = validate_and_build_thresholds(&args);
+fn run_check(
+    globals: GlobalOpts,
+    mut args: CheckArgs,
+    manifest: Option<&Manifest>,
+    preproc: Option<Arc<PreprocResults>>,
+) {
+    // Merge the check-only manifest keys (baseline / headroom) under the
+    // CLI flags, and take the `[thresholds]` table as the base layer for
+    // the resolver. `--config` merges on top of it; `--threshold`
+    // overrides win last (see `validate_and_build_thresholds`).
+    let base_thresholds = match manifest {
+        Some(m) => {
+            m.merge_check(&mut args);
+            m.thresholds()
+        }
+        None => BTreeMap::new(),
+    };
+    let set = validate_and_build_thresholds(&args, base_thresholds);
     // `--print-effective-config` is a read-only debug aid: print the
     // resolved configuration and exit 0 before the walk. clap already
     // rejects pairing with `--write-baseline` (conflicts_with), so by
     // the time we get here the flag is unambiguous.
     if let Some(format) = args.print_effective_config {
-        print_effective_config(&globals, &args, &set, format);
+        print_effective_config(&globals, &args, &set, manifest, format);
         return;
     }
     let scope = resolve_diff_scope(&args);
@@ -107,9 +125,10 @@ fn print_effective_config(
     globals: &GlobalOpts,
     args: &CheckArgs,
     set: &ThresholdSet,
+    manifest: Option<&Manifest>,
     format: PrintConfigFormat,
 ) {
-    let effective = EffectiveConfig::from_resolved(globals, args, set);
+    let effective = EffectiveConfig::from_resolved(globals, args, set, manifest);
     let serialized = match format {
         PrintConfigFormat::Toml => toml::to_string_pretty(&effective)
             .unwrap_or_else(|e| die(format_args!("serialize effective config to TOML: {e}"))),
@@ -153,6 +172,11 @@ struct EffectiveCheck {
     baseline: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     config: Option<String>,
+    /// Path to the auto-discovered `bca.toml` whose keys were merged
+    /// under the CLI flags, if any. Provenance for the resolved view:
+    /// signals that values not traceable to a flag came from here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    manifest: Option<String>,
     no_fail: bool,
     no_suppress: bool,
     no_ignore: bool,
@@ -176,7 +200,12 @@ impl EffectiveConfig {
     /// because the printed config is informational; `--config` only
     /// reads the `[thresholds]` table back, where keys/values are pure
     /// ASCII metric names + numbers and round-trip exactly.
-    fn from_resolved(globals: &GlobalOpts, args: &CheckArgs, set: &ThresholdSet) -> Self {
+    fn from_resolved(
+        globals: &GlobalOpts,
+        args: &CheckArgs,
+        set: &ThresholdSet,
+        manifest: Option<&Manifest>,
+    ) -> Self {
         let thresholds: BTreeMap<String, f64> = set
             .iter()
             .map(|(name, limit)| (name.to_owned(), limit))
@@ -196,6 +225,7 @@ impl EffectiveConfig {
             paths_from: globals.paths_from.as_ref().map(|p| p.display().to_string()),
             baseline: args.baseline.as_ref().map(|p| p.display().to_string()),
             config: args.config.as_ref().map(|p| p.display().to_string()),
+            manifest: manifest.map(|m| m.path().display().to_string()),
             no_fail: args.no_fail,
             no_suppress: args.no_suppress,
             no_ignore: globals.no_ignore,
@@ -250,12 +280,16 @@ fn scale_threshold(limit: f64, ratio: f64) -> f64 {
     (scaled * factor).round() / factor
 }
 
-/// Validate `--output` / `--output-format` pairing, merge the
-/// `--config` and `--threshold` flag inputs, and build the
-/// `ThresholdSet`. Dies if no thresholds were configured. Returns
-/// the set wrapped in `Arc` so it can be cloned into each walker
-/// worker's `Config`.
-fn validate_and_build_thresholds(args: &CheckArgs) -> Arc<ThresholdSet> {
+/// Validate `--output` / `--output-format` pairing, then resolve the
+/// effective threshold set by layering, in order: the manifest
+/// `[thresholds]` base, the `--config` file (keys win on collision),
+/// `--headroom` scaling, and the absolute `--threshold` CLI overrides.
+/// Dies if no thresholds were configured. Returns the set wrapped in
+/// `Arc` so it can be cloned into each walker worker's `Config`.
+fn validate_and_build_thresholds(
+    args: &CheckArgs,
+    base_thresholds: BTreeMap<String, f64>,
+) -> Arc<ThresholdSet> {
     // Validate --output / --output-format pairing before the walk so
     // a misconfigured invocation fails fast instead of after a full
     // parse. `--output` without `--output-format` is silently ignored
@@ -273,11 +307,13 @@ fn validate_and_build_thresholds(args: &CheckArgs) -> Arc<ThresholdSet> {
         ));
     }
 
-    let mut merged: BTreeMap<String, f64> = args
-        .config
-        .as_deref()
-        .map(load_threshold_config)
-        .unwrap_or_default();
+    // Layer 1: the manifest `[thresholds]` table (empty when no
+    // `bca.toml` was discovered). Layer 2: `--config` merges on top,
+    // its keys winning on collision, preserving every existing recipe.
+    let mut merged: BTreeMap<String, f64> = base_thresholds;
+    if let Some(config) = args.config.as_deref() {
+        merged.extend(load_threshold_config(config));
+    }
     // Soft-tier scaling (#373): shrink every config-derived limit by the
     // headroom ratio so functions encroaching into the `(ratio, 1.0]`
     // band fail before they trip the hard gate. Scaling happens *before*
@@ -291,12 +327,14 @@ fn validate_and_build_thresholds(args: &CheckArgs) -> Arc<ThresholdSet> {
             die(format_args!("--headroom must be in (0, 1]; got {ratio}"));
         }
         if merged.is_empty() {
-            // No `[thresholds]` table to scale. `--threshold` limits are
-            // absolute, so headroom would silently do nothing — surface
-            // that rather than let it look effective.
+            // No `[thresholds]` table to scale (neither a manifest nor
+            // `--config`). `--threshold` limits are absolute, so headroom
+            // would silently do nothing — surface that rather than let it
+            // look effective.
             eprintln!(
-                "note: --headroom has no effect without --config thresholds; \
-                 --threshold limits are absolute and are not scaled"
+                "note: --headroom has no effect without configured thresholds \
+                 (bca.toml [thresholds] or --config); --threshold limits are \
+                 absolute and are not scaled"
             );
         }
         for limit in merged.values_mut() {
@@ -309,7 +347,9 @@ fn validate_and_build_thresholds(args: &CheckArgs) -> Arc<ThresholdSet> {
     }
     let set = ThresholdSet::build(&merged).unwrap_or_else(|e| die(e));
     if set.is_empty() {
-        die("no thresholds configured; pass --threshold or --config");
+        die(
+            "no thresholds configured; pass --threshold, --config, or a bca.toml [thresholds] table",
+        );
     }
     Arc::new(set)
 }
@@ -932,9 +972,10 @@ fn write_footer_row(
 ///   [`clap::Error::exit`] (exit 0 on `--help` / `--version`, exit 2
 ///   on usage errors).
 /// - User-input errors (invalid threshold spec, unreadable preproc
-///   data, missing `--output` parent directory, walk errors, mutually
-///   exclusive output-format combinations, broken-pipe writes, etc.)
-///   call `process::exit(1)` via internal `die` / `die_io` helpers.
+///   data, malformed `bca.toml`, missing `--output` parent directory,
+///   walk errors, mutually exclusive output-format combinations,
+///   broken-pipe writes, etc.) call `process::exit(1)` via internal
+///   `die` / `die_io` helpers.
 /// - The `check` subcommand calls `process::exit(2)` when any
 ///   threshold is exceeded, reserving exit 1 for tool errors so CI can
 ///   distinguish "metric regression" from "tool crashed".
@@ -944,7 +985,24 @@ fn write_footer_row(
 /// inside another process, use the [`big_code_analysis`] library crate
 /// directly instead of going through this entry point.
 pub fn run() {
-    let cli = parse_cli_with_legacy_hint();
+    let (mut cli, num_jobs_from_cli) = parse_cli_with_legacy_hint();
+
+    // Auto-discover a `bca.toml` manifest (unless `--no-config`) and
+    // merge its global keys *under* the parsed CLI flags. Check-only
+    // keys (baseline / headroom / thresholds) are merged later, inside
+    // `run_check`, where the resolved `CheckArgs` lives.
+    //
+    // `bca init` is deliberately excluded: it *scaffolds* configuration,
+    // so consuming an existing manifest would merge repo-level `paths`
+    // into init's baseline-generation walk and pin the wrong tree.
+    let manifest = if cli.globals.no_config || matches!(cli.command, Command::Init(_)) {
+        None
+    } else {
+        manifest::discover_and_load()
+    };
+    if let Some(m) = &manifest {
+        m.merge_globals(&mut cli.globals, num_jobs_from_cli);
+    }
 
     let preproc = cli
         .globals
@@ -962,7 +1020,7 @@ pub fn run() {
         Command::Find(args) => run_command_find(cli.globals, args, preproc),
         Command::Count(args) => run_command_count(cli.globals, args, preproc),
         Command::StripComments(args) => run_command_strip_comments(cli.globals, args, preproc),
-        Command::Check(args) => run_check(cli.globals, args, preproc),
+        Command::Check(args) => run_check(cli.globals, args, manifest.as_ref(), preproc),
         Command::Preproc(args) => run_command_preproc(cli.globals, args),
         Command::Init(args) => run_command_init(cli.globals, args, preproc),
     }
@@ -973,9 +1031,15 @@ pub fn run() {
 /// the pre-restructure flag shape (`-d` instead of `dump`, `-O
 /// markdown` instead of `report markdown`, etc.). Exits the process
 /// on parse failure via `clap::Error::exit`.
-fn parse_cli_with_legacy_hint() -> Cli {
-    match Cli::try_parse() {
-        Ok(cli) => cli,
+///
+/// Returns the parsed [`Cli`] plus whether `--num-jobs` was set on the
+/// command line. `num_jobs` is the one manifest-backed global with a
+/// non-`None`/non-empty default, so its CLI-vs-default state cannot be
+/// inferred from the parsed value alone — the manifest merge needs the
+/// `ArgMatches` value source to know whether to override it.
+fn parse_cli_with_legacy_hint() -> (Cli, bool) {
+    let matches = match Cli::command().try_get_matches() {
+        Ok(matches) => matches,
         Err(err) => {
             if matches!(
                 err.kind(),
@@ -990,6 +1054,22 @@ fn parse_cli_with_legacy_hint() -> Cli {
             }
             err.exit();
         }
+    };
+    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|err| err.exit());
+    (cli, num_jobs_set_on_cli(&matches))
+}
+
+/// Whether `--num-jobs` was supplied on the command line (vs. left at
+/// its `auto` default). `num_jobs` is a `global = true` arg, so when it
+/// is passed after the subcommand its value source surfaces in the
+/// subcommand's matches, not the root's — walk the chain.
+fn num_jobs_set_on_cli(matches: &ArgMatches) -> bool {
+    if matches.value_source("num_jobs") == Some(ValueSource::CommandLine) {
+        return true;
+    }
+    match matches.subcommand() {
+        Some((_, sub)) => num_jobs_set_on_cli(sub),
+        None => false,
     }
 }
 
@@ -1345,7 +1425,10 @@ fn run_command_init(globals: GlobalOpts, args: InitArgs, preproc: Option<Arc<Pre
         if walk_globals.paths.is_empty() {
             walk_globals.paths.push(target.clone());
         }
-        run_check(walk_globals, check_args, preproc);
+        // `init` writes its baseline from the thresholds file it just
+        // scaffolded, so it deliberately bypasses manifest discovery
+        // (passing `None`) — there is no `bca.toml` to merge here.
+        run_check(walk_globals, check_args, None, preproc);
         eprintln!("bca init: wrote {}", baseline_path.display());
     }
 

@@ -4,7 +4,7 @@
 .SH NAME
 bca \- Analyze source code.
 .SH SYNOPSIS
-\fBbca\fR [\fB\-p\fR|\fB\-\-paths\fR] [\fB\-I\fR|\fB\-\-include\fR] [\fB\-X\fR|\fB\-\-exclude\fR] [\fB\-j\fR|\fB\-\-num\-jobs\fR] [\fB\-l\fR|\fB\-\-language\-type\fR] [\fB\-\-ls\fR] [\fB\-\-le\fR] [\fB\-w\fR|\fB\-\-warning\fR] [\fB\-\-no\-skip\-generated\fR] [\fB\-\-report\-skipped\fR] [\fB\-\-preproc\-data\fR] [\fB\-\-paths\-from\fR] [\fB\-\-exclude\-from\fR] [\fB\-\-no\-ignore\fR] [\fB\-\-exclude\-tests\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] <\fIsubcommands\fR>
+\fBbca\fR [\fB\-p\fR|\fB\-\-paths\fR] [\fB\-I\fR|\fB\-\-include\fR] [\fB\-X\fR|\fB\-\-exclude\fR] [\fB\-j\fR|\fB\-\-num\-jobs\fR] [\fB\-l\fR|\fB\-\-language\-type\fR] [\fB\-\-ls\fR] [\fB\-\-le\fR] [\fB\-w\fR|\fB\-\-warning\fR] [\fB\-\-no\-skip\-generated\fR] [\fB\-\-report\-skipped\fR] [\fB\-\-preproc\-data\fR] [\fB\-\-paths\-from\fR] [\fB\-\-exclude\-from\fR] [\fB\-\-no\-ignore\fR] [\fB\-\-exclude\-tests\fR] [\fB\-\-no\-config\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] <\fIsubcommands\fR>
 .SH DESCRIPTION
 Analyze source code.
 .SH OPTIONS
@@ -55,6 +55,9 @@ Disable `.gitignore` / `.ignore` / global gitignore awareness when expanding dir
 .TP
 \fB\-\-exclude\-tests\fR
 Exclude inline test code from metric computation. Currently applies to Rust only (skips `#[test]`, `#[cfg(test)]`, `#[tokio::test]`, `#[rstest]`, `#![cfg(test)]` items and their subtrees). Default is off — every node is counted, so numbers match the pre\-#182 behaviour byte\-for\-byte. Languages without a `Checker::should_skip_subtree` override ignore this flag
+.TP
+\fB\-\-no\-config\fR
+Skip auto\-discovery of a `bca.toml` manifest. By default `bca` climbs from the working directory to the repo root looking for `bca.toml` and merges its keys *under* any explicit CLI flags. Pass this for raw, fully\-explicit invocations that must not pick up repo\-level config (e.g. a reproducible CI one\-liner). When no manifest is discovered this flag is a no\-op
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help (see a summary with \*(Aq\-h\*(Aq)

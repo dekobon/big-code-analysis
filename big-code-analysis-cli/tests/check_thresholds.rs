@@ -1057,7 +1057,7 @@ fn check_headroom_without_config_warns_and_noops() {
         .assert()
         .success()
         .stderr(predicate::str::contains(
-            "--headroom has no effect without --config thresholds",
+            "--headroom has no effect without configured thresholds",
         ));
 }
 
