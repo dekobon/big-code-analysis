@@ -2980,56 +2980,28 @@ path = "src/output/dump.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 362572.6618679963
+value = 1091965.1168381972
+
+[[entry]]
+path = "src/output/dump.rs"
+function = "<file>"
+start_line = 1
+metric = "loc.sloc"
+value = 397.0
 
 [[entry]]
 path = "src/output/dump.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 15.0
+value = 41.0
 
 [[entry]]
 path = "src/output/dump.rs"
 function = "<file>"
 start_line = 1
 metric = "nexits"
-value = 21.0
-
-[[entry]]
-path = "src/output/dump.rs"
-function = "dump_tree_helper"
-start_line = 75
-metric = "abc"
-value = 50.73460357586329
-
-[[entry]]
-path = "src/output/dump.rs"
-function = "dump_tree_helper"
-start_line = 75
-metric = "cyclomatic"
-value = 32.0
-
-[[entry]]
-path = "src/output/dump.rs"
-function = "dump_tree_helper"
-start_line = 75
-metric = "halstead.effort"
-value = 152404.75438050737
-
-[[entry]]
-path = "src/output/dump.rs"
-function = "dump_tree_helper"
-start_line = 75
-metric = "nargs"
-value = 8.0
-
-[[entry]]
-path = "src/output/dump.rs"
-function = "dump_tree_helper"
-start_line = 75
-metric = "nexits"
-value = 20.0
+value = 17.0
 
 [[entry]]
 path = "src/output/dump_metrics.rs"

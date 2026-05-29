@@ -168,6 +168,19 @@ for historical reference.
 
 ### Changed
 
+- The AST-dump renderer (`bca dump`) is refactored internally: the
+  monolithic `dump_tree_helper` (cyclomatic 32, nexits 20, nargs 8)
+  is split into a state struct plus single-purpose helpers
+  (`branch_glyphs`, `line_in_range`, `paint`, `write_node_line` /
+  `_header` / `_location` / `_snippet`, `dump_children`), each well
+  under the per-function thresholds. **Output is byte-for-byte
+  identical** — no public API, CLI, or dump-format change; a new
+  byte-exact regression test (`dump_output_matches_expected_tree`)
+  plus unit tests for the extracted predicates pin the behavior.
+  Note: most of the original cyclomatic/nexits score was Rust's `?`
+  operator (each counts as a `TryExpression` decision point), not
+  genuine branching — see
+  [#401](https://github.com/dekobon/big-code-analysis/issues/401).
 - `tree-sitter-mozjs` is regenerated against its declared
   `tree-sitter-javascript` `0.25.0` base grammar (with `tree-sitter`
   CLI `0.26.9`), and its floating `tree-sitter-cli` `^0.25.3`
