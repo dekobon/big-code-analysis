@@ -161,6 +161,13 @@ struct EffectiveCheck {
     changed_only: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     since: Option<String>,
+    /// The `--headroom` ratio applied to the config-derived limits, if
+    /// any. Recorded for provenance: the `[thresholds]` table above
+    /// already shows the post-scaling values, so this is the one signal
+    /// that distinguishes "limit 14.25 because config said 15 × 0.95"
+    /// from "limit 14.25 because config literally said 14.25".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    headroom: Option<f64>,
 }
 
 impl EffectiveConfig {
@@ -196,9 +203,51 @@ impl EffectiveConfig {
             exclude_tests: globals.exclude_tests,
             changed_only: args.changed_only,
             since: args.since.clone(),
+            headroom: args.headroom,
         };
         Self { thresholds, check }
     }
+}
+
+/// Significant figures retained when scaling a threshold by the
+/// `--headroom` ratio. Trims float-multiplication artifacts (e.g.
+/// `7 * 0.95 == 6.6499999999999995`) to a readable `6.65` while
+/// preserving full precision for the largest thresholds seen in
+/// practice (`halstead.effort`, on the order of `50000`). At 6
+/// figures the rounding error is far below any metric's granularity,
+/// so the offender set is identical to the un-rounded product. This
+/// matches the `{:.6g}` rounding the now-removed
+/// `bca-self-scan-headroom.py` helper used (#373), so soft-gate
+/// offender lines render byte-for-byte the same.
+const HEADROOM_SIG_FIGS: i32 = 6;
+
+/// Scale a threshold limit by `ratio`, rounding to
+/// [`HEADROOM_SIG_FIGS`] significant figures. `ratio` is assumed
+/// already validated to lie in `(0, 1]`.
+fn scale_threshold(limit: f64, ratio: f64) -> f64 {
+    let scaled = limit * ratio;
+    // `log10(0)` is `-inf`; short-circuit the degenerate inputs so the
+    // magnitude maths below only sees finite, non-zero values.
+    if scaled == 0.0 || !scaled.is_finite() {
+        return scaled;
+    }
+    // `log10` of a finite, non-zero f64 lies in roughly [-323, 308], so
+    // its floor always fits an i32 — the truncating cast cannot lose
+    // information here.
+    #[allow(clippy::cast_possible_truncation)]
+    let magnitude = scaled.abs().log10().floor() as i32;
+    let decimals = (HEADROOM_SIG_FIGS - 1) - magnitude;
+    let factor = 10f64.powi(decimals);
+    // For an absurdly tiny limit the sig-fig `factor` overflows to
+    // infinity, and `scaled * factor / factor` would be NaN. No real
+    // metric threshold is subnormal, but guard it so the function is
+    // total: such a value is already far below any rounding
+    // granularity, so return it unrounded rather than poisoning the
+    // threshold set with NaN.
+    if !factor.is_finite() {
+        return scaled;
+    }
+    (scaled * factor).round() / factor
 }
 
 /// Validate `--output` / `--output-format` pairing, merge the
@@ -229,6 +278,31 @@ fn validate_and_build_thresholds(args: &CheckArgs) -> Arc<ThresholdSet> {
         .as_deref()
         .map(load_threshold_config)
         .unwrap_or_default();
+    // Soft-tier scaling (#373): shrink every config-derived limit by the
+    // headroom ratio so functions encroaching into the `(ratio, 1.0]`
+    // band fail before they trip the hard gate. Scaling happens *before*
+    // the `--threshold` overrides land because those overrides are
+    // absolute — a user who typed an exact limit means it, not 95% of it.
+    if let Some(ratio) = args.headroom {
+        // Half-open interval `(0, 1]`: `1.0` is a valid no-op (parity
+        // with the hard gate); `0` or `>1` (and NaN, which fails both
+        // comparisons) are usage errors.
+        if !(0.0 < ratio && ratio <= 1.0) {
+            die(format_args!("--headroom must be in (0, 1]; got {ratio}"));
+        }
+        if merged.is_empty() {
+            // No `[thresholds]` table to scale. `--threshold` limits are
+            // absolute, so headroom would silently do nothing — surface
+            // that rather than let it look effective.
+            eprintln!(
+                "note: --headroom has no effect without --config thresholds; \
+                 --threshold limits are absolute and are not scaled"
+            );
+        }
+        for limit in merged.values_mut() {
+            *limit = scale_threshold(*limit, ratio);
+        }
+    }
     // CLI flags override config values for the same metric name.
     for (name, limit) in &args.thresholds {
         merged.insert(name.clone(), *limit);
@@ -1263,6 +1337,7 @@ fn run_command_init(globals: GlobalOpts, args: InitArgs, preproc: Option<Arc<Pre
             summary_file: None,
             no_remediation: true,
             print_effective_config: None,
+            headroom: None,
         };
         // `run_check` early-exits after `write_check_baseline` runs,
         // so it returns normally on success here.

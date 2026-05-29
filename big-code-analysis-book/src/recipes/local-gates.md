@@ -101,10 +101,6 @@ BCA_THRESHOLDS    := bca-thresholds.toml
 BCA_BASELINE      := .bca-baseline.toml
 BCA_HEADROOM      ?= 0.95
 
-# `PY` lets Windows hosts override to `py -3` (the stock python.org
-# installer ships `py.exe` and `python.exe` but no `python3` alias).
-PY                ?= python3
-
 # Common args, factored out so the four recipes stay in lockstep.
 # `--num-jobs` defaults to the OS-reported effective CPU count
 # (cgroup-/cpuset-aware on Linux), so no `$(nproc)` plumbing is
@@ -124,15 +120,14 @@ self-scan:
 # `self-scan-headroom: self-scan` is intentional: under `make -j` Make
 # would otherwise run both gates in parallel and the soft tier's scaled
 # error message could land before the true regression on the hard tier.
-# `BCA_THRESHOLDS` / `BCA_BASELINE` are exported because the helper
-# reads them from the environment — see "Helper script" below.
+# `--headroom $(BCA_HEADROOM)` scales every config limit before the
+# offender comparison — no helper script, no second TOML file.
 self-scan-headroom: self-scan
 	@echo "bca self-scan (soft gate, BCA_HEADROOM=$(BCA_HEADROOM))..."
-	@BCA_HEADROOM=$(BCA_HEADROOM) \
-	  BCA_THRESHOLDS=$(BCA_THRESHOLDS) \
-	  BCA_BASELINE=$(BCA_BASELINE) \
-	  $(PY) ./utils/bca-self-scan-headroom.py \
-	  $(BCA) $(BCA_BASE_ARGS)
+	@$(BCA) $(BCA_BASE_ARGS) check \
+	  --config $(BCA_THRESHOLDS) \
+	  --headroom $(BCA_HEADROOM) \
+	  --baseline $(BCA_BASELINE)
 
 self-scan-write-baseline:
 	@echo "Refreshing $(BCA_BASELINE) at hard thresholds..."
@@ -143,32 +138,26 @@ self-scan-write-baseline:
 # Soft-tier baseline write. NOTE: this and `self-scan-write-baseline`
 # both write `$(BCA_BASELINE)`; never compose them as parallel
 # prerequisites of one umbrella target or invoke them with `make -j2`,
-# or the two Python processes will race on the same file and the
+# or the two `bca` processes will race on the same file and the
 # losing tier's offenders will silently vanish from the baseline.
 # Run them sequentially (hard first, then soft) and commit the diff.
 self-scan-write-baseline-headroom:
 	@echo "Refreshing $(BCA_BASELINE) at soft thresholds (BCA_HEADROOM=$(BCA_HEADROOM))..."
-	@BCA_HEADROOM=$(BCA_HEADROOM) \
-	  BCA_THRESHOLDS=$(BCA_THRESHOLDS) \
-	  BCA_BASELINE=$(BCA_BASELINE) \
-	  BCA_HEADROOM_WRITE_BASELINE=$(BCA_BASELINE) \
-	  $(PY) ./utils/bca-self-scan-headroom.py \
-	  $(BCA) $(BCA_BASE_ARGS)
+	@$(BCA) $(BCA_BASE_ARGS) check \
+	  --config $(BCA_THRESHOLDS) \
+	  --headroom $(BCA_HEADROOM) \
+	  --write-baseline $(BCA_BASELINE)
 ```
 
 <!-- rumdl-enable MD010 -->
 
-The helper (`utils/bca-self-scan-headroom.py`) reads four env vars —
-`BCA_HEADROOM` (default `0.95`), `BCA_THRESHOLDS` (default
-`bca-thresholds.toml`), `BCA_BASELINE` (default `.bca-baseline.toml`),
-and the optional `BCA_HEADROOM_WRITE_BASELINE` switch — multiplies
-every value in the thresholds file by the headroom ratio, and
-re-emits the limits as `--threshold name=value` flags so `bca check`
-sees scaled limits without you having to maintain a second TOML
-file. The Make skeleton above exports the first three so renaming
-any of those paths in one place propagates to both tiers. See
-[Helper script](#helper-script) below for a ready-to-paste
-implementation.
+`bca check --headroom <ratio>` scales every limit from `--config`
+by the ratio (default `0.95`) before the offender comparison, then
+filters against the same `.bca-baseline.toml` the hard tier writes.
+Explicit `--threshold name=value` overrides are absolute and are
+not rescaled. There is no separate helper script or second TOML
+file to maintain — the soft tier is the hard-tier invocation plus
+one flag.
 
 The gate exit codes propagate verbatim from `bca check`: **`0`
 clean, `2` on any threshold violation (hard or soft), `1` on tool
@@ -265,7 +254,6 @@ exclude     := ".bcaignore"
 thresholds  := "bca-thresholds.toml"
 baseline    := ".bca-baseline.toml"
 headroom    := env_var_or_default("BCA_HEADROOM", "0.95")
-py          := env_var_or_default("PY", "python3")
 
 # `--num-jobs` defaults to the effective CPU count, so the skeleton
 # no longer threads `$(nproc)` through `just` (issue #383). Override
@@ -277,10 +265,8 @@ self-scan:
         check --config {{thresholds}} --baseline {{baseline}}
 
 self-scan-headroom: self-scan
-    BCA_HEADROOM={{headroom}} \
-        BCA_THRESHOLDS={{thresholds}} \
-        BCA_BASELINE={{baseline}} \
-        {{py}} ./utils/bca-self-scan-headroom.py {{bca}} {{base_args}}
+    {{bca}} {{base_args}} \
+        check --config {{thresholds}} --headroom {{headroom}} --baseline {{baseline}}
 
 self-scan-write-baseline:
     {{bca}} {{base_args}} \
@@ -289,11 +275,8 @@ self-scan-write-baseline:
 # Like the Make skeleton, never compose this with `self-scan-write-baseline`
 # in parallel — they race on the same {{baseline}} file.
 self-scan-write-baseline-headroom:
-    BCA_HEADROOM={{headroom}} \
-        BCA_THRESHOLDS={{thresholds}} \
-        BCA_BASELINE={{baseline}} \
-        BCA_HEADROOM_WRITE_BASELINE={{baseline}} \
-        {{py}} ./utils/bca-self-scan-headroom.py {{bca}} {{base_args}}
+    {{bca}} {{base_args}} \
+        check --config {{thresholds}} --headroom {{headroom}} --write-baseline {{baseline}}
 ```
 
 ## Skeleton: `package.json` scripts
@@ -309,33 +292,19 @@ when debugging:
 {
   "scripts": {
     "self-scan": "bca --paths . --exclude-from .bcaignore check --config bca-thresholds.toml --baseline .bca-baseline.toml",
-    "self-scan-headroom": "npm run self-scan && python3 ./utils/bca-self-scan-headroom.py bca --paths . --exclude-from .bcaignore",
+    "self-scan-headroom": "bca --paths . --exclude-from .bcaignore check --config bca-thresholds.toml --headroom 0.95 --baseline .bca-baseline.toml",
     "self-scan-write-baseline": "bca --paths . --exclude-from .bcaignore check --config bca-thresholds.toml --write-baseline .bca-baseline.toml",
-    "self-scan-write-baseline-headroom": "BCA_HEADROOM_WRITE_BASELINE=.bca-baseline.toml python3 ./utils/bca-self-scan-headroom.py bca --paths . --exclude-from .bcaignore"
+    "self-scan-write-baseline-headroom": "bca --paths . --exclude-from .bcaignore check --config bca-thresholds.toml --headroom 0.95 --write-baseline .bca-baseline.toml"
   }
 }
 ```
 
-Three portability footnotes for the npm tier:
-
-- **Env vars beat shell expansion.** The helper reads `BCA_HEADROOM`
-  from the environment (default `0.95`), so overriding the band is
-  `BCA_HEADROOM=0.90 npm run self-scan-headroom` on POSIX shells. On
-  Windows `cmd.exe`, set the variable separately or use
-  [`cross-env`](https://www.npmjs.com/package/cross-env):
-  `cross-env BCA_HEADROOM=0.90 npm run self-scan-headroom`. Avoid
-  `${VAR:-default}` *as a primary configuration mechanism* — `cmd.exe`
-  passes it through literally.
-- **`python3` vs `python`.** The stock python.org Windows installer
-  ships `python.exe` and `py.exe` but no `python3` alias. Replace
-  the literal `python3` above with `py -3` (Windows launcher) or
-  add a one-line `scripts/python3.cmd` shim that forwards to
-  `py -3`. macOS / Linux / WSL hosts have `python3` on `PATH` by
-  default.
-- **Use `cross-env` (or `pnpm exec --shell`) if you need any env
-  var to be portable across the package.json users' shells.** Mixing
-  `bash`-isms into `scripts` is the most common source of "works on
-  my Mac, broken on a Windows reviewer's machine" pings.
+Because the soft tier is now a plain `bca check` invocation, the npm
+scripts are byte-identical across shells — no helper script, no
+`python3`-vs-`py` alias to paper over, no env-var-vs-shell-expansion
+portability traps. To widen the band, edit the literal `0.95` in the
+script (or wire it through your task runner of choice); the flag
+parses the same on every platform.
 
 Pair with [`husky`](https://typicode.github.io/husky/) or
 [`pre-commit`](https://pre-commit.com/) so the same scripts run on
@@ -381,115 +350,6 @@ files and miss the cross-file effect of a baseline refresh.
 > pin the framework with `pre-commit --version` ≥ 3.2.0 in the
 > dev-tooling docs so this contradiction does not surface
 > silently.
-
-## Helper script
-
-The headroom helper exists because `bca check`'s
-`--threshold name=value` flag accepts overrides on the command
-line. The helper reads the TOML, multiplies, and re-emits.
-
-A ~40-line implementation suitable for any project. It is a
-condensed restatement of `big-code-analysis`'s own
-[`utils/bca-self-scan-headroom.py`](https://github.com/dekobon/big-code-analysis/blob/main/utils/bca-self-scan-headroom.py)
-— same env-var contract, same defensive checks, same exit codes —
-trimmed for in-line readability:
-
-```python
-#!/usr/bin/env python3
-"""Scale every threshold by $BCA_HEADROOM and run bca check."""
-from __future__ import annotations
-import os, subprocess, sys
-from pathlib import Path
-
-try:
-    import tomllib  # Python 3.11+
-except ImportError:  # pragma: no cover
-    import tomli as tomllib  # `pip install tomli` on 3.9/3.10
-
-def main() -> int:
-    if len(sys.argv) < 2:
-        print("usage: bca-self-scan-headroom.py <bca-invocation...>", file=sys.stderr)
-        return 64
-
-    raw = os.environ.get("BCA_HEADROOM") or "0.95"  # treat '' as unset
-    try:
-        ratio = float(raw)
-    except ValueError:
-        print(f"BCA_HEADROOM must be a number; got {raw!r}", file=sys.stderr)
-        return 64
-    if not 0.0 < ratio <= 1.0:
-        print(f"BCA_HEADROOM must be in (0, 1]; got {ratio}", file=sys.stderr)
-        return 64
-
-    thresholds_path = Path(os.environ.get("BCA_THRESHOLDS") or "bca-thresholds.toml")
-    baseline_path = Path(os.environ.get("BCA_BASELINE") or ".bca-baseline.toml")
-    if not thresholds_path.is_file():
-        print(f"missing {thresholds_path}", file=sys.stderr)
-        return 1
-    cfg = tomllib.loads(thresholds_path.read_text(encoding="utf-8"))
-    thresholds = cfg.get("thresholds", {})
-    if not thresholds:
-        print(f"no [thresholds] table in {thresholds_path}", file=sys.stderr)
-        return 1
-
-    flags: list[str] = []
-    for name, limit in thresholds.items():
-        # Float so a fractional scaled limit (e.g. 6.65 for nargs=7
-        # at BCA_HEADROOM=0.95) survives — flooring to int silently
-        # widens the band.
-        flags += ["--threshold", f"{name}={limit * ratio:.6g}"]
-
-    write_target = os.environ.get("BCA_HEADROOM_WRITE_BASELINE")
-    if write_target:
-        cmd = [*sys.argv[1:], "check", "--write-baseline", write_target, *flags]
-    else:
-        cmd = [*sys.argv[1:], "check", "--baseline", str(baseline_path), *flags]
-    return subprocess.call(cmd)
-
-if __name__ == "__main__":
-    sys.exit(main())
-```
-
-Five implementation details that matter in practice:
-
-- **Emit a float, not an int.** `bca check --threshold` parses
-  every value as `f64`, and the offender test is
-  `value > limit` (strict). At `BCA_HEADROOM=0.95`, `nargs=7`
-  scales to `6.65`. Flooring to `6` would silently widen the band
-  by an extra ratio step. The `{:.6g}` format truncates
-  float-multiplication artefacts (`6.6499999999999995`) without
-  losing precision on the largest thresholds in the file.
-- **Validate the ratio.** The half-open interval `(0, 1]` is the
-  only sensible range. `0` disables the gate; values above `1`
-  would make the soft tier looser than the hard tier and fire
-  *after* CI — useless. The `or "0.95"` idiom treats both unset
-  and set-but-empty (`BCA_HEADROOM=` in a stripped CI env) as the
-  default, so a misconfigured matrix variable does not exit 64
-  with the confusing message `got ''`.
-- **Same baseline as the hard tier.** The soft tier `--baseline`
-  must point at the exact same file the hard tier writes; otherwise
-  every hard-tier offender re-fires on the soft tier. The helper
-  reads `BCA_BASELINE` from the env (default `.bca-baseline.toml`)
-  so renaming the file in one place — the Make / `just` recipe —
-  propagates to both tiers without editing the Python.
-- **Read everything from the environment, not `argv`.** Env-var
-  propagation works the same in `make`, `just`, and `npm` scripts
-  on every platform; CLI parameter expansion (`${HEADROOM:-0.95}`)
-  does not — Windows `cmd.exe` passes it through literally. Argv
-  carries only the literal `bca` invocation prefix; the four
-  configuration knobs (`BCA_HEADROOM`, `BCA_THRESHOLDS`,
-  `BCA_BASELINE`, `BCA_HEADROOM_WRITE_BASELINE`) all come from
-  `os.environ`.
-- **Defensive diagnostics.** The argv-length, file-exists, and
-  empty-`[thresholds]` checks all exit before constructing a `bca`
-  command, with stderr messages that name the helper rather than
-  the downstream tool. Without them, a missing config file
-  produces a confusing "no thresholds defined" error from `bca`
-  itself, and the user has to bisect whether the helper, the
-  config, or `bca` is at fault. The fallback `import tomli as
-  tomllib` keeps the script working on Python 3.9/3.10 hosts
-  (RHEL 8, Ubuntu 20.04, Debian bullseye); on 3.11+ `tomllib` is
-  stdlib and `tomli` is not needed.
 
 ## Composition with the broader baseline workflow
 

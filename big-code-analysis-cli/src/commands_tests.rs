@@ -336,6 +336,7 @@ fn check_args_for_remediation(
         summary_file: None,
         no_remediation,
         print_effective_config: None,
+        headroom: None,
     }
 }
 
@@ -539,6 +540,7 @@ fn effective_config_toml_roundtrips_through_threshold_config_schema() {
             exclude_tests: true,
             changed_only: false,
             since: None,
+            headroom: None,
         },
     };
 
@@ -575,6 +577,7 @@ fn effective_config_json_serializes_threshold_overrides() {
             exclude_tests: false,
             changed_only: false,
             since: None,
+            headroom: None,
         },
     };
     let json = serde_json::to_string(&effective).expect("serialize EffectiveConfig to JSON");
@@ -620,4 +623,57 @@ fn effective_config_reflects_resolved_threshold_set() {
     assert_eq!(effective.check.paths, vec!["src/".to_owned()]);
     assert_eq!(effective.check.include, vec!["*.rs".to_owned()]);
     assert!(effective.check.exclude_tests);
+}
+
+// --- Headroom scaling (#373) ---
+
+/// `scale_threshold` must trim the float-multiplication artifact so the
+/// emitted limit is the same readable value the Python helper produced
+/// (`{:.6g}`). The canonical case is `nargs = 7`: `7 * 0.95` is
+/// `6.6499999999999995` in IEEE-754, which must round to exactly `6.65`.
+#[test]
+#[allow(clippy::float_cmp)] // The exact rounded output is the contract under test.
+fn scale_threshold_trims_float_artifact_to_six_sig_figs() {
+    assert_eq!(scale_threshold(7.0, 0.95), 6.65);
+}
+
+/// Exact products must pass through untouched: `50_000 * 0.95` is
+/// representable as `47_500.0`, so rounding must not perturb it. Pins
+/// that the 6-sig-fig rounding preserves full precision for the
+/// largest threshold in `bca-thresholds.toml` (`halstead.effort`).
+#[test]
+#[allow(clippy::float_cmp)] // The exact rounded output is the contract under test.
+fn scale_threshold_preserves_large_exact_products() {
+    assert_eq!(scale_threshold(50_000.0, 0.95), 47_500.0);
+}
+
+/// `ratio == 1.0` is the documented no-op: every limit must survive
+/// scaling byte-for-byte so `--headroom 1.0` is a true parity run with
+/// the hard gate.
+#[test]
+#[allow(clippy::float_cmp)] // ratio == 1.0 must be a bit-exact identity.
+fn scale_threshold_ratio_one_is_identity() {
+    for &limit in &[0.0, 7.0, 15.0, 300.0, 50_000.0] {
+        assert_eq!(scale_threshold(limit, 1.0), limit);
+    }
+}
+
+/// A configured limit of `0` ("no value permitted") must stay `0`
+/// after scaling — `log10(0)` is `-inf`, so the degenerate input has
+/// to be short-circuited rather than fed through the magnitude maths.
+#[test]
+#[allow(clippy::float_cmp)] // A zero limit must stay bit-exact zero.
+fn scale_threshold_zero_limit_stays_zero() {
+    assert_eq!(scale_threshold(0.0, 0.5), 0.0);
+}
+
+/// A subnormal-range limit must not poison the result with `NaN`: the
+/// sig-fig `factor` overflows to infinity for such inputs, so the
+/// function returns the scaled value unrounded. No real threshold is
+/// this small, but `scale_threshold` must stay total — a `NaN` would
+/// later be rejected by `ThresholdSet::build` with a confusing error.
+#[test]
+fn scale_threshold_subnormal_limit_stays_finite() {
+    let scaled = scale_threshold(1e-320, 0.5);
+    assert!(scaled.is_finite(), "expected finite, got {scaled}");
 }

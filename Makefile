@@ -406,8 +406,11 @@ self-scan:
 
 self-scan-headroom:
 	@echo "bca self-scan (soft gate, BCA_HEADROOM=$${BCA_HEADROOM:-0.95})..."
-	@python3 $(BASE_DIR)utils/bca-self-scan-headroom.py \
-	  $(SELF_SCAN_BCA) $(SELF_SCAN_BASE_ARGS)
+	@$(SELF_SCAN_BCA) $(SELF_SCAN_BASE_ARGS) \
+	  check \
+	  --config bca-thresholds.toml \
+	  --headroom $${BCA_HEADROOM:-0.95} \
+	  --baseline .bca-baseline.toml
 
 self-scan-write-baseline:
 	@echo "Refreshing .bca-baseline.toml from current offenders..."
@@ -424,9 +427,11 @@ self-scan-write-baseline:
 # the new headroom band rather than firing on every commit.
 self-scan-write-baseline-headroom:
 	@echo "Refreshing .bca-baseline.toml from current soft-tier offenders (BCA_HEADROOM=$${BCA_HEADROOM:-0.95})..."
-	@BCA_HEADROOM_WRITE_BASELINE=.bca-baseline.toml \
-	  python3 $(BASE_DIR)utils/bca-self-scan-headroom.py \
-	  $(SELF_SCAN_BCA) $(SELF_SCAN_BASE_ARGS)
+	@$(SELF_SCAN_BCA) $(SELF_SCAN_BASE_ARGS) \
+	  check \
+	  --config bca-thresholds.toml \
+	  --headroom $${BCA_HEADROOM:-0.95} \
+	  --write-baseline .bca-baseline.toml
 
 # ---------------------------------------------------------------------------
 # Python tooling (big-code-analysis-py)

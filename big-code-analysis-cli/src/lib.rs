@@ -481,6 +481,20 @@ struct CheckArgs {
         conflicts_with = "write_baseline",
     )]
     print_effective_config: Option<PrintConfigFormat>,
+    /// Scale every threshold from `--config` (or `bca.toml`'s
+    /// `[thresholds]` table) by this ratio before comparing against
+    /// offenders. Accepts a value in `(0, 1]`: `1.0` is a no-op;
+    /// `0.95` trips the gate on functions that have reached 95% of
+    /// any limit — an early-warning "soft tier" that fires before the
+    /// hard 100% gate. Explicit `--threshold <metric>=<value>`
+    /// overrides are absolute: they are applied *after* scaling and
+    /// are NOT rescaled (the documented resolution order is config →
+    /// scale by `--headroom` → `--threshold` overrides). Stacks with
+    /// `--write-baseline`: the baseline then captures every offender
+    /// at the scaled limits (a superset of the hard-tier offenders).
+    /// Out-of-range values exit 1.
+    #[clap(long = "headroom", value_name = "RATIO")]
+    headroom: Option<f64>,
 }
 
 /// Arguments for the `init` subcommand. Pre-#374 form: scaffolds

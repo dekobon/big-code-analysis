@@ -919,3 +919,216 @@ fn check_print_effective_config_toml_roundtrips_through_config() {
         "roundtripped TOML must keep loc.sloc: {stdout2}"
     );
 }
+
+// ─── --headroom soft-tier scaling (#373) ──────────────────────────────
+//
+// `classify` in BRANCHY_RUST has cyclomatic == 5. These tests pin the
+// documented resolution order (config → scale by --headroom →
+// --threshold overrides absolute) and the exit-code contract. Config
+// fixtures reuse `write_fixture` with a `thresholds.toml` name.
+
+/// A config limit that is clean at full scale must become an offender
+/// once `--headroom` shrinks it below the function's value. With
+/// `cyclomatic = 100` scaled by `0.01` the limit is `1.0`, so
+/// `classify` (cyclomatic 5) trips the gate.
+#[test]
+fn check_headroom_scales_config_limit_into_offender() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let cfg = write_fixture(&dir, "thresholds.toml", "[thresholds]\ncyclomatic = 100\n");
+
+    // Sanity: clean at full scale.
+    cli()
+        .args(["--paths", &path, "check", "--config", &cfg])
+        .assert()
+        .success();
+
+    // Scaled to 1.0 → offender.
+    cli()
+        .args([
+            "--paths",
+            &path,
+            "check",
+            "--config",
+            &cfg,
+            "--headroom",
+            "0.01",
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("classify"))
+        .stderr(predicate::str::contains("cyclomatic"))
+        .stderr(predicate::str::contains("(limit 1)"));
+}
+
+/// `--headroom 1.0` is the documented no-op. The limit is pinned at the
+/// strict boundary (`cyclomatic = 5`, exactly `classify`'s value, and
+/// the offender test is `value > limit`), so any erroneous downward
+/// scaling at ratio `1.0` would flip the run to an offender (exit 2)
+/// and fail this test — a looser limit like `100` would mask that.
+#[test]
+fn check_headroom_one_is_noop() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let cfg = write_fixture(&dir, "thresholds.toml", "[thresholds]\ncyclomatic = 5\n");
+
+    cli()
+        .args([
+            "--paths",
+            &path,
+            "check",
+            "--config",
+            &cfg,
+            "--headroom",
+            "1.0",
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::is_empty());
+}
+
+/// Out-of-range ratios are a usage error: exit 1 (tool error, not the
+/// exit-2 threshold-exceeded code) with a clear stderr message. Covers
+/// both bounds of the half-open `(0, 1]` interval.
+#[test]
+fn check_headroom_out_of_range_exits_one() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let cfg = write_fixture(&dir, "thresholds.toml", "[thresholds]\ncyclomatic = 100\n");
+
+    // `--headroom=<v>` (joined form) so clap forwards a leading-`-`
+    // value to our validator instead of treating it as a flag.
+    for ratio in ["--headroom=1.5", "--headroom=0", "--headroom=-0.5"] {
+        cli()
+            .args(["--paths", &path, "check", "--config", &cfg, ratio])
+            .assert()
+            .code(1)
+            .stderr(predicate::str::contains("--headroom must be in (0, 1]"));
+    }
+}
+
+/// `--threshold` overrides are absolute: they land *after* scaling and
+/// are not themselves scaled. Config `cyclomatic = 2` would scale to
+/// `1.0` (offender), but the explicit `--threshold cyclomatic=8`
+/// replaces it with an un-scaled `8` (clean for `classify`'s 5). If the
+/// override were scaled to `4`, `classify` would trip — so a clean exit
+/// proves the override stayed absolute.
+#[test]
+fn check_headroom_does_not_scale_cli_threshold_override() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let cfg = write_fixture(&dir, "thresholds.toml", "[thresholds]\ncyclomatic = 2\n");
+
+    cli()
+        .args([
+            "--paths",
+            &path,
+            "check",
+            "--config",
+            &cfg,
+            "--threshold",
+            "cyclomatic=8",
+            "--headroom",
+            "0.5",
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::is_empty());
+}
+
+/// `--headroom` with no config to scale is a no-op (because
+/// `--threshold` limits are absolute), so it emits a one-line note
+/// rather than silently appearing to take effect.
+#[test]
+fn check_headroom_without_config_warns_and_noops() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+
+    cli()
+        .args([
+            "--paths",
+            &path,
+            "check",
+            "--threshold",
+            "cyclomatic=100",
+            "--headroom",
+            "0.5",
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "--headroom has no effect without --config thresholds",
+        ));
+}
+
+/// `--headroom` stacks with `--write-baseline`: the baseline captures
+/// offenders at the *scaled* limits. A subsequent `--baseline` run at
+/// the same ratio then suppresses them.
+#[test]
+fn check_headroom_write_baseline_captures_scaled_offenders() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let cfg = write_fixture(&dir, "thresholds.toml", "[thresholds]\ncyclomatic = 100\n");
+    let baseline = dir.path().join("baseline.toml");
+    let baseline_str = baseline.to_str().unwrap();
+
+    // Write a baseline at the scaled (1.0) limit: classify is captured.
+    cli()
+        .args([
+            "--paths",
+            &path,
+            "check",
+            "--config",
+            &cfg,
+            "--headroom",
+            "0.01",
+            "--write-baseline",
+            baseline_str,
+        ])
+        .assert()
+        .success();
+    let body = fs::read_to_string(&baseline).expect("baseline readable");
+    assert!(
+        body.contains("classify") && body.contains("cyclomatic"),
+        "baseline must capture the scaled-tier offender; was:\n{body}"
+    );
+
+    // Re-run filtered by that baseline at the same ratio: suppressed.
+    cli()
+        .args([
+            "--paths",
+            &path,
+            "check",
+            "--config",
+            &cfg,
+            "--headroom",
+            "0.01",
+            "--baseline",
+            baseline_str,
+        ])
+        .assert()
+        .success();
+}
+
+/// `--print-effective-config` must show the post-scaling `[thresholds]`
+/// values and record the applied `--headroom` ratio for provenance.
+#[test]
+fn check_headroom_print_effective_config_shows_scaled_values_and_ratio() {
+    let dir = TempDir::new().unwrap();
+    let cfg = write_fixture(&dir, "thresholds.toml", "[thresholds]\ncyclomatic = 100\n");
+
+    cli()
+        .args([
+            "check",
+            "--config",
+            &cfg,
+            "--headroom",
+            "0.5",
+            "--print-effective-config",
+        ])
+        .assert()
+        .success()
+        // 100 * 0.5 = 50 (rendered as a float by the TOML serializer).
+        .stdout(predicate::str::contains("cyclomatic = 50.0"))
+        .stdout(predicate::str::contains("headroom = 0.5"));
+}

@@ -23,6 +23,22 @@ for historical reference.
 
 ### Added
 
+- `bca check --headroom <ratio>` — scales every threshold from
+  `--config` (or `bca.toml`'s `[thresholds]`) by a ratio in `(0, 1]`
+  before the offender comparison, implementing the soft-tier
+  early-warning gate natively
+  ([#373](https://github.com/dekobon/big-code-analysis/issues/373)).
+  `0.95` (the default knob in the local-gates recipe) fires on
+  functions that have reached 95% of any limit; `1.0` is a no-op
+  parity run with the hard gate; out-of-range values exit 1.
+  Explicit `--threshold name=value` overrides are absolute and are
+  applied after scaling (resolution order: config → `--headroom` →
+  `--threshold`). Stacks with `--write-baseline` (the baseline then
+  captures offenders at the scaled limits) and is surfaced by
+  `--print-effective-config`. Replaces the
+  `utils/bca-self-scan-headroom.py` helper, which is removed;
+  `make self-scan-headroom` and the local-gates book recipe now
+  invoke the flag directly. Additive, minor bump.
 - `metric_catalog` module — a single canonical registry of metric
   metadata ([#397](https://github.com/dekobon/big-code-analysis/issues/397)).
   Public items: `metric_catalog::{MetricInfo, MetricFamily, MetricRow,
