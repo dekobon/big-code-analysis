@@ -733,9 +733,20 @@ impl Npa for PythonCode {
         //       def __init__(self): self.value = None
         //       def reset(self):    self.value = None
         // counts `value` once, not twice. Closes #215.
-        let class_level = python_count_class_level_attrs(&body);
-        let self_attrs = python_count_unique_self_attrs(&body, code);
-        let total = class_level + self_attrs;
+        //
+        // The class-level and instance passes share one `seen` set so a
+        // class default and an instance write of the same name collapse:
+        //   class C:
+        //       x = 1                       # class default
+        //       def __init__(self): self.x = 2   # instance shadows it
+        // counts `x` once (#412 dedup). Typical Python classes declare
+        // under a dozen attributes; `with_capacity(8)` covers the common
+        // case without a rehash and costs negligibly when fewer.
+        let mut seen: std::collections::HashSet<&[u8]> =
+            std::collections::HashSet::with_capacity(8);
+        python_collect_class_level_attrs(&body, code, &mut seen);
+        python_collect_unique_self_attrs(&body, code, &mut seen);
+        let total = seen.len();
 
         stats.class_na += total;
         // No visibility keyword in Python — every attribute is "public".
@@ -1175,47 +1186,100 @@ fn python_class_body<'a>(class_def: &Node<'a>) -> Option<Node<'a>> {
     class_def.children().find(|c| c.kind_id() == Python::Block2)
 }
 
-// Counts class-level attribute assignments: direct
-// `ExpressionStatement` children of the class body whose contained
-// `Assignment` carries an `=` token (excluding bare type-only
-// annotations like `x: int`, which parse as `Assignment` without an
-// `=` — these declare a type but bind nothing and are not counted as
-// attributes).
-fn python_count_class_level_attrs(body: &Node) -> usize {
+// Collects the names bound by class-level attribute assignments into
+// `seen`. Walks direct `ExpressionStatement` children of the class
+// body; for each contained `Assignment` carrying an `=` token
+// (excluding bare type-only annotations like `x: int`, which parse as
+// `Assignment` without an `=` — these declare a type but bind nothing),
+// every bound *name* contributes one attribute. This counts each name,
+// not each statement, so `a = b = 3` (chained) and `p, q = 1, 2`
+// (unpacking) each contribute two attributes — mirroring Java's
+// per-`VariableDeclarator` counting (#412 (c)). Names are deduplicated
+// against the shared `seen` set so a class default `x = 1` and an
+// instance `self.x = 2` count `x` once (instance shadows the class
+// default — #412 dedup).
+fn python_collect_class_level_attrs<'a>(
+    body: &Node<'a>,
+    code: &'a [u8],
+    seen: &mut std::collections::HashSet<&'a [u8]>,
+) {
     use Python::*;
 
-    let mut count = 0_usize;
     for stmt in body.children() {
         if stmt.kind_id() != ExpressionStatement {
             continue;
         }
         for child in stmt.children() {
             if child.kind_id() == Assignment && child.first_child(|id| id == EQ).is_some() {
-                count += 1;
+                python_collect_bound_names_from_target(&child, code, seen);
             }
         }
     }
-    count
 }
 
-// Like `python_count_self_assignments` but deduplicates by the
-// attribute identifier text. Walks every method body once and
-// collects the set of unique `self.<attr>` names; the count is the
-// size of that set. Fixes #215 — re-binding `self.x` across methods
-// or across branches no longer inflates the attribute count.
-//
-// Capacity hint: typical Python classes declare under a dozen
-// instance attributes (often documented as a class-level
-// `__slots__`); `with_capacity(8)` covers the common case without
-// any rehash and costs negligibly when a class has fewer.
-fn python_count_unique_self_attrs(body: &Node, code: &[u8]) -> usize {
-    let mut seen: std::collections::HashSet<&[u8]> = std::collections::HashSet::with_capacity(8);
+// Collects the simple-identifier names bound by a class-level
+// `Assignment` target into `seen`, following chained `=` assignments
+// and unpacking targets:
+//   x = 1            → {x}
+//   a = b = 3        → {a, b}   (nested Assignment in the value)
+//   p, q = 1, 2      → {p, q}   (pattern_list / list_pattern target)
+// Only simple-name bindings contribute here; an attribute target
+// (`obj.x = …`) at class level is not a simple name binding and is
+// ignored (the self/cls instance-attribute pass handles those).
+fn python_collect_bound_names_from_target<'a>(
+    assignment: &Node<'a>,
+    code: &'a [u8],
+    seen: &mut std::collections::HashSet<&'a [u8]>,
+) {
+    let Some(target) = assignment.child(0) else {
+        return;
+    };
+    match target.kind_id().into() {
+        Python::Identifier => {
+            if let Some(name) = code.get(target.start_byte()..target.end_byte()) {
+                seen.insert(name);
+            }
+        }
+        Python::PatternList
+        | Python::ExpressionList
+        | Python::TuplePattern
+        | Python::ListPattern => {
+            for element in target.children() {
+                if element.kind_id() == Python::Identifier
+                    && let Some(name) = code.get(element.start_byte()..element.end_byte())
+                {
+                    seen.insert(name);
+                }
+            }
+        }
+        _ => {}
+    }
+    // Chained `a = b = 3`: the right operand is itself a nested
+    // `Assignment`, whose own target binds another name. Recurse so
+    // every link in the chain is counted.
+    if let Some(value) = assignment.child(assignment.child_count().saturating_sub(1))
+        && value.kind_id() == Python::Assignment
+    {
+        python_collect_bound_names_from_target(&value, code, seen);
+    }
+}
+
+// Collects the unique `self.<attr>` / `cls.<attr>` instance-attribute
+// names bound anywhere in the class's method bodies into `seen`. Walks
+// every method body once. Deduplicating by identifier text fixes #215:
+// re-binding `self.x` across methods or branches no longer inflates the
+// count. Sharing the `seen` set with the class-level pass also dedups
+// across the two (#412 dedup).
+fn python_collect_unique_self_attrs<'a>(
+    body: &Node<'a>,
+    code: &'a [u8],
+    seen: &mut std::collections::HashSet<&'a [u8]>,
+) {
     for stmt in body.children() {
         if let Some(func) = python_unwrap_function(&stmt) {
-            python_collect_self_attrs_in_subtree(&func, code, &mut seen);
+            python_collect_self_attrs_in_subtree(&func, code, seen);
         }
     }
-    seen.len()
 }
 
 fn python_collect_self_attrs_in_subtree<'a>(
@@ -1239,11 +1303,8 @@ fn python_collect_self_attrs_in_subtree<'a>(
             continue;
         }
 
-        if node.kind_id() == Assignment
-            && python_lhs_is_self_attribute(&node)
-            && let Some(name) = python_self_attr_name_bytes(&node, code)
-        {
-            seen.insert(name);
+        if node.kind_id() == Assignment {
+            python_collect_self_attrs_from_target(&node, code, seen);
         }
 
         for child in node.children() {
@@ -1252,32 +1313,94 @@ fn python_collect_self_attrs_in_subtree<'a>(
     }
 }
 
-// Returns the byte slice for the attribute identifier in a
-// `self.<attr> = …` assignment. The LHS is an `Attribute` node whose
-// last named child is the attribute identifier (the `.` and the
-// preceding `self` are siblings; the identifier comes last).
-// Borrows directly from `code` so the returned slice is the
-// canonical key for deduplication — two `self.value` assignments
-// share the same identifier text and therefore the same key.
-fn python_self_attr_name_bytes<'a>(assignment: &Node<'a>, code: &'a [u8]) -> Option<&'a [u8]> {
-    // Fully-qualified `Python::Attribute` / `Python::Identifier` — this
-    // function deliberately does NOT `use Python::*;` so unqualified
-    // `None` keeps its `Option` meaning rather than being shadowed by
-    // the `Python::None` token kind.
-    let target = assignment.child(0)?;
-    if target.kind_id() != Python::Attribute {
+// Collects `self.<attr>` / `cls.<attr>` names bound by an
+// `Assignment`'s target into `seen`. Handles both shapes:
+//   self.a = 1            → target is a single Attribute
+//   self.a, self.b = …    → target is a pattern_list / expression_list
+//                           / tuple_pattern / list_pattern whose
+//                           elements are Attributes (#412 (b))
+// A chained `self.a = self.b = 1` is handled by the caller's subtree
+// walk: the nested `Assignment` in the value is pushed onto the stack
+// and visited as its own `Assignment`, so both `a` and `b` are seen.
+fn python_collect_self_attrs_from_target<'a>(
+    assignment: &Node<'a>,
+    code: &'a [u8],
+    seen: &mut std::collections::HashSet<&'a [u8]>,
+) {
+    use Python::*;
+
+    let Some(target) = assignment.child(0) else {
+        return;
+    };
+    match target.kind_id().into() {
+        Attribute => {
+            if let Some(name) = python_self_attr_name_bytes(&target, code) {
+                seen.insert(name);
+            }
+        }
+        PatternList | ExpressionList | TuplePattern | ListPattern => {
+            // Unpacking may mix self attributes with foreign targets
+            // (`self.a, x = …`); collect only the self/cls attribute
+            // elements and skip the rest.
+            for element in target.children() {
+                if element.kind_id() == Attribute
+                    && let Some(name) = python_self_attr_name_bytes(&element, code)
+                {
+                    seen.insert(name);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+// Conventional receiver names that denote the enclosing object inside
+// a method body: `self` for instance methods, `cls` for classmethods.
+// We match the receiver bytes against these literals rather than
+// resolving the enclosing function's first parameter. The pragmatic
+// choice (per #412): reading source bytes and matching `self`/`cls` is
+// clearly better than the prior structural-only proxy (which counted
+// ANY `obj.x = …` as an instance attribute) and covers the
+// overwhelming majority of real code. A non-conventionally-named first
+// parameter is rare enough that under-counting it is preferable to the
+// over-count of treating every foreign-object write as an attribute.
+const PYTHON_SELF_RECEIVERS: [&[u8]; 2] = [b"self", b"cls"];
+
+// Returns the byte slice for the attribute identifier of a
+// `self.<attr>` / `cls.<attr>` Attribute node, or `None` when the
+// receiver is not a self/cls alias.
+//
+// `attr` is an `Attribute` node. Its first child is the receiver:
+//   self.x       → receiver is Identifier "self"      → counts
+//   db.x         → receiver is Identifier "db"        → foreign, skip
+//   self.f.g     → receiver is itself an Attribute    → skip
+// The last named child is the attribute identifier (the `.` and the
+// preceding receiver are siblings; the identifier comes last). Only a
+// direct `self.<name> = …` introduces an attribute of the class;
+// `self.f.g = …` writes attribute `g` on `self.f`, not a new attribute
+// of the class, so the nested-Attribute receiver is intentionally
+// rejected. Borrows directly from `code` so the returned slice is the
+// canonical dedup key — two `self.value` writes share the same key.
+fn python_self_attr_name_bytes<'a>(attr: &Node<'a>, code: &'a [u8]) -> Option<&'a [u8]> {
+    // Fully-qualified `Python::*` names — this function deliberately
+    // does NOT `use Python::*;` so unqualified `None` keeps its
+    // `Option` meaning rather than being shadowed by `Python::None`.
+    let receiver = attr.child(0)?;
+    if receiver.kind_id() != Python::Identifier {
         return None;
     }
-    // The grammar guarantees the trailing identifier is the last
-    // `Identifier` child of the Attribute node; `.last()` walks the
-    // children once and yields the right one.
-    let id = target
+    let receiver_bytes = code.get(receiver.start_byte()..receiver.end_byte())?;
+    if !PYTHON_SELF_RECEIVERS.contains(&receiver_bytes) {
+        return None;
+    }
+    // The trailing identifier is the last `Identifier` child of the
+    // Attribute node; `.last()` walks the children once and yields it.
+    let id = attr
         .children()
         .filter(|c| c.kind_id() == Python::Identifier)
         .last()?;
-    // First `Identifier` was the receiver (`self`); only count when
-    // we have a distinct second Identifier (the attribute name).
-    let receiver = target.child(0)?;
+    // Guard the degenerate single-identifier case: only count when the
+    // attribute name is a distinct Identifier from the receiver.
     if id.start_byte() == receiver.start_byte() {
         return None;
     }
@@ -1294,31 +1417,6 @@ fn python_unwrap_function<'a>(node: &Node<'a>) -> Option<Node<'a>> {
             .find(|c| c.kind_id() == Python::FunctionDefinition),
         _ => None,
     }
-}
-
-// Checks whether the LHS of an `Assignment` is `self.<identifier>`.
-// `Assignment` children are: target, optional `:` + type, `=`, value.
-// The target is the first child; for `self.x` it parses as an
-// `Attribute` node with three children: identifier "self", `.`, and
-// the attribute identifier. We cannot read the "self" text without
-// source bytes, so we use the structural shape (Attribute whose
-// first child is an Identifier) as a robust proxy. Standard Python
-// style binds instance attributes via the *only* available alias
-// inside a method body — the first parameter, conventionally called
-// `self` — so the structural check is a safe under-approximation:
-// it captures `self.x`, `this.x`, `cls.x` (i.e. classmethod alias),
-// and any user-renamed first parameter alike. All three are
-// idiomatic forms of "instance / class attribute assignment".
-fn python_lhs_is_self_attribute(assignment: &Node) -> bool {
-    use Python::*;
-
-    let Some(target) = assignment.child(0) else {
-        return false;
-    };
-    if target.kind_id() != Attribute {
-        return false;
-    }
-    target.child(0).is_some_and(|c| c.kind_id() == Identifier)
 }
 
 // Kotlin's grammar models classes and interfaces under a single
@@ -4085,6 +4183,156 @@ mod tests {
             assert_eq!(metric.npa.class_na_sum(), 1.0);
             insta::assert_json_snapshot!(metric.npa);
         });
+    }
+
+    /// #412 (a): a write to a *foreign* object's attribute
+    /// (`db.connection = …`, `logger.level = …`) is not an attribute of
+    /// the class. Only `self.name` — whose receiver is the `self` alias
+    /// — counts. The prior structural-only check treated every
+    /// `obj.x = …` as an instance attribute, reporting 3.
+    #[test]
+    fn python_foreign_object_writes_not_attributes() {
+        check_metrics::<PythonParser>(
+            "class Service:\n\
+             \x20   def __init__(self, db, logger):\n\
+             \x20       self.name = \"svc\"\n\
+             \x20       db.connection = None\n\
+             \x20       logger.level = \"INFO\"\n",
+            "foo.py",
+            |metric| {
+                // Only self.name; db.* and logger.* are foreign.
+                assert_eq!(metric.npa.class_na_sum(), 1.0);
+                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    /// #412 (b): tuple-unpacking instance attributes. The target of
+    /// `self.a, self.b = 1, 2` is a `pattern_list`, not a single
+    /// `Attribute`; the prior code bailed on non-Attribute targets and
+    /// missed both `a` and `b`, reporting 1 (only `self.c`).
+    #[test]
+    fn python_self_attribute_unpacking_counts_each() {
+        check_metrics::<PythonParser>(
+            "class C:\n\
+             \x20   def __init__(self):\n\
+             \x20       self.a, self.b = 1, 2\n\
+             \x20       self.c = 3\n",
+            "foo.py",
+            |metric| {
+                // a, b, c.
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    /// #412 (b) edge: unpacking that mixes a self attribute with a
+    /// foreign / local target (`self.a, x = …`) counts only the self
+    /// attribute.
+    #[test]
+    fn python_self_attribute_unpacking_skips_non_self_targets() {
+        check_metrics::<PythonParser>(
+            "class C:\n\
+             \x20   def __init__(self):\n\
+             \x20       self.a, x = 1, 2\n",
+            "foo.py",
+            |metric| {
+                // Only `a`; the bare local `x` is not an attribute.
+                assert_eq!(metric.npa.class_na_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    /// #412 (c): a multi-target class-level assignment binds one
+    /// attribute per name. `a = b = 3` (chained) binds two; `p, q = 1,
+    /// 2` (unpacking) binds two; with `x = 1` that is five names. The
+    /// prior code counted one per `=` statement, reporting 3.
+    #[test]
+    fn python_class_level_multi_target_counts_each_name() {
+        check_metrics::<PythonParser>(
+            "class C:\n    x = 1\n    a = b = 3\n    p, q = 1, 2\n",
+            "foo.py",
+            |metric| {
+                // x, a, b, p, q.
+                assert_eq!(metric.npa.class_na_sum(), 5.0);
+                assert_eq!(metric.npa.class_npa_sum(), 5.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    /// #412 (b)/(c): a chained instance assignment `self.a = self.b = 1`
+    /// binds both `a` and `b` on `self`. The nested `Assignment` in the
+    /// value is visited by the subtree walk, so both are counted.
+    #[test]
+    fn python_chained_self_assignment_counts_each() {
+        check_metrics::<PythonParser>(
+            "class C:\n    def __init__(self):\n        self.a = self.b = 1\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 2.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    /// #412 (a): a classmethod binds class attributes through the `cls`
+    /// alias; `cls.registry = …` counts, while a foreign `other.thing =
+    /// …` write in the same body does not.
+    #[test]
+    fn python_classmethod_cls_attribute_counts() {
+        check_metrics::<PythonParser>(
+            "class C:\n\
+             \x20   @classmethod\n\
+             \x20   def make(cls, other):\n\
+             \x20       cls.registry = {}\n\
+             \x20       other.thing = 1\n",
+            "foo.py",
+            |metric| {
+                // Only cls.registry; other.thing is foreign.
+                assert_eq!(metric.npa.class_na_sum(), 1.0);
+                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    /// #412 (a) edge: a nested-attribute write `self.f.g = 1` sets `g`
+    /// on `self.f`; it does NOT introduce a new attribute of the class.
+    /// The receiver of the outer Attribute is itself an Attribute
+    /// (`self.f`), not the `self` Identifier, so it is rejected.
+    #[test]
+    fn python_nested_self_attribute_not_counted() {
+        check_metrics::<PythonParser>(
+            "class C:\n    def __init__(self):\n        self.f.g = 1\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    /// #412 dedup: a class default `x = 1` and an instance write
+    /// `self.x = 2` name the same attribute; the instance binding
+    /// shadows the class default, so `x` counts once. The class-level
+    /// and instance passes share one dedup set.
+    #[test]
+    fn python_class_default_and_self_attr_dedupe() {
+        check_metrics::<PythonParser>(
+            "class C:\n    x = 1\n    def __init__(self):\n        self.x = 2\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 1.0);
+                assert_eq!(metric.npa.class_npa_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
     }
 
     #[test]
