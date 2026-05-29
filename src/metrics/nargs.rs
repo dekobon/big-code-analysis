@@ -2844,4 +2844,65 @@ proc g {x y z} { puts $x }",
             },
         );
     }
+
+    /// PEP 570 positional-only `/` and PEP 3102 keyword-only `*` markers are
+    /// punctuation, not parameters. The grammar emits them as
+    /// `positional_separator` / `keyword_separator` siblings of the real
+    /// parameter nodes; both must be excluded from nargs (issue #414).
+    #[test]
+    fn python_both_parameter_separators() {
+        // 1 function, 3 real parameters: pos_only, normal, kw_only.
+        check_metrics::<PythonParser>(
+            "def f(pos_only, /, normal, *, kw_only): pass",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.nargs.fn_args_sum(), 3.0);
+                assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+            },
+        );
+    }
+
+    /// Trailing positional-only `/` (no following parameter) is still excluded.
+    #[test]
+    fn python_positional_separator_only() {
+        // 1 function, 2 real parameters: a, b (`/` excluded).
+        check_metrics::<PythonParser>("def f(a, b, /): pass", "foo.py", |metric| {
+            assert_eq!(metric.nargs.fn_args_sum(), 2.0);
+            assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+        });
+    }
+
+    /// Leading keyword-only `*` (forcing all following parameters to be
+    /// keyword-only) is excluded.
+    #[test]
+    fn python_keyword_separator_only() {
+        // 1 function, 2 real parameters: a, b (`*` excluded).
+        check_metrics::<PythonParser>("def f(*, a, b): pass", "foo.py", |metric| {
+            assert_eq!(metric.nargs.fn_args_sum(), 2.0);
+            assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+        });
+    }
+
+    /// Lambdas accept the same keyword-only `*` separator; it is excluded
+    /// from the closure arg count.
+    #[test]
+    fn python_lambda_keyword_separator() {
+        // 1 lambda, 2 real parameters: a, b (`*` excluded).
+        check_metrics::<PythonParser>("g = lambda a, *, b: a", "foo.py", |metric| {
+            assert_eq!(metric.nargs.fn_args_sum(), 0.0);
+            assert_eq!(metric.nargs.closure_args_sum(), 2.0);
+        });
+    }
+
+    /// Regression guard: `*args` / `**kwargs` are real parameter nodes
+    /// (`list_splat_pattern` / `dictionary_splat_pattern`), not separators,
+    /// and must keep contributing to the count after the #414 fix.
+    #[test]
+    fn python_args_kwargs_still_counted() {
+        // 1 function, 3 parameters: a, *args, **kwargs.
+        check_metrics::<PythonParser>("def f(a, *args, **kwargs): pass", "foo.py", |metric| {
+            assert_eq!(metric.nargs.fn_args_sum(), 3.0);
+            assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+        });
+    }
 }

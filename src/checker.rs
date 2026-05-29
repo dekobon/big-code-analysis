@@ -399,9 +399,18 @@ impl Checker for PythonCode {
     }
 
     fn is_non_arg(node: &Node) -> bool {
+        // tree-sitter-python emits the PEP 570 positional-only marker `/`
+        // as a `positional_separator` node and the PEP 3102 keyword-only
+        // marker `*` as a `keyword_separator` node, both as direct children
+        // of the `parameters` list. They are punctuation, not parameters, so
+        // they must be excluded or they inflate nargs by one each (issue #414).
         matches!(
             node.kind_id().into(),
-            Python::LPAREN | Python::COMMA | Python::RPAREN
+            Python::LPAREN
+                | Python::COMMA
+                | Python::RPAREN
+                | Python::PositionalSeparator
+                | Python::KeywordSeparator
         )
     }
 
