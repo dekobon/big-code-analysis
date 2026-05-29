@@ -897,15 +897,26 @@ fn run_walk(globals: GlobalOpts, cfg: Config) -> HashMap<String, Vec<PathBuf>> {
         .unwrap_or_else(|e| die(format_args!("{e:?}")))
 }
 
+/// Read `path` and decode it as UTF-8, dying (exit 1) on an I/O or
+/// non-UTF-8 error. `label` names the file kind in the diagnostic —
+/// e.g. `"threshold config"`, `"baseline"`, `"bca.toml"` — producing
+/// `failed to read <label> …` / `failed to decode UTF-8 from <label> …`.
+/// Centralizes the read+decode half shared by every config/baseline
+/// loader; the caller parses the returned text itself, since the parse
+/// step differs per format (TOML schema vs. anchored baseline).
+fn read_utf8_file(path: &Path, label: &str) -> String {
+    let bytes = read_file(path).unwrap_or_else(|e| die_io(&format!("read {label}"), path, e));
+    String::from_utf8(bytes)
+        .unwrap_or_else(|e| die_io(&format!("decode UTF-8 from {label}"), path, e))
+}
+
 /// Load a `[thresholds]` table from `path`, returning the parsed map.
 /// On any I/O or parse error the process dies with exit code 1, keeping
 /// exit 2 reserved for the "thresholds exceeded" case.
 fn load_threshold_config(path: &Path) -> BTreeMap<String, f64> {
-    let bytes = read_file(path).unwrap_or_else(|e| die_io("read threshold config", path, e));
-    let text = std::str::from_utf8(&bytes)
-        .unwrap_or_else(|e| die_io("decode UTF-8 from threshold config", path, e));
+    let text = read_utf8_file(path, "threshold config");
     let cfg: ThresholdConfig =
-        toml::from_str(text).unwrap_or_else(|e| die_io("parse threshold config", path, e));
+        toml::from_str(&text).unwrap_or_else(|e| die_io("parse threshold config", path, e));
     cfg.thresholds
 }
 
@@ -914,11 +925,9 @@ fn load_threshold_config(path: &Path) -> BTreeMap<String, f64> {
 /// is derived from `path` itself, so the baseline keys are interpreted
 /// against the file's own directory.
 fn load_baseline(path: &Path) -> Baseline {
-    let bytes = read_file(path).unwrap_or_else(|e| die_io("read baseline", path, e));
-    let text = std::str::from_utf8(&bytes)
-        .unwrap_or_else(|e| die_io("decode UTF-8 from baseline", path, e));
+    let text = read_utf8_file(path, "baseline");
     let anchor = baseline::anchor_for(path);
-    Baseline::from_str(text, &anchor).unwrap_or_else(|e| die_io("parse baseline", path, e))
+    Baseline::from_str(&text, &anchor).unwrap_or_else(|e| die_io("parse baseline", path, e))
 }
 
 /// Write `bytes` to `path` atomically: create the parent directory if

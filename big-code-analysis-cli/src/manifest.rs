@@ -28,8 +28,7 @@ use std::str::FromStr;
 
 use serde::Deserialize;
 
-use crate::{CheckArgs, GlobalOpts, NumJobs, die, die_io};
-use big_code_analysis::read_file;
+use crate::{CheckArgs, GlobalOpts, NumJobs, die, die_io, read_utf8_file};
 
 /// Filename discovered by convention at (or above) the working directory.
 const MANIFEST_FILE: &str = "bca.toml";
@@ -90,15 +89,13 @@ pub(crate) fn discover_and_load() -> Option<Manifest> {
         .parent()
         .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
 
-    let bytes = read_file(&path).unwrap_or_else(|e| die_io("read bca.toml", &path, e));
-    let text = std::str::from_utf8(&bytes)
-        .unwrap_or_else(|e| die_io("decode UTF-8 from bca.toml", &path, e));
+    let text = read_utf8_file(&path, "bca.toml");
     let raw: RawManifest =
-        toml::from_str(text).unwrap_or_else(|e| die_io("parse bca.toml", &path, e));
+        toml::from_str(&text).unwrap_or_else(|e| die_io("parse bca.toml", &path, e));
 
     // The typed parse above silently drops unknown keys; a second parse
     // into a generic table lets us enumerate and warn about them.
-    warn_unknown_keys(text);
+    warn_unknown_keys(&text);
     Some(Manifest { dir, path, raw })
 }
 

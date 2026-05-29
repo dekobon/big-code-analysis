@@ -369,14 +369,14 @@ path = "big-code-analysis-cli/src/lib.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 2539277.6229766947
+value = 2520380.976290964
 
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1109.0
+value = 1118.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
@@ -397,12 +397,12 @@ path = "big-code-analysis-cli/src/lib.rs"
 function = "<file>"
 start_line = 1
 metric = "nom"
-value = 56.0
+value = 55.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
 function = "legacy_hint"
-start_line = 1005
+start_line = 1014
 metric = "halstead.effort"
 value = 59351.805921378844
 
@@ -411,14 +411,14 @@ path = "big-code-analysis-cli/src/manifest.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 394106.1464776525
+value = 372619.4100846629
 
 [[entry]]
 path = "big-code-analysis-cli/src/manifest.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 17.0
+value = 15.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/manifest.rs"
@@ -430,14 +430,14 @@ value = 7.0
 [[entry]]
 path = "big-code-analysis-cli/src/manifest.rs"
 function = "Manifest"
-start_line = 143
+start_line = 140
 metric = "halstead.effort"
 value = 153660.18089921458
 
 [[entry]]
 path = "big-code-analysis-cli/src/manifest.rs"
 function = "Manifest"
-start_line = 143
+start_line = 140
 metric = "nargs"
 value = 13.0
 
