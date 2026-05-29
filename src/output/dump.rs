@@ -394,4 +394,57 @@ mod tests {
             "row-2 declaration should show:\n{rendered}"
         );
     }
+
+    #[test]
+    fn dump_output_depth_limits_recursion() {
+        // `bca find` dumps with depth=1 (src/find.rs) to show only the
+        // matched node, not its subtree. depth=1 renders the node and stops
+        // before its children; depth=0 renders nothing. This is the only
+        // positive-depth path in production, and it is what the `depth - 1`
+        // decrement in `dump_children` guards — pin it explicitly.
+        let code = b"int a = 42;\n";
+        let parser = CppParser::new(code.to_vec(), &PathBuf::from("t.c"), None);
+        let root = parser.get_root();
+        let no_start: Option<usize> = None;
+        let no_end: Option<usize> = None;
+
+        // depth = 1: the root renders, but recursion stops before children.
+        let mut sink = NoColor::new(Vec::new());
+        {
+            let mut state = DumpState {
+                code,
+                line_start: &no_start,
+                line_end: &no_end,
+                stdout: &mut sink,
+            };
+            dump_tree_helper(&mut state, &root, "", true, 1).expect("dump to in-memory sink");
+        }
+        let rendered = String::from_utf8(sink.into_inner()).expect("dump output is utf-8");
+        assert!(
+            rendered.contains("{translation_unit:"),
+            "depth=1 should render the root:\n{rendered}"
+        );
+        assert!(
+            !rendered.contains("{declaration:"),
+            "depth=1 must not recurse into children:\n{rendered}"
+        );
+        assert_eq!(
+            rendered.lines().count(),
+            1,
+            "depth=1 renders exactly one node:\n{rendered}"
+        );
+
+        // depth = 0: nothing renders at all.
+        let mut sink_zero = NoColor::new(Vec::new());
+        {
+            let mut state = DumpState {
+                code,
+                line_start: &no_start,
+                line_end: &no_end,
+                stdout: &mut sink_zero,
+            };
+            dump_tree_helper(&mut state, &root, "", true, 0).expect("dump to in-memory sink");
+        }
+        assert!(sink_zero.into_inner().is_empty(), "depth=0 renders nothing");
+    }
 }

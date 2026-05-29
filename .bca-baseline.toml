@@ -2980,14 +2980,14 @@ path = "src/output/dump.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1091965.1168381972
+value = 1355882.3773851823
 
 [[entry]]
 path = "src/output/dump.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 397.0
+value = 450.0
 
 [[entry]]
 path = "src/output/dump.rs"
