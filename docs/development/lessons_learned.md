@@ -2729,6 +2729,27 @@ parent-repo snapshots (`csharp_not_booleans`, `php_not_booleans`,
 `tcl_not_booleans_nested`) plus five integration snapshots in the
 `big-code-analysis-output` submodule absorbed the shift.
 
+**Comprehension nesting relied on a sibling write-back the element node
+never saw (#421, `620c5aa8`, refining #417 `0f499b41`).** When Python
+cognitive complexity learned to count comprehension `for` / `if` clauses
+(#417), those clauses are *siblings* under the comprehension node, not
+parent/child, so a `for_in_clause`'s nesting increment was written back
+onto the shared comprehension `nesting_map` slot for later sibling
+clauses to read. But a comprehension nested in another comprehension's
+*element* position (`[[y for y in x if y] for x in xs if x]`) is visited
+— pre-order — *before* the outer `for_in_clause` writes its nesting
+back, so the inner comprehension's clauses never observed the outer loop
+depth and under-counted (6, where the equivalent doubly-nested explicit
+loop+if scores 10). #417 shipped this as a documented known-limitation;
+the follow-up deleted the `propagate_comprehension_nesting` write-back
+and instead derives the depth on the comprehension node itself —
+visited first in pre-order, so every descendant inherits it regardless
+of sibling order (`comprehension_element_nesting` +
+`preceding_for_clauses`). This is the working direction of the rule
+below applied deliberately: state established on the ancestor that
+pre-order reaches first, read by all descendants — never written back
+from a later sibling to an earlier one.
+
 **Lesson:** Any AST-walking metric written in pre-order treats the
 parent's combinator as a *completed* value before any child node has
 been visited. Arms keyed on a child node that try to influence the
@@ -2970,5 +2991,128 @@ prove the digest is invariant under each one with a test that actually
 applies that transformation. A test that hashes two unrelated strings
 and checks they differ does not prove insensitivity; only a
 before/after-the-edit pair does.
+
+---
+
+## 57. A structural AST shape is not a semantic identity check — read the source bytes
+
+When a metric needs to know *which* thing a node refers to — is this
+write targeting the receiver `self`, is this name the class under
+analysis — the node's structural shape is a tempting but lossy proxy.
+"An `Attribute` whose first child is an `Identifier`" *looks* like
+`self.x`, but it is equally `db.x`, `logger.x`, and every other
+`obj.attr`. The shape answers "is this an attribute access," never
+"whose attribute is it." When the source bytes are already threaded
+through the metric, the proxy is not even cheaper — it is just wrong in
+a way no shape-only test reveals.
+
+**Python NPA counted every `obj.x = …` as a class attribute (#412,
+`a06a07fa`).** `python_lhs_is_self_attribute` classified an assignment
+LHS purely by structure — an `Attribute` node with an `Identifier` first
+child — and never read the receiver text, even though `code` was in
+scope. So a `Service.__init__` wiring `self.name = "svc"` alongside
+`db.connection = None` and `logger.level = "INFO"` reported three class
+attributes instead of one; dependency-injection wiring, the most common
+shape of `__init__`, inflated NPA directly. The fix reads the receiver
+bytes and matches them against `self` / `cls` (`PYTHON_SELF_RECEIVERS`),
+borrowing from `code` so the slice doubles as the dedup key. The same
+change separated `self.f.g = 1` (writes attribute `g` on `self.f`, not a
+new attribute of the class) from `self.g = 1` — a distinction the
+structural proxy could never make.
+
+**Lesson:** When a metric's correctness hinges on *identity* — which
+object, which name, which symbol — and the source text is available,
+compare the bytes. Reserve structural pattern-matching for structural
+questions ("is this an attribute access," "is this a loop"). A
+shape-only proxy for an identity question passes every test whose
+fixtures happen to use the expected identity (every test writing
+`self.x`) and silently mis-handles every other receiver; if you must
+approximate, document it as an under-approximation and prove the
+boundary with a fixture using a *foreign* receiver. Do not reach for
+`to_string_lossy()` here (lesson #43) — use `code.get(start..end)` with
+explicit bounds.
+
+---
+
+## 58. A wrapper-node + keyword leaf is one operator, not two — and compound operators must guard their leaves
+
+tree-sitter routinely emits an operator as an outer expression node that
+*contains* the keyword token as a leaf: `await a()` is an
+`await`-expression node wrapping an `await` keyword token; `yield`,
+`lambda`, and others follow the same shape. Halstead keys distinct
+operators by `kind_id`, so listing **both** the wrapper and the leaf in
+the operator arm counts every occurrence twice — inflating `N1` and, via
+the two distinct kind ids, `n1`. The inverse trap is the *compound*
+operator: `not in` / `is not` parse as a single node that *wraps* the
+ordinary `not` / `in` / `is` leaves, each independently a valid operator
+elsewhere. Classifying the compound without suppressing its inner leaves
+counts `a not in b` as two operators.
+
+**Python Halstead double-counted `await` and split `not in` / `is not`
+(#413, `4adf1a24`).** The operator arm listed `Await | Await2` — the
+expression node *and* its keyword token — so three `await`s scored
+`n1=4, N1=8` instead of `n1=3, N1=5`, while `yield` was already correct
+(only the `Yield` node, not `Yield2`), making `await` internally
+inconsistent with its sibling. The same arm dropped `lambda`, `match`,
+`case`, and `nonlocal` entirely. The fix lists exactly one kind per
+operator (the `Await` node, the `Lambda3` keyword token) and classifies
+the compound `Notin` / `Isnot` while a guarded arm returns `Unknown`
+for `Not | In | Is` **only when their parent is `Notin` / `Isnot`** —
+so standalone `not x`, `a in b`, `a is b`, and `for x in y` keep
+counting. The guard reads `node.parent()` and falls through to
+`Operator` on `None`.
+
+**Lesson:** For any operator a grammar emits as wrapper-node + keyword
+leaf, classify exactly **one** kind and verify with `bca ops` that the
+occurrence count matches the source. This is the mirror image of
+lesson #50 — there, two independent paths summing one field *masked* a
+zero; here, one arm listing two aliases of the same token *inflates* the
+count — both invisible until you assert the exact operator stream. For a
+compound operator that wraps reusable leaves, classify the compound and
+parent-guard the leaves to `Unknown` under that compound only; a blanket
+suppression of `not` / `in` / `is` would silently drop every legitimate
+standalone use.
+
+---
+
+## 59. A rule re-implemented in every language module is a recurring regression class — give it one home
+
+When the same semantic rule is copied into each per-language
+implementation, every copy is an independent opportunity to forget it.
+The cost is not the duplication itself but the *omission by default*: a
+newly added language — or a sibling cloned from a template that predates
+the rule — ships without it and silently produces wrong output until its
+own bespoke fix lands. The regression history is the smell: when one
+issue's fix cites a chain of prior issues that fixed "the same thing" in
+other languages, the rule wants a single home.
+
+**The Halstead string-interpolation operand skip was re-patched in nine
+sites across seven issues (#420, `0b899836`).** The rule — "a string
+literal is one operand *unless* it wraps interpolation, in which case the
+wrapper yields `Unknown` because the inner expressions are walked
+separately" — was implemented independently in the JS-family macro,
+Python, C#, Kotlin, Perl, Tcl, PHP, Elixir, and Ruby `get_op_type`
+arms, with three different mechanisms, each added as its own regression
+fix: the trail `#180 → #183 → #184 → #191 → #192 → #199 → #277` is the
+same skip rediscovered per language. Any new interpolating language
+double-counted the wrapper into `N2` by omission. The fix introduces a
+`Getter::string_operand_type(node, interp_kinds)` trait default over a
+`Node::wraps_any(&[u16])` primitive; each language supplies only its own
+grammar's interpolation child-kind set, so a new language gets the skip
+for free. The two bespoke Tcl/PHP multi-kind helpers were retired, their
+exact kind sets preserved (PHP's `heredoc_body` one-level descend
+included), and the per-language rationale comments kept at each call
+site per `.claude/rules/macro-comments.md`.
+
+**Lesson:** When a rule must hold identically across the per-language
+modules that deliberately mirror each other, a `Getter` trait default
+(or a `Node` primitive) is the place to declare it once; each language
+contributes only its grammar-specific kind set. This is distinct from
+lessons #48 / #51 (a hand-rolled *list* drifting from its enum) — here
+the duplication is *behavioral*, and the compiler gives no signal when a
+language omits it. A recurring-regression issue trail (one fix per
+language for "the same bug") is the trigger to consolidate; a pure
+refactor like this is verified by zero snapshot drift across every
+affected language, including the integration snapshots.
 
 ---
