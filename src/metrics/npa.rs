@@ -4289,6 +4289,28 @@ mod tests {
         );
     }
 
+    /// Minimal regression for the hidden-alias bug: a flat *parenthesized*
+    /// or *bracketed* class-level unpacking target (`(p, q) = …`,
+    /// `[m, n] = …`) parses to the live `tuple_pattern` (179) /
+    /// `list_pattern` (180) node, not the bare `pattern_list` the
+    /// unparenthesized `p, q = …` form uses. Matching only the hidden
+    /// supertype aliases (168 / 167) dropped these entirely; both bound
+    /// names must be counted (#419 hidden-alias discipline).
+    #[test]
+    fn python_class_level_parenthesized_unpacking_counts_each() {
+        check_metrics::<PythonParser>(
+            "class C:\n\
+             \x20   (p, q) = 1, 2\n\
+             \x20   [m, n] = 3, 4\n",
+            "foo.py",
+            |metric| {
+                // p, q, m, n.
+                assert_eq!(metric.npa.class_na_sum(), 4.0);
+                assert_eq!(metric.npa.class_npa_sum(), 4.0);
+            },
+        );
+    }
+
     /// #412 (b) edge: unpacking that mixes a self attribute with a
     /// foreign / local target (`self.a, x = …`) counts only the self
     /// attribute.

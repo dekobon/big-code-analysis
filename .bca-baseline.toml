@@ -1888,21 +1888,21 @@ path = "src/metrics/cognitive.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 30451966.506555825
+value = 30415665.869877476
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 8715.0
+value = 8673.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 432.0
+value = 429.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
@@ -1916,54 +1916,54 @@ path = "src/metrics/cognitive.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 648.0
+value = 647.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "<file>"
 start_line = 1
 metric = "wmc"
-value = 173.0
+value = 172.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "PythonCode"
-start_line = 386
+start_line = 341
 metric = "halstead.effort"
-value = 113792.21376431812
+value = 122305.32389642987
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "PythonCode"
-start_line = 386
+start_line = 341
 metric = "nargs"
 value = 8.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "PythonCode::compute"
-start_line = 387
+start_line = 342
 metric = "cyclomatic"
-value = 19.0
+value = 18.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "PythonCode::compute"
-start_line = 387
+start_line = 342
 metric = "halstead.effort"
-value = 110219.71017976309
+value = 118465.54055439358
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "PythonCode::compute"
-start_line = 387
+start_line = 342
 metric = "nargs"
 value = 8.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "RubyCode"
-start_line = 1406
+start_line = 1364
 metric = "halstead.effort"
 value = 51081.30482939972
 
@@ -2511,21 +2511,21 @@ path = "src/metrics/npa.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 25213052.29772687
+value = 25316480.27828723
 
 [[entry]]
 path = "src/metrics/npa.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 4947.0
+value = 4969.0
 
 [[entry]]
 path = "src/metrics/npa.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 317.0
+value = 318.0
 
 [[entry]]
 path = "src/metrics/npa.rs"
@@ -2539,7 +2539,7 @@ path = "src/metrics/npa.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 444.0
+value = 446.0
 
 [[entry]]
 path = "src/metrics/npa.rs"

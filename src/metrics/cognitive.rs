@@ -338,51 +338,6 @@ fn increase_nesting(stats: &mut Stats, nesting: &mut usize, depth: usize, lambda
     stats.boolean_seq.reset();
 }
 
-/// Number of `for` clauses (kind id `for_clause_id`) appearing strictly
-/// before `clause` under the same comprehension `parent`.
-///
-/// A comprehension's clauses (`for_in_clause`, `if_clause`) are siblings,
-/// not parent/child. Each `for` clause is a loop that nests everything
-/// after it; an `if` clause is a filter that reads the running nesting but
-/// does not advance it (so consecutive `if` filters share a level, matching
-/// the #417 `[x for x in xs if a if b]` accounting). A clause's nesting is
-/// therefore `comprehension_inherited + (preceding for clause count)`.
-/// Deriving it from sibling position rather than a write-back into the
-/// shared parent slot makes it independent of traversal order — the fix for
-/// #421, where a comprehension in another comprehension's element position
-/// was visited before the outer clauses had written their nesting back.
-/// Extra nesting a comprehension's clauses add to its element expression,
-/// relative to the comprehension's own inherited nesting.
-///
-/// The element executes inside the body opened by the *last* clause, so it
-/// sits one level below that clause. A `for` clause has already advanced the
-/// running nesting for whatever follows it, so when the last clause is a
-/// `for` the element is exactly `for_clause_count` levels deep; when the last
-/// clause is an `if` (which reads but does not advance the running nesting),
-/// the element is one level deeper still. Establishing this on the
-/// comprehension node — visited before any child — lets a comprehension in
-/// the element position inherit the correct depth regardless of the order in
-/// which the outer comprehension's sibling clauses are traversed (#421),
-/// matching the explicit nested loop+filter form (#417).
-fn comprehension_element_nesting(
-    comprehension: &Node,
-    for_clause_id: u16,
-    if_clause_id: u16,
-) -> usize {
-    let mut for_clauses = 0;
-    let mut last_clause_is_if = false;
-    for child in comprehension.children() {
-        let kind = child.kind_id();
-        if kind == for_clause_id {
-            for_clauses += 1;
-            last_clause_is_if = false;
-        } else if kind == if_clause_id {
-            last_clause_is_if = true;
-        }
-    }
-    for_clauses + usize::from(last_clause_is_if)
-}
-
 impl Cognitive for PythonCode {
     fn compute<'a>(
         node: &Node<'a>,
@@ -414,44 +369,47 @@ impl Cognitive for PythonCode {
             // cognitive 0 while the equivalent explicit loop scored 3.
             //
             // `for_in_clause` and `if_clause` are SIBLINGS under the
-            // comprehension node, not parent/child. Each clause's nesting is
-            // therefore derived from its sibling position —
-            // `comprehension_inherited + preceding for-clause count` — rather
-            // than from a write-back into the shared parent slot. This is the
-            // #421 fix: the original #417 approach wrote a `for` clause's
-            // nesting back onto the comprehension parent so later siblings
-            // could read it, but a comprehension in the *element* position is
-            // traversed (pre-order) before the outer clauses run, so it never
-            // saw that write-back and under-counted. Position-derived nesting
-            // is independent of traversal order.
+            // comprehension node, not parent/child, and each clause's nesting
+            // depends on how many `for` clauses precede it. Rather than have
+            // each clause re-scan its siblings (O(N^2)) or write its nesting
+            // back onto the shared parent for later siblings to read, the
+            // comprehension node — visited before any of its clauses in
+            // pre-order — precomputes every clause's nesting in one pass and
+            // stashes it in that clause's own map slot, which the
+            // `ForInClause | IfClause` arm reads back. Computing it here, on
+            // the ancestor pre-order reaches first, makes the result
+            // independent of sibling traversal order; that is the #421 fix
+            // (the original #417 sibling write-back was never seen by a
+            // comprehension sitting in the *element* position, which pre-order
+            // visits before the outer clauses run, so it under-counted).
             //
-            // The comprehension node itself (visited before any child)
-            // establishes the element's nesting in its own map slot so a
-            // nested comprehension in element position inherits the full
-            // outer loop+filter depth.
+            // The same pass accumulates the element's own nesting onto the
+            // comprehension node's slot, so a nested comprehension in element
+            // position inherits the full outer loop+filter depth.
             ListComprehension
             | DictionaryComprehension
             | SetComprehension
             | GeneratorExpression => {
-                // Precompute each clause's nesting in a single pass (O(N) in
-                // the clause count, not the O(N^2) of re-scanning siblings per
-                // clause) and stash it in the clause's own map slot, which the
-                // `ForInClause | IfClause` arm reads back. Each clause sits at
-                // the comprehension's inherited nesting plus the number of
-                // `for` clauses strictly before it. Computing it here — on the
-                // comprehension node, visited before any clause in pre-order —
-                // keeps the result independent of sibling traversal order.
+                // Each clause sits at the comprehension's inherited nesting
+                // plus the number of `for` clauses strictly before it. The
+                // element executes inside the body opened by the *last* clause,
+                // so it sits `for_count` levels deep (a trailing `for` has
+                // already advanced the count) plus one more when the last
+                // clause is an `if`.
                 let mut for_count = 0;
+                let mut last_clause_is_if = false;
                 for child in node.children() {
                     let kind = child.kind_id();
-                    if kind == ForInClause as u16 || kind == IfClause as u16 {
-                        nesting_map.insert(child.id(), (nesting + for_count, depth, lambda));
-                    }
                     if kind == ForInClause as u16 {
+                        nesting_map.insert(child.id(), (nesting + for_count, depth, lambda));
                         for_count += 1;
+                        last_clause_is_if = false;
+                    } else if kind == IfClause as u16 {
+                        nesting_map.insert(child.id(), (nesting + for_count, depth, lambda));
+                        last_clause_is_if = true;
                     }
                 }
-                nesting += comprehension_element_nesting(node, ForInClause as u16, IfClause as u16);
+                nesting += for_count + usize::from(last_clause_is_if);
             }
             ForInClause | IfClause => {
                 // Nesting was precomputed on the comprehension node (visited
