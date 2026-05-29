@@ -222,6 +222,19 @@ for historical reference.
 
 ### Changed
 
+- Python's hidden `block` / `lambda` kind-id aliases are now normalized
+  behind a single `python_is_block` helper, and `is_closure` accepts the
+  currently-unseen `Lambda2` alias, with drift-guard tests mirroring the
+  `Php::String3` / `Java::MultilineStringLiteral` guards. Defensive
+  refactor; no metric output changes. Fixes
+  [#419](https://github.com/dekobon/big-code-analysis/issues/419).
+- The per-language Halstead string-interpolation operand skip (a literal
+  is one operand unless it wraps interpolation, in which case the wrapper
+  yields `Unknown` and the inner expressions are counted) is unified
+  behind a `Getter::string_operand_type` default plus a `Node::wraps_any`
+  primitive, retiring the two bespoke Tcl/PHP helpers and nine duplicated
+  sites. No metric values change. Fixes
+  [#420](https://github.com/dekobon/big-code-analysis/issues/420).
 - The AST-dump renderer (`bca dump`) is refactored internally: the
   monolithic `dump_tree_helper` (cyclomatic 32, nexits 20, nargs 8)
   is split into a state struct plus single-purpose helpers
@@ -542,6 +555,44 @@ for historical reference.
 
 ### Fixed
 
+- Python NArgs no longer counts the PEP 570 positional-only `/` and
+  PEP 3102 keyword-only `*` parameter separators as arguments. The
+  grammar emits them as `positional_separator` / `keyword_separator`
+  children of the `parameters` list; both are now excluded. Fixes
+  [#414](https://github.com/dekobon/big-code-analysis/issues/414).
+- Python LOC now counts the interior rows of a multi-line, non-docstring
+  string literal (assigned to a variable or passed as an argument) as
+  `ploc` instead of `blank`. Fixes
+  [#415](https://github.com/dekobon/big-code-analysis/issues/415).
+- Python NPA: foreign-object writes (`db.x = …`) no longer count as
+  class attributes; tuple/list-unpacking (`self.a, self.b = …`) and
+  multi-target class-level assignments (`a = b = 3`, `p, q = 1, 2`)
+  are now counted per bound name; and a class-level default and an
+  instance write of the same name are deduplicated. Fixes
+  [#412](https://github.com/dekobon/big-code-analysis/issues/412).
+- Python Halstead operator classification: `await` is no longer
+  double-counted, `lambda` / `match` / `case` / `nonlocal` are now
+  counted, and `not in` / `is not` count as one operator each (MI,
+  which consumes Halstead volume, shifts accordingly). Fixes
+  [#413](https://github.com/dekobon/big-code-analysis/issues/413).
+- Python cognitive complexity no longer charges +1 for a `finally`
+  clause; structured cleanup adds 0 per the SonarSource spec, so
+  try/except/finally now scores the same as try/except. Fixes
+  [#416](https://github.com/dekobon/big-code-analysis/issues/416).
+- Python cyclomatic complexity no longer counts `with` / `async with`
+  as a decision point; it is unconditional resource management,
+  matching the C-family `using` sibling and standard McCabe. Fixes
+  [#418](https://github.com/dekobon/big-code-analysis/issues/418).
+- Python cognitive complexity now counts comprehension and
+  generator-expression `for` / `if` clauses, matching cyclomatic
+  complexity and the equivalent explicit loop+condition. Fixes
+  [#417](https://github.com/dekobon/big-code-analysis/issues/417).
+- Python cognitive complexity no longer under-counts comprehensions
+  nested in another comprehension's element expression (e.g.
+  `[[y for y in x if y] for x in xs if x]`); they now match the
+  equivalent explicit nested loop+filter form at every depth (refines
+  [#417](https://github.com/dekobon/big-code-analysis/issues/417)).
+  Fixes [#421](https://github.com/dekobon/big-code-analysis/issues/421).
 - Cognitive complexity now counts Rust `loop {}` as a nesting
   construct. The arm in `src/metrics/cognitive.rs` matched
   `ForExpression | WhileExpression | MatchExpression` but omitted
