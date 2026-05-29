@@ -183,6 +183,12 @@ A baseline file that does not exist, is empty, has a missing or
 unsupported `version`, or fails to parse is a tool error (exit `1`),
 not a silent zero-match.
 
+Path keys are canonicalised relative to the baseline file's own
+directory (the *anchor*), so `--paths .`, `--paths src/`, and
+`--paths "$PWD"` produce byte-identical baselines and a `--baseline`
+run matches regardless of which `--paths` form generated the file —
+switch between them freely without re-running `--write-baseline`.
+
 ### Limitations
 
 - **Ambiguous symbols / anonymous functions.** Entries key on the
@@ -191,10 +197,6 @@ not a silent zero-match.
   symbol that drift beyond `--baseline-line-tolerance` apart, and
   anonymous closures/lambdas (whose synthetic symbol embeds the line).
   Both re-key as "new" on movement; refresh with `--write-baseline`.
-- **Path identity.** Entries record the path as the walker saw it.
-  Generate and consume the baseline with the same `--paths` argument
-  from the same working directory; a relative `--paths src/` and an
-  absolute `--paths /repo/src/` do not match each other.
 - **OS portability.** Paths are stored with forward slashes so a
   baseline written on one OS matches the same tree on another. Paths
   that are not valid UTF-8 fall back to a lossy display form
