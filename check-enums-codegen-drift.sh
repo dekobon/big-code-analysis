@@ -67,25 +67,22 @@ for i in "${!MODES[@]}"; do
 done
 
 # Format generated files so the diff against the rustfmt'd
-# checked-in files isn't tripped by whitespace. `fd` per
-# CLAUDE.md tool-choice rules (never `find`). The empty-tree
-# case is a no-op: `fd -X` skips invocation when no matches.
+# checked-in files isn't tripped by whitespace. The two codegen
+# output subdirs are flat and known, so glob them directly rather
+# than depend on `fd` being installed — this gate runs under
+# `make lint`, whose CI image is intentionally minimal and ships
+# no fd/fdfind. `shopt -s nullglob` (set above) makes an empty
+# codegen output a no-op: the array stays empty and rustfmt is
+# skipped. `rustfmt` is part of the Rust toolchain, always present
+# wherever the codegen above could build.
 #
 # `--edition 2024` must track the workspace + enums Cargo.toml
 # `edition = "2024"` setting; a workspace edition migration
 # requires updating this flag in lockstep with both manifests.
-if ! command -v fd >/dev/null 2>&1; then
-	# Some Debian/Ubuntu images ship `fdfind` rather than `fd`.
-	if command -v fdfind >/dev/null 2>&1; then
-		fd_bin=fdfind
-	else
-		echo "error: fd (or fdfind) is required to format codegen output" >&2
-		exit 2
-	fi
-else
-	fd_bin=fd
+generated_files=("$WORK_DIR"/languages/*.rs "$WORK_DIR"/c_langs_macros/*.rs)
+if [ "${#generated_files[@]}" -gt 0 ]; then
+	rustfmt --edition 2024 "${generated_files[@]}"
 fi
-"$fd_bin" -e rs . "$WORK_DIR" -X rustfmt --edition 2024
 
 # Detect drift in both directions:
 #   1. Every codegen output must match a checked-in file.

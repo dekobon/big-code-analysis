@@ -236,28 +236,23 @@ class DriftGateTest(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("enums:", result.stderr)
 
-    def test_neither_fd_nor_fdfind_exits_2(self) -> None:
-        # The script requires `fd` or `fdfind`. With PATH
-        # pruned to a directory containing neither, the script
-        # must exit 2 with an actionable error.
+    def test_independent_of_fd(self) -> None:
+        # The script must not depend on `fd`/`fdfind`: it globs the
+        # flat codegen output dirs and rustfmt's them directly.
+        # Prepend a dir whose `fd`/`fdfind` stubs exit non-zero
+        # (rather than pruning PATH, which would also hide cargo and
+        # rustfmt). A clean tree must still pass (exit 0): if the
+        # script ever calls fd again, the broken stub trips `set -e`
+        # and this test fails. Guards the regression where the gate
+        # hard-required fd and broke CI's minimal lint image.
+        stub_dir = self.tmpdir / "fd-blocker"
+        stub_dir.mkdir()
+        for name in ("fd", "fdfind"):
+            stub = stub_dir / name
+            stub.write_text("#!/bin/sh\nexit 127\n", encoding="utf-8")
+            stub.chmod(0o755)
         env = os.environ.copy()
-        empty_path = self.tmpdir / "empty-path"
-        empty_path.mkdir()
-        # Keep just /bin and /usr/bin for `bash`, `cargo`, etc.,
-        # but symlink them under a private dir without fd. We
-        # achieve this by setting PATH to a stripped value that
-        # finds cargo but not fd.
-        # Simpler: replace fd/fdfind in PATH by prefixing a dir
-        # containing fake "not-installed" stubs. But on systems
-        # where neither was ever in PATH, this is moot. We
-        # skip the test rather than fake it if fd IS available
-        # — the test only meaningfully runs when fd is absent,
-        # which is rare in dev environments. Document and skip.
-        if shutil.which("fd") or shutil.which("fdfind"):
-            self.skipTest("fd or fdfind present; cannot exercise absent-tool path")
-        # Otherwise (no fd available), run normally and expect
-        # exit 2 with the actionable error.
-        env["PATH"] = "/usr/bin:/bin"
+        env["PATH"] = f"{stub_dir}{os.pathsep}{env['PATH']}"
         result = subprocess.run(
             ["bash", str(self.tmpdir / SCRIPT_SRC.name)],
             capture_output=True,
@@ -265,8 +260,7 @@ class DriftGateTest(unittest.TestCase):
             check=False,
             env=env,
         )
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("fd", result.stderr.lower())
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     # --- clean-state assertions defending the diff_dir loop ---
 
