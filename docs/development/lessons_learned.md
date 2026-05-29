@@ -2937,3 +2937,38 @@ moves two gauges; a split that watches only one will pass the gate it
 was aimed at and fail the one it forgot.
 
 ---
+
+## 56. A similarity hash must exclude the dimension it claims to be insensitive to
+
+When you hash a chunk of code to match it "fuzzily" — the same function
+after a cosmetic change — the digest must omit precisely the thing the
+match is meant to tolerate. A hash that still contains that dimension
+silently fails to match the exact case it was built for, and because the
+fallback path is the rare one, no common test exercises it.
+
+**The fuzzy-baseline body hash matched everything *except* a rename,
+which was its entire reason to exist (#377).** Issue #377's
+`--baseline-fuzzy-match` keeps a renamed-but-unchanged function covered
+by hashing its body instead of keying on the (now-changed) qualified
+symbol. The first implementation hashed the function's full source span
+(`start_line..=end_line`) — but the **declaration line carrying the name
+is inside that span**, so `fn classify(...)` and `fn categorize(...)`
+produced different digests and the rename still surfaced as `[new]`. The
+headline feature was a no-op for its headline use case. It only showed
+up because the integration test `fuzzy_match_covers_renamed_function`
+asserted the *with-fuzzy* run succeeded and it didn't — the unit tests
+of the hash (`body_hash_*`) all passed, because they never renamed
+anything. The fix elides whole-word occurrences of the function's own
+bare name (declaration and recursive self-calls) before hashing, so the
+two digests agree; `body_hash_elides_own_name_so_rename_matches` and
+`body_hash_elision_is_whole_word_only` pin it.
+
+**Lesson:** A near-duplicate/similarity digest is defined as much by what
+it drops as by what it keeps. Enumerate every transformation the match is
+supposed to survive — whitespace, the symbol's own name, ordering — and
+prove the digest is invariant under each one with a test that actually
+applies that transformation. A test that hashes two unrelated strings
+and checks they differ does not prove insensitivity; only a
+before/after-the-edit pair does.
+
+---
