@@ -182,6 +182,92 @@ fn manifest_baseline_is_honored() {
         .stderr(predicate::str::contains("filtered"));
 }
 
+/// The manifest `baseline_fuzzy_match` key enables the body-hash
+/// fallback (issue #377): after renaming `classify` to `categorize`
+/// with the body unchanged, the manifest's fuzzy flag keeps the entry
+/// covered on a bare `bca check` with no extra CLI flags.
+#[test]
+fn manifest_baseline_fuzzy_match_is_honored() {
+    let dir = fixture(
+        "paths = [\".\"]\nbaseline = \".bca-baseline.toml\"\nbaseline_fuzzy_match = true\n\n[thresholds]\ncyclomatic = 1\n",
+    );
+
+    // Seed a fuzzy baseline (body_hash populated) for `classify`.
+    cli()
+        .current_dir(dir.path())
+        .args([
+            "check",
+            "--baseline-fuzzy-match",
+            "--write-baseline",
+            ".bca-baseline.toml",
+        ])
+        .assert()
+        .success();
+
+    // Rename the function; the body is byte-identical.
+    fs::write(
+        dir.path().join("branchy.rs"),
+        BRANCHY_RUST.replace("fn classify", "fn categorize"),
+    )
+    .unwrap();
+
+    // A bare run picks up both `baseline` and `baseline_fuzzy_match`
+    // from the manifest, so the body hash still covers the renamed fn.
+    cli()
+        .current_dir(dir.path())
+        .arg("check")
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("[new]").not())
+        // Confirm the renamed function was actually covered via the
+        // fuzzy fallback, not silently dropped by an empty parse.
+        .stderr(predicate::str::contains("filtered 1 violations"));
+}
+
+/// The manifest `baseline_line_tolerance` key reaches the matcher
+/// (issue #377): two C++ overloads of `f` form an ambiguous symbol
+/// group, and a manifest tolerance of 0 rejects any line drift, so a
+/// bare `bca check` surfaces them as new after a shift.
+#[test]
+fn manifest_baseline_line_tolerance_is_honored() {
+    const CPP: &str = "
+int f(int x) {
+    if (x > 0) { return 1; } else if (x > 9) { return 2; } else { return 3; }
+}
+int f(double x) {
+    if (x > 0) { return 1; } else if (x > 9) { return 2; } else { return 3; }
+}
+";
+    let dir = TempDir::new().unwrap();
+    fs::create_dir(dir.path().join(".git")).unwrap();
+    fs::write(
+        dir.path().join("bca.toml"),
+        "paths = [\".\"]\nbaseline = \".bca-baseline.toml\"\nbaseline_line_tolerance = 0\n\n[thresholds]\ncyclomatic = 1\n",
+    )
+    .unwrap();
+    let src = dir.path().join("overloads.cpp");
+    fs::write(&src, CPP).unwrap();
+
+    // The key must not be rejected as unknown.
+    cli()
+        .current_dir(dir.path())
+        .args(["check", "--write-baseline", ".bca-baseline.toml"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("unrecognized key").not())
+        .stderr(predicate::str::contains("wrote 2 baseline entries"));
+
+    // Shift both functions down; with manifest tolerance 0 the ambiguous
+    // entries no longer match and resurface as new.
+    fs::write(&src, format!("// pad\n// pad\n{CPP}")).unwrap();
+    cli()
+        .current_dir(dir.path())
+        .arg("check")
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("[new]"));
+}
+
 /// Manifest discovery climbs from the working directory to the repo
 /// root (the dir holding `.git`). Running from a nested subdirectory
 /// must still find the root `bca.toml`, and its relative `paths`

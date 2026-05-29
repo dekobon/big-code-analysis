@@ -489,6 +489,9 @@ pub(crate) fn violation_to_offender(v: Violation) -> OffenderRecord {
         metric,
         value,
         limit,
+        // The body hash is an internal baseline-matching aid, not part
+        // of the serialized offender record.
+        body_hash: _,
     } = v;
     OffenderRecord {
         path,
@@ -539,6 +542,7 @@ mod tests {
             metric: "cyclomatic",
             value: 5.0,
             limit: 1.0,
+            body_hash: None,
         }
     }
 
@@ -582,6 +586,7 @@ mod tests {
             metric: "cyclomatic",
             value: 5.0,
             limit: 1.0,
+            body_hash: None,
         };
         let offender = violation_to_offender(v);
         assert_eq!(offender.path, path);
@@ -599,6 +604,7 @@ mod tests {
             metric,
             value: 17.0,
             limit: 5.0,
+            body_hash: None,
         }
     }
 
@@ -661,6 +667,7 @@ mod tests {
             metric: "cyclomatic",
             value: 17.0,
             limit: 5.0,
+            body_hash: None,
         };
         let mut buf = Vec::new();
         write_github_annotations(&mut buf, std::iter::once(&v), DEFAULT_GITHUB_ANNOTATION_CAP)
@@ -727,6 +734,7 @@ mod tests {
             metric: "cyclomatic",
             value: 17.0,
             limit: 5.0,
+            body_hash: None,
         };
         let mut buf = Vec::new();
         write_github_annotations(&mut buf, std::iter::once(&v), DEFAULT_GITHUB_ANNOTATION_CAP)

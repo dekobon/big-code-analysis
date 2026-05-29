@@ -321,6 +321,10 @@ fn dispatch_check_file(
     pr: Option<Arc<PreprocResults>>,
     cfg: &Config,
 ) -> std::io::Result<()> {
+    // Retain the source bytes for body hashing only when fuzzy baseline
+    // matching is active — the cost (one clone per file) is paid solely
+    // by users who opted in via `--baseline-fuzzy-match`.
+    let source_for_hash = cfg.fuzzy_baseline.then(|| source.clone());
     if let Ok(space) =
         get_function_spaces_with_options(&language, source, &path, pr, cfg.metrics_options())
         && let (Some(set), Some(tx)) = (cfg.threshold_set.as_ref(), cfg.check_tx.as_ref())
@@ -332,6 +336,21 @@ fn dispatch_check_file(
         // boundary; the threshold pipeline itself stays byte-faithful.
         let mut violations = Vec::new();
         set.evaluate_with_policy(&path, &space, cfg.suppression_policy, &mut violations);
+        if let Some(src) = &source_for_hash {
+            // Stamp each offender with a normalised body digest so the
+            // baseline can match a renamed-but-unchanged function. The
+            // function's own (bare) name is elided from the digest so a
+            // pure rename still matches.
+            for v in &mut violations {
+                let name = crate::baseline::bare_name(&v.function).to_owned();
+                v.body_hash = Some(crate::baseline::hash_body(
+                    src,
+                    v.start_line,
+                    v.end_line,
+                    &name,
+                ));
+            }
+        }
         if !violations.is_empty() {
             let Ok(sender) = tx.lock() else {
                 if cfg.warning {

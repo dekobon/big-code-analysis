@@ -17,6 +17,22 @@ fn v(path: &str, function: &str, start_line: usize, metric: &'static str, value:
         metric,
         value,
         limit: 1.0,
+        body_hash: None,
+    }
+}
+
+/// Like [`v`] but with an explicit body hash, for the fuzzy-match tests.
+fn v_hashed(
+    path: &str,
+    function: &str,
+    start_line: usize,
+    metric: &'static str,
+    value: f64,
+    body_hash: u64,
+) -> Violation {
+    Violation {
+        body_hash: Some(body_hash),
+        ..v(path, function, start_line, metric, value)
     }
 }
 
@@ -31,7 +47,12 @@ fn test_anchor() -> &'static Path {
 }
 
 fn parse(text: &str) -> Result<Baseline, String> {
-    Baseline::from_str(text, test_anchor())
+    Baseline::from_str(text, test_anchor(), DEFAULT_LINE_TOLERANCE, false)
+}
+
+/// Parse with the fuzzy body-hash fallback enabled.
+fn parse_fuzzy(text: &str) -> Result<Baseline, String> {
+    Baseline::from_str(text, test_anchor(), DEFAULT_LINE_TOLERANCE, true)
 }
 
 // -- parsing / loading -------------------------------------------------
@@ -39,7 +60,7 @@ fn parse(text: &str) -> Result<Baseline, String> {
 #[test]
 fn parse_minimal_version_only() {
     let b = parse("version = 2\n").expect("minimal parse");
-    assert_eq!(b.by_key.len(), 0);
+    assert_eq!(b.by_symbol.len(), 0);
 }
 
 #[test]
@@ -53,7 +74,7 @@ fn parse_round_trip_preserves_entries() {
     );
     let rendered = render(&original).expect("render");
     let reloaded = parse(&rendered).expect("reload");
-    assert_eq!(reloaded.by_key.len(), 2);
+    assert_eq!(reloaded.by_symbol.len(), 2);
     let v_now = v("src/a.rs", "foo", 10, "cyclomatic", 5.0);
     assert!(matches!(
         reloaded.classify(&v_now),
@@ -69,7 +90,7 @@ fn parse_drops_negative_zero_values() {
     // tag. `is_sign_negative()` correctly catches `-0.0`.
     let toml = "version = 3\n[[entry]]\npath=\"a\"\nfunction=\"f\"\nstart_line=1\nmetric=\"cyclomatic\"\nvalue=-0.0\n";
     let b = parse(toml).expect("parse");
-    assert_eq!(b.by_key.len(), 0);
+    assert_eq!(b.by_symbol.len(), 0);
 }
 
 #[test]
@@ -81,7 +102,7 @@ fn parse_drops_negative_values() {
     // baseline.
     let toml = "version = 2\n[[entry]]\npath=\"a\"\nfunction=\"f\"\nstart_line=1\nmetric=\"cyclomatic\"\nvalue=-10.0\n";
     let b = parse(toml).expect("parse");
-    assert_eq!(b.by_key.len(), 0);
+    assert_eq!(b.by_symbol.len(), 0);
     // The corresponding violation classifies as `New`, not Covered
     // or Regressed, because the entry was dropped at parse time.
     assert!(matches!(
@@ -136,7 +157,7 @@ fn parse_accepts_legacy_v2_and_re_canonicalizes() {
         "version = 2\n[[entry]]\npath=\"./src/a.rs\"\nfunction=\"f\"\nstart_line=1\nmetric=\"cyclomatic\"\nvalue=5.0\n",
     )
     .expect("parse");
-    assert_eq!(b.by_key.len(), 1);
+    assert_eq!(b.by_symbol.len(), 1);
     assert!(matches!(
         b.classify(&v("src/a.rs", "f", 1, "cyclomatic", 5.0)),
         Coverage::Covered { recorded } if recorded == 5.0
@@ -164,7 +185,7 @@ fn parse_silently_ignores_unknown_metric() {
         "version = 2\n[[entry]]\npath=\"a\"\nfunction=\"f\"\nstart_line=1\nmetric=\"imaginary\"\nvalue=1.0\n",
     )
     .expect("parse");
-    assert_eq!(b.by_key.len(), 1);
+    assert_eq!(b.by_symbol.len(), 1);
     // No violation will ever have metric = "imaginary" (it's not in
     // the registry), so classify() always returns New for real input.
     let v_real = v("a", "f", 1, "cyclomatic", 1.0);
@@ -177,7 +198,7 @@ fn parse_silently_ignores_unknown_fields() {
         "version = 2\n[[entry]]\npath=\"a\"\nfunction=\"f\"\nstart_line=1\nmetric=\"cyclomatic\"\nvalue=1.0\nextra_field=42\n",
     )
     .expect("parse");
-    assert_eq!(b.by_key.len(), 1);
+    assert_eq!(b.by_symbol.len(), 1);
 }
 
 // -- from_violations ---------------------------------------------------
@@ -198,7 +219,7 @@ fn from_violations_skips_negative_values() {
         test_anchor(),
     );
     assert_eq!(file.entries.len(), 1);
-    assert_eq!(file.entries[0].function, "ok");
+    assert_eq!(file.entries[0].qualified, "ok");
 }
 
 #[test]
@@ -213,20 +234,20 @@ fn from_violations_skips_non_finite() {
         test_anchor(),
     );
     assert_eq!(file.entries.len(), 1);
-    assert_eq!(file.entries[0].function, "i");
+    assert_eq!(file.entries[0].qualified, "i");
 }
 
 #[test]
 fn from_violations_deterministic_order() {
     // Inputs are crafted so every tiebreaker in the
-    // (path, start_line, function, metric) sort is the deciding
+    // (path, qualified, start_line, metric) sort (issue #377 clusters
+    // same-symbol records together for review) is the deciding
     // comparator for at least one adjacent pair in the output:
     //
-    //   [0] vs [1]: same path + start_line + function -> metric breaks tie
-    //   [1] vs [2]: same path + start_line, different function
-    //               -> function breaks tie
-    //   [2] vs [3]: same path, different start_line
+    //   [0] vs [1]: same path + qualified + start_line -> metric breaks tie
+    //   [1] vs [2]: same path + qualified, different start_line
     //               -> start_line breaks tie
+    //   [2] vs [3]: same path, different qualified -> qualified breaks tie
     //   [3] vs [4]: different path -> path breaks tie
     let unsorted = vec![
         v("src/z.rs", "z", 100, "cyclomatic", 5.0),
@@ -237,18 +258,18 @@ fn from_violations_deterministic_order() {
     ];
     let file = from_violations(unsorted, test_anchor());
     assert_eq!(file.entries[0].path, "src/a.rs");
+    assert_eq!(file.entries[0].qualified, "a");
     assert_eq!(file.entries[0].start_line, 10);
-    assert_eq!(file.entries[0].function, "a");
     assert_eq!(file.entries[0].metric, "cognitive");
     assert_eq!(file.entries[1].path, "src/a.rs");
+    assert_eq!(file.entries[1].qualified, "a");
     assert_eq!(file.entries[1].start_line, 10);
-    assert_eq!(file.entries[1].function, "a");
     assert_eq!(file.entries[1].metric, "cyclomatic");
     assert_eq!(file.entries[2].path, "src/a.rs");
-    assert_eq!(file.entries[2].start_line, 10);
-    assert_eq!(file.entries[2].function, "b");
+    assert_eq!(file.entries[2].qualified, "a");
+    assert_eq!(file.entries[2].start_line, 99);
     assert_eq!(file.entries[3].path, "src/a.rs");
-    assert_eq!(file.entries[3].start_line, 99);
+    assert_eq!(file.entries[3].qualified, "b");
     assert_eq!(file.entries[4].path, "src/z.rs");
 }
 
@@ -282,16 +303,23 @@ fn baseline_with(entries: Vec<BaselineEntry>) -> Baseline {
         entries,
     };
     let text = render(&file).expect("render");
-    Baseline::from_str(&text, test_anchor()).expect("parse")
+    Baseline::from_str(&text, test_anchor(), DEFAULT_LINE_TOLERANCE, false).expect("parse")
 }
 
-fn entry(path: &str, function: &str, start_line: usize, metric: &str, value: f64) -> BaselineEntry {
+fn entry(
+    path: &str,
+    qualified: &str,
+    start_line: usize,
+    metric: &str,
+    value: f64,
+) -> BaselineEntry {
     BaselineEntry {
         path: path.to_string(),
-        function: function.to_string(),
+        qualified: qualified.to_string(),
         start_line,
         metric: metric.to_string(),
         value,
+        body_hash: None,
     }
 }
 
@@ -343,11 +371,155 @@ fn classify_different_function_is_new() {
 }
 
 #[test]
-fn classify_different_start_line_is_new() {
+fn classify_survives_arbitrary_line_drift_for_unique_symbol() {
+    // The headline #377 behaviour: a baseline entry whose qualified
+    // symbol is unique in the file matches the violation regardless of
+    // how far the function has drifted down the file. Adding imports or
+    // a sibling function above `f` must not re-key it as `[new]`.
     let b = baseline_with(vec![entry("a", "f", 1, "cyclomatic", 5.0)]);
     assert!(matches!(
-        b.classify(&v("a", "f", 2, "cyclomatic", 5.0)),
+        b.classify(&v("a", "f", 9_999, "cyclomatic", 5.0)),
+        Coverage::Covered { recorded } if recorded == 5.0
+    ));
+}
+
+#[test]
+fn classify_ambiguous_symbol_picks_closest_within_tolerance() {
+    // Two methods share the qualified symbol `is_valid` (e.g. the
+    // analyzer could not resolve distinct containers). The start_line
+    // disambiguator routes each violation to the nearer record so the
+    // recorded values do not cross-contaminate.
+    let b = baseline_with(vec![
+        entry("a", "is_valid", 10, "cyclomatic", 5.0),
+        entry("a", "is_valid", 200, "cyclomatic", 8.0),
+    ]);
+    // A violation at line 12 (drifted 2 from the first record) matches
+    // the value-5 record, not the value-8 one 190 lines away.
+    assert!(matches!(
+        b.classify(&v("a", "is_valid", 12, "cyclomatic", 5.0)),
+        Coverage::Covered { recorded } if recorded == 5.0
+    ));
+    // A violation at line 198 matches the value-8 record.
+    assert!(matches!(
+        b.classify(&v("a", "is_valid", 198, "cyclomatic", 8.0)),
+        Coverage::Covered { recorded } if recorded == 8.0
+    ));
+}
+
+#[test]
+fn classify_ambiguous_symbol_equidistant_tie_prefers_higher_value() {
+    // Two equidistant ambiguous records (lines 10 and 20, violation at
+    // 15). The tie breaks toward the higher recorded value (8.0), so an
+    // unplaceable violation of 7.0 is Covered rather than a spurious
+    // regression against the lower record (5.0). Deterministic
+    // regardless of entry order.
+    let b = baseline_with(vec![
+        entry("a", "f", 10, "cyclomatic", 5.0),
+        entry("a", "f", 20, "cyclomatic", 8.0),
+    ]);
+    assert!(matches!(
+        b.classify(&v("a", "f", 15, "cyclomatic", 7.0)),
+        Coverage::Covered { recorded } if recorded == 8.0
+    ));
+}
+
+#[test]
+fn classify_respects_custom_tolerance() {
+    // The tolerance value threaded from `--baseline-line-tolerance` /
+    // `baseline_line_tolerance` is honoured by `from_str`: with a tight
+    // tolerance of 2, an ambiguous-symbol violation 3 lines from the
+    // nearer record is `New`, but 2 lines away matches.
+    let file = BaselineFile {
+        version: Some(BASELINE_VERSION),
+        entries: vec![
+            entry("a", "f", 10, "cyclomatic", 5.0),
+            entry("a", "f", 100, "cyclomatic", 8.0),
+        ],
+    };
+    let text = render(&file).expect("render");
+    let tight = Baseline::from_str(&text, test_anchor(), 2, false).expect("parse");
+
+    assert!(matches!(
+        tight.classify(&v("a", "f", 12, "cyclomatic", 5.0)),
+        Coverage::Covered { recorded } if recorded == 5.0
+    ));
+    assert!(matches!(
+        tight.classify(&v("a", "f", 13, "cyclomatic", 5.0)),
         Coverage::New
+    ));
+}
+
+#[test]
+fn parse_fuzzy_tolerates_malformed_body_hash() {
+    // A hand-edited baseline with a corrupt `body_hash` still loads; the
+    // entry simply loses fuzzy eligibility (degrades to no-fuzzy) rather
+    // than aborting the parse. The qualified symbol still matches.
+    let toml = "version = 4\n[[entry]]\npath=\"a\"\nqualified=\"f\"\nstart_line=1\nmetric=\"cyclomatic\"\nvalue=5.0\nbody_hash=\"not-a-valid-hex-digest\"\n";
+    let b = parse_fuzzy(toml).expect("parse");
+    assert_eq!(b.by_symbol.len(), 1);
+    assert!(matches!(
+        b.classify(&v("a", "f", 1, "cyclomatic", 5.0)),
+        Coverage::Covered { recorded } if recorded == 5.0
+    ));
+}
+
+#[test]
+fn classify_ambiguous_symbol_beyond_tolerance_is_new() {
+    // Both records for the ambiguous symbol are far from the observed
+    // line (>50 default tolerance), so neither disambiguates — the
+    // violation is genuinely unplaceable and surfaces as New.
+    let b = baseline_with(vec![
+        entry("a", "is_valid", 10, "cyclomatic", 5.0),
+        entry("a", "is_valid", 1_000, "cyclomatic", 8.0),
+    ]);
+    assert!(matches!(
+        b.classify(&v("a", "is_valid", 500, "cyclomatic", 5.0)),
+        Coverage::New
+    ));
+}
+
+#[test]
+fn classify_fuzzy_matches_renamed_function_by_body_hash() {
+    // A function was renamed (`old_name` -> `new_name`) but its body is
+    // unchanged. The qualified symbol no longer matches, but with fuzzy
+    // matching on, the body hash routes the violation to the recorded
+    // entry. Without fuzzy it would be New.
+    let file = BaselineFile {
+        version: Some(BASELINE_VERSION),
+        entries: vec![BaselineEntry {
+            path: "a".to_string(),
+            qualified: "old_name".to_string(),
+            start_line: 1,
+            metric: "cyclomatic".to_string(),
+            value: 5.0,
+            body_hash: Some(format!("{:016x}", 0xdead_beef_u64)),
+        }],
+    };
+    let text = render(&file).expect("render");
+    let renamed = v_hashed("a", "new_name", 1, "cyclomatic", 5.0, 0xdead_beef);
+
+    let strict = parse(&text).expect("parse");
+    assert!(matches!(strict.classify(&renamed), Coverage::New));
+
+    let fuzzy = parse_fuzzy(&text).expect("parse");
+    assert!(matches!(
+        fuzzy.classify(&renamed),
+        Coverage::Covered { recorded } if recorded == 5.0
+    ));
+}
+
+#[test]
+fn classify_legacy_v3_matches_on_bare_name() {
+    // A v3 baseline stored the bare `function` name (`do_thing`). A v4
+    // violation now reports the qualified symbol `MyStruct::do_thing`.
+    // Legacy matching compares the violation's bare name against the
+    // stored bare name, so the entry still covers it — and survives
+    // line drift now, which v3's exact-line key did not.
+    let toml = "version = 3\n[[entry]]\npath=\"a\"\nfunction=\"do_thing\"\nstart_line=1\nmetric=\"cyclomatic\"\nvalue=5.0\n";
+    let b = parse(toml).expect("parse");
+    assert!(matches!(
+        b.classify(&v("a", "MyStruct::do_thing", 42, "cyclomatic", 5.0)),
+        Coverage::Covered { recorded } if recorded == 5.0
     ));
 }
 
@@ -499,7 +671,8 @@ fn from_str_defensive_anchor_normalization() {
     // a violation at `/repo/src/foo.rs` against an entry keyed
     // `src/foo.rs`.
     let toml = "version = 3\n[[entry]]\npath=\"src/foo.rs\"\nfunction=\"f\"\nstart_line=1\nmetric=\"cyclomatic\"\nvalue=5.0\n";
-    let b = Baseline::from_str(toml, Path::new("/repo/.")).expect("parse");
+    let b = Baseline::from_str(toml, Path::new("/repo/."), DEFAULT_LINE_TOLERANCE, false)
+        .expect("parse");
     assert!(matches!(
         b.classify(&Violation {
             path: PathBuf::from("/repo/src/foo.rs"),
@@ -509,6 +682,7 @@ fn from_str_defensive_anchor_normalization() {
             metric: "cyclomatic",
             value: 5.0,
             limit: 1.0,
+            body_hash: None,
         }),
         Coverage::Covered { recorded } if recorded == 5.0
     ));
@@ -757,6 +931,7 @@ fn baseline_covers_distinguishes_non_utf8_paths() {
         metric: "cyclomatic",
         value: 5.0,
         limit: 1.0,
+        body_hash: None,
     };
     let violation_b = Violation {
         path: path_b,
@@ -766,6 +941,7 @@ fn baseline_covers_distinguishes_non_utf8_paths() {
         metric: "cyclomatic",
         value: 5.0,
         limit: 1.0,
+        body_hash: None,
     };
 
     // Baseline contains only `path_a`. classify(violation_b) would
@@ -773,7 +949,96 @@ fn baseline_covers_distinguishes_non_utf8_paths() {
     // to the same lossy key.
     let file = from_violations(vec![violation_a.clone()], test_anchor());
     let rendered = render(&file).expect("render");
-    let b = Baseline::from_str(&rendered, test_anchor()).expect("parse");
+    let b =
+        Baseline::from_str(&rendered, test_anchor(), DEFAULT_LINE_TOLERANCE, false).expect("parse");
     assert!(matches!(b.classify(&violation_a), Coverage::Covered { .. }));
     assert!(matches!(b.classify(&violation_b), Coverage::New));
+}
+
+// -- bare_name / body-hash helpers (issue #377) -----------------------
+
+#[test]
+fn bare_name_strips_qualifier() {
+    assert_eq!(bare_name("MyStruct::do_thing"), "do_thing");
+    assert_eq!(bare_name("a::b::c"), "c");
+    assert_eq!(bare_name("plain"), "plain");
+    assert_eq!(bare_name("<file>"), "<file>");
+}
+
+#[test]
+fn body_hash_ignores_indentation_blank_lines_and_run_width() {
+    // The normalisation trims leading/trailing whitespace, collapses
+    // internal whitespace *runs* to one space, drops `\r`, and skips
+    // blank lines — so re-indenting, reflowing blank lines, or changing
+    // CRLF/LF must not change the digest. (It is not insensitive to the
+    // presence/absence of whitespace *between* tokens, only its width.)
+    let original = b"    let x = 1;\n    return x + 1;\n";
+    let reformatted = b"\nlet   x = 1;\r\n\n        return x  +  1;\n\n";
+    assert_eq!(
+        hash_body(original, 1, 2, ""),
+        hash_body(reformatted, 1, 6, "")
+    );
+}
+
+#[test]
+fn body_hash_distinguishes_different_bodies() {
+    assert_ne!(
+        hash_body(b"let x = 1;", 1, 1, ""),
+        hash_body(b"let x = 2;", 1, 1, "")
+    );
+}
+
+#[test]
+fn body_hash_respects_line_range() {
+    // Lines 2..=2 of a three-line body hash only the middle line.
+    let src = b"line one\nline two\nline three\n";
+    assert_eq!(hash_body(src, 2, 2, ""), hash_body(b"line two", 1, 1, ""));
+}
+
+#[test]
+fn body_hash_out_of_range_is_empty_digest() {
+    // A start past EOF yields the empty-body digest (the FNV offset
+    // basis) rather than panicking on an out-of-bounds slice.
+    let src = b"only one line";
+    assert_eq!(hash_body(src, 100, 200, ""), hash_body(b"", 1, 1, ""));
+}
+
+#[test]
+fn body_hash_elides_own_name_so_rename_matches() {
+    // The headline rule-3 property: renaming the function (declaration
+    // and recursive self-calls) leaves the digest unchanged, because the
+    // bare name is elided.
+    let before = b"fn classify(n: i32) -> i32 { classify(n - 1) }";
+    let after = b"fn categorize(n: i32) -> i32 { categorize(n - 1) }";
+    assert_eq!(
+        hash_body(before, 1, 1, "classify"),
+        hash_body(after, 1, 1, "categorize")
+    );
+}
+
+#[test]
+fn body_hash_elision_is_whole_word_only() {
+    // Eliding `is` must not corrupt the substring inside `is_valid` —
+    // two bodies that differ only in an unrelated identifier sharing the
+    // elided prefix must still hash differently.
+    let a = b"fn is() { is_valid() }";
+    let b = b"fn is() { is_ready() }";
+    assert_ne!(hash_body(a, 1, 1, "is"), hash_body(b, 1, 1, "is"));
+}
+
+#[test]
+fn body_hash_round_trips_through_hex_codec() {
+    let h = hash_body(b"some body text", 1, 1, "");
+    assert_eq!(decode_body_hash(&encode_body_hash(h)), Some(h));
+}
+
+#[test]
+fn decode_body_hash_rejects_malformed() {
+    assert_eq!(decode_body_hash("not-hex"), None);
+    assert_eq!(decode_body_hash("dead"), None); // too short
+    assert_eq!(decode_body_hash(""), None);
+    assert_eq!(
+        decode_body_hash("0123456789abcdef"),
+        Some(0x0123_4567_89ab_cdef)
+    );
 }

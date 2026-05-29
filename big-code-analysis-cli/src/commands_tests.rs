@@ -18,6 +18,7 @@ fn violation(path: &str, function: &str, value: f64, limit: f64) -> Violation {
         metric: "cyclomatic",
         value,
         limit,
+        body_hash: None,
     }
 }
 
@@ -337,6 +338,8 @@ fn check_args_for_remediation(
         no_remediation,
         print_effective_config: None,
         headroom: None,
+        baseline_line_tolerance: None,
+        baseline_fuzzy_match: false,
     }
 }
 
@@ -542,6 +545,8 @@ fn effective_config_toml_roundtrips_through_threshold_config_schema() {
             changed_only: false,
             since: None,
             headroom: None,
+            baseline_line_tolerance: None,
+            baseline_fuzzy_match: false,
         },
     };
 
@@ -580,6 +585,8 @@ fn effective_config_json_serializes_threshold_overrides() {
             changed_only: false,
             since: None,
             headroom: None,
+            baseline_line_tolerance: None,
+            baseline_fuzzy_match: false,
         },
     };
     let json = serde_json::to_string(&effective).expect("serialize EffectiveConfig to JSON");

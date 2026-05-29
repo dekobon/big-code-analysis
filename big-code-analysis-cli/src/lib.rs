@@ -504,6 +504,23 @@ struct CheckArgs {
     /// Out-of-range values exit 1.
     #[clap(long = "headroom", value_name = "RATIO")]
     headroom: Option<f64>,
+    /// Tolerance, in lines, for matching a `--baseline` entry whose
+    /// qualified symbol is ambiguous (two methods with the same name on
+    /// different `impl` blocks, overloads, collided anonymous spaces).
+    /// Unambiguous symbols match regardless of line drift; this only
+    /// disambiguates a tie. Defaults to 50. Mirrored by the
+    /// `baseline_line_tolerance` key in `bca.toml`.
+    #[clap(long = "baseline-line-tolerance", value_name = "LINES")]
+    baseline_line_tolerance: Option<usize>,
+    /// Enable rename-tolerant baseline matching: when a `--baseline`
+    /// entry's qualified symbol no longer matches but the function body
+    /// is unchanged (a rename that kept the shape), match on a
+    /// normalised body hash instead. Off by default. The hash is also
+    /// written into the baseline by `--write-baseline` when this flag is
+    /// set, so populate it once with a fuzzy write to enable fuzzy reads.
+    /// Mirrored by the `baseline_fuzzy_match` key in `bca.toml`.
+    #[clap(long = "baseline-fuzzy-match")]
+    baseline_fuzzy_match: bool,
 }
 
 /// Arguments for the `init` subcommand. Pre-#374 form: scaffolds
@@ -630,6 +647,12 @@ struct Config {
     /// their test subtrees before metric computation. See
     /// `GlobalOpts::exclude_tests` for the user-facing description.
     exclude_tests: bool,
+    /// When true (`--baseline-fuzzy-match`), the check walk stamps each
+    /// emitted [`Violation`] with a normalised body hash so the baseline
+    /// can match a renamed-but-unchanged function. Off by default; the
+    /// hashing cost (only for offending functions) is paid only when the
+    /// flag is set. Meaningful only for `Action::Check`.
+    fuzzy_baseline: bool,
 }
 
 impl Config {
@@ -658,6 +681,9 @@ impl Config {
             skip_generated: !globals.no_skip_generated,
             report_skipped: globals.report_skipped,
             exclude_tests: globals.exclude_tests,
+            // Defaults off; `run_check_walk` flips it on for the check
+            // action when `--baseline-fuzzy-match` is set.
+            fuzzy_baseline: false,
         }
     }
 
@@ -923,11 +949,13 @@ fn load_threshold_config(path: &Path) -> BTreeMap<String, f64> {
 /// Load a baseline file. Same error contract as `load_threshold_config`:
 /// any I/O, UTF-8, or schema error dies with exit code 1. The anchor
 /// is derived from `path` itself, so the baseline keys are interpreted
-/// against the file's own directory.
-fn load_baseline(path: &Path) -> Baseline {
+/// against the file's own directory. `tolerance` and `fuzzy` configure
+/// the qualified-symbol matcher (issue #377).
+fn load_baseline(path: &Path, tolerance: usize, fuzzy: bool) -> Baseline {
     let text = read_utf8_file(path, "baseline");
     let anchor = baseline::anchor_for(path);
-    Baseline::from_str(&text, &anchor).unwrap_or_else(|e| die_io("parse baseline", path, e))
+    Baseline::from_str(&text, &anchor, tolerance, fuzzy)
+        .unwrap_or_else(|e| die_io("parse baseline", path, e))
 }
 
 /// Write `bytes` to `path` atomically: create the parent directory if

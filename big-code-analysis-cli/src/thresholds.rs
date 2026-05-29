@@ -14,6 +14,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use big_code_analysis::{CodeMetrics, FuncSpace, MetricKind, SpaceKind, SuppressionPolicy};
 use serde::Deserialize;
@@ -195,8 +196,16 @@ pub(crate) struct Violation {
     pub(crate) start_line: usize,
     /// 1-based end line of the offending function space.
     pub(crate) end_line: usize,
-    /// Function/method name (or the file's display name for the top-level
-    /// space, e.g. when a file-level metric like `loc.sloc` is checked).
+    /// Qualified symbol of the offending space: the `::`-joined chain of
+    /// enclosing named container spaces (impl / class / struct / trait /
+    /// namespace / interface) and the function's own name — e.g.
+    /// `MyStruct::do_thing`. The top-level (`Unit`) space collapses to
+    /// `<file>`; anonymous/unnamed spaces (closures, lambdas) collapse to
+    /// `<anon@L{start_line}>`. This is the primary baseline-matching key
+    /// (issue #377): keying on the symbol rather than the exact
+    /// `start_line` lets a function survive line drift from edits above
+    /// it. The field name stays `function` for source-compatibility with
+    /// the many call sites built before the qualified form existed.
     pub(crate) function: String,
     /// Metric that exceeded its threshold.
     pub(crate) metric: &'static str,
@@ -204,6 +213,11 @@ pub(crate) struct Violation {
     pub(crate) value: f64,
     /// Configured limit.
     pub(crate) limit: f64,
+    /// Normalized hash of the function body, populated only when
+    /// `--baseline-fuzzy-match` is active (see [`crate::baseline`]).
+    /// `None` otherwise. Used as the last-resort baseline matcher when
+    /// the qualified symbol changed (a rename that kept the body shape).
+    pub(crate) body_hash: Option<u64>,
 }
 
 impl Violation {
@@ -351,15 +365,37 @@ fn format_regressed_tag(recorded: f64, value: f64) -> String {
     format!("[regr +{pct:.0}%]")
 }
 
-/// Resolve the function-slot token for a violation line. Top-level
-/// (`Unit`) spaces collapse to `<file>` so the file path doesn't
-/// appear twice; nested spaces carry their AST-derived name, with
-/// `<unnamed>` for the rare parse-failure case.
-fn function_token(space: &FuncSpace) -> &str {
+/// One `::`-segment for a space in the qualified-symbol chain.
+///
+/// The top-level (`Unit`) space is the file itself; it carries no
+/// symbol segment (its identity is the `path` key) so it never prefixes
+/// the functions inside it. Named spaces contribute their AST-derived
+/// name. Anonymous spaces — closures and lambdas, which every grammar
+/// surfaces as the literal `<anonymous>`, plus the `None`-name
+/// parse-failure case — collapse to `<anon@L{start_line}>` so they keep
+/// a stable-within-a-snapshot identity. Baking the line into the segment
+/// means an anonymous function re-keys when it moves (the documented
+/// degradation in `recipes/baselines.md`); named functions do not.
+fn space_segment(space: &FuncSpace) -> String {
+    const ANONYMOUS: &str = "<anonymous>";
+    match space.name.as_deref() {
+        Some(name) if name != ANONYMOUS => name.to_owned(),
+        _ => format!("<anon@L{}>", space.start_line),
+    }
+}
+
+/// The qualified symbol of `space`, given the `::`-joined symbol of its
+/// enclosing chain (`parent_prefix`, empty at file top level). `Unit`
+/// collapses to `<file>`; everything else appends its [`space_segment`].
+fn qualified_symbol(space: &FuncSpace, parent_prefix: &str) -> String {
     if matches!(space.kind, SpaceKind::Unit) {
-        "<file>"
+        return "<file>".to_owned();
+    }
+    let segment = space_segment(space);
+    if parent_prefix.is_empty() {
+        segment
     } else {
-        space.name.as_deref().unwrap_or("<unnamed>")
+        format!("{parent_prefix}::{segment}")
     }
 }
 
@@ -427,13 +463,15 @@ impl ThresholdSet {
     /// the pipeline byte-for-byte rather than being collapsed through
     /// `to_str()` / `to_string_lossy()` at this boundary.
     ///
-    /// For the top-level (`SpaceKind::Unit`) space we substitute the
-    /// literal `<file>` for the function slot: `FuncSpace::name` is the
-    /// file path there (post #128), so without the substitution the
-    /// offender line would read `path:1-100: path: cyclomatic = ...`
-    /// — the path doubled. `<file>` makes the file-level emission
-    /// distinguishable and keeps aggregate metrics like `loc.sloc`
-    /// usable.
+    /// Each violation's function slot carries the *qualified* symbol of
+    /// its space (issue #377) — the `::`-joined chain of enclosing named
+    /// containers plus the function name, e.g. `MyStruct::do_thing`. The
+    /// top-level (`SpaceKind::Unit`) space collapses to the literal
+    /// `<file>`: `FuncSpace::name` is the file path there (post #128), so
+    /// without the substitution the offender line would read
+    /// `path:1-100: path: cyclomatic = ...` — the path doubled. `<file>`
+    /// keeps the file-level emission distinguishable and keeps aggregate
+    /// metrics like `loc.sloc` usable. See [`qualified_symbol`].
     ///
     /// File-scoped suppressions live on the top-level Unit space; they
     /// apply to every nested function as well. Function-scoped
@@ -460,9 +498,17 @@ impl ThresholdSet {
         let honor = matches!(policy, SuppressionPolicy::Honor);
         let file_scope = &space.suppressed;
 
-        let mut stack: Vec<&FuncSpace> = vec![space];
-        while let Some(current) = stack.pop() {
-            let function = function_token(current);
+        // Each stack frame carries the qualified-symbol prefix of the
+        // popped space's *parent* chain (issue #377), so a violation can
+        // be stamped with the full `Container::method` symbol. The root
+        // file space starts with an empty prefix — it contributes no
+        // symbol segment of its own (its identity is the path key). The
+        // prefix is an `Rc<str>` so descending into a space's children
+        // is a refcount bump, not a per-child string copy — the walk
+        // visits every space in every file under `bca check`.
+        let mut stack: Vec<(&FuncSpace, Rc<str>)> = vec![(space, Rc::from(""))];
+        while let Some((current, parent_prefix)) = stack.pop() {
+            let qualified = qualified_symbol(current, &parent_prefix);
             for (extractor, limit) in &self.entries {
                 let value = (extractor.extract)(&current.metrics);
                 if value <= *limit {
@@ -478,16 +524,26 @@ impl ThresholdSet {
                     path: path.to_path_buf(),
                     start_line: current.start_line,
                     end_line: current.end_line,
-                    function: function.to_owned(),
+                    function: qualified.clone(),
                     metric: extractor.name,
                     value,
                     limit: *limit,
+                    body_hash: None,
                 });
             }
+            // Children inherit this space's qualified symbol as their
+            // prefix, except the file root, which stays empty so a
+            // top-level function is `foo`, not `<file>::foo`. Building
+            // the `Rc<str>` consumes `qualified` (no extra copy).
+            let child_prefix: Rc<str> = if matches!(current.kind, SpaceKind::Unit) {
+                Rc::from("")
+            } else {
+                Rc::from(qualified)
+            };
             // Push children in reverse so `pop()` visits them in source
             // order, matching the recursive form's traversal.
             for child in current.spaces.iter().rev() {
-                stack.push(child);
+                stack.push((child, Rc::clone(&child_prefix)));
             }
         }
     }

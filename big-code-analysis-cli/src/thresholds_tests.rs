@@ -145,6 +145,7 @@ fn violation_display_is_stable() {
         metric: "cyclomatic",
         value: 17.0,
         limit: 15.0,
+        body_hash: None,
     };
     assert_eq!(
         v.to_string(),
@@ -162,6 +163,7 @@ fn violation_display_keeps_fractional_precision() {
         metric: "halstead.volume",
         value: 12.5,
         limit: 10.0,
+        body_hash: None,
     };
     assert!(v.to_string().contains("= 12.5"), "{v}");
     assert!(v.to_string().contains("limit 10)"), "{v}");
@@ -194,6 +196,7 @@ fn violation_path_preserves_non_utf8_bytes() {
         metric: "cyclomatic",
         value: 5.0,
         limit: 1.0,
+        body_hash: None,
     };
 
     // Raw bytes round-trip identically — no lossy substitution.
@@ -362,6 +365,60 @@ fn tokens_threshold_never_suppressed() {
     assert_eq!(out[0].metric, "tokens");
 }
 
+// -- qualified symbols (issue #377) -----------------------------------
+
+#[test]
+fn evaluate_stamps_qualified_symbols_through_container_chain() {
+    // Unit(file) -> Impl(MyStruct) -> Function(do_thing). With a
+    // cyclomatic limit of 0 every space's default complexity of 1 trips,
+    // so each emitted violation's function slot reveals its qualified
+    // symbol: the file collapses to `<file>`, the impl keeps its bare
+    // name, and the method is qualified by its container.
+    let mut unit = space("src/foo.rs", SpaceKind::Unit, SuppressionScope::default());
+    let mut imp = space("MyStruct", SpaceKind::Impl, SuppressionScope::default());
+    imp.spaces.push(space(
+        "do_thing",
+        SpaceKind::Function,
+        SuppressionScope::default(),
+    ));
+    unit.spaces.push(imp);
+
+    let mut out = Vec::new();
+    threshold_set("cyclomatic", 0.0).evaluate_with_policy(
+        Path::new("src/foo.rs"),
+        &unit,
+        SuppressionPolicy::Ignore,
+        &mut out,
+    );
+    let names: Vec<&str> = out.iter().map(|v| v.function.as_str()).collect();
+    assert!(names.contains(&"<file>"), "{names:?}");
+    assert!(names.contains(&"MyStruct"), "{names:?}");
+    assert!(names.contains(&"MyStruct::do_thing"), "{names:?}");
+}
+
+#[test]
+fn evaluate_anonymous_space_uses_line_qualified_symbol() {
+    // A closure surfaces as the literal `<anonymous>` name; the walk
+    // rewrites it to `<anon@L{line}>` so it keeps a stable identity that
+    // bakes in the line (the documented anon line-drift degradation).
+    let mut closure = space(
+        "<anonymous>",
+        SpaceKind::Function,
+        SuppressionScope::default(),
+    );
+    closure.start_line = 42;
+
+    let mut out = Vec::new();
+    threshold_set("cyclomatic", 0.0).evaluate_with_policy(
+        Path::new("src/foo.rs"),
+        &closure,
+        SuppressionPolicy::Ignore,
+        &mut out,
+    );
+    assert_eq!(out.len(), 1, "{out:?}");
+    assert_eq!(out[0].function, "<anon@L42>");
+}
+
 // -- render_violation_line --------------------------------------------
 
 fn sample_violation() -> Violation {
@@ -373,6 +430,7 @@ fn sample_violation() -> Violation {
         metric: "cyclomatic",
         value: 30.0,
         limit: 10.0,
+        body_hash: None,
     }
 }
 

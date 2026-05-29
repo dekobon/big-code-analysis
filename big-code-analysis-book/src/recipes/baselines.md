@@ -131,8 +131,11 @@ src/bar.rs: 4 violations (worst: cognitive = 63 vs limit 25 at L506)
 
 Tag prefixes:
 
-- `[new]` — no baseline entry for this `(path, function, start_line,
-  metric)` tuple. The violation is new since the baseline was written.
+- `[new]` — no baseline entry matched this violation by qualified
+  symbol (within the line tolerance) or, when `--baseline-fuzzy-match`
+  is set, by body hash. The violation is new since the baseline was
+  written. See [Matching](#how-matching-works) for the resolution
+  order.
 - `[regr +N%]` — the baseline contains a recorded value and the
   current value is `N%` higher. Cases:
   - `[regr from 0]` when the recorded value is `0.0` and a non-zero
@@ -154,9 +157,44 @@ to read a long offender list and spot which file to start with.
 
 ### 6. Retire the baseline
 
-When `.bca-baseline.toml` contains only `version = 2` and no entries,
+When `.bca-baseline.toml` contains only `version = 4` and no entries,
 drop the `--baseline` flag from CI and delete the file. The thresholds
 now stand on their own.
+
+## How matching works
+
+Each entry is keyed on `(path, qualified_symbol, metric)` — the
+qualified symbol being the `::`-joined chain of enclosing named
+containers plus the function name (`MyStruct::do_thing`,
+`my_namespace::MyClass::method`). The top-level file space collapses to
+`<file>`. A violation is resolved against the baseline in this order:
+
+1. **Qualified symbol.** If exactly one entry shares the violation's
+   `(path, qualified_symbol, metric)`, it matches **regardless of line
+   number** — so editing code above a function no longer re-keys it as
+   `[new]`.
+2. **Start-line tolerance.** If several entries share that key (two
+   methods named `is_valid` on different `impl` blocks the analyzer
+   could not tell apart, overloads, …), the entry whose recorded
+   `start_line` is closest to the violation — and within
+   `--baseline-line-tolerance` lines (default 50) — wins. Beyond the
+   tolerance the violation is `[new]`.
+3. **Body hash (opt-in).** With `--baseline-fuzzy-match`, a violation
+   whose qualified symbol no longer matches is matched against entries
+   with an identical normalised body hash within the same
+   `(path, metric)`. This absorbs a rename that kept the function's
+   shape (the digest elides the function's own name and is insensitive
+   to indentation, blank lines, and CRLF). The hash is written into the
+   baseline only when `--baseline-fuzzy-match` is set, so seed it with
+   one fuzzy `--write-baseline` to enable fuzzy reads. Configure both
+   keys in `bca.toml` as `baseline_line_tolerance` and
+   `baseline_fuzzy_match`.
+
+**Anonymous functions** (closures, lambdas) have no stable name, so
+their qualified symbol bakes in the line (`outer::<anon@L42>`). They
+therefore re-key as `[new]` when they move — the symbol fix only
+survives line drift for *named* top-level and method-bound functions,
+which produce the bulk of baseline churn.
 
 ### Remediation footer
 
@@ -196,10 +234,15 @@ violation including the ones that suppression markers normally hide.
 
 ## Limitations
 
-- **Line drift.** Entries key on `(path, function, start_line, metric)`.
-  Editing code above a function shifts its `start_line` and the
-  baseline entry stops matching, surfacing as a "new" offender. Refresh
-  with `--write-baseline` and commit the diff.
+- **Ambiguous symbols.** When two functions share a qualified symbol
+  (the analyzer could not resolve distinct containers, or a language
+  permits overloads) and both have drifted beyond
+  `--baseline-line-tolerance` from their recorded lines, neither
+  disambiguates and the violations surface as `[new]`. Refresh with
+  `--write-baseline`, or raise the tolerance.
+- **Anonymous functions.** Closures and lambdas re-key on movement
+  because their synthetic symbol embeds the line (see
+  [How matching works](#how-matching-works)).
 - **OS portability.** Paths are normalized to forward slashes on
   write and re-normalized on read, so a baseline generated on Linux
   matches the same tree on Windows. Non-UTF-8 paths fall back to a

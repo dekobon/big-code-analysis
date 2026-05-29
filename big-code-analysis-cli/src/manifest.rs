@@ -44,6 +44,8 @@ const KNOWN_KEYS: &[&str] = &[
     "include",
     "exclude",
     "baseline",
+    "baseline_line_tolerance",
+    "baseline_fuzzy_match",
     "headroom",
     "thresholds",
 ];
@@ -72,6 +74,8 @@ struct RawManifest {
     include: Option<Vec<String>>,
     exclude: Option<Vec<String>>,
     baseline: Option<PathBuf>,
+    baseline_line_tolerance: Option<usize>,
+    baseline_fuzzy_match: Option<bool>,
     headroom: Option<f64>,
     /// Scalar values are limits; a sub-table value (e.g. `soft`) is a
     /// forthcoming feature (#375) and is ignored with a warning.
@@ -184,8 +188,8 @@ impl Manifest {
         }
     }
 
-    /// Merge check-only options (`baseline`, `headroom`) into `args`.
-    /// CLI values win.
+    /// Merge check-only options (`baseline`, `baseline_line_tolerance`,
+    /// `baseline_fuzzy_match`, `headroom`) into `args`. CLI values win.
     pub(crate) fn merge_check(&self, args: &mut CheckArgs) {
         // A manifest baseline must not be applied when the user is
         // *writing* one — `--baseline` and `--write-baseline` are
@@ -195,6 +199,16 @@ impl Manifest {
             && let Some(baseline) = &self.raw.baseline
         {
             args.baseline = Some(self.resolve(baseline));
+        }
+        if args.baseline_line_tolerance.is_none() {
+            args.baseline_line_tolerance = self.raw.baseline_line_tolerance;
+        }
+        // A bare `--baseline-fuzzy-match` flag (clap `bool`) cannot
+        // represent "unset", so the manifest only *enables* fuzzy
+        // matching; it can never override an explicit CLI opt-out
+        // (there is no opt-out flag). OR the two sources together.
+        if self.raw.baseline_fuzzy_match == Some(true) {
+            args.baseline_fuzzy_match = true;
         }
         if args.headroom.is_none() {
             args.headroom = self.headroom();

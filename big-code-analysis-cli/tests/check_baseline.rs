@@ -230,7 +230,11 @@ fn improved_function_still_passes() {
 // -- Identity & line drift ------------------------------------------------
 
 #[test]
-fn moved_function_treated_as_new_offender() {
+fn moved_function_still_covered_after_line_drift() {
+    // Issue #377 acceptance: editing code above a function shifts its
+    // start_line, but the baseline keys on the qualified symbol, so the
+    // unchanged function stays covered rather than re-surfacing as a
+    // `[new]` offender. (Pre-#377 this exact scenario re-keyed as new.)
     let dir = TempDir::new().unwrap();
     let src_path = write_file(&dir, "branchy.rs", BRANCHY_RUST);
     let baseline = dir.path().join("baseline.toml");
@@ -248,9 +252,9 @@ fn moved_function_treated_as_new_offender() {
         .assert()
         .success();
 
-    // Prepend a doc comment + blank line, shifting `classify`'s
-    // start_line down. The baseline still has the old start_line, so
-    // the entry no longer matches → reported as a new offender.
+    // Prepend a doc comment + blank lines, shifting `classify`'s
+    // start_line down. The qualified symbol is unchanged, so the entry
+    // still matches and the gate passes clean.
     let shifted = format!("/// Doc comment.\n///\n///\n{BRANCHY_RUST}");
     fs::write(&src_path, shifted).unwrap();
 
@@ -265,8 +269,225 @@ fn moved_function_treated_as_new_offender() {
             baseline.to_str().unwrap(),
         ])
         .assert()
+        .success()
+        .stderr(predicate::str::contains("[new]").not())
+        // Prove the violation was actually classified and filtered —
+        // a clean exit alone could mask a parse that found nothing.
+        .stderr(predicate::str::contains("filtered 1 violations"));
+}
+
+/// Two methods named `is_valid` on different `impl` blocks. Issue #377
+/// acceptance: each must match its own baseline entry independently —
+/// here via distinct qualified symbols (`Foo::is_valid` vs
+/// `Bar::is_valid`), which is also what the offender line now prints.
+const TWO_IMPLS_RUST: &str = r"
+pub struct Foo;
+pub struct Bar;
+impl Foo {
+    pub fn is_valid(n: i32) -> bool {
+        if n < 0 { false } else if n == 0 { false } else if n < 10 { true } else { true }
+    }
+}
+impl Bar {
+    pub fn is_valid(n: i32) -> bool {
+        if n < 0 { false } else if n == 0 { false } else if n < 10 { true } else { true }
+    }
+}
+";
+
+#[test]
+fn same_named_methods_on_different_impls_match_independently() {
+    let dir = TempDir::new().unwrap();
+    let src = write_fixture(&dir, "impls.rs", TWO_IMPLS_RUST);
+    let baseline = dir.path().join("baseline.toml");
+
+    cli()
+        .args([
+            "--paths",
+            &src,
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--write-baseline",
+            baseline.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        // Both methods are recorded under their container-qualified
+        // symbols, so the baseline carries two distinct entries.
+        .stderr(predicate::str::contains("wrote 2 baseline entries"));
+
+    let content = fs::read_to_string(&baseline).unwrap();
+    assert!(
+        content.contains(r#"qualified = "Foo::is_valid""#),
+        "{content}"
+    );
+    assert!(
+        content.contains(r#"qualified = "Bar::is_valid""#),
+        "{content}"
+    );
+
+    // Re-check unchanged: both are covered, gate passes clean.
+    cli()
+        .args([
+            "--paths",
+            &src,
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--baseline",
+            baseline.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+}
+
+/// Two C++ overloads of `f` — same (unqualified) top-level symbol —
+/// produce an ambiguous baseline group that the `start_line` tolerance
+/// must disambiguate. Doubles as non-Rust per-language coverage of the
+/// qualified-symbol walk.
+const CPP_OVERLOADS: &str = "
+int f(int x) {
+    if (x > 0) { return 1; }
+    else if (x > 10) { return 2; }
+    else if (x > 20) { return 3; }
+    else { return 4; }
+}
+
+int f(double x) {
+    if (x > 0) { return 1; }
+    else if (x > 10) { return 2; }
+    else if (x > 20) { return 3; }
+    else { return 4; }
+}
+";
+
+#[test]
+fn baseline_line_tolerance_flag_is_honored_end_to_end() {
+    let dir = TempDir::new().unwrap();
+    let src_path = write_file(&dir, "overloads.cpp", CPP_OVERLOADS);
+    let baseline = dir.path().join("baseline.toml");
+
+    // Both overloads share the qualified symbol `f`, so the baseline
+    // records two entries under one key — the ambiguous case.
+    cli()
+        .args([
+            "--paths",
+            src_path.to_str().unwrap(),
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--write-baseline",
+            baseline.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("wrote 2 baseline entries"));
+
+    // Shift both functions down a few lines.
+    fs::write(
+        &src_path,
+        format!("// pad\n// pad\n// pad\n{CPP_OVERLOADS}"),
+    )
+    .unwrap();
+
+    // Default tolerance (50) absorbs the small drift → both covered.
+    cli()
+        .args([
+            "--paths",
+            src_path.to_str().unwrap(),
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--baseline",
+            baseline.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("filtered 2 violations"));
+
+    // Tolerance 0 rejects any drift on the ambiguous symbol → both
+    // surface as new. Proves the flag value reaches the matcher.
+    cli()
+        .args([
+            "--paths",
+            src_path.to_str().unwrap(),
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--baseline-line-tolerance",
+            "0",
+            "--baseline",
+            baseline.to_str().unwrap(),
+        ])
+        .assert()
         .code(2)
-        .stderr(predicate::str::contains("classify"));
+        .stderr(predicate::str::contains("[new]"));
+}
+
+#[test]
+fn fuzzy_match_covers_renamed_function() {
+    // Issue #377 rule 3: a function renamed but otherwise unchanged
+    // keeps its baseline coverage when `--baseline-fuzzy-match` is on,
+    // because the body hash still matches. The hash is populated at
+    // write time only when the flag is set, so both runs pass it.
+    let dir = TempDir::new().unwrap();
+    let src_path = write_file(&dir, "branchy.rs", BRANCHY_RUST);
+    let baseline = dir.path().join("baseline.toml");
+
+    cli()
+        .args([
+            "--paths",
+            src_path.to_str().unwrap(),
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--baseline-fuzzy-match",
+            "--write-baseline",
+            baseline.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // The written baseline carries a body_hash for fuzzy matching.
+    let content = fs::read_to_string(&baseline).unwrap();
+    assert!(content.contains("body_hash = "), "{content}");
+
+    // Rename `classify` -> `categorize`; body is byte-identical.
+    let renamed = BRANCHY_RUST.replace("fn classify", "fn categorize");
+    fs::write(&src_path, renamed).unwrap();
+
+    // Without fuzzy: the qualified symbol changed, so it is a new
+    // offender and the gate fails.
+    cli()
+        .args([
+            "--paths",
+            src_path.to_str().unwrap(),
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--baseline",
+            baseline.to_str().unwrap(),
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("[new]"));
+
+    // With fuzzy: the body hash matches, so it stays covered.
+    cli()
+        .args([
+            "--paths",
+            src_path.to_str().unwrap(),
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--baseline-fuzzy-match",
+            "--baseline",
+            baseline.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("filtered 1 violations"));
 }
 
 // -- Suppression composition ----------------------------------------------
@@ -308,7 +529,7 @@ pub fn classify(n: i32) -> &'static str {
         .stderr(predicate::str::contains("wrote 0 baseline entries"));
 
     let content = fs::read_to_string(&baseline).unwrap();
-    assert!(content.contains("version = 3"));
+    assert!(content.contains("version = 4"));
     assert!(!content.contains("[[entry]]"));
 }
 
@@ -700,7 +921,7 @@ fn top_level_file_metric_baselined() {
 
     let content = fs::read_to_string(&baseline).unwrap();
     assert!(
-        content.contains(r#"function = "<file>""#),
+        content.contains(r#"qualified = "<file>""#),
         "expected `<file>` sentinel entry in baseline; got:\n{content}",
     );
     assert!(content.contains(r#"metric = "loc.sloc""#));
@@ -775,7 +996,7 @@ fn clean_tree_write_baseline_produces_empty_versioned_file() {
         .stderr(predicate::str::contains("wrote 0 baseline entries"));
 
     let content = fs::read_to_string(&baseline).unwrap();
-    assert!(content.contains("version = 3"));
+    assert!(content.contains("version = 4"));
     assert!(!content.contains("[[entry]]"));
 }
 

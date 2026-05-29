@@ -135,15 +135,21 @@ capture them.
 # Listed offenders are filtered from threshold checks; a function that
 # gets worse than its recorded value still fails. Refresh with
 # `--write-baseline` when entries become stale.
-version = 1
+version = 4
 
 [[entry]]
 path = "src/parser.rs"
-function = "parse_expression"
+qualified = "Parser::parse_expression"
 start_line = 42
 metric = "cyclomatic"
 value = 22.0
 ```
+
+The `qualified` field is the function's qualified symbol (the
+`::`-joined chain of enclosing named containers plus the function
+name); `start_line` is retained only to disambiguate a symbol shared by
+several functions. With `--baseline-fuzzy-match`, each entry also
+carries a `body_hash` for rename-tolerant matching.
 
 Functions already covered by an in-source suppression marker are
 excluded. Pass `--no-suppress` together with `--write-baseline` to
@@ -162,7 +168,10 @@ bca --paths src/ check \
 
 A violation is suppressed when both conditions hold:
 
-- An entry exists at `(path, function, start_line, metric)`.
+- An entry matches by `(path, qualified_symbol, metric)` — independent
+  of line number — or, failing that and with `--baseline-fuzzy-match`,
+  by body hash. (See the [Baselines recipe](../recipes/baselines.md#how-matching-works)
+  for the full resolution order.)
 - The current `value` is **less than or equal to** the recorded value.
 
 A function that gets worse than its baseline value still fails. New
@@ -176,10 +185,12 @@ not a silent zero-match.
 
 ### Limitations
 
-- **Line drift.** The entry key is `(path, function, start_line,
-  metric)`. Inserting code above a function shifts its `start_line`
-  and the entry stops matching, surfacing as a "new" offender. Run
-  `--write-baseline` to refresh and commit the diff.
+- **Ambiguous symbols / anonymous functions.** Entries key on the
+  qualified symbol, so inserting code above a *named* function no
+  longer re-keys it. The exceptions: functions sharing a qualified
+  symbol that drift beyond `--baseline-line-tolerance` apart, and
+  anonymous closures/lambdas (whose synthetic symbol embeds the line).
+  Both re-key as "new" on movement; refresh with `--write-baseline`.
 - **Path identity.** Entries record the path as the walker saw it.
   Generate and consume the baseline with the same `--paths` argument
   from the same working directory; a relative `--paths src/` and an

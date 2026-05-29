@@ -23,6 +23,26 @@ for historical reference.
 
 ### Added
 
+- `bca check` baselines now match on the **qualified symbol** rather
+  than the exact start line
+  ([#377](https://github.com/dekobon/big-code-analysis/issues/377)).
+  Each entry keys on `(path, qualified_symbol, metric)` — e.g.
+  `MyStruct::do_thing` — so editing code above a named function no
+  longer re-keys it as a `[new]` offender (the most common source of
+  baseline churn). A configurable `start_line` tolerance
+  (`--baseline-line-tolerance <LINES>`, default 50, or
+  `baseline_line_tolerance` in `bca.toml`) disambiguates a symbol
+  shared by several functions. A new `--baseline-fuzzy-match` flag
+  (`baseline_fuzzy_match` in `bca.toml`) enables a rename-tolerant
+  body-hash fallback: a function renamed but otherwise unchanged stays
+  covered, because the normalised body digest (which elides the
+  function's own name and ignores indentation/blank-line churn) still
+  matches. The offender line and JSON `function` field now show the
+  qualified symbol. The baseline schema bumps to **v4** (`function`
+  field renamed to `qualified`, optional `body_hash` added); v2/v3
+  baselines are still read and degrade to bare-name + tolerance
+  matching until refreshed with `--write-baseline`. See
+  `STABILITY.md` for the migration. Additive, minor bump.
 - `bca.toml` manifest — auto-discovered at (or above) the working
   directory, consolidating the flags every local-gate recipe used to
   thread through each invocation

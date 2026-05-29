@@ -232,6 +232,16 @@ window for in-place migration; older versions surface a
 "regenerate with `--write-baseline`" hint instead of silently
 mis-matching. Recent transitions:
 
+- **v3 → v4** ([#377](https://github.com/dekobon/big-code-analysis/issues/377)):
+  entries key on the qualified symbol (`function` renamed to
+  `qualified`) plus a `start_line` *tolerance* rather than the exact
+  line, so editing code above a function no longer re-keys it. An
+  optional `body_hash` field backs `--baseline-fuzzy-match`. v2/v3
+  baselines are still read: their bare `function` name maps to
+  `qualified` via a serde alias and matching degrades to bare-name +
+  tolerance (equivalent to the old behaviour, now line-drift-tolerant)
+  until the file is refreshed with `--write-baseline`. No re-analysis
+  is performed at load time.
 - **v2 → v3** ([#376](https://github.com/dekobon/big-code-analysis/issues/376)):
   path keys are canonicalised relative to the baseline file's own
   directory. ASCII-clean v2 baselines migrate transparently with
