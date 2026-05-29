@@ -665,10 +665,23 @@ impl Loc for PythonCode {
             String => {
                 let Some(parent) = node.parent() else { return };
                 if let ExpressionStatement = parent.kind_id().into() {
+                    // A bare string statement is treated as a docstring and
+                    // counted as comment lines (see issue #415 for the related
+                    // classification caveat, intentionally left unchanged).
                     add_cloc_lines(stats, start, end);
-                } else if parent.start_row() != start {
-                    check_comment_ends_on_code_line(stats, start);
-                    stats.ploc.lines.insert(start);
+                } else {
+                    // A non-docstring string literal (assigned or passed as an
+                    // argument). Its interior physical rows are real code, not
+                    // blank lines (#415). The opening row is inserted only when
+                    // the parent statement begins on an earlier row, otherwise
+                    // that row is already attributed to the enclosing statement.
+                    if parent.start_row() != start {
+                        check_comment_ends_on_code_line(stats, start);
+                        stats.ploc.lines.insert(start);
+                    }
+                    (start + 1..=end).for_each(|line| {
+                        stats.ploc.lines.insert(line);
+                    });
                 }
             }
             Statement
@@ -2745,6 +2758,107 @@ mod tests {
                       "blank_max": 0.0
                     }"###
                 );
+            },
+        );
+    }
+
+    #[test]
+    fn python_multiline_string_assignment_ploc() {
+        // Regression test for issue #415: interior rows of a multi-line,
+        // non-docstring string literal were mis-counted as blank lines.
+        check_metrics::<PythonParser>(
+            "QUERY = \"\"\"
+SELECT id, name
+FROM users
+WHERE active = 1
+ORDER BY name
+\"\"\"",
+            "foo.py",
+            |metric| {
+                // Spaces: 1. Six physical lines, all code, no blanks.
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 6.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+                insta::assert_json_snapshot!(
+                    metric.loc,
+                    @r###"
+                    {
+                      "sloc": 6.0,
+                      "ploc": 6.0,
+                      "lloc": 1.0,
+                      "cloc": 0.0,
+                      "blank": 0.0,
+                      "sloc_average": 6.0,
+                      "ploc_average": 6.0,
+                      "lloc_average": 1.0,
+                      "cloc_average": 0.0,
+                      "blank_average": 0.0,
+                      "sloc_min": 6.0,
+                      "sloc_max": 6.0,
+                      "cloc_min": 0.0,
+                      "cloc_max": 0.0,
+                      "ploc_min": 6.0,
+                      "ploc_max": 6.0,
+                      "lloc_min": 1.0,
+                      "lloc_max": 1.0,
+                      "blank_min": 0.0,
+                      "blank_max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn python_multiline_string_argument_ploc() {
+        // Regression test for issue #415: a multi-line string passed as a call
+        // argument must have all its rows counted as code, not blank.
+        check_metrics::<PythonParser>(
+            "print(\"\"\"
+line one
+line two
+\"\"\")",
+            "foo.py",
+            |metric| {
+                // Spaces: 1. Four physical lines, all code, no blanks.
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+            },
+        );
+    }
+
+    #[test]
+    fn python_single_line_string_assignment_ploc() {
+        // Single-line, non-docstring string: behaviour must be unchanged by
+        // the issue #415 fix (start == end means no extra rows are inserted).
+        check_metrics::<PythonParser>("QUERY = \"SELECT 1\"", "foo.py", |metric| {
+            // Spaces: 1.
+            assert_eq!(metric.loc.sloc(), 1.0);
+            assert_eq!(metric.loc.ploc(), 1.0);
+            assert_eq!(metric.loc.cloc(), 0.0);
+            assert_eq!(metric.loc.blank(), 0.0);
+        });
+    }
+
+    #[test]
+    fn python_multiline_docstring_still_cloc() {
+        // The fix for issue #415 must leave docstring classification unchanged:
+        // a bare triple-quoted string statement is still counted as comments.
+        check_metrics::<PythonParser>(
+            "def f():
+    \"\"\"Docstring line one
+    Docstring line two
+    \"\"\"
+    return 1",
+            "foo.py",
+            |metric| {
+                // Spaces: 2 (module + function). The three docstring rows are
+                // comment lines, not code or blank lines.
+                assert_eq!(metric.loc.cloc(), 3.0);
+                assert_eq!(metric.loc.blank(), 0.0);
             },
         );
     }
