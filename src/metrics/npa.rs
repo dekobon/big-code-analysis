@@ -1241,6 +1241,36 @@ fn python_collect_class_level_attrs<'a>(
 // Only simple-name bindings contribute here; an attribute target
 // (`obj.x = …`) at class level is not a simple name binding and is
 // ignored (the self/cls instance-attribute pass handles those).
+// Walks an assignment / destructuring `target`, invoking `collect` on
+// every leaf binding element. Recurses through nested unpacking patterns
+// (`pattern_list` / `expression_list` / `tuple_pattern` / `list_pattern`)
+// so `(a, (b, c)) = …` and `self.a, (self.b, self.c) = …` yield every
+// bound element, not just the top-level ones. Non-pattern nodes —
+// including punctuation children (commas, brackets) — are handed to
+// `collect`, which filters by kind, exactly as the previous flat loop did.
+fn python_walk_target_elements<'a>(target: &Node<'a>, collect: &mut impl FnMut(&Node<'a>)) {
+    match target.kind_id().into() {
+        // `tuple_pattern` / `list_pattern` each carry two aliased kind_ids:
+        // the hidden supertype (`TuplePattern` 168 / `ListPattern` 167,
+        // never emitted) and the live node the grammar actually produces
+        // for `(a, b) = …` / `[a, b] = …` (`TuplePattern2` 179 /
+        // `ListPattern2` 180). Matching only the supertype alias silently
+        // dropped every parenthesized/bracketed unpacking target, so
+        // enumerate both aliases per the hidden-alias discipline (#419).
+        Python::PatternList
+        | Python::ExpressionList
+        | Python::TuplePattern
+        | Python::TuplePattern2
+        | Python::ListPattern
+        | Python::ListPattern2 => {
+            for element in target.children() {
+                python_walk_target_elements(&element, collect);
+            }
+        }
+        _ => collect(target),
+    }
+}
+
 fn python_collect_bound_names_from_target<'a>(
     assignment: &Node<'a>,
     code: &'a [u8],
@@ -1249,26 +1279,17 @@ fn python_collect_bound_names_from_target<'a>(
     let Some(target) = assignment.child(0) else {
         return;
     };
-    match target.kind_id().into() {
-        Python::Identifier => {
-            if let Some(name) = code.get(target.start_byte()..target.end_byte()) {
-                seen.insert(name);
-            }
+    // Every simple-name binding contributes one attribute, including names
+    // nested inside an unpacking pattern. An attribute target (`obj.x = …`)
+    // at class level is not a simple name binding and is ignored (the
+    // self/cls instance-attribute pass handles those).
+    python_walk_target_elements(&target, &mut |element| {
+        if element.kind_id() == Python::Identifier
+            && let Some(name) = code.get(element.start_byte()..element.end_byte())
+        {
+            seen.insert(name);
         }
-        Python::PatternList
-        | Python::ExpressionList
-        | Python::TuplePattern
-        | Python::ListPattern => {
-            for element in target.children() {
-                if element.kind_id() == Python::Identifier
-                    && let Some(name) = code.get(element.start_byte()..element.end_byte())
-                {
-                    seen.insert(name);
-                }
-            }
-        }
-        _ => {}
-    }
+    });
     // Chained `a = b = 3`: the right operand is itself a nested
     // `Assignment`, whose own target binds another name. Recurse so
     // every link in the chain is counted.
@@ -1328,45 +1349,31 @@ fn python_collect_self_attrs_in_subtree<'a>(
     }
 }
 
-// Collects `self.<attr>` / `cls.<attr>` names bound by an
-// `Assignment`'s target into `seen`. Handles both shapes:
-//   self.a = 1            → target is a single Attribute
-//   self.a, self.b = …    → target is a pattern_list / expression_list
-//                           / tuple_pattern / list_pattern whose
-//                           elements are Attributes (#412 (b))
-// A chained `self.a = self.b = 1` is handled by the caller's subtree
-// walk: the nested `Assignment` in the value is pushed onto the stack
-// and visited as its own `Assignment`, so both `a` and `b` are seen.
+// Collects `self.<attr>` / `cls.<attr>` names bound by an `Assignment`'s
+// target into `seen`. Handles the single-attribute shape (`self.a = 1`),
+// flat unpacking (`self.a, self.b = …`, #412 (b)), and nested unpacking
+// (`self.a, (self.b, self.c) = …`) uniformly via the shared
+// `python_walk_target_elements` recursion. A chained
+// `self.a = self.b = 1` is handled by the caller's subtree walk: the
+// nested `Assignment` in the value is visited as its own `Assignment`.
 fn python_collect_self_attrs_from_target<'a>(
     assignment: &Node<'a>,
     code: &'a [u8],
     seen: &mut std::collections::HashSet<&'a [u8]>,
 ) {
-    use Python::*;
-
     let Some(target) = assignment.child(0) else {
         return;
     };
-    match target.kind_id().into() {
-        Attribute => {
-            if let Some(name) = python_self_attr_name_bytes(&target, code) {
-                seen.insert(name);
-            }
+    // Collect only the `self`/`cls` attribute elements; unpacking may mix
+    // them with foreign targets (`self.a, x = …`), which are filtered out
+    // here because they are not `self`/`cls` attributes.
+    python_walk_target_elements(&target, &mut |element| {
+        if element.kind_id() == Python::Attribute
+            && let Some(name) = python_self_attr_name_bytes(element, code)
+        {
+            seen.insert(name);
         }
-        PatternList | ExpressionList | TuplePattern | ListPattern => {
-            // Unpacking may mix self attributes with foreign targets
-            // (`self.a, x = …`); collect only the self/cls attribute
-            // elements and skip the rest.
-            for element in target.children() {
-                if element.kind_id() == Attribute
-                    && let Some(name) = python_self_attr_name_bytes(&element, code)
-                {
-                    seen.insert(name);
-                }
-            }
-        }
-        _ => {}
-    }
+    });
 }
 
 // Conventional receiver names that denote the enclosing object inside
@@ -4240,6 +4247,44 @@ mod tests {
                 assert_eq!(metric.npa.class_na_sum(), 3.0);
                 assert_eq!(metric.npa.class_npa_sum(), 3.0);
                 insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    /// Nested unpacking of instance attributes: `self.a, (self.b, self.c)
+    /// = …` nests a `tuple_pattern` inside the outer `pattern_list`. The
+    /// shared `python_walk_target_elements` recursion descends into the
+    /// nested pattern so `b` and `c` are counted, not just `a` (review
+    /// follow-up to #412 (b); a flat iteration reports 1).
+    #[test]
+    fn python_self_attribute_nested_unpacking_counts_each() {
+        check_metrics::<PythonParser>(
+            "class C:\n\
+             \x20   def __init__(self):\n\
+             \x20       self.a, (self.b, self.c) = 1, (2, 3)\n",
+            "foo.py",
+            |metric| {
+                // a, b, c — all three, including the nested b and c.
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 3.0);
+            },
+        );
+    }
+
+    /// Nested unpacking at class level: `(a, (b, c)) = 1, (2, 3)` nests a
+    /// `tuple_pattern` inside the target. Each bound name — including the
+    /// nested `b` and `c` — contributes one attribute (review follow-up to
+    /// #412 (c); a flat iteration reports 1).
+    #[test]
+    fn python_class_level_nested_unpacking_counts_each() {
+        check_metrics::<PythonParser>(
+            "class C:\n\
+             \x20   (a, (b, c)) = 1, (2, 3)\n",
+            "foo.py",
+            |metric| {
+                // a, b, c.
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 3.0);
             },
         );
     }

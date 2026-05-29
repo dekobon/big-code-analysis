@@ -1424,13 +1424,21 @@ impl Getter for PhpCode {
                     // child.
                     LBRACE as u16,
                 ];
-                let heredoc_interp = node
-                    .children()
-                    .any(|c| c.kind_id() == HeredocBody as u16 && c.wraps_any(PHP_INTERP_KINDS));
-                if heredoc_interp {
+                // Single pass over the direct children: an interpolation
+                // child on the literal itself (EncapsedString /
+                // ShellCommandExpression) OR, for Heredoc, one nested under
+                // its `heredoc_body` child. Folding both checks into one walk
+                // avoids re-scanning the children a second time through
+                // `string_operand_type` for an inert heredoc.
+                let has_interp = node.children().any(|c| {
+                    let kind = c.kind_id();
+                    PHP_INTERP_KINDS.contains(&kind)
+                        || (kind == HeredocBody as u16 && c.wraps_any(PHP_INTERP_KINDS))
+                });
+                if has_interp {
                     HalsteadType::Unknown
                 } else {
-                    Self::string_operand_type(node, PHP_INTERP_KINDS)
+                    HalsteadType::Operand
                 }
             }
 

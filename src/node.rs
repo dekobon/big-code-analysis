@@ -147,20 +147,16 @@ impl<'a> Node<'a> {
     /// finding from the JS/TS template-literal hot path.
     #[inline]
     pub(crate) fn is_child(&self, id: u16) -> bool {
-        let mut cur = self.0.child(0);
-        while let Some(c) = cur {
-            if c.kind_id() == id {
-                return true;
-            }
-            cur = c.next_sibling();
-        }
-        false
+        self.wraps_any(&[id])
     }
 
     /// Returns `true` if any direct child matches one of the given
-    /// grammar `kind_id`s. Generalizes [`is_child`] to a set so the
-    /// shared string-interpolation operand skip can declare its rule
-    /// once (issue #420); shares the same allocation-free sibling walk.
+    /// grammar `kind_id`s. The single-id [`is_child`] delegates here, so
+    /// both share one allocation-free sibling walk (the `#[inline]` makes
+    /// the single-element `contains` collapse to an equality check — the
+    /// #217 hot-path optimization is preserved). Generalizing the check to
+    /// a set lets the shared string-interpolation operand skip declare its
+    /// rule once (issue #420).
     ///
     /// [`is_child`]: Self::is_child
     #[inline]

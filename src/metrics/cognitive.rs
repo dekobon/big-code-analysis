@@ -351,14 +351,6 @@ fn increase_nesting(stats: &mut Stats, nesting: &mut usize, depth: usize, lambda
 /// shared parent slot makes it independent of traversal order — the fix for
 /// #421, where a comprehension in another comprehension's element position
 /// was visited before the outer clauses had written their nesting back.
-fn preceding_for_clauses(parent: &Node, clause: &Node, for_clause_id: u16) -> usize {
-    parent
-        .children()
-        .take_while(|sibling| sibling.id() != clause.id())
-        .filter(|sibling| sibling.kind_id() == for_clause_id)
-        .count()
-}
-
 /// Extra nesting a comprehension's clauses add to its element expression,
 /// relative to the comprehension's own inherited nesting.
 ///
@@ -441,17 +433,32 @@ impl Cognitive for PythonCode {
             | DictionaryComprehension
             | SetComprehension
             | GeneratorExpression => {
+                // Precompute each clause's nesting in a single pass (O(N) in
+                // the clause count, not the O(N^2) of re-scanning siblings per
+                // clause) and stash it in the clause's own map slot, which the
+                // `ForInClause | IfClause` arm reads back. Each clause sits at
+                // the comprehension's inherited nesting plus the number of
+                // `for` clauses strictly before it. Computing it here — on the
+                // comprehension node, visited before any clause in pre-order —
+                // keeps the result independent of sibling traversal order.
+                let mut for_count = 0;
+                for child in node.children() {
+                    let kind = child.kind_id();
+                    if kind == ForInClause as u16 || kind == IfClause as u16 {
+                        nesting_map.insert(child.id(), (nesting + for_count, depth, lambda));
+                    }
+                    if kind == ForInClause as u16 {
+                        for_count += 1;
+                    }
+                }
                 nesting += comprehension_element_nesting(node, ForInClause as u16, IfClause as u16);
             }
             ForInClause | IfClause => {
-                // The comprehension node deepened its own map slot to the
-                // element's nesting, so re-read the comprehension's *inherited*
-                // nesting from its parent instead of from `node`'s parent (the
-                // comprehension itself). A clause then sits at
-                // `comprehension_inherited + preceding for-clause count`.
-                if let Some(comprehension) = node.parent() {
-                    nesting = get_nesting_from_map(&comprehension, nesting_map).0
-                        + preceding_for_clauses(&comprehension, node, ForInClause as u16);
+                // Nesting was precomputed on the comprehension node (visited
+                // first in pre-order) into this clause's own map slot, so read
+                // it back instead of re-scanning siblings per clause.
+                if let Some(&(clause_nesting, _, _)) = nesting_map.get(&node.id()) {
+                    nesting = clause_nesting;
                 }
                 stats.nesting = nesting + depth + lambda;
                 increment(stats);

@@ -1482,14 +1482,14 @@ path = "src/getter.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 8685558.994381927
+value = 8692590.9195636
 
 [[entry]]
 path = "src/getter.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1823.0
+value = 1831.0
 
 [[entry]]
 path = "src/getter.rs"
@@ -1517,7 +1517,7 @@ path = "src/getter.rs"
 qualified = "<file>"
 start_line = 1
 metric = "wmc"
-value = 235.0
+value = 236.0
 
 [[entry]]
 path = "src/getter.rs"
@@ -1543,21 +1543,21 @@ value = 51935.897455499806
 [[entry]]
 path = "src/getter.rs"
 qualified = "ElixirCode"
-start_line = 1474
+start_line = 1482
 metric = "halstead.effort"
 value = 214659.06909715306
 
 [[entry]]
 path = "src/getter.rs"
 qualified = "ElixirCode"
-start_line = 1474
+start_line = 1482
 metric = "nargs"
 value = 9.0
 
 [[entry]]
 path = "src/getter.rs"
 qualified = "ElixirCode::get_op_type"
-start_line = 1561
+start_line = 1569
 metric = "halstead.effort"
 value = 49821.1482753084
 
@@ -1608,7 +1608,14 @@ path = "src/getter.rs"
 qualified = "PhpCode"
 start_line = 1290
 metric = "halstead.effort"
-value = 69304.38664924016
+value = 74150.06576284596
+
+[[entry]]
+path = "src/getter.rs"
+qualified = "PhpCode::get_op_type"
+start_line = 1315
+metric = "halstead.effort"
+value = 49205.91864781969
 
 [[entry]]
 path = "src/getter.rs"
@@ -1620,14 +1627,14 @@ value = 52347.13972956382
 [[entry]]
 path = "src/getter.rs"
 qualified = "RubyCode"
-start_line = 1635
+start_line = 1643
 metric = "halstead.effort"
 value = 106204.53260544034
 
 [[entry]]
 path = "src/getter.rs"
 qualified = "RubyCode::get_op_type"
-start_line = 1650
+start_line = 1658
 metric = "halstead.effort"
 value = 74867.90938383072
 
@@ -1881,21 +1888,21 @@ path = "src/metrics/cognitive.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 30361365.814962856
+value = 30451966.506555825
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 8708.0
+value = 8715.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 437.0
+value = 432.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
@@ -1909,54 +1916,54 @@ path = "src/metrics/cognitive.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 651.0
+value = 648.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "<file>"
 start_line = 1
 metric = "wmc"
-value = 169.0
+value = 173.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "PythonCode"
-start_line = 394
+start_line = 386
 metric = "halstead.effort"
-value = 83755.3556703433
+value = 113792.21376431812
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "PythonCode"
-start_line = 394
+start_line = 386
 metric = "nargs"
 value = 8.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "PythonCode::compute"
-start_line = 395
+start_line = 387
 metric = "cyclomatic"
-value = 15.0
+value = 19.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "PythonCode::compute"
-start_line = 395
+start_line = 387
 metric = "halstead.effort"
-value = 77770.5153624854
+value = 110219.71017976309
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "PythonCode::compute"
-start_line = 395
+start_line = 387
 metric = "nargs"
 value = 8.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "RubyCode"
-start_line = 1399
+start_line = 1406
 metric = "halstead.effort"
 value = 51081.30482939972
 
@@ -2504,21 +2511,21 @@ path = "src/metrics/npa.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 25213286.857976202
+value = 25213052.29772687
 
 [[entry]]
 path = "src/metrics/npa.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 4902.0
+value = 4947.0
 
 [[entry]]
 path = "src/metrics/npa.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 311.0
+value = 317.0
 
 [[entry]]
 path = "src/metrics/npa.rs"
@@ -2532,7 +2539,7 @@ path = "src/metrics/npa.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 437.0
+value = 444.0
 
 [[entry]]
 path = "src/metrics/npa.rs"
@@ -2628,7 +2635,7 @@ value = 10.0
 [[entry]]
 path = "src/metrics/npa.rs"
 qualified = "python_self_attr_name_bytes"
-start_line = 1399
+start_line = 1406
 metric = "nexits"
 value = 6.0
 
@@ -2833,14 +2840,14 @@ path = "src/node.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1098332.7776411935
+value = 1049487.431782116
 
 [[entry]]
 path = "src/node.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 362.0
+value = 358.0
 
 [[entry]]
 path = "src/node.rs"
@@ -2854,7 +2861,7 @@ path = "src/node.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nexits"
-value = 7.0
+value = 6.0
 
 [[entry]]
 path = "src/node.rs"
@@ -2868,14 +2875,14 @@ path = "src/node.rs"
 qualified = "<file>"
 start_line = 1
 metric = "wmc"
-value = 65.0
+value = 63.0
 
 [[entry]]
 path = "src/node.rs"
 qualified = "Node<'a>"
 start_line = 73
 metric = "halstead.effort"
-value = 492398.18390201137
+value = 454489.0615177519
 
 [[entry]]
 path = "src/node.rs"
@@ -2889,7 +2896,7 @@ path = "src/node.rs"
 qualified = "Node<'a>"
 start_line = 73
 metric = "nexits"
-value = 6.0
+value = 5.0
 
 [[entry]]
 path = "src/node.rs"
@@ -2901,14 +2908,14 @@ value = 29.0
 [[entry]]
 path = "src/node.rs"
 qualified = "Node<'a>"
-start_line = 300
+start_line = 296
 metric = "halstead.effort"
 value = 110776.93365899024
 
 [[entry]]
 path = "src/node.rs"
 qualified = "Node<'a>"
-start_line = 300
+start_line = 296
 metric = "nargs"
 value = 9.0
 
