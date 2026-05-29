@@ -338,6 +338,24 @@ fn increase_nesting(stats: &mut Stats, nesting: &mut usize, depth: usize, lambda
     stats.boolean_seq.reset();
 }
 
+/// Whether `node` is a Python `lambda` expression, under either of the
+/// grammar's two aliased kind_ids: `Lambda` (196, the concrete
+/// production emitted today) and `Lambda2` (197, the currently-unseen
+/// hidden alias). `Lambda3` (73) is the `lambda` *keyword* token, not a
+/// closure node, and is intentionally excluded.
+///
+/// This is the single normalization chokepoint for the lambda-alias set
+/// — mirroring `npa::python_is_block` for the block aliases (#419). It
+/// is reused by the cognitive lambda-scope walks below and by
+/// [`PythonCode::is_closure`](crate::checker), so a future grammar bump
+/// that promotes `Lambda2` to a concrete node is handled in exactly one
+/// place rather than drifting across sites (#422). The
+/// `python_hidden_block_and_lambda_aliases_stay_unseen` drift guard in
+/// `checker.rs` trips on such a bump.
+pub(crate) fn python_is_lambda(node: &Node) -> bool {
+    matches!(node.kind_id().into(), Python::Lambda | Python::Lambda2)
+}
+
 impl Cognitive for PythonCode {
     fn compute<'a>(
         node: &Node<'a>,
@@ -445,22 +463,25 @@ impl Cognitive for PythonCode {
             BooleanOperator => {
                 if node.count_specific_ancestors::<PythonParser>(
                     |node| node.kind_id() == BooleanOperator,
-                    |node| node.kind_id() == Lambda,
+                    python_is_lambda,
                 ) == 0
                 {
-                    stats.structural += node.count_specific_ancestors::<PythonParser>(
-                        |node| node.kind_id() == Lambda,
-                        |node| {
+                    stats.structural +=
+                        node.count_specific_ancestors::<PythonParser>(python_is_lambda, |node| {
                             matches!(
                                 node.kind_id().into(),
                                 ExpressionList | IfStatement | ForStatement | WhileStatement
                             )
-                        },
-                    );
+                        });
                 }
                 compute_booleans(node, stats, And, Or);
             }
-            Lambda => {
+            // `Lambda` (196) is the emitted lambda; `Lambda2` (197) is the
+            // hidden alias `python_is_lambda` also accepts. A match arm
+            // cannot route through the predicate, so the alias set is
+            // spelled out here and kept in sync with it (#422; the
+            // drift guard in checker.rs flags a bump that emits Lambda2).
+            Lambda | Lambda2 => {
                 // Increase lambda nesting
                 lambda += 1;
             }

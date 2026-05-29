@@ -247,6 +247,16 @@ for historical reference.
   `Php::String3` / `Java::MultilineStringLiteral` guards. Defensive
   refactor; no metric output changes. Fixes
   [#419](https://github.com/dekobon/big-code-analysis/issues/419).
+- Completed the #419 Python lambda-alias normalization in the cognitive
+  metric: the three `impl Cognitive for PythonCode` lambda sites (the two
+  boolean-operator ancestor-scope walks and the lambda-nesting dispatch
+  arm) now recognize the `Lambda2` (197) hidden alias, not just `Lambda`
+  (196). Added a single `cognitive::python_is_lambda` chokepoint reused by
+  those sites and by `is_closure` (mirroring `python_is_block`), so the
+  closure and cognitive lambda detection can no longer desync. Defensive
+  refactor; `Lambda2` is unemitted by the current grammar pin, so there is
+  no metric output change. Fixes
+  [#422](https://github.com/dekobon/big-code-analysis/issues/422).
 - The per-language Halstead string-interpolation operand skip (a literal
   is one operand unless it wraps interpolation, in which case the wrapper
   yields `Unknown` and the inner expressions are counted) is unified

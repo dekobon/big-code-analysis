@@ -1132,14 +1132,14 @@ path = "src/checker.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 12789785.948028756
+value = 12827582.14839741
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 2616.0
+value = 2654.0
 
 [[entry]]
 path = "src/checker.rs"
@@ -1160,7 +1160,7 @@ path = "src/checker.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 243.0
+value = 244.0
 
 [[entry]]
 path = "src/checker.rs"
@@ -1172,7 +1172,7 @@ value = 233.0
 [[entry]]
 path = "src/checker.rs"
 qualified = "BashCode"
-start_line = 1252
+start_line = 1253
 metric = "nargs"
 value = 10.0
 
@@ -1207,98 +1207,98 @@ value = 10.0
 [[entry]]
 path = "src/checker.rs"
 qualified = "CsharpCode"
-start_line = 530
+start_line = 531
 metric = "halstead.effort"
 value = 50985.46810235209
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "CsharpCode"
-start_line = 530
+start_line = 531
 metric = "nargs"
 value = 11.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "ElixirCode"
-start_line = 1449
+start_line = 1450
 metric = "halstead.effort"
 value = 92612.18359125816
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "ElixirCode"
-start_line = 1449
+start_line = 1450
 metric = "nargs"
 value = 16.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "ElixirCode"
-start_line = 1449
+start_line = 1450
 metric = "nexits"
 value = 7.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "GoCode"
-start_line = 1003
+start_line = 1004
 metric = "nargs"
 value = 11.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "GroovyCode"
-start_line = 1652
+start_line = 1653
 metric = "nargs"
 value = 11.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "JavaCode"
-start_line = 465
+start_line = 466
 metric = "nargs"
 value = 11.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "JavascriptCode"
-start_line = 680
+start_line = 681
 metric = "nargs"
 value = 9.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "KotlinCode"
-start_line = 1053
+start_line = 1054
 metric = "nargs"
 value = 11.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "LuaCode"
-start_line = 1193
+start_line = 1194
 metric = "nargs"
 value = 10.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "MozjsCode"
-start_line = 625
+start_line = 626
 metric = "nargs"
 value = 8.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "PerlCode"
-start_line = 1114
+start_line = 1115
 metric = "nargs"
 value = 10.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "PhpCode"
-start_line = 1356
+start_line = 1357
 metric = "nargs"
 value = 10.0
 
@@ -1319,56 +1319,56 @@ value = 12.0
 [[entry]]
 path = "src/checker.rs"
 qualified = "RubyCode"
-start_line = 1565
+start_line = 1566
 metric = "nargs"
 value = 10.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "RustCode"
-start_line = 897
+start_line = 898
 metric = "halstead.effort"
 value = 90844.53560124818
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "RustCode"
-start_line = 897
+start_line = 898
 metric = "nargs"
 value = 12.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "TclCode"
-start_line = 1312
+start_line = 1313
 metric = "nargs"
 value = 10.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "TsxCode"
-start_line = 790
+start_line = 791
 metric = "nargs"
 value = 9.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "TypescriptCode"
-start_line = 732
+start_line = 733
 metric = "nargs"
 value = 8.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "simple_is_string_macro_recognises_each_language"
-start_line = 2296
+start_line = 2334
 metric = "abc"
 value = 49.49747468305833
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "simple_is_string_macro_recognises_each_language"
-start_line = 2296
+start_line = 2334
 metric = "halstead.effort"
 value = 105721.44190330332
 
@@ -1888,21 +1888,21 @@ path = "src/metrics/cognitive.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 30415665.869877476
+value = 30415873.291058667
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 8673.0
+value = 8694.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 429.0
+value = 428.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
@@ -1916,54 +1916,40 @@ path = "src/metrics/cognitive.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 647.0
+value = 646.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "<file>"
 start_line = 1
 metric = "wmc"
-value = 172.0
+value = 170.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "PythonCode"
-start_line = 341
+start_line = 359
 metric = "halstead.effort"
-value = 122305.32389642987
-
-[[entry]]
-path = "src/metrics/cognitive.rs"
-qualified = "PythonCode"
-start_line = 341
-metric = "nargs"
-value = 8.0
+value = 112273.95797902498
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "PythonCode::compute"
-start_line = 342
+start_line = 360
 metric = "cyclomatic"
 value = 18.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "PythonCode::compute"
-start_line = 342
+start_line = 360
 metric = "halstead.effort"
-value = 118465.54055439358
-
-[[entry]]
-path = "src/metrics/cognitive.rs"
-qualified = "PythonCode::compute"
-start_line = 342
-metric = "nargs"
-value = 8.0
+value = 108602.46237800585
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "RubyCode"
-start_line = 1364
+start_line = 1385
 metric = "halstead.effort"
 value = 51081.30482939972
 

@@ -391,16 +391,17 @@ impl Checker for PythonCode {
     }
 
     fn is_closure(node: &Node) -> bool {
-        // tree-sitter-python lists two aliased `lambda` expression
-        // kind_ids: `Lambda` (196, the concrete production, the only
-        // one emitted today) and `Lambda2` (197, currently unseen).
-        // `Lambda3` (73) is the `lambda` *keyword* token, not a
-        // closure node, and is intentionally excluded. Accepting both
-        // expression aliases means a future grammar bump that promotes
-        // `Lambda2` cannot silently undercount closures in nom/nargs
-        // (issue #419; lesson 2 in lessons_learned.md). The drift-guard
-        // test below asserts `Lambda2` stays unseen until then.
-        matches!(node.kind_id().into(), Python::Lambda | Python::Lambda2)
+        // Route through the single lambda-alias chokepoint so closure
+        // detection here and the cognitive lambda-scope walks accept the
+        // exact same set: `Lambda` (196, the concrete production emitted
+        // today) and `Lambda2` (197, the currently-unseen hidden alias).
+        // `Lambda3` (73, the `lambda` keyword token) is intentionally
+        // excluded. Centralizing means a future grammar bump that
+        // promotes `Lambda2` cannot silently undercount closures in
+        // nom/nargs or desync from cognitive (issues #419/#422; lesson 2
+        // in lessons_learned.md). The drift-guard test below asserts
+        // `Lambda2` stays unseen until then.
+        crate::metrics::cognitive::python_is_lambda(node)
     }
 
     fn is_call(node: &Node) -> bool {
@@ -2184,10 +2185,12 @@ mod tests {
     // `Block` (135, the hidden `_block` supertype; only `Block2` 160 is
     // emitted) and `Lambda2` (197, an unseen lambda alias; only
     // `Lambda` 196 and the `lambda` keyword token `Lambda3` 73 appear).
-    // Several metric sites (`is_closure`, `is_else_if`, `python_is_block`
-    // in npa, npm's class-body lookup, loc's no-op arm) already enumerate
-    // these aliases defensively so a future grammar bump that promotes
-    // either supertype to a concrete node cannot silently undercount.
+    // Several metric sites (`is_closure` — which now routes through
+    // `cognitive::python_is_lambda`, the three cognitive lambda-scope
+    // sites it feeds (#422), `is_else_if`, `python_is_block` in npa,
+    // npm's class-body lookup, loc's no-op arm) already enumerate these
+    // aliases defensively so a future grammar bump that promotes either
+    // supertype to a concrete node cannot silently undercount.
     // This test pins their current absence across representative Python
     // (function, class, if/for bodies, lambda); if a bump ever emits one,
     // the guard flips red and forces a positive assertion to be added —
@@ -2218,7 +2221,42 @@ mod tests {
         );
         assert!(
             !ast_has_kind_id(&parser, Python::Lambda2 as u16),
-            "Python::Lambda2 (197) is an unseen lambda alias; if it now appears, is_closure must detect it and a positive closure assertion is required (#419)",
+            "Python::Lambda2 (197) is an unseen lambda alias; if it now appears, cognitive::python_is_lambda (reused by is_closure and the three cognitive lambda-scope sites) must detect it and a positive closure assertion is required (#419/#422)",
+        );
+    }
+
+    // #422: the cognitive lambda-alias chokepoint and `is_closure` must
+    // recognise the *same* live `lambda` node. Before #422, cognitive's
+    // three lambda sites compared against `Lambda` (196) only while
+    // `is_closure` accepted `Lambda | Lambda2`; both now route through
+    // `cognitive::python_is_lambda`, so this pins that they agree on the
+    // emitted `Lambda` and that the predicate is not vacuously true (it
+    // rejects the enclosing `FunctionDefinition`). The unseen `Lambda2`
+    // half of the set is covered by the drift guard above.
+    #[test]
+    fn python_is_lambda_matches_live_lambda_and_agrees_with_is_closure() {
+        use crate::metrics::cognitive::python_is_lambda;
+
+        let parser = parse_python("def f():\n    return lambda x: x and x\n");
+        let lambda = find_first_kind(&parser, Python::Lambda as u16)
+            .expect("the lambda expression must parse as Python::Lambda (196)");
+
+        assert!(
+            python_is_lambda(&lambda),
+            "python_is_lambda must accept the emitted Lambda node",
+        );
+        assert!(
+            PythonCode::is_closure(&lambda),
+            "is_closure must agree with python_is_lambda on the same lambda node",
+        );
+
+        // Not vacuously true: a non-lambda node (the enclosing function)
+        // must be rejected, so the predicate is discriminating.
+        let func = find_first_kind(&parser, Python::FunctionDefinition as u16)
+            .expect("the def must parse as Python::FunctionDefinition");
+        assert!(
+            !python_is_lambda(&func),
+            "python_is_lambda must reject a non-lambda node",
         );
     }
 
