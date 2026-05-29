@@ -338,6 +338,30 @@ fn increase_nesting(stats: &mut Stats, nesting: &mut usize, depth: usize, lambda
     stats.boolean_seq.reset();
 }
 
+/// Write the nesting a comprehension `for` clause just introduced back
+/// onto the shared comprehension parent's `nesting_map` entry.
+///
+/// Comprehension clauses (`for_in_clause`, `if_clause`) are processed in
+/// document order as *siblings* of one another, all reading their nesting
+/// from the comprehension parent via [`get_nesting_from_map`]. A `for`
+/// clause's nesting increment is stored under its own node id, which no
+/// sibling reads — so without this, a trailing `for`/`if` clause would see
+/// the comprehension's original nesting and under-count. Propagating the
+/// elevated nesting onto the parent lets `[a for a in xs for b in ys]`
+/// (nested loops) and `[x for x in xs if x > 0]` (filter under the loop)
+/// match their explicit-statement equivalents (#417).
+fn propagate_comprehension_nesting(
+    node: &Node,
+    nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
+    nesting: usize,
+    depth: usize,
+    lambda: usize,
+) {
+    if let Some(parent) = node.parent() {
+        nesting_map.insert(parent.id(), (nesting, depth, lambda));
+    }
+}
+
 impl Cognitive for PythonCode {
     fn compute<'a>(
         node: &Node<'a>,
@@ -360,6 +384,28 @@ impl Cognitive for PythonCode {
             }
             ForStatement | WhileStatement | ConditionalExpression | MatchStatement => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
+            }
+            // A comprehension / generator expression is a loop with an
+            // optional filter, so it carries cognitive load just like the
+            // explicit `for`/`if` form it desugars to (#417). Cyclomatic
+            // already counts the `for`/`if` keyword tokens inside these
+            // clauses; without these arms `[x for x in xs if x > 0]` scored
+            // cognitive 0 while the equivalent explicit loop scored 3.
+            // Per the SonarSource model, each `for` clause is a loop
+            // (B1 nesting increment) and each `if` clause is a filter nested
+            // under those loops (B1 + nesting). `for_in_clause` and
+            // `if_clause` are SIBLINGS under the comprehension node, not
+            // parent/child, so the nesting a `for` introduces must be
+            // propagated onto the shared comprehension parent for later
+            // sibling clauses (a second `for`, or any `if`) to observe it.
+            ForInClause => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
+                propagate_comprehension_nesting(node, nesting_map, nesting, depth, lambda);
+            }
+            IfClause => {
+                stats.nesting = nesting + depth + lambda;
+                increment(stats);
+                stats.boolean_seq.reset();
             }
             ElifClause => {
                 // No nesting increment for them because their cost has already
@@ -1764,6 +1810,117 @@ mod tests {
                 );
             },
         );
+    }
+
+    #[test]
+    fn python_comprehension_matches_explicit_loop() {
+        // Regression for #417: a list comprehension's `for`/`if` clauses must
+        // carry the same cognitive load as the explicit loop+condition they
+        // desugar to. `[x for x in xs if x > 0]` was scoring 0 while the
+        // equivalent explicit `for`/`if` scored 3.
+        // expected: for_in_clause +1 (nesting 0), if_clause +2 (1 base +
+        // 1 nesting under the for) = 3 — equal to the explicit form below.
+        check_metrics::<PythonParser>(
+            "def f(xs):
+                return [x for x in xs if x > 0]",
+            "foo.py",
+            |metric| {
+                // cyclomatic 4 = unit base 1 + for 1 + if 1 + function base 1.
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+            },
+        );
+        check_metrics::<PythonParser>(
+            "def g(xs):
+                out = []
+                for x in xs:
+                    if x > 0:
+                        out.append(x)
+                return out",
+            "foo.py",
+            |metric| {
+                // The explicit loop+if form the comprehension above desugars
+                // to: for +1, nested if +2 = 3 (cognitive), matching f.
+                // cyclomatic 4 matches f as well, confirming agreement.
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+            },
+        );
+    }
+
+    #[test]
+    fn python_comprehension_plain_no_filter() {
+        // A comprehension with no `if` filter scores just the loop.
+        // expected: for_in_clause +1 = 1.
+        check_metrics::<PythonParser>(
+            "def f(xs):
+                return [x for x in xs]",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                // cyclomatic 3 = unit base 1 + for 1 + function base 1.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
+            },
+        );
+    }
+
+    #[test]
+    fn python_comprehension_nested_for() {
+        // Two `for` clauses are nested loops: the second nests under the
+        // first, mirroring explicit nested `for` statements.
+        // expected: for #1 +1 (nesting 0), for #2 +2 (1 base + 1 nesting) = 3.
+        check_metrics::<PythonParser>(
+            "def f(xs, ys):
+                return [a for a in xs for b in ys]",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                // cyclomatic 4 = unit base 1 + for 1 + for 1 + function base 1.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+            },
+        );
+    }
+
+    #[test]
+    fn python_comprehension_multiple_filters() {
+        // Each `if` filter is an independent condition nested under the for.
+        // Cognitive penalizes the nesting, so it exceeds cyclomatic here; the
+        // two metrics legitimately diverge once filters multiply.
+        // expected cognitive: for +1, if #1 +2, if #2 +2 = 5.
+        check_metrics::<PythonParser>(
+            "def f(xs):
+                return [x for x in xs if a if b]",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 5.0);
+                // cyclomatic 5 = unit base 1 + for 1 + if 1 + if 1 + fn base 1.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
+            },
+        );
+    }
+
+    #[test]
+    fn python_comprehension_variants_consistent() {
+        // dict / set / generator comprehensions reuse the same for_in_clause /
+        // if_clause node kinds as the list form, so all must score identically
+        // to `[x for x in xs if x > 0]` (cognitive 3).
+        // expected: for +1, if +2 = 3 for each variant.
+        for body in [
+            "{x: y for x, y in xs if x > 0}",
+            "{x for x in xs if x > 0}",
+            "(x for x in xs if x > 0)",
+        ] {
+            check_metrics::<PythonParser>(
+                &format!("def f(xs):\n                return {body}"),
+                "foo.py",
+                |metric| {
+                    assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                    // cyclomatic 4 = unit base 1 + for 1 + if 1 + fn base 1,
+                    // identical to the list form, for every variant.
+                    assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                },
+            );
+        }
     }
 
     #[test]
