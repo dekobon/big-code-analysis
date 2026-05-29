@@ -366,9 +366,13 @@ impl Cognitive for PythonCode {
                 // been paid by the if construct
                 increment_branch_extension(stats);
             }
-            ElseClause | FinallyClause => {
-                // No nesting increment for them because their cost has already
-                // been paid by the if construct
+            ElseClause => {
+                // No nesting increment for it because its cost has already
+                // been paid by the if construct. A `finally` clause, by
+                // contrast, is structured cleanup that always runs and adds
+                // 0 per the SonarSource Cognitive Complexity spec (#416) —
+                // so `FinallyClause` deliberately falls through to `_ => {}`,
+                // matching the Java sibling which has no finally arm.
                 increment_by_one(stats);
             }
             ExceptClause => {
@@ -1695,6 +1699,127 @@ mod tests {
                       "average": 4.0,
                       "min": 0.0,
                       "max": 4.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn python_try_except_finally_finally_is_free() {
+        // Regression for #416: a `finally` clause is structured cleanup that
+        // always runs and must add 0 per the SonarSource Cognitive Complexity
+        // spec. try/except/finally must score the same as try/except.
+        // expected: except +1, finally +0 = 1.
+        check_metrics::<PythonParser>(
+            "def f():
+                try:
+                    x = risky()
+                except ValueError:
+                    x = 1
+                finally:
+                    cleanup()
+                return x",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn python_try_except_matches_try_except_finally() {
+        // Companion to #416: try/except (no finally) scores the same as the
+        // try/except/finally form above, proving `finally` is free.
+        // expected: except +1 = 1.
+        check_metrics::<PythonParser>(
+            "def f():
+                try:
+                    x = risky()
+                except ValueError:
+                    x = 1
+                return x",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn python_try_finally_no_except_is_free() {
+        // #416: try/finally with no except clause scores 0 — neither the try
+        // body nor the finally cleanup carries any cognitive cost on its own.
+        // expected: 0.
+        check_metrics::<PythonParser>(
+            "def f():
+                try:
+                    x = risky()
+                finally:
+                    cleanup()
+                return x",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 0.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 0.0,
+                      "average": 0.0,
+                      "min": 0.0,
+                      "max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn python_constructs_inside_finally_still_count() {
+        // #416 guard: making `finally` free must not make its body invisible.
+        // The finally clause itself carries no nesting increment (it never
+        // called `increase_nesting`), so an `if` directly inside it is at
+        // nesting depth 0 and contributes its +1 base cost.
+        // expected: if inside finally = +1.
+        check_metrics::<PythonParser>(
+            "def f():
+                try:
+                    x = risky()
+                finally:
+                    if x:
+                        cleanup()",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
                     }"###
                 );
             },
