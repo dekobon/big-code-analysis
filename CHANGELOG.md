@@ -266,6 +266,20 @@ for historical reference.
   means re-vendoring from upstream (a deliberate grammar-version
   change, not a reproducibility regen). No code change — confirms the
   open question in [#407](https://github.com/dekobon/big-code-analysis/issues/407).
+- Internal refactor of the CLI HTML report renderer
+  (`big-code-analysis-cli/src/html_report.rs`) to relieve the
+  self-scan parameter-count pressure on `emit_hotspot`,
+  `generate_html_report`, and `write_language_section`
+  ([#402](https://github.com/dekobon/big-code-analysis/issues/402)).
+  The nine hotspot sections are now described by `const HotspotSpec`
+  tables of `fn`-pointer column projectors; `emit_hotspot` drops from
+  ten parameters (four of them closures) to five, and the two large
+  orchestrators are flattened into named per-block helpers
+  (`group_by_language`, `GlobalTotals`, `write_overview_table`,
+  `partition_by_kind`, `CyclomaticStats`, `ActionableCounts`, …).
+  Output is byte-for-byte identical — the `html_report_two_lang`
+  snapshot and every `assert_html_well_formed` test are unchanged.
+  No public API or CLI behaviour change.
 - `tree-sitter-mozcpp` grammar regeneration is now reproducible and
   the bundled `src/parser.c` is regenerated with `tree-sitter` CLI
   `0.26.9`, matching the workspace's `tree-sitter = "=0.26.9"`

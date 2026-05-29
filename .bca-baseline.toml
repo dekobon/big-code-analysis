@@ -278,91 +278,28 @@ path = "big-code-analysis-cli/src/html_report.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 4351729.7650529
+value = 5376103.330755919
 
 [[entry]]
 path = "big-code-analysis-cli/src/html_report.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1442.0
+value = 1660.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/html_report.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 78.0
+value = 101.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/html_report.rs"
 function = "<file>"
 start_line = 1
 metric = "nom"
-value = 75.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/html_report.rs"
-function = "emit_hotspot"
-start_line = 334
-metric = "nargs"
-value = 12.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/html_report.rs"
-function = "generate_html_report"
-start_line = 364
-metric = "halstead.effort"
-value = 249448.33998042793
-
-[[entry]]
-path = "big-code-analysis-cli/src/html_report.rs"
-function = "generate_html_report"
-start_line = 364
-metric = "nargs"
-value = 11.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/html_report.rs"
-function = "write_language_section"
-start_line = 514
-metric = "cognitive"
-value = 24.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/html_report.rs"
-function = "write_language_section"
-start_line = 514
-metric = "cyclomatic"
-value = 18.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/html_report.rs"
-function = "write_language_section"
-start_line = 514
-metric = "halstead.effort"
-value = 1123315.0175096784
-
-[[entry]]
-path = "big-code-analysis-cli/src/html_report.rs"
-function = "write_language_section"
-start_line = 514
-metric = "loc.sloc"
-value = 463.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/html_report.rs"
-function = "write_language_section"
-start_line = 514
-metric = "nargs"
-value = 38.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/html_report.rs"
-function = "write_language_section"
-start_line = 514
-metric = "nom"
-value = 32.0
+value = 98.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"

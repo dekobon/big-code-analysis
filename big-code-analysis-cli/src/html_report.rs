@@ -287,6 +287,256 @@ enum SortDir {
     Desc,
 }
 
+/// One column of a hotspot table: its header text, alignment (which also
+/// drives the numeric-sort attribute), and a stateless projector from a
+/// [`FunctionSummary`] to its rendered cell string. `cell` is a `fn`
+/// pointer — every projector is capture-free — so a whole [`HotspotSpec`]
+/// is `const`-promotable.
+#[derive(Clone, Copy)]
+struct HotspotColumn {
+    header: &'static str,
+    align: Align,
+    cell: fn(&FunctionSummary) -> String,
+}
+
+/// Declarative description of one hotspot section: which summaries to
+/// keep, the metric to rank them by, the sort direction, and the column
+/// table to render. Capture-free `fn` pointers throughout keep every
+/// instance `const` (see the `*_HOTSPOT` tables below). The section
+/// title is *not* a field: only the MI section interpolates `top_n` into
+/// its heading, so it stays a runtime argument to [`emit_hotspot`] and
+/// the other eight specs need no per-call data.
+struct HotspotSpec {
+    keep: fn(&FunctionSummary) -> bool,
+    metric: fn(&FunctionSummary) -> f64,
+    dir: SortDir,
+    columns: &'static [HotspotColumn],
+}
+
+// Column descriptors shared verbatim across multiple hotspot specs.
+// Hoisted to `const` so a header/alignment/projector edit happens once
+// rather than across the eight-or-nine tables that reuse it. Each spec's
+// `columns` table mixes these with its own metric-specific columns.
+const COL_FUNCTION: HotspotColumn = HotspotColumn {
+    header: "Function",
+    align: Align::Left,
+    cell: |s| s.name.clone(),
+};
+const COL_FILE: HotspotColumn = HotspotColumn {
+    header: "File",
+    align: Align::Left,
+    cell: |s| s.file.clone(),
+};
+const COL_LINE: HotspotColumn = HotspotColumn {
+    header: "Line",
+    align: Align::Right,
+    cell: |s| s.start_line.to_string(),
+};
+const COL_CC: HotspotColumn = HotspotColumn {
+    header: "CC",
+    align: Align::Right,
+    cell: |s| MetricScalar(s.cyclomatic).to_string(),
+};
+const COL_COGNITIVE: HotspotColumn = HotspotColumn {
+    header: "Cognitive",
+    align: Align::Right,
+    cell: |s| MetricScalar(s.cognitive).to_string(),
+};
+const COL_SLOC: HotspotColumn = HotspotColumn {
+    header: "SLOC",
+    align: Align::Right,
+    cell: |s| thousands(s.sloc),
+};
+const COL_TOKENS: HotspotColumn = HotspotColumn {
+    header: "Tokens",
+    align: Align::Right,
+    cell: |s| thousands(s.tokens),
+};
+
+const MI_LOWEST_HOTSPOT: HotspotSpec = HotspotSpec {
+    keep: |s| s.mi_visual_studio > 0.0,
+    metric: |s| s.mi_visual_studio,
+    dir: SortDir::Asc,
+    columns: &[
+        COL_FILE,
+        HotspotColumn {
+            header: "MI",
+            align: Align::Right,
+            cell: |s| format!("{:.1}", s.mi_visual_studio),
+        },
+        COL_SLOC,
+        COL_TOKENS,
+    ],
+};
+
+const CC_HOTSPOT: HotspotSpec = HotspotSpec {
+    keep: |s| s.cyclomatic > 0.0,
+    metric: |s| s.cyclomatic,
+    dir: SortDir::Desc,
+    columns: &[
+        COL_FUNCTION,
+        COL_FILE,
+        COL_LINE,
+        COL_CC,
+        COL_COGNITIVE,
+        COL_SLOC,
+        COL_TOKENS,
+    ],
+};
+
+const COGNITIVE_HOTSPOT: HotspotSpec = HotspotSpec {
+    keep: |s| s.cognitive > 0.0,
+    metric: |s| s.cognitive,
+    dir: SortDir::Desc,
+    columns: &[
+        COL_FUNCTION,
+        COL_FILE,
+        COL_LINE,
+        COL_COGNITIVE,
+        COL_CC,
+        COL_SLOC,
+        COL_TOKENS,
+    ],
+};
+
+const HALSTEAD_EFFORT_HOTSPOT: HotspotSpec = HotspotSpec {
+    keep: |s| s.halstead_effort > 0.0,
+    metric: |s| s.halstead_effort,
+    dir: SortDir::Desc,
+    columns: &[
+        COL_FUNCTION,
+        COL_FILE,
+        HotspotColumn {
+            header: "Effort",
+            align: Align::Right,
+            cell: |s| MetricScalar(s.halstead_effort).to_string(),
+        },
+        HotspotColumn {
+            header: "Volume",
+            align: Align::Right,
+            cell: |s| MetricScalar(s.halstead_volume).to_string(),
+        },
+        HotspotColumn {
+            header: "Est. Bugs",
+            align: Align::Right,
+            cell: |s| format!("{:.2}", s.halstead_bugs),
+        },
+        COL_SLOC,
+        COL_TOKENS,
+    ],
+};
+
+const LARGEST_BY_SLOC_HOTSPOT: HotspotSpec = HotspotSpec {
+    keep: |s| s.sloc > 0,
+    metric: |s| s.sloc as f64,
+    dir: SortDir::Desc,
+    columns: &[
+        COL_FUNCTION,
+        COL_FILE,
+        COL_LINE,
+        COL_SLOC,
+        COL_TOKENS,
+        COL_CC,
+        COL_COGNITIVE,
+    ],
+};
+
+const MANY_PARAMS_HOTSPOT: HotspotSpec = HotspotSpec {
+    keep: |s| s.nargs > 3,
+    metric: |s| s.nargs as f64,
+    dir: SortDir::Desc,
+    columns: &[
+        COL_FUNCTION,
+        COL_FILE,
+        HotspotColumn {
+            header: "Args",
+            align: Align::Right,
+            cell: |s| s.nargs.to_string(),
+        },
+        COL_SLOC,
+        COL_TOKENS,
+    ],
+};
+
+// Sources from `entries` (all kinds), not `funcs`/`units`: class-likes
+// are filtered out of both buckets, so the WMC table must keep the
+// `is_class_like` predicate and draw from the full per-language slice.
+// The leading column reuses the function projector but relabels its
+// header "Class", so it stays an inline literal rather than COL_FUNCTION.
+const WMC_HOTSPOT: HotspotSpec = HotspotSpec {
+    keep: |s| is_class_like(s.kind) && s.wmc > 0.0,
+    metric: |s| s.wmc,
+    dir: SortDir::Desc,
+    columns: &[
+        HotspotColumn {
+            header: "Class",
+            align: Align::Left,
+            cell: |s| s.name.clone(),
+        },
+        COL_FILE,
+        COL_LINE,
+        HotspotColumn {
+            header: "WMC",
+            align: Align::Right,
+            cell: |s| MetricScalar(s.wmc).to_string(),
+        },
+        HotspotColumn {
+            header: "Methods",
+            align: Align::Right,
+            cell: |s| s.nom.to_string(),
+        },
+        HotspotColumn {
+            header: "NPA",
+            align: Align::Right,
+            cell: |s| MetricScalar(s.npa).to_string(),
+        },
+        HotspotColumn {
+            header: "NPM",
+            align: Align::Right,
+            cell: |s| MetricScalar(s.npm).to_string(),
+        },
+        COL_SLOC,
+        COL_TOKENS,
+    ],
+};
+
+const NEXITS_HOTSPOT: HotspotSpec = HotspotSpec {
+    keep: |s| s.nexits > 0,
+    metric: |s| s.nexits as f64,
+    dir: SortDir::Desc,
+    columns: &[
+        COL_FUNCTION,
+        COL_FILE,
+        COL_LINE,
+        HotspotColumn {
+            header: "Exits",
+            align: Align::Right,
+            cell: |s| s.nexits.to_string(),
+        },
+        COL_CC,
+        COL_SLOC,
+        COL_TOKENS,
+    ],
+};
+
+const ABC_HOTSPOT: HotspotSpec = HotspotSpec {
+    keep: |s| s.abc > 0.0,
+    metric: |s| s.abc,
+    dir: SortDir::Desc,
+    columns: &[
+        COL_FUNCTION,
+        COL_FILE,
+        COL_LINE,
+        HotspotColumn {
+            header: "ABC",
+            align: Align::Right,
+            cell: |s| format!("{:.1}", s.abc),
+        },
+        COL_SLOC,
+        COL_TOKENS,
+    ],
+};
+
 /// Write a `<table class="hotspot">` with one `<thead>` and one
 /// `<tbody>`. `aligns` controls per-cell text alignment AND the
 /// `data-numeric="1"` attribute that the inline sort handler reads to
@@ -325,37 +575,256 @@ fn write_table(out: &mut String, headers: &[&str], aligns: &[Align], rows: &[Vec
     let _ = out.write_str("</tbody>\n</table>\n");
 }
 
-/// Emit one hotspot section: filter `base` with `keep`, sort by
-/// `metric` in `dir`, take the top `top_n`, write an `<h3>{title}</h3>`
-/// header followed by the table. Returns `true` if a table was
-/// emitted, so callers that need a trailing summary line (CC stats)
-/// can gate it on actual content.
-#[allow(clippy::too_many_arguments)]
+/// Render a hotspot table from a [`HotspotSpec`]'s column descriptors.
+/// Builds the parallel `headers`/`aligns`/`rows` arrays from `columns`
+/// (with loops, not closures, so the helper stays free of nargs
+/// pressure) and delegates to [`write_table`] — keeping that function
+/// the single source of truth for hotspot-table bytes and escaping.
+fn write_hotspot_table(out: &mut String, columns: &[HotspotColumn], entries: &[&FunctionSummary]) {
+    let mut headers = Vec::with_capacity(columns.len());
+    let mut aligns = Vec::with_capacity(columns.len());
+    for col in columns {
+        headers.push(col.header);
+        aligns.push(col.align);
+    }
+    let mut rows: Vec<Vec<String>> = Vec::with_capacity(entries.len());
+    for s in entries {
+        let mut row: Vec<String> = Vec::with_capacity(columns.len());
+        for col in columns {
+            row.push((col.cell)(s));
+        }
+        rows.push(row);
+    }
+    write_table(out, &headers, &aligns, &rows);
+}
+
+/// Emit one hotspot section: filter `base` with `spec.keep`, sort by
+/// `spec.metric` in `spec.dir`, take the top `top_n`, write an
+/// `<h3>{title}</h3>` header followed by the column-driven table.
+/// Returns `true` if a table was emitted, so callers that need a
+/// trailing summary line (CC stats) can gate it on actual content.
 fn emit_hotspot(
     out: &mut String,
     title: &str,
     base: &[&FunctionSummary],
-    keep: impl Fn(&FunctionSummary) -> bool,
-    metric: impl Fn(&FunctionSummary) -> f64,
-    dir: SortDir,
     top_n: usize,
-    headers: &[&str],
-    aligns: &[Align],
-    row: impl Fn(&FunctionSummary) -> Vec<String>,
+    spec: &HotspotSpec,
 ) -> bool {
-    let mut entries: Vec<&FunctionSummary> = base.iter().copied().filter(|s| keep(s)).collect();
+    let mut entries: Vec<&FunctionSummary> =
+        base.iter().copied().filter(|s| (spec.keep)(s)).collect();
     if entries.is_empty() {
         return false;
     }
-    match dir {
-        SortDir::Asc => sort_by_metric_asc(&mut entries, &metric),
-        SortDir::Desc => sort_by_metric_desc(&mut entries, &metric),
+    match spec.dir {
+        SortDir::Asc => sort_by_metric_asc(&mut entries, spec.metric),
+        SortDir::Desc => sort_by_metric_desc(&mut entries, spec.metric),
     }
     let count = entries.len().min(top_n);
+    // `title` is a trusted-source literal (section headings, including
+    // the pre-escaped `&gt;` entity in the many-parameters heading).
+    // Written raw — never `escape_html`-ed — to avoid double-escaping.
     let _ = writeln!(out, "<h3>{title}</h3>");
-    let rows: Vec<Vec<String>> = entries[..count].iter().map(|s| row(s)).collect();
-    write_table(out, headers, aligns, &rows);
+    write_hotspot_table(out, spec.columns, &entries[..count]);
     true
+}
+
+/// Per-language grouping of summaries, keyed by `LANG::get_name()` and
+/// ordered alphabetically (so the report sections are deterministic).
+type LangGroups<'a> = BTreeMap<&'a str, Vec<&'a FunctionSummary>>;
+
+/// Group summaries by language name. The `BTreeMap` ordering drives the
+/// alphabetical section order asserted by
+/// `two_language_well_formed_and_alphabetical`.
+fn group_by_language(summaries: &[FunctionSummary]) -> LangGroups<'_> {
+    let mut map = LangGroups::new();
+    for s in summaries {
+        map.entry(s.language.get_name()).or_default().push(s);
+    }
+    map
+}
+
+/// Comment lines as a percentage of source lines, guarding the
+/// zero-SLOC case. Shared by the global and per-language roll-ups so the
+/// formula lives in one place.
+fn comment_ratio_percent(sloc: usize, cloc: usize) -> f64 {
+    if sloc > 0 {
+        (cloc as f64 / sloc as f64) * 100.0
+    } else {
+        0.0
+    }
+}
+
+/// Whole-walk roll-up shown in the global `<div class="summary">` block.
+/// Only `SpaceKind::Unit` summaries contribute file-level line counts;
+/// functions and class-likes are counted separately.
+struct GlobalTotals {
+    files: usize,
+    sloc: usize,
+    ploc: usize,
+    cloc: usize,
+    functions: usize,
+    classes: usize,
+}
+
+impl GlobalTotals {
+    fn from_summaries(summaries: &[FunctionSummary]) -> Self {
+        let mut t = Self {
+            files: 0,
+            sloc: 0,
+            ploc: 0,
+            cloc: 0,
+            functions: 0,
+            classes: 0,
+        };
+        for s in summaries {
+            match s.kind {
+                SpaceKind::Unit => {
+                    t.files += 1;
+                    t.sloc += s.sloc;
+                    t.ploc += s.ploc;
+                    t.cloc += s.cloc;
+                }
+                SpaceKind::Function => t.functions += 1,
+                _ => {}
+            }
+            if is_class_like(s.kind) {
+                t.classes += 1;
+            }
+        }
+        t
+    }
+
+    fn comment_ratio(&self) -> f64 {
+        comment_ratio_percent(self.sloc, self.cloc)
+    }
+}
+
+fn write_html_head(out: &mut String) {
+    let _ = out.write_str("<!doctype html>\n<html lang=\"en\">\n<head>\n");
+    let _ = out.write_str("<meta charset=\"utf-8\">\n");
+    let _ = writeln!(
+        out,
+        "<title>Code Quality Metrics Summary \u{2014} big-code-analysis</title>"
+    );
+    let _ = writeln!(out, "<style>{INLINE_CSS}</style>");
+    let _ = out.write_str("</head>\n<body>\n");
+    let _ = out.write_str("<h1>Code Quality Metrics Summary</h1>\n");
+}
+
+fn write_global_summary(out: &mut String, totals: &GlobalTotals, by_lang: &LangGroups<'_>) {
+    let languages_list: String = by_lang
+        .keys()
+        .map(|k| title_case(k))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let _ = out.write_str("<div class=\"summary\">\n");
+    let _ = writeln!(
+        out,
+        "<p><strong>Files analyzed:</strong> {} <strong>Languages:</strong> {}</p>",
+        escape_html(&thousands(totals.files)),
+        escape_html(&languages_list),
+    );
+    let _ = writeln!(
+        out,
+        "<p><strong>Total SLOC:</strong> {} <strong>PLOC:</strong> {} <strong>Comments:</strong> {}</p>",
+        escape_html(&thousands(totals.sloc)),
+        escape_html(&thousands(totals.ploc)),
+        escape_html(&thousands(totals.cloc)),
+    );
+    let _ = writeln!(
+        out,
+        "<p><strong>Functions/methods:</strong> {} <strong>Classes/impls/traits:</strong> {}</p>",
+        escape_html(&thousands(totals.functions)),
+        escape_html(&thousands(totals.classes)),
+    );
+    let _ = writeln!(
+        out,
+        "<p><strong>Comment ratio:</strong> {:.1}%</p>",
+        totals.comment_ratio()
+    );
+    let _ = out.write_str("</div>\n");
+}
+
+/// Build the seven-cell per-language overview row (Files / SLOC /
+/// Functions averaged from the unit and function summaries of one
+/// language).
+fn overview_row(lang_name: &str, lang_summaries: &[&FunctionSummary]) -> Vec<String> {
+    let mut unit_count = 0usize;
+    let mut sloc = 0usize;
+    let mut mi_sum = 0.0f64;
+    let mut func_count = 0usize;
+    let mut cc_sum = 0.0f64;
+    let mut cog_sum = 0.0f64;
+    for s in lang_summaries {
+        match s.kind {
+            SpaceKind::Unit => {
+                unit_count += 1;
+                sloc += s.sloc;
+                mi_sum += s.mi_visual_studio;
+            }
+            SpaceKind::Function => {
+                func_count += 1;
+                cc_sum += s.cyclomatic;
+                cog_sum += s.cognitive;
+            }
+            _ => {}
+        }
+    }
+    let avg_mi = if unit_count > 0 {
+        mi_sum / unit_count as f64
+    } else {
+        0.0
+    };
+    let (avg_cc, avg_cog) = if func_count > 0 {
+        (cc_sum / func_count as f64, cog_sum / func_count as f64)
+    } else {
+        (0.0, 0.0)
+    };
+    vec![
+        title_case(lang_name),
+        thousands(unit_count),
+        thousands(sloc),
+        thousands(func_count),
+        format!("{avg_mi:.1}"),
+        format!("{avg_cc:.1}"),
+        format!("{avg_cog:.1}"),
+    ]
+}
+
+fn write_overview_table(out: &mut String, by_lang: &LangGroups<'_>) {
+    let _ = out.write_str("<h2>Per-language overview</h2>\n");
+    let mut rows: Vec<Vec<String>> = Vec::with_capacity(by_lang.len());
+    for (&lang_name, lang_summaries) in by_lang {
+        rows.push(overview_row(lang_name, lang_summaries));
+    }
+    write_table(
+        out,
+        &[
+            "Language",
+            "Files",
+            "SLOC",
+            "Functions",
+            "Avg MI",
+            "Avg CC",
+            "Avg Cognitive",
+        ],
+        &[
+            Align::Left,
+            Align::Right,
+            Align::Right,
+            Align::Right,
+            Align::Right,
+            Align::Right,
+            Align::Right,
+        ],
+        &rows,
+    );
+}
+
+fn write_html_tail(out: &mut String) {
+    let _ = writeln!(out, "<script>{INLINE_JS}</script>");
+    let _ = out.write_str("</body>\n</html>\n");
 }
 
 /// Produce a self-contained HTML quality-metrics report from the
@@ -369,154 +838,82 @@ pub(crate) fn generate_html_report(summaries: &[FunctionSummary], top_n: usize) 
     // summary slack so a multi-MB report does not realloc dozens of
     // times.
     let mut out = String::with_capacity(8 * 1024 + summaries.len() * 64);
+    let by_lang = group_by_language(summaries);
+    let totals = GlobalTotals::from_summaries(summaries);
 
-    let by_lang = {
-        let mut map = BTreeMap::<&str, Vec<&FunctionSummary>>::new();
-        for s in summaries {
-            map.entry(s.language.get_name()).or_default().push(s);
-        }
-        map
-    };
-
-    let (total_files, total_sloc, total_ploc, total_cloc, total_functions, total_classes) =
-        summaries.iter().fold(
-            (0usize, 0usize, 0usize, 0usize, 0usize, 0usize),
-            |(files, sloc, ploc, cloc, funcs, classes), s| {
-                (
-                    files + usize::from(s.kind == SpaceKind::Unit),
-                    sloc + if s.kind == SpaceKind::Unit { s.sloc } else { 0 },
-                    ploc + if s.kind == SpaceKind::Unit { s.ploc } else { 0 },
-                    cloc + if s.kind == SpaceKind::Unit { s.cloc } else { 0 },
-                    funcs + usize::from(s.kind == SpaceKind::Function),
-                    classes + usize::from(is_class_like(s.kind)),
-                )
-            },
-        );
-    let comment_ratio = if total_sloc > 0 {
-        (total_cloc as f64 / total_sloc as f64) * 100.0
-    } else {
-        0.0
-    };
-
-    let languages_list: String = by_lang
-        .keys()
-        .map(|k| title_case(k))
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    let _ = out.write_str("<!doctype html>\n<html lang=\"en\">\n<head>\n");
-    let _ = out.write_str("<meta charset=\"utf-8\">\n");
-    let _ = writeln!(
-        out,
-        "<title>Code Quality Metrics Summary \u{2014} big-code-analysis</title>"
-    );
-    let _ = writeln!(out, "<style>{INLINE_CSS}</style>");
-    let _ = out.write_str("</head>\n<body>\n");
-    let _ = out.write_str("<h1>Code Quality Metrics Summary</h1>\n");
-
-    let _ = out.write_str("<div class=\"summary\">\n");
-    let _ = writeln!(
-        out,
-        "<p><strong>Files analyzed:</strong> {} <strong>Languages:</strong> {}</p>",
-        escape_html(&thousands(total_files)),
-        escape_html(&languages_list),
-    );
-    let _ = writeln!(
-        out,
-        "<p><strong>Total SLOC:</strong> {} <strong>PLOC:</strong> {} <strong>Comments:</strong> {}</p>",
-        escape_html(&thousands(total_sloc)),
-        escape_html(&thousands(total_ploc)),
-        escape_html(&thousands(total_cloc)),
-    );
-    let _ = writeln!(
-        out,
-        "<p><strong>Functions/methods:</strong> {} <strong>Classes/impls/traits:</strong> {}</p>",
-        escape_html(&thousands(total_functions)),
-        escape_html(&thousands(total_classes)),
-    );
-    let _ = writeln!(
-        out,
-        "<p><strong>Comment ratio:</strong> {comment_ratio:.1}%</p>"
-    );
-    let _ = out.write_str("</div>\n");
-
+    write_html_head(&mut out);
+    write_global_summary(&mut out, &totals, &by_lang);
     if !by_lang.is_empty() {
-        let _ = out.write_str("<h2>Per-language overview</h2>\n");
-        let mut overview_rows: Vec<Vec<String>> = Vec::with_capacity(by_lang.len());
-        for (&lang_name, lang_summaries) in &by_lang {
-            let (lang_unit_count, lang_sloc, mi_sum) = lang_summaries
-                .iter()
-                .filter(|s| s.kind == SpaceKind::Unit)
-                .fold((0usize, 0usize, 0.0f64), |(c, sl, mi), s| {
-                    (c + 1, sl + s.sloc, mi + s.mi_visual_studio)
-                });
-            let avg_mi = if lang_unit_count > 0 {
-                mi_sum / lang_unit_count as f64
-            } else {
-                0.0
-            };
-            let (func_count, avg_cc, avg_cog) = {
-                let (count, cc_sum, cog_sum) = lang_summaries
-                    .iter()
-                    .filter(|s| s.kind == SpaceKind::Function)
-                    .fold((0usize, 0.0f64, 0.0f64), |(c, cc, cog), s| {
-                        (c + 1, cc + s.cyclomatic, cog + s.cognitive)
-                    });
-                if count > 0 {
-                    (count, cc_sum / count as f64, cog_sum / count as f64)
-                } else {
-                    (0, 0.0, 0.0)
-                }
-            };
-            overview_rows.push(vec![
-                title_case(lang_name),
-                thousands(lang_unit_count),
-                thousands(lang_sloc),
-                thousands(func_count),
-                format!("{avg_mi:.1}"),
-                format!("{avg_cc:.1}"),
-                format!("{avg_cog:.1}"),
-            ]);
-        }
-        write_table(
-            &mut out,
-            &[
-                "Language",
-                "Files",
-                "SLOC",
-                "Functions",
-                "Avg MI",
-                "Avg CC",
-                "Avg Cognitive",
-            ],
-            &[
-                Align::Left,
-                Align::Right,
-                Align::Right,
-                Align::Right,
-                Align::Right,
-                Align::Right,
-                Align::Right,
-            ],
-            &overview_rows,
-        );
-
+        write_overview_table(&mut out, &by_lang);
         for (&lang_name, lang_summaries) in &by_lang {
             write_language_section(&mut out, lang_name, lang_summaries, top_n);
         }
     }
-
-    let _ = writeln!(out, "<script>{INLINE_JS}</script>");
-    let _ = out.write_str("</body>\n</html>\n");
+    write_html_tail(&mut out);
     out
 }
 
-fn write_language_section(
-    out: &mut String,
-    lang_name: &str,
-    entries: &[&FunctionSummary],
-    top_n: usize,
-) {
+/// Split a per-language slice into its unit (file) and function buckets
+/// in a single pass. Class-likes are intentionally dropped from both
+/// buckets — the WMC hotspot sources them straight from `entries`.
+fn partition_by_kind<'a>(
+    entries: &[&'a FunctionSummary],
+) -> (Vec<&'a FunctionSummary>, Vec<&'a FunctionSummary>) {
+    let mut units: Vec<&FunctionSummary> = Vec::with_capacity(entries.len());
+    let mut funcs: Vec<&FunctionSummary> = Vec::with_capacity(entries.len());
+    for &s in entries {
+        match s.kind {
+            SpaceKind::Unit => units.push(s),
+            SpaceKind::Function => funcs.push(s),
+            _ => {}
+        }
+    }
+    (units, funcs)
+}
+
+/// File-level roll-up backing one language's `<h3>Summary</h3>` note.
+/// Only `SpaceKind::Unit` summaries feed it.
+struct LanguageTotals {
+    files: usize,
+    sloc: usize,
+    ploc: usize,
+    cloc: usize,
+    mi_sum: f64,
+}
+
+impl LanguageTotals {
+    fn from_units(units: &[&FunctionSummary]) -> Self {
+        let mut t = Self {
+            files: 0,
+            sloc: 0,
+            ploc: 0,
+            cloc: 0,
+            mi_sum: 0.0,
+        };
+        for s in units {
+            t.files += 1;
+            t.sloc += s.sloc;
+            t.ploc += s.ploc;
+            t.cloc += s.cloc;
+            t.mi_sum += s.mi_visual_studio;
+        }
+        t
+    }
+
+    fn comment_ratio(&self) -> f64 {
+        comment_ratio_percent(self.sloc, self.cloc)
+    }
+
+    fn avg_mi(&self) -> f64 {
+        if self.files > 0 {
+            self.mi_sum / self.files as f64
+        } else {
+            0.0
+        }
+    }
+}
+
+fn write_language_header(out: &mut String, lang_name: &str) {
     let display_name = title_case(lang_name);
     // `slug` is sourced from `LANGUAGE_PALETTE` (or the literal "other"
     // fallback) — always lowercase ASCII, so it is interpolated raw
@@ -527,450 +924,242 @@ fn write_language_section(
         "<section class=\"lang-section lang-{slug}\"><h2>{}</h2>",
         escape_html(&display_name)
     );
+}
 
-    // Single pass that splits `entries` into per-kind buckets — the
-    // earlier two-filter version walked the slice twice.
-    let mut units: Vec<&FunctionSummary> = Vec::with_capacity(entries.len());
-    let mut funcs: Vec<&FunctionSummary> = Vec::with_capacity(entries.len());
-    for &s in entries {
-        match s.kind {
-            SpaceKind::Unit => units.push(s),
-            SpaceKind::Function => funcs.push(s),
-            _ => {}
+fn write_language_summary(out: &mut String, units: &[&FunctionSummary]) {
+    let totals = LanguageTotals::from_units(units);
+    let cr = totals.comment_ratio();
+    let avg_mi = totals.avg_mi();
+    let rating = mi_rating(avg_mi);
+
+    let _ = out.write_str("<h3>Summary</h3>\n");
+    let _ = writeln!(
+        out,
+        "<p class=\"note\">Files: {} | SLOC: {} | PLOC: {} | Comment ratio: {cr:.1}%</p>",
+        escape_html(&thousands(totals.files)),
+        escape_html(&thousands(totals.sloc)),
+        escape_html(&thousands(totals.ploc)),
+    );
+    let _ = writeln!(
+        out,
+        "<p class=\"note\">Average MI: {avg_mi:.1} ({rating})</p>"
+    );
+}
+
+/// Cyclomatic stats for the note line under the CC hotspot table. Only
+/// functions with `cyclomatic > 0.0` contribute (mirroring the hotspot
+/// filter); `max` seeds with `NaN` so `f64::max` yields the first real
+/// value.
+struct CyclomaticStats {
+    sum: f64,
+    count: usize,
+    max: f64,
+    gt10: usize,
+    gt20: usize,
+}
+
+impl CyclomaticStats {
+    fn from_funcs(funcs: &[&FunctionSummary]) -> Self {
+        let mut s = Self {
+            sum: 0.0,
+            count: 0,
+            max: f64::NAN,
+            gt10: 0,
+            gt20: 0,
+        };
+        for f in funcs {
+            let c = f.cyclomatic;
+            if c > 0.0 {
+                s.sum += c;
+                s.count += 1;
+                s.max = f64::max(s.max, c);
+                s.gt10 += usize::from(c > 10.0);
+                s.gt20 += usize::from(c > 20.0);
+            }
+        }
+        s
+    }
+
+    fn avg(&self) -> f64 {
+        if self.count > 0 {
+            self.sum / self.count as f64
+        } else {
+            0.0
         }
     }
+}
 
-    // ── Summary ─────────────────────────────────────────────────────
-    {
-        let (files, sloc, ploc, cloc, mi_sum) = units.iter().fold(
-            (0usize, 0usize, 0usize, 0usize, 0.0f64),
-            |(f, sl, pl, cl, mi), s| {
-                (
-                    f + 1,
-                    sl + s.sloc,
-                    pl + s.ploc,
-                    cl + s.cloc,
-                    mi + s.mi_visual_studio,
-                )
-            },
-        );
-        let cr = if sloc > 0 {
-            (cloc as f64 / sloc as f64) * 100.0
-        } else {
-            0.0
-        };
-        let avg_mi = if files > 0 {
-            mi_sum / files as f64
-        } else {
-            0.0
-        };
-        let rating = mi_rating(avg_mi);
-
-        let _ = out.write_str("<h3>Summary</h3>\n");
+/// Emit the cyclomatic hotspot table followed by its summary note. The
+/// stats are computed first so the note can be gated on the table
+/// actually rendering — an empty `funcs` slice yields no table and no
+/// misleading `Average CC: 0.0` line.
+fn emit_cc_hotspot_with_stats(out: &mut String, funcs: &[&FunctionSummary], top_n: usize) {
+    let stats = CyclomaticStats::from_funcs(funcs);
+    if emit_hotspot(
+        out,
+        "Cyclomatic Complexity Hotspots",
+        funcs,
+        top_n,
+        &CC_HOTSPOT,
+    ) {
         let _ = writeln!(
             out,
-            "<p class=\"note\">Files: {} | SLOC: {} | PLOC: {} | Comment ratio: {cr:.1}%</p>",
-            escape_html(&thousands(files)),
-            escape_html(&thousands(sloc)),
-            escape_html(&thousands(ploc)),
-        );
-        let _ = writeln!(
-            out,
-            "<p class=\"note\">Average MI: {avg_mi:.1} ({rating})</p>"
+            "<p class=\"note\">Average CC: {:.1} | Max: {:.0} | CC &gt; 10: {} functions | CC &gt; 20: {} functions</p>",
+            stats.avg(),
+            stats.max,
+            stats.gt10,
+            stats.gt20,
         );
     }
+}
 
-    // ── Maintainability Index (lowest files) ────────────────────────
+/// Bucket counts behind the `<h3>Actionable Summary</h3>` block.
+struct ActionableCounts {
+    cc_gt10: usize,
+    cog_gt15: usize,
+    sloc_gt100: usize,
+    nargs_gt3: usize,
+    bugs_gt1: usize,
+}
+
+impl ActionableCounts {
+    fn from_funcs(funcs: &[&FunctionSummary]) -> Self {
+        let mut a = Self {
+            cc_gt10: 0,
+            cog_gt15: 0,
+            sloc_gt100: 0,
+            nargs_gt3: 0,
+            bugs_gt1: 0,
+        };
+        for s in funcs {
+            a.cc_gt10 += usize::from(s.cyclomatic > 10.0);
+            a.cog_gt15 += usize::from(s.cognitive > 15.0);
+            a.sloc_gt100 += usize::from(s.sloc > 100);
+            a.nargs_gt3 += usize::from(s.nargs > 3);
+            a.bugs_gt1 += usize::from(s.halstead_bugs > 1.0);
+        }
+        a
+    }
+
+    fn all_clear(&self) -> bool {
+        self.cc_gt10 == 0
+            && self.cog_gt15 == 0
+            && self.sloc_gt100 == 0
+            && self.nargs_gt3 == 0
+            && self.bugs_gt1 == 0
+    }
+}
+
+fn write_actionable_summary(out: &mut String, funcs: &[&FunctionSummary]) {
+    let counts = ActionableCounts::from_funcs(funcs);
+    let _ = out.write_str("<h3>Actionable Summary</h3>\n");
+    if counts.all_clear() {
+        let _ = out.write_str("<p class=\"note\">No major quality concerns detected.</p>\n");
+        return;
+    }
+    let _ = out.write_str("<ul>\n");
+    if counts.cc_gt10 > 0 {
+        let _ = writeln!(
+            out,
+            "<li><strong>{}</strong> functions with CC &gt; 10</li>",
+            counts.cc_gt10
+        );
+    }
+    if counts.cog_gt15 > 0 {
+        let _ = writeln!(
+            out,
+            "<li><strong>{}</strong> functions with cognitive complexity &gt; 15</li>",
+            counts.cog_gt15
+        );
+    }
+    if counts.sloc_gt100 > 0 {
+        let _ = writeln!(
+            out,
+            "<li><strong>{}</strong> functions with SLOC &gt; 100</li>",
+            counts.sloc_gt100
+        );
+    }
+    if counts.nargs_gt3 > 0 {
+        let _ = writeln!(
+            out,
+            "<li><strong>{}</strong> functions with more than 3 parameters</li>",
+            counts.nargs_gt3
+        );
+    }
+    if counts.bugs_gt1 > 0 {
+        let _ = writeln!(
+            out,
+            "<li><strong>{}</strong> functions with estimated Halstead bugs &gt; 1.0</li>",
+            counts.bugs_gt1
+        );
+    }
+    let _ = out.write_str("</ul>\n");
+}
+
+fn write_language_section(
+    out: &mut String,
+    lang_name: &str,
+    entries: &[&FunctionSummary],
+    top_n: usize,
+) {
+    write_language_header(out, lang_name);
+    let (units, funcs) = partition_by_kind(entries);
+    write_language_summary(out, &units);
+
     emit_hotspot(
         out,
         &format!("Maintainability Index (lowest files, top-{top_n})"),
         &units,
-        |s| s.mi_visual_studio > 0.0,
-        |s| s.mi_visual_studio,
-        SortDir::Asc,
         top_n,
-        &["File", "MI", "SLOC", "Tokens"],
-        &[Align::Left, Align::Right, Align::Right, Align::Right],
-        |s| {
-            vec![
-                s.file.clone(),
-                format!("{:.1}", s.mi_visual_studio),
-                thousands(s.sloc),
-                thousands(s.tokens),
-            ]
-        },
+        &MI_LOWEST_HOTSPOT,
     );
-
-    // ── Cyclomatic Complexity Hotspots ──────────────────────────────
-    // Kept inline because it appends a stats note line after the table.
-    {
-        let (cc_sum, cc_count, max_cc, count_gt10, count_gt20) =
-            funcs.iter().filter(|s| s.cyclomatic > 0.0).fold(
-                (0.0f64, 0usize, f64::NAN, 0usize, 0usize),
-                |(sum, cnt, mx, g10, g20), s| {
-                    let c = s.cyclomatic;
-                    (
-                        sum + c,
-                        cnt + 1,
-                        f64::max(mx, c),
-                        g10 + usize::from(c > 10.0),
-                        g20 + usize::from(c > 20.0),
-                    )
-                },
-            );
-        let emitted = emit_hotspot(
-            out,
-            "Cyclomatic Complexity Hotspots",
-            &funcs,
-            |s| s.cyclomatic > 0.0,
-            |s| s.cyclomatic,
-            SortDir::Desc,
-            top_n,
-            &[
-                "Function",
-                "File",
-                "Line",
-                "CC",
-                "Cognitive",
-                "SLOC",
-                "Tokens",
-            ],
-            &[
-                Align::Left,
-                Align::Left,
-                Align::Right,
-                Align::Right,
-                Align::Right,
-                Align::Right,
-                Align::Right,
-            ],
-            |s| {
-                vec![
-                    s.name.clone(),
-                    s.file.clone(),
-                    s.start_line.to_string(),
-                    MetricScalar(s.cyclomatic).to_string(),
-                    MetricScalar(s.cognitive).to_string(),
-                    thousands(s.sloc),
-                    thousands(s.tokens),
-                ]
-            },
-        );
-        if emitted {
-            let avg_cc = if cc_count > 0 {
-                cc_sum / cc_count as f64
-            } else {
-                0.0
-            };
-            let _ = writeln!(
-                out,
-                "<p class=\"note\">Average CC: {avg_cc:.1} | Max: {max_cc:.0} | CC &gt; 10: {count_gt10} functions | CC &gt; 20: {count_gt20} functions</p>"
-            );
-        }
-    }
-
-    // ── Cognitive Complexity Hotspots ───────────────────────────────
+    emit_cc_hotspot_with_stats(out, &funcs, top_n);
     emit_hotspot(
         out,
         "Cognitive Complexity Hotspots",
         &funcs,
-        |s| s.cognitive > 0.0,
-        |s| s.cognitive,
-        SortDir::Desc,
         top_n,
-        &[
-            "Function",
-            "File",
-            "Line",
-            "Cognitive",
-            "CC",
-            "SLOC",
-            "Tokens",
-        ],
-        &[
-            Align::Left,
-            Align::Left,
-            Align::Right,
-            Align::Right,
-            Align::Right,
-            Align::Right,
-            Align::Right,
-        ],
-        |s| {
-            vec![
-                s.name.clone(),
-                s.file.clone(),
-                s.start_line.to_string(),
-                MetricScalar(s.cognitive).to_string(),
-                MetricScalar(s.cyclomatic).to_string(),
-                thousands(s.sloc),
-                thousands(s.tokens),
-            ]
-        },
+        &COGNITIVE_HOTSPOT,
     );
-
-    // ── Halstead Effort Hotspots ────────────────────────────────────
     emit_hotspot(
         out,
         "Halstead Effort Hotspots",
         &funcs,
-        |s| s.halstead_effort > 0.0,
-        |s| s.halstead_effort,
-        SortDir::Desc,
         top_n,
-        &[
-            "Function",
-            "File",
-            "Effort",
-            "Volume",
-            "Est. Bugs",
-            "SLOC",
-            "Tokens",
-        ],
-        &[
-            Align::Left,
-            Align::Left,
-            Align::Right,
-            Align::Right,
-            Align::Right,
-            Align::Right,
-            Align::Right,
-        ],
-        |s| {
-            vec![
-                s.name.clone(),
-                s.file.clone(),
-                MetricScalar(s.halstead_effort).to_string(),
-                MetricScalar(s.halstead_volume).to_string(),
-                format!("{:.2}", s.halstead_bugs),
-                thousands(s.sloc),
-                thousands(s.tokens),
-            ]
-        },
+        &HALSTEAD_EFFORT_HOTSPOT,
     );
-
-    // ── Largest Functions by SLOC ───────────────────────────────────
     emit_hotspot(
         out,
         "Largest Functions by SLOC",
         &funcs,
-        |s| s.sloc > 0,
-        |s| s.sloc as f64,
-        SortDir::Desc,
         top_n,
-        &[
-            "Function",
-            "File",
-            "Line",
-            "SLOC",
-            "Tokens",
-            "CC",
-            "Cognitive",
-        ],
-        &[
-            Align::Left,
-            Align::Left,
-            Align::Right,
-            Align::Right,
-            Align::Right,
-            Align::Right,
-            Align::Right,
-        ],
-        |s| {
-            vec![
-                s.name.clone(),
-                s.file.clone(),
-                s.start_line.to_string(),
-                thousands(s.sloc),
-                thousands(s.tokens),
-                MetricScalar(s.cyclomatic).to_string(),
-                MetricScalar(s.cognitive).to_string(),
-            ]
-        },
+        &LARGEST_BY_SLOC_HOTSPOT,
     );
-
-    // ── Functions With Many Parameters (>3) ─────────────────────────
     emit_hotspot(
         out,
         "Functions With Many Parameters (&gt;3)",
         &funcs,
-        |s| s.nargs > 3,
-        |s| s.nargs as f64,
-        SortDir::Desc,
         top_n,
-        &["Function", "File", "Args", "SLOC", "Tokens"],
-        &[
-            Align::Left,
-            Align::Left,
-            Align::Right,
-            Align::Right,
-            Align::Right,
-        ],
-        |s| {
-            vec![
-                s.name.clone(),
-                s.file.clone(),
-                s.nargs.to_string(),
-                thousands(s.sloc),
-                thousands(s.tokens),
-            ]
-        },
+        &MANY_PARAMS_HOTSPOT,
     );
-
-    // ── Actionable Summary ──────────────────────────────────────────
-    {
-        let (cc_gt10, cog_gt15, sloc_gt100, nargs_gt3, bugs_gt1) = funcs.iter().fold(
-            (0usize, 0usize, 0usize, 0usize, 0usize),
-            |(a, b, c, d, e), s| {
-                (
-                    a + usize::from(s.cyclomatic > 10.0),
-                    b + usize::from(s.cognitive > 15.0),
-                    c + usize::from(s.sloc > 100),
-                    d + usize::from(s.nargs > 3),
-                    e + usize::from(s.halstead_bugs > 1.0),
-                )
-            },
-        );
-        let _ = out.write_str("<h3>Actionable Summary</h3>\n");
-        if cc_gt10 == 0 && cog_gt15 == 0 && sloc_gt100 == 0 && nargs_gt3 == 0 && bugs_gt1 == 0 {
-            let _ = out.write_str("<p class=\"note\">No major quality concerns detected.</p>\n");
-        } else {
-            let _ = out.write_str("<ul>\n");
-            if cc_gt10 > 0 {
-                let _ = writeln!(
-                    out,
-                    "<li><strong>{cc_gt10}</strong> functions with CC &gt; 10</li>"
-                );
-            }
-            if cog_gt15 > 0 {
-                let _ = writeln!(
-                    out,
-                    "<li><strong>{cog_gt15}</strong> functions with cognitive complexity &gt; 15</li>"
-                );
-            }
-            if sloc_gt100 > 0 {
-                let _ = writeln!(
-                    out,
-                    "<li><strong>{sloc_gt100}</strong> functions with SLOC &gt; 100</li>"
-                );
-            }
-            if nargs_gt3 > 0 {
-                let _ = writeln!(
-                    out,
-                    "<li><strong>{nargs_gt3}</strong> functions with more than 3 parameters</li>"
-                );
-            }
-            if bugs_gt1 > 0 {
-                let _ = writeln!(
-                    out,
-                    "<li><strong>{bugs_gt1}</strong> functions with estimated Halstead bugs &gt; 1.0</li>"
-                );
-            }
-            let _ = out.write_str("</ul>\n");
-        }
-    }
-
-    // ── Class/Trait/Impl Hotspots (WMC) ─────────────────────────────
-    // Sources from `entries` (all kinds), not `funcs`/`units`, because
-    // class-likes are filtered out of both buckets.
+    write_actionable_summary(out, &funcs);
+    // WMC sources `entries` (all kinds), not `funcs`: class-likes are
+    // excluded from both per-kind buckets.
     emit_hotspot(
         out,
         "Class/Trait/Impl Hotspots (WMC)",
         entries,
-        |s| is_class_like(s.kind) && s.wmc > 0.0,
-        |s| s.wmc,
-        SortDir::Desc,
         top_n,
-        &[
-            "Class", "File", "Line", "WMC", "Methods", "NPA", "NPM", "SLOC", "Tokens",
-        ],
-        &[
-            Align::Left,
-            Align::Left,
-            Align::Right,
-            Align::Right,
-            Align::Right,
-            Align::Right,
-            Align::Right,
-            Align::Right,
-            Align::Right,
-        ],
-        |s| {
-            vec![
-                s.name.clone(),
-                s.file.clone(),
-                s.start_line.to_string(),
-                MetricScalar(s.wmc).to_string(),
-                s.nom.to_string(),
-                MetricScalar(s.npa).to_string(),
-                MetricScalar(s.npm).to_string(),
-                thousands(s.sloc),
-                thousands(s.tokens),
-            ]
-        },
+        &WMC_HOTSPOT,
     );
-
-    // ── Functions with the most exit points (NEXITS) ────────────────
     emit_hotspot(
         out,
         "Functions with the most exit points (NEXITS)",
         &funcs,
-        |s| s.nexits > 0,
-        |s| s.nexits as f64,
-        SortDir::Desc,
         top_n,
-        &["Function", "File", "Line", "Exits", "CC", "SLOC", "Tokens"],
-        &[
-            Align::Left,
-            Align::Left,
-            Align::Right,
-            Align::Right,
-            Align::Right,
-            Align::Right,
-            Align::Right,
-        ],
-        |s| {
-            vec![
-                s.name.clone(),
-                s.file.clone(),
-                s.start_line.to_string(),
-                s.nexits.to_string(),
-                MetricScalar(s.cyclomatic).to_string(),
-                thousands(s.sloc),
-                thousands(s.tokens),
-            ]
-        },
+        &NEXITS_HOTSPOT,
     );
-
-    // ── ABC Magnitude Hotspots ──────────────────────────────────────
-    emit_hotspot(
-        out,
-        "ABC Magnitude Hotspots",
-        &funcs,
-        |s| s.abc > 0.0,
-        |s| s.abc,
-        SortDir::Desc,
-        top_n,
-        &["Function", "File", "Line", "ABC", "SLOC", "Tokens"],
-        &[
-            Align::Left,
-            Align::Left,
-            Align::Right,
-            Align::Right,
-            Align::Right,
-            Align::Right,
-        ],
-        |s| {
-            vec![
-                s.name.clone(),
-                s.file.clone(),
-                s.start_line.to_string(),
-                format!("{:.1}", s.abc),
-                thousands(s.sloc),
-                thousands(s.tokens),
-            ]
-        },
-    );
+    emit_hotspot(out, "ABC Magnitude Hotspots", &funcs, top_n, &ABC_HOTSPOT);
 
     let _ = out.write_str("</section>\n");
 }
@@ -1199,6 +1388,35 @@ mod tests {
         assert_eq!(
             row_count, 6,
             "expected 5 body rows + 1 header, got {row_count}"
+        );
+        assert_html_well_formed(&out);
+    }
+
+    #[test]
+    fn wmc_hotspot_sources_class_likes() {
+        // The WMC hotspot draws from the full per-language `entries`
+        // slice, not the `funcs` bucket: `partition_by_kind` drops
+        // class-likes from both `units` and `funcs`. A class-like
+        // summary must therefore still land in the WMC table even when
+        // the language has zero `SpaceKind::Function` summaries. Were
+        // the spec sourced from `funcs` (empty here), `emit_hotspot`
+        // would short-circuit and the `<h3>` below would never be
+        // written, panicking the `expect` (issue #402).
+        let entries = vec![
+            make_summary("lib.rs", "src/lib.rs", SpaceKind::Unit, LANG::Rust),
+            make_summary("Widget", "src/lib.rs", SpaceKind::Class, LANG::Rust),
+        ];
+        let out = generate_html_report(&entries, 20);
+        let wmc_table = out
+            .split_once("<h3>Class/Trait/Impl Hotspots (WMC)</h3>")
+            .expect("WMC section present even with no functions")
+            .1
+            .split_once("</table>")
+            .expect("WMC table closes")
+            .0;
+        assert!(
+            wmc_table.contains("<td>Widget</td>"),
+            "class-like summary must appear in WMC table even with no functions"
         );
         assert_html_well_formed(&out);
     }
