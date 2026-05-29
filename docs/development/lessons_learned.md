@@ -2881,3 +2881,59 @@ version can parse — that test, not the gate, is what actually pins the
 artifact.
 
 ---
+
+## 55. A complexity score can be a metric artifact — verify it, and clear every gated metric
+
+Before splitting a function because it trips a complexity threshold,
+check what the score is actually made of. The headline number may be
+dominated by a construct that adds a control-flow edge without adding
+anything a reader must reason about — in which case the function is not
+genuinely complex, the split is partly metric-gaming, and the durable
+justification has to come from elsewhere (readability, testability,
+argument count). Attributing the score is the first step of the fix,
+not an afterthought.
+
+**Rust's `?` inflates both cyclomatic *and* nexits, and
+`dump_tree_helper`'s "cyclomatic 32" was mostly `?` noise (#401,
+ce36a04).** Each `?` is a `TryExpression`, which
+`src/metrics/cyclomatic.rs:398` counts as a decision point (`expr?`
+desugars to a `match` with an early-return `Err` arm — a real CFG edge)
+*and* which the Rust `impl Exit` (`src/metrics/exit.rs`) counts as an
+exit. `dump_tree_helper` measured cyclomatic 32 / nexits 20, but only
+~12 of the cyclomatic was real branching (`if`, the glyph chain, the
+child loop) — already under the 15 gate. The other ~20 points were a
+linear, easy-to-read sequence of fallible `write!` / `color` calls. The
+split was still worth doing (it killed an eight-argument signature and
+made the writers unit-testable), but the "32 → 4" headline overstates
+the maintainability win. Whether `?` should count toward cyclomatic at
+all is a separate metric-design question (#409).
+
+**The proposed split would have failed nexits, because `?` is an exit
+too (#401).** The issue's plan grouped the write calls into helpers of
+~6 `?` each — fine for cyclomatic, but each carried nexits 6, over the
+limit of 5 (and over the 0.95 headroom band). The fix was a `paint`
+helper that folds set-color + write into one fallible call, dropping
+each writer to ≤3 exits. A split sized only against the *headline*
+metric silently breaches a sibling metric that the same construct
+feeds.
+
+**Trust `bca-thresholds.toml`, not an issue's threshold table (#401).**
+The issue stated the `nargs` limit was 5; it is actually 7. The
+original `nargs = 8` was the real breach (fixed by bundling the
+recursion-invariant state into a struct), but a helper sized to a
+fictional limit of 5 would have been needlessly fragmented. Read the
+live config before sizing anything to it.
+
+**Lesson:** When a refactor is driven by a complexity gate, first
+attribute the score — re-derive the genuine decision count by hand and
+compare it to the measured value. If the gap is a metric artifact (Rust
+`?` toward cyclomatic *and* nexits; large string literals toward
+halstead; inline tests toward file-level sloc/effort), say so, and base
+the refactor on the qualities that actually improve. Then size every
+new helper against **all** gated metrics it could trip — cyclomatic,
+nexits, nargs, abc, halstead.effort — using the real thresholds from
+`bca-thresholds.toml`, not a number quoted in an issue. A single `?`
+moves two gauges; a split that watches only one will pass the gate it
+was aimed at and fail the one it forgot.
+
+---
