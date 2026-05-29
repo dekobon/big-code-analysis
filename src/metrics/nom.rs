@@ -315,6 +315,11 @@ mod tests {
             "foo.py",
             |metric| {
                 // Number of spaces = 4
+                // The `lambda` is detected as a closure via
+                // `PythonCode::is_closure` (widened to accept both
+                // aliased kind_ids in #419); pin the count explicitly
+                // so a regression in the predicate fails loudly.
+                assert_eq!(metric.nom.closures_sum(), 1.0);
                 insta::assert_json_snapshot!(
                     metric.nom,
                     @r###"

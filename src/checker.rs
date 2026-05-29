@@ -391,7 +391,16 @@ impl Checker for PythonCode {
     }
 
     fn is_closure(node: &Node) -> bool {
-        node.kind_id() == Python::Lambda
+        // tree-sitter-python lists two aliased `lambda` expression
+        // kind_ids: `Lambda` (196, the concrete production, the only
+        // one emitted today) and `Lambda2` (197, currently unseen).
+        // `Lambda3` (73) is the `lambda` *keyword* token, not a
+        // closure node, and is intentionally excluded. Accepting both
+        // expression aliases means a future grammar bump that promotes
+        // `Lambda2` cannot silently undercount closures in nom/nargs
+        // (issue #419; lesson 2 in lessons_learned.md). The drift-guard
+        // test below asserts `Lambda2` stays unseen until then.
+        matches!(node.kind_id().into(), Python::Lambda | Python::Lambda2)
     }
 
     fn is_call(node: &Node) -> bool {
@@ -434,11 +443,13 @@ impl Checker for PythonCode {
     //
     // `block` has two aliased kind_ids in tree-sitter-python
     // (`Block` = 135, `Block2` = 160 — both surface as `"block"`); we
-    // accept either per lesson 2 in `docs/development/lessons_learned.md`.
+    // accept either via `python_is_block`, the single normalization
+    // point for the aliases (issue #419; lesson 2 in
+    // `docs/development/lessons_learned.md`).
     fn is_else_if(node: &Node) -> bool {
         node.kind_id() == Python::IfStatement
             && node.parent().is_some_and(|parent| {
-                matches!(parent.kind_id().into(), Python::Block | Python::Block2)
+                crate::metrics::npa::python_is_block(&parent)
                     && parent.children().filter(Node::is_named).count() == 1
                     && parent
                         .parent()
@@ -2165,6 +2176,49 @@ mod tests {
         assert!(
             !PythonCode::is_else_if(&inner),
             "inner if must NOT be recognised as else-if when its block has siblings"
+        );
+    }
+
+    // Drift guard for #419: tree-sitter-python lists hidden aliases for
+    // both `block` and `lambda` that are NOT emitted today —
+    // `Block` (135, the hidden `_block` supertype; only `Block2` 160 is
+    // emitted) and `Lambda2` (197, an unseen lambda alias; only
+    // `Lambda` 196 and the `lambda` keyword token `Lambda3` 73 appear).
+    // Several metric sites (`is_closure`, `is_else_if`, `python_is_block`
+    // in npa, npm's class-body lookup, loc's no-op arm) already enumerate
+    // these aliases defensively so a future grammar bump that promotes
+    // either supertype to a concrete node cannot silently undercount.
+    // This test pins their current absence across representative Python
+    // (function, class, if/for bodies, lambda); if a bump ever emits one,
+    // the guard flips red and forces a positive assertion to be added —
+    // mirroring the `Php::String3` hidden-supertype guard above.
+    #[test]
+    fn python_hidden_block_and_lambda_aliases_stay_unseen() {
+        let src = "def f(a, b):\n    if a:\n        return b\n    for x in b:\n        print(x)\n\nclass C:\n    def m(self):\n        pass\n\ng = lambda x: x + 1\n";
+        let parser = parse_python(src);
+
+        // Confirm the LIVE aliases actually surface, so this fixture is
+        // a meaningful witness (a guard that never parses a block or a
+        // lambda would pass vacuously).
+        assert!(
+            ast_has_kind_id(&parser, Python::Block2 as u16),
+            "expected Python::Block2 (160, the emitted `block`) in the parse",
+        );
+        assert!(
+            ast_has_kind_id(&parser, Python::Lambda as u16),
+            "expected Python::Lambda (196, the emitted `lambda`) in the parse",
+        );
+
+        // The hidden supertypes must NOT surface. If either now appears,
+        // add a positive assertion routing it through the relevant
+        // predicate (see #419).
+        assert!(
+            !ast_has_kind_id(&parser, Python::Block as u16),
+            "Python::Block (135) is the hidden `_block` supertype; if it now appears, route it through python_is_block and assert positively (#419)",
+        );
+        assert!(
+            !ast_has_kind_id(&parser, Python::Lambda2 as u16),
+            "Python::Lambda2 (197) is an unseen lambda alias; if it now appears, is_closure must detect it and a positive closure assertion is required (#419)",
         );
     }
 

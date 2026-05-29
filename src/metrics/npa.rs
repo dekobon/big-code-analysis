@@ -1178,12 +1178,27 @@ pub(crate) fn rust_item_is_public(node: &Node) -> bool {
         .any(|c| c.kind_id() == Rust::VisibilityModifier)
 }
 
-// Returns the `Block2` body child of a `ClassDefinition` if present.
+// Single normalization point for Python's aliased `block` kind_ids.
+//
+// tree-sitter-python lists two `kind_id`s that both stringify to
+// `"block"`: `Block` (135, the hidden `_block` supertype) and
+// `Block2` (160, the concrete production). Empirically only `Block2`
+// is ever emitted for real block bodies (function, class, if/for,
+// while/try/with), so `Block` is dead today — but a future grammar
+// bump could promote the supertype to a concrete node. Routing every
+// "is this a block?" check through here means such a bump is handled
+// at one site instead of silently undercounting at several (issue
+// #419; lesson 2 / 34 / 56 in docs/development/lessons_learned.md).
+pub(crate) fn python_is_block(node: &Node) -> bool {
+    matches!(node.kind_id().into(), Python::Block | Python::Block2)
+}
+
+// Returns the `block` body child of a `ClassDefinition` if present.
 // `ClassDefinition` children are: `class` keyword, identifier,
 // optional type-parameters, optional argument-list (base classes),
-// `:`, `Block2`. The body is always the final child.
+// `:`, block. The body is always the final child.
 fn python_class_body<'a>(class_def: &Node<'a>) -> Option<Node<'a>> {
-    class_def.children().find(|c| c.kind_id() == Python::Block2)
+    class_def.children().find(python_is_block)
 }
 
 // Collects the names bound by class-level attribute assignments into

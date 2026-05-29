@@ -25,6 +25,7 @@
 use std::collections::HashSet;
 
 use crate::checker::Checker;
+use crate::metrics::npa::python_is_block;
 use serde::Serialize;
 use serde::ser::{SerializeStruct, Serializer};
 use std::fmt;
@@ -658,7 +659,18 @@ impl Loc for PythonCode {
         let (start, end) = init(node, stats, is_func_space, is_unit);
 
         match node.kind_id().into() {
-            StringStart | StringEnd | StringContent | Block | Module => {}
+            // `block` (both aliased kind_ids — `Block` 135, the dead
+            // hidden supertype, and `Block2` 160, the only one emitted
+            // today) is a structural wrapper that contributes no LOC of
+            // its own: its opening row is always shared with the first
+            // statement it wraps, which inserts that row via its own
+            // arm. Route through `python_is_block` so both aliases
+            // no-op identically at one normalization point — previously
+            // `Block2` fell through to the `_` arm and re-inserted an
+            // already-covered row (a HashSet duplicate); making the
+            // no-op explicit is behaviour-preserving (issue #419).
+            _ if python_is_block(node) => {}
+            StringStart | StringEnd | StringContent | Module => {}
             Comment => {
                 add_cloc_lines(stats, start, end);
             }

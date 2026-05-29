@@ -24,7 +24,7 @@ use std::fmt;
 use crate::checker::Checker;
 use crate::langs::*;
 use crate::macros::implement_metric_trait;
-use crate::metrics::npa::ts_member_is_public;
+use crate::metrics::npa::{python_is_block, ts_member_is_public};
 use crate::node::Node;
 use crate::*;
 
@@ -453,7 +453,7 @@ impl Npm for PhpCode {
 // Python method counting.
 //
 // A "method" is a `FunctionDefinition` direct child of a class body
-// (the `Block2` under a `ClassDefinition`), including decorated
+// (the `block` under a `ClassDefinition`), including decorated
 // methods such as `@property`, `@staticmethod`, `@classmethod` and
 // user decorators — those wrap the inner function in a
 // `DecoratedDefinition` node, so we unwrap and count once.
@@ -484,7 +484,10 @@ impl Npm for PythonCode {
             stats.is_class_space = true;
         }
 
-        let Some(body) = node.children().find(|c| c.kind_id() == Block2) else {
+        // The class body is the `block` child; route through
+        // `python_is_block` so both aliased kind_ids (`Block` /
+        // `Block2`) are accepted at one normalization point (#419).
+        let Some(body) = node.children().find(python_is_block) else {
             return;
         };
 
