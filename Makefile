@@ -372,13 +372,15 @@ enums-check:
 #                        bca-thresholds.toml; absorbed by
 #                        .bca-baseline.toml). Mirrors CI.
 #
-#   self-scan-headroom   soft gate. Scales every limit by
-#                        BCA_HEADROOM (default 0.95) and runs the
-#                        same baseline-ratcheted check, so new
-#                        functions encroaching into the 95-100%
+#   self-scan-headroom   soft gate (`--tier soft`). Scales every
+#                        limit by BCA_HEADROOM (default 0.95) and
+#                        runs the same baseline-ratcheted check, so
+#                        new functions encroaching into the 95-100%
 #                        band fail before they would trip the hard
 #                        gate. Set BCA_HEADROOM=0.90 to widen the
-#                        band, 0.99 to tighten it.
+#                        band, 0.99 to tighten it. `--headroom` is a
+#                        soft-tier dial (#375): it only takes effect
+#                        under `--tier soft`.
 #
 # Refresh the baseline (after an intentional regression or after
 # raising a limit):
@@ -409,6 +411,7 @@ self-scan-headroom:
 	@$(SELF_SCAN_BCA) $(SELF_SCAN_BASE_ARGS) \
 	  check \
 	  --config bca-thresholds.toml \
+	  --tier soft \
 	  --headroom $${BCA_HEADROOM:-0.95} \
 	  --baseline .bca-baseline.toml
 
@@ -430,6 +433,7 @@ self-scan-write-baseline-headroom:
 	@$(SELF_SCAN_BCA) $(SELF_SCAN_BASE_ARGS) \
 	  check \
 	  --config bca-thresholds.toml \
+	  --tier soft \
 	  --headroom $${BCA_HEADROOM:-0.95} \
 	  --write-baseline .bca-baseline.toml
 

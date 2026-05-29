@@ -27,17 +27,23 @@ fn thresholds_extracts_scalars_and_ignores_subtables() {
     )
     .expect("parse");
     let m = manifest(raw);
-    let thresholds = m.thresholds();
+    let parsed = m.thresholds();
 
-    // Both scalar forms (integer + float) survive; the `soft` sub-table
-    // (a #375 feature) is dropped rather than poisoning the parse.
-    assert_eq!(thresholds.get("cyclomatic"), Some(&15.0));
-    assert_eq!(thresholds.get("halstead.effort"), Some(&47_500.0));
+    // Both scalar forms (integer + float) land in the hard layer; the
+    // `soft` sub-table (#375) is split into its own layer rather than
+    // being mistaken for a scalar limit named "soft".
+    assert_eq!(parsed.hard.get("cyclomatic"), Some(&15.0));
+    assert_eq!(parsed.hard.get("halstead.effort"), Some(&47_500.0));
     assert!(
-        !thresholds.contains_key("soft"),
+        !parsed.hard.contains_key("soft"),
         "the soft sub-table must not be treated as a scalar limit"
     );
-    assert_eq!(thresholds.len(), 2);
+    assert_eq!(parsed.hard.len(), 2);
+    // The soft override is captured as an absolute limit.
+    assert_eq!(
+        parsed.soft.get("cyclomatic"),
+        Some(&crate::thresholds::SoftLimit::Absolute(13.0))
+    );
 }
 
 #[test]

@@ -338,6 +338,7 @@ fn check_args_for_remediation(
         no_remediation,
         print_effective_config: None,
         headroom: None,
+        tier: crate::Tier::Hard,
         baseline_line_tolerance: None,
         baseline_fuzzy_match: false,
     }
@@ -545,6 +546,7 @@ fn effective_config_toml_roundtrips_through_threshold_config_schema() {
             changed_only: false,
             since: None,
             headroom: None,
+            tier: "hard",
             baseline_line_tolerance: None,
             baseline_fuzzy_match: false,
         },
@@ -553,8 +555,14 @@ fn effective_config_toml_roundtrips_through_threshold_config_schema() {
     let toml_text = toml::to_string_pretty(&effective).expect("serialize EffectiveConfig to TOML");
     let reparsed: crate::thresholds::ThresholdConfig =
         toml::from_str(&toml_text).expect("re-parse via ThresholdConfig schema");
+    // `ThresholdConfig.thresholds` holds raw TOML values (so a nested
+    // `[thresholds.soft]` coexists with the scalars); split it back into
+    // the hard layer to compare against the f64 limits we serialized.
+    let reparsed_hard = crate::thresholds::split_thresholds_table(&reparsed.thresholds)
+        .expect("split reparsed thresholds")
+        .hard;
     assert_eq!(
-        reparsed.thresholds, thresholds,
+        reparsed_hard, thresholds,
         "roundtripped thresholds must match input"
     );
 }
@@ -585,6 +593,7 @@ fn effective_config_json_serializes_threshold_overrides() {
             changed_only: false,
             since: None,
             headroom: None,
+            tier: "hard",
             baseline_line_tolerance: None,
             baseline_fuzzy_match: false,
         },

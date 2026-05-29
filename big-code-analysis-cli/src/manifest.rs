@@ -28,6 +28,7 @@ use std::str::FromStr;
 
 use serde::Deserialize;
 
+use crate::thresholds::{ParsedThresholds, split_thresholds_table};
 use crate::{CheckArgs, GlobalOpts, NumJobs, die, die_io, read_utf8_file};
 
 /// Filename discovered by convention at (or above) the working directory.
@@ -35,8 +36,10 @@ const MANIFEST_FILE: &str = "bca.toml";
 
 /// Top-level manifest keys understood today. Any other top-level key
 /// triggers a one-line "ignored" warning (forward-compat for the
-/// `[thresholds.soft]`, `[check]`, and `exit_codes` fragments tracked
-/// under #375 / #378 / #385).
+/// `[check]` and `exit_codes` fragments tracked under #378 / #385).
+/// The `[thresholds.soft]` sub-table (#375) is *not* a top-level key —
+/// it lives under the known `thresholds` key and is split out by
+/// [`split_thresholds_table`].
 const KNOWN_KEYS: &[&str] = &[
     "paths",
     "exclude_from",
@@ -77,8 +80,9 @@ struct RawManifest {
     baseline_line_tolerance: Option<usize>,
     baseline_fuzzy_match: Option<bool>,
     headroom: Option<f64>,
-    /// Scalar values are limits; a sub-table value (e.g. `soft`) is a
-    /// forthcoming feature (#375) and is ignored with a warning.
+    /// Scalar values are hard limits; the nested `soft` sub-table
+    /// (`[thresholds.soft]`, #375) carries the soft-tier overrides.
+    /// [`split_thresholds_table`] separates the two layers.
     #[serde(default)]
     thresholds: BTreeMap<String, toml::Value>,
 }
@@ -223,7 +227,7 @@ impl Manifest {
     /// fails both comparisons, is rejected too.)
     fn headroom(&self) -> Option<f64> {
         let ratio = self.raw.headroom?;
-        if !(0.0 < ratio && ratio <= 1.0) {
+        if !crate::thresholds::is_valid_scale_ratio(ratio) {
             die(format_args!(
                 "bca.toml: headroom must be in (0, 1]; got {ratio}"
             ));
@@ -231,32 +235,14 @@ impl Manifest {
         Some(ratio)
     }
 
-    /// The `[thresholds]` table as a base layer for the resolver.
-    /// Scalar entries become limits; a sub-table entry (e.g. the
-    /// forthcoming `[thresholds.soft]`, #375) is ignored with a warning
-    /// rather than failing the parse.
-    pub(crate) fn thresholds(&self) -> BTreeMap<String, f64> {
-        let mut out = BTreeMap::new();
-        for (name, value) in &self.raw.thresholds {
-            match value {
-                // `i64 -> f64` mirrors how serde already deserializes
-                // integer limits in the `--config` path; metric limits
-                // are small, so the precision loss is unreachable.
-                #[allow(clippy::cast_precision_loss)]
-                toml::Value::Integer(i) => {
-                    out.insert(name.clone(), *i as f64);
-                }
-                toml::Value::Float(f) => {
-                    out.insert(name.clone(), *f);
-                }
-                _ => eprintln!(
-                    "warning: bca.toml: ignoring [thresholds.{name}] \
-                     (expected a number; nested threshold tables such as \
-                     `soft` are not supported yet)"
-                ),
-            }
-        }
-        out
+    /// The `[thresholds]` table split into its hard scalar limits and
+    /// the optional `[thresholds.soft]` overrides (#375). Dies (exit 1)
+    /// on a malformed table — a bad limit must fail fast, not silently
+    /// vanish from the gate. Shares [`split_thresholds_table`] with the
+    /// `--config` path so both surfaces parse identically.
+    pub(crate) fn thresholds(&self) -> ParsedThresholds {
+        split_thresholds_table(&self.raw.thresholds)
+            .unwrap_or_else(|e| die(format_args!("bca.toml: {e}")))
     }
 
     /// Convert the `num_jobs` value (string `"auto"` or an integer) to

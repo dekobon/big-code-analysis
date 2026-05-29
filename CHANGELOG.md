@@ -23,6 +23,24 @@ for historical reference.
 
 ### Added
 
+- `bca check` gains a native two-tier threshold model via a
+  `[thresholds.soft]` table and a `--tier <hard|soft>` flag
+  ([#375](https://github.com/dekobon/big-code-analysis/issues/375)).
+  The default `hard` tier compares against `[thresholds]` verbatim.
+  `--tier=soft` is the early-warning tier: it merges
+  `[thresholds.soft]` overrides on top of `[thresholds]` (per metric,
+  either an absolute limit like `cognitive = 18` or a
+  scale-relative `"0.9x"` string that multiplies the hard limit);
+  metrics absent from the soft table inherit their hard limit (no
+  soft band). When no soft table is configured, `--tier=soft` falls
+  back to scaling every limit by `--headroom` (default `0.95`). Both
+  the manifest `bca.toml` and `--config` files accept the soft
+  sub-table, and both tiers ratchet through the same `--baseline`.
+  `--print-effective-config` now reports the resolved `tier`. As a
+  consequence, **`--headroom` is now a soft-tier dial**: it takes
+  effect only under `--tier=soft` (ignored with a note at the hard
+  tier), and an explicit `[thresholds.soft]` table takes precedence
+  over `--headroom` (which is then ignored with a warning).
 - `bca check` baselines now match on the **qualified symbol** rather
   than the exact start line
   ([#377](https://github.com/dekobon/big-code-analysis/issues/377)).
@@ -52,14 +70,13 @@ for historical reference.
   table, map to the corresponding flags. Explicit CLI flags always win
   over manifest keys; `--config <file>` merges on top of the manifest
   `[thresholds]` table (resolution order: manifest `[thresholds]` →
-  `--config` → `--headroom` scaling → `--threshold` overrides). Relative
+  `--config` → tier resolution → `--threshold` overrides). Relative
   manifest paths resolve against the manifest's directory. A new global
   `--no-config` flag skips discovery for fully-explicit invocations
   (`bca init` also ignores any existing manifest, since it scaffolds
   config rather than consuming it).
-  Unrecognized keys (forthcoming `[thresholds.soft]`, `[check]`,
-  `exit_codes`) are ignored with a one-line warning so projects can
-  pre-adopt schema additions. `bca check --print-effective-config` gains
+  Unrecognized keys (forthcoming `[check]`, `exit_codes`) are ignored
+  with a one-line warning so projects can pre-adopt schema additions. `bca check --print-effective-config` gains
   a `manifest` provenance line. Additive, minor bump.
 - `bca check --headroom <ratio>` — scales every threshold from
   `--config` (or `bca.toml`'s `[thresholds]`) by a ratio in `(0, 1]`
@@ -69,14 +86,16 @@ for historical reference.
   `0.95` (the default knob in the local-gates recipe) fires on
   functions that have reached 95% of any limit; `1.0` is a no-op
   parity run with the hard gate; out-of-range values exit 1.
-  Explicit `--threshold name=value` overrides are absolute and are
-  applied after scaling (resolution order: config → `--headroom` →
-  `--threshold`). Stacks with `--write-baseline` (the baseline then
-  captures offenders at the scaled limits) and is surfaced by
-  `--print-effective-config`. Replaces the
+  `--headroom` is a **soft-tier dial**: it takes effect only under
+  `--tier=soft` (see #375; ignored with a note at the default hard
+  tier). Explicit `--threshold name=value` overrides are absolute and
+  are applied after scaling (resolution order: config → tier
+  resolution → `--threshold`). Stacks with `--write-baseline` (the
+  baseline then captures offenders at the scaled limits) and is
+  surfaced by `--print-effective-config`. Replaces the
   `utils/bca-self-scan-headroom.py` helper, which is removed;
   `make self-scan-headroom` and the local-gates book recipe now
-  invoke the flag directly. Additive, minor bump.
+  invoke `--tier soft --headroom` directly. Additive, minor bump.
 - `metric_catalog` module — a single canonical registry of metric
   metadata ([#397](https://github.com/dekobon/big-code-analysis/issues/397)).
   Public items: `metric_catalog::{MetricInfo, MetricFamily, MetricRow,

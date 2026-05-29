@@ -46,7 +46,7 @@ mod thresholds;
 pub use commands::run;
 use dispatch::act_on_file;
 
-use std::collections::{BTreeMap, HashMap, hash_map};
+use std::collections::{HashMap, hash_map};
 use std::ffi::OsString;
 use std::fmt::Display;
 use std::io::{ErrorKind, Write};
@@ -66,7 +66,10 @@ use check_format::AggregatedFormat;
 use formats::{MetricsFormat, ReportFormat};
 use markdown_report::FunctionSummary;
 use metric_catalog::ListMetricsMode;
-use thresholds::{ThresholdConfig, ThresholdSet, Violation, parse_cli_threshold};
+use thresholds::{
+    ParsedThresholds, ThresholdConfig, ThresholdSet, Violation, parse_cli_threshold,
+    split_thresholds_table,
+};
 
 use big_code_analysis::LANG;
 use big_code_analysis::{
@@ -501,9 +504,28 @@ struct CheckArgs {
     /// scale by `--headroom` → `--threshold` overrides). Stacks with
     /// `--write-baseline`: the baseline then captures every offender
     /// at the scaled limits (a superset of the hard-tier offenders).
-    /// Out-of-range values exit 1.
+    /// Out-of-range values exit 1. `--headroom` applies only to the
+    /// soft tier (`--tier=soft`); at the hard tier it is ignored with a
+    /// note.
     #[clap(long = "headroom", value_name = "RATIO")]
     headroom: Option<f64>,
+    /// Which threshold tier to gate against. `hard` (default) compares
+    /// against the `[thresholds]` table verbatim. `soft` is the
+    /// early-warning tier, resolved in this order:
+    ///
+    /// 1. Start from `[thresholds]` (manifest, merged with `--config`).
+    /// 2. If a `[thresholds.soft]` table exists, merge it on top
+    ///    (absolute or `"<ratio>x"` scale-relative limits); metrics
+    ///    absent from it inherit their hard limit. `--headroom` is then
+    ///    ignored (per-metric intent wins) with a stderr warning.
+    /// 3. Otherwise scale every `[thresholds]` limit by `--headroom`
+    ///    (default 0.95 when unset, so `--tier=soft` is never a silent
+    ///    no-op; `--headroom 1.0` disables scaling).
+    /// 4. Repeated `--threshold name=value` flags apply last, absolutely.
+    ///
+    /// Both tiers ratchet through the same `--baseline`.
+    #[clap(long = "tier", value_enum, default_value_t = Tier::Hard)]
+    tier: Tier,
     /// Tolerance, in lines, for matching a `--baseline` entry whose
     /// qualified symbol is ambiguous (two methods with the same name on
     /// different `impl` blocks, overloads, collided anonymous spaces).
@@ -558,6 +580,32 @@ struct InitArgs {
 enum PrintConfigFormat {
     Toml,
     Json,
+}
+
+/// Which threshold tier `bca check` gates against (issue #375).
+///
+/// `Hard` (the default) uses the `[thresholds]` table verbatim and
+/// ignores any `[thresholds.soft]` overrides. `Soft` is the
+/// early-warning tier: it merges `[thresholds.soft]` on top of
+/// `[thresholds]` (per-metric soft limits, absolute or `"<ratio>x"`
+/// scale-relative), and — when no soft table is configured — falls
+/// back to scaling every limit by `--headroom` (default 0.95). See the
+/// resolution order on [`CheckArgs::tier`].
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq, Default)]
+enum Tier {
+    #[default]
+    Hard,
+    Soft,
+}
+
+impl Tier {
+    /// Lowercase wire name, used by `--print-effective-config`.
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Hard => "hard",
+            Self::Soft => "soft",
+        }
+    }
 }
 
 #[derive(Args, Debug)]
@@ -936,14 +984,15 @@ fn read_utf8_file(path: &Path, label: &str) -> String {
         .unwrap_or_else(|e| die_io(&format!("decode UTF-8 from {label}"), path, e))
 }
 
-/// Load a `[thresholds]` table from `path`, returning the parsed map.
-/// On any I/O or parse error the process dies with exit code 1, keeping
+/// Load a `[thresholds]` table from `path`, returning its hard scalar
+/// limits and optional `[thresholds.soft]` overrides. On any I/O,
+/// parse, or schema error the process dies with exit code 1, keeping
 /// exit 2 reserved for the "thresholds exceeded" case.
-fn load_threshold_config(path: &Path) -> BTreeMap<String, f64> {
+fn load_threshold_config(path: &Path) -> ParsedThresholds {
     let text = read_utf8_file(path, "threshold config");
     let cfg: ThresholdConfig =
         toml::from_str(&text).unwrap_or_else(|e| die_io("parse threshold config", path, e));
-    cfg.thresholds
+    split_thresholds_table(&cfg.thresholds).unwrap_or_else(|e| die(e))
 }
 
 /// Load a baseline file. Same error contract as `load_threshold_config`:

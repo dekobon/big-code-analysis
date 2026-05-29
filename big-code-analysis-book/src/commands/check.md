@@ -73,6 +73,51 @@ form:
 An unknown threshold name is a tool error (exit `1`), not silently
 ignored.
 
+## Two-tier thresholds (`--tier`)
+
+`--tier <hard|soft>` selects which threshold tier the gate compares
+against. `hard` (the default) uses the `[thresholds]` table verbatim;
+`soft` is an early-warning tier that fires *before* the hard gate.
+
+A `[thresholds.soft]` table sets per-metric soft limits, each either an
+absolute number or a `"<ratio>x"` string that scales the metric's hard
+limit:
+
+```toml
+[thresholds]
+cognitive  = 25
+cyclomatic = 15
+nargs      = 7
+
+[thresholds.soft]
+cognitive  = 22       # absolute soft limit
+cyclomatic = "0.9x"   # 90% of the hard limit → 13.5
+# nargs absent → soft tier inherits the hard limit (no soft band)
+```
+
+```bash
+bca --paths src/ check --config bca-thresholds.toml --tier soft
+```
+
+The soft tier resolves in a fixed order:
+
+1. Start from `[thresholds]` (a `bca.toml` manifest, merged with
+   `--config`).
+2. If a `[thresholds.soft]` table exists, merge its overrides on top;
+   metrics absent from it inherit their hard limit. `--headroom` is
+   then ignored with a warning (explicit per-metric limits win).
+3. Otherwise scale every limit by `--headroom` (default `0.95` when
+   unset; `--headroom 1.0` disables scaling).
+4. Repeated `--threshold name=value` flags apply last, absolutely.
+
+`--headroom` is a soft-tier dial: at the default hard tier it is
+ignored with a note. The scale factor in a `"<ratio>x"` string (and
+`--headroom`) must be in `(0, 1]`. Both tiers ratchet through the same
+`--baseline`, and `--print-effective-config` reports the resolved
+`tier` alongside the post-merge limits. See the
+[Local threshold gates](../recipes/local-gates.md#two-tier-thresholds)
+recipe for the migration tip and rationale.
+
 ## Offender output
 
 Every offending `(function, metric)` pair prints one line to stderr in

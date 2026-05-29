@@ -135,16 +135,17 @@ fn config_file_merges_over_manifest_thresholds() {
         .stderr(predicate::str::contains("(limit 1)"));
 }
 
-/// The manifest `headroom` key scales the manifest `[thresholds]`,
-/// exactly like `--headroom`. 100 × 0.01 = 1.0, so `classify`
-/// (cyclomatic 4) trips the gate.
+/// The manifest `headroom` key scales the manifest `[thresholds]` at the
+/// soft tier, exactly like `--headroom`. 100 × 0.01 = 1.0, so `classify`
+/// (cyclomatic 4) trips the gate. `--headroom` is a soft-tier dial, so
+/// `--tier=soft` is required for it to take effect.
 #[test]
-fn manifest_headroom_scales_thresholds() {
+fn manifest_headroom_scales_thresholds_at_soft_tier() {
     let dir = fixture("paths = [\".\"]\nheadroom = 0.01\n\n[thresholds]\ncyclomatic = 100\n");
 
     cli()
         .current_dir(dir.path())
-        .arg("check")
+        .args(["check", "--tier", "soft"])
         .assert()
         .code(2)
         .stderr(predicate::str::contains("cyclomatic"))
@@ -309,24 +310,32 @@ fn unknown_top_level_key_warns_but_runs() {
         ));
 }
 
-/// A `[thresholds.soft]` sub-table (the forthcoming #375 feature) is
-/// ignored with a warning rather than failing the parse, and the scalar
-/// limits in the same table still apply.
+/// A manifest `[thresholds.soft]` sub-table (#375) is ignored at the
+/// default hard tier — only the hard `[thresholds]` scalars gate — but
+/// is honored under `--tier=soft`.
 #[test]
-fn soft_threshold_subtable_warns_but_scalars_apply() {
+fn manifest_soft_threshold_subtable_applies_only_at_soft_tier() {
     let dir = fixture(
         "paths = [\".\"]\n\n\
-         [thresholds]\ncyclomatic = 1\n\n\
-         [thresholds.soft]\ncyclomatic = 90\n",
+         [thresholds]\ncyclomatic = 100\n\n\
+         [thresholds.soft]\ncyclomatic = 1\n",
     );
 
+    // Hard tier (default): the soft override is ignored; limit 100 is
+    // clean for `classify` (cyclomatic 5).
     cli()
         .current_dir(dir.path())
         .arg("check")
         .assert()
+        .success();
+
+    // Soft tier: the per-metric override drops the limit to 1, so
+    // `classify` trips.
+    cli()
+        .current_dir(dir.path())
+        .args(["check", "--tier", "soft"])
+        .assert()
         .code(2)
-        .stderr(predicate::str::contains("ignoring [thresholds.soft]"))
-        // The scalar `cyclomatic = 1` still gates.
         .stderr(predicate::str::contains("(limit 1)"));
 }
 

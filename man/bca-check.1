@@ -4,7 +4,7 @@
 .SH NAME
 bca\-check \- Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed"
 .SH SYNOPSIS
-\fBbca\-check\fR [\fB\-\-threshold\fR] [\fB\-\-config\fR] [\fB\-\-no\-fail\fR] [\fB\-\-no\-suppress\fR] [\fB\-O\fR|\fB\-\-output\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-baseline\fR] [\fB\-\-write\-baseline\fR] [\fB\-\-no\-summary\fR] [\fB\-\-since\fR] [\fB\-\-changed\-only\fR] [\fB\-\-github\-annotations\fR] [\fB\-\-summary\-file\fR] [\fB\-\-no\-remediation\fR] [\fB\-\-print\-effective\-config\fR] [\fB\-\-headroom\fR] [\fB\-\-baseline\-line\-tolerance\fR] [\fB\-\-baseline\-fuzzy\-match\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+\fBbca\-check\fR [\fB\-\-threshold\fR] [\fB\-\-config\fR] [\fB\-\-no\-fail\fR] [\fB\-\-no\-suppress\fR] [\fB\-O\fR|\fB\-\-output\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-baseline\fR] [\fB\-\-write\-baseline\fR] [\fB\-\-no\-summary\fR] [\fB\-\-since\fR] [\fB\-\-changed\-only\fR] [\fB\-\-github\-annotations\fR] [\fB\-\-summary\-file\fR] [\fB\-\-no\-remediation\fR] [\fB\-\-print\-effective\-config\fR] [\fB\-\-headroom\fR] [\fB\-\-tier\fR] [\fB\-\-baseline\-line\-tolerance\fR] [\fB\-\-baseline\-fuzzy\-match\fR] [\fB\-h\fR|\fB\-\-help\fR] 
 .SH DESCRIPTION
 Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed"
 .SH OPTIONS
@@ -83,7 +83,24 @@ json
 .RE
 .TP
 \fB\-\-headroom\fR \fI<RATIO>\fR
-Scale every threshold from `\-\-config` (or `bca.toml`\*(Aqs `[thresholds]` table) by this ratio before comparing against offenders. Accepts a value in `(0, 1]`: `1.0` is a no\-op; `0.95` trips the gate on functions that have reached 95% of any limit — an early\-warning "soft tier" that fires before the hard 100% gate. Explicit `\-\-threshold <metric>=<value>` overrides are absolute: they are applied *after* scaling and are NOT rescaled (the documented resolution order is config → scale by `\-\-headroom` → `\-\-threshold` overrides). Stacks with `\-\-write\-baseline`: the baseline then captures every offender at the scaled limits (a superset of the hard\-tier offenders). Out\-of\-range values exit 1
+Scale every threshold from `\-\-config` (or `bca.toml`\*(Aqs `[thresholds]` table) by this ratio before comparing against offenders. Accepts a value in `(0, 1]`: `1.0` is a no\-op; `0.95` trips the gate on functions that have reached 95% of any limit — an early\-warning "soft tier" that fires before the hard 100% gate. Explicit `\-\-threshold <metric>=<value>` overrides are absolute: they are applied *after* scaling and are NOT rescaled (the documented resolution order is config → scale by `\-\-headroom` → `\-\-threshold` overrides). Stacks with `\-\-write\-baseline`: the baseline then captures every offender at the scaled limits (a superset of the hard\-tier offenders). Out\-of\-range values exit 1. `\-\-headroom` applies only to the soft tier (`\-\-tier=soft`); at the hard tier it is ignored with a note
+.TP
+\fB\-\-tier\fR \fI<TIER>\fR [default: hard]
+Which threshold tier to gate against. `hard` (default) compares against the `[thresholds]` table verbatim. `soft` is the early\-warning tier, resolved in this order:
+
+1. Start from `[thresholds]` (manifest, merged with `\-\-config`). 2. If a `[thresholds.soft]` table exists, merge it on top (absolute or `"<ratio>x"` scale\-relative limits); metrics absent from it inherit their hard limit. `\-\-headroom` is then ignored (per\-metric intent wins) with a stderr warning. 3. Otherwise scale every `[thresholds]` limit by `\-\-headroom` (default 0.95 when unset, so `\-\-tier=soft` is never a silent no\-op; `\-\-headroom 1.0` disables scaling). 4. Repeated `\-\-threshold name=value` flags apply last, absolutely.
+
+Both tiers ratchet through the same `\-\-baseline`.
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+hard
+.IP \(bu 2
+soft
+.RE
 .TP
 \fB\-\-baseline\-line\-tolerance\fR \fI<LINES>\fR
 Tolerance, in lines, for matching a `\-\-baseline` entry whose qualified symbol is ambiguous (two methods with the same name on different `impl` blocks, overloads, collided anonymous spaces). Unambiguous symbols match regardless of line drift; this only disambiguates a tie. Defaults to 50. Mirrored by the `baseline_line_tolerance` key in `bca.toml`

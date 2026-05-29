@@ -920,16 +920,17 @@ fn check_print_effective_config_toml_roundtrips_through_config() {
     );
 }
 
-// ─── --headroom soft-tier scaling (#373) ──────────────────────────────
+// ─── --tier=soft scaling via --headroom (#373/#375) ───────────────────
 //
 // `classify` in BRANCHY_RUST has cyclomatic == 5. These tests pin the
-// documented resolution order (config → scale by --headroom →
-// --threshold overrides absolute) and the exit-code contract. Config
+// documented resolution order (config → tier resolution → --threshold
+// overrides absolute) and the exit-code contract. `--headroom` is a
+// soft-tier dial: it only takes effect under `--tier=soft`. Config
 // fixtures reuse `write_fixture` with a `thresholds.toml` name.
 
 /// A config limit that is clean at full scale must become an offender
-/// once `--headroom` shrinks it below the function's value. With
-/// `cyclomatic = 100` scaled by `0.01` the limit is `1.0`, so
+/// once `--tier=soft --headroom` shrinks it below the function's value.
+/// With `cyclomatic = 100` scaled by `0.01` the limit is `1.0`, so
 /// `classify` (cyclomatic 5) trips the gate.
 #[test]
 fn check_headroom_scales_config_limit_into_offender() {
@@ -937,13 +938,41 @@ fn check_headroom_scales_config_limit_into_offender() {
     let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
     let cfg = write_fixture(&dir, "thresholds.toml", "[thresholds]\ncyclomatic = 100\n");
 
-    // Sanity: clean at full scale.
+    // Sanity: clean at full scale (hard tier).
     cli()
         .args(["--paths", &path, "check", "--config", &cfg])
         .assert()
         .success();
 
-    // Scaled to 1.0 → offender.
+    // Scaled to 1.0 at the soft tier → offender.
+    cli()
+        .args([
+            "--paths",
+            &path,
+            "check",
+            "--config",
+            &cfg,
+            "--tier",
+            "soft",
+            "--headroom",
+            "0.01",
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("classify"))
+        .stderr(predicate::str::contains("cyclomatic"))
+        .stderr(predicate::str::contains("(limit 1)"));
+}
+
+/// `--headroom` is ignored at the default hard tier: a value that would
+/// trip the gate at the soft tier leaves the hard run clean, with a note
+/// pointing the user at `--tier=soft`.
+#[test]
+fn check_headroom_ignored_at_hard_tier() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let cfg = write_fixture(&dir, "thresholds.toml", "[thresholds]\ncyclomatic = 100\n");
+
     cli()
         .args([
             "--paths",
@@ -955,17 +984,18 @@ fn check_headroom_scales_config_limit_into_offender() {
             "0.01",
         ])
         .assert()
-        .code(2)
-        .stderr(predicate::str::contains("classify"))
-        .stderr(predicate::str::contains("cyclomatic"))
-        .stderr(predicate::str::contains("(limit 1)"));
+        .success()
+        .stderr(predicate::str::contains(
+            "--headroom applies only to the soft tier",
+        ));
 }
 
-/// `--headroom 1.0` is the documented no-op. The limit is pinned at the
-/// strict boundary (`cyclomatic = 5`, exactly `classify`'s value, and
-/// the offender test is `value > limit`), so any erroneous downward
-/// scaling at ratio `1.0` would flip the run to an offender (exit 2)
-/// and fail this test — a looser limit like `100` would mask that.
+/// `--tier=soft --headroom 1.0` is the documented no-op. The limit is
+/// pinned at the strict boundary (`cyclomatic = 5`, exactly `classify`'s
+/// value, and the offender test is `value > limit`), so any erroneous
+/// downward scaling at ratio `1.0` would flip the run to an offender
+/// (exit 2) and fail this test — a looser limit like `100` would mask
+/// that.
 #[test]
 fn check_headroom_one_is_noop() {
     let dir = TempDir::new().unwrap();
@@ -979,6 +1009,8 @@ fn check_headroom_one_is_noop() {
             "check",
             "--config",
             &cfg,
+            "--tier",
+            "soft",
             "--headroom",
             "1.0",
         ])
@@ -987,9 +1019,10 @@ fn check_headroom_one_is_noop() {
         .stderr(predicate::str::is_empty());
 }
 
-/// Out-of-range ratios are a usage error: exit 1 (tool error, not the
-/// exit-2 threshold-exceeded code) with a clear stderr message. Covers
-/// both bounds of the half-open `(0, 1]` interval.
+/// Out-of-range ratios are a usage error regardless of tier: exit 1
+/// (tool error, not the exit-2 threshold-exceeded code) with a clear
+/// stderr message. Covers both bounds of the half-open `(0, 1]`
+/// interval.
 #[test]
 fn check_headroom_out_of_range_exits_one() {
     let dir = TempDir::new().unwrap();
@@ -1026,6 +1059,8 @@ fn check_headroom_does_not_scale_cli_threshold_override() {
             "check",
             "--config",
             &cfg,
+            "--tier",
+            "soft",
             "--threshold",
             "cyclomatic=8",
             "--headroom",
@@ -1036,11 +1071,11 @@ fn check_headroom_does_not_scale_cli_threshold_override() {
         .stderr(predicate::str::is_empty());
 }
 
-/// `--headroom` with no config to scale is a no-op (because
+/// `--tier=soft` with no config to scale is a no-op (because
 /// `--threshold` limits are absolute), so it emits a one-line note
 /// rather than silently appearing to take effect.
 #[test]
-fn check_headroom_without_config_warns_and_noops() {
+fn check_soft_tier_without_config_warns_and_noops() {
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
 
@@ -1049,6 +1084,8 @@ fn check_headroom_without_config_warns_and_noops() {
             "--paths",
             &path,
             "check",
+            "--tier",
+            "soft",
             "--threshold",
             "cyclomatic=100",
             "--headroom",
@@ -1057,13 +1094,13 @@ fn check_headroom_without_config_warns_and_noops() {
         .assert()
         .success()
         .stderr(predicate::str::contains(
-            "--headroom has no effect without configured thresholds",
+            "--tier=soft has no effect without configured thresholds",
         ));
 }
 
-/// `--headroom` stacks with `--write-baseline`: the baseline captures
-/// offenders at the *scaled* limits. A subsequent `--baseline` run at
-/// the same ratio then suppresses them.
+/// `--tier=soft --headroom` stacks with `--write-baseline`: the baseline
+/// captures offenders at the *scaled* limits. A subsequent `--baseline`
+/// run at the same tier then suppresses them.
 #[test]
 fn check_headroom_write_baseline_captures_scaled_offenders() {
     let dir = TempDir::new().unwrap();
@@ -1080,6 +1117,8 @@ fn check_headroom_write_baseline_captures_scaled_offenders() {
             "check",
             "--config",
             &cfg,
+            "--tier",
+            "soft",
             "--headroom",
             "0.01",
             "--write-baseline",
@@ -1093,7 +1132,7 @@ fn check_headroom_write_baseline_captures_scaled_offenders() {
         "baseline must capture the scaled-tier offender; was:\n{body}"
     );
 
-    // Re-run filtered by that baseline at the same ratio: suppressed.
+    // Re-run filtered by that baseline at the same tier: suppressed.
     cli()
         .args([
             "--paths",
@@ -1101,6 +1140,8 @@ fn check_headroom_write_baseline_captures_scaled_offenders() {
             "check",
             "--config",
             &cfg,
+            "--tier",
+            "soft",
             "--headroom",
             "0.01",
             "--baseline",
@@ -1111,7 +1152,8 @@ fn check_headroom_write_baseline_captures_scaled_offenders() {
 }
 
 /// `--print-effective-config` must show the post-scaling `[thresholds]`
-/// values and record the applied `--headroom` ratio for provenance.
+/// values, record the applied `--headroom` ratio, and report the
+/// resolved tier for provenance.
 #[test]
 fn check_headroom_print_effective_config_shows_scaled_values_and_ratio() {
     let dir = TempDir::new().unwrap();
@@ -1122,6 +1164,8 @@ fn check_headroom_print_effective_config_shows_scaled_values_and_ratio() {
             "check",
             "--config",
             &cfg,
+            "--tier",
+            "soft",
             "--headroom",
             "0.5",
             "--print-effective-config",
@@ -1130,5 +1174,147 @@ fn check_headroom_print_effective_config_shows_scaled_values_and_ratio() {
         .success()
         // 100 * 0.5 = 50 (rendered as a float by the TOML serializer).
         .stdout(predicate::str::contains("cyclomatic = 50.0"))
-        .stdout(predicate::str::contains("headroom = 0.5"));
+        .stdout(predicate::str::contains("headroom = 0.5"))
+        .stdout(predicate::str::contains("tier = \"soft\""));
+}
+
+// ─── [thresholds.soft] per-metric soft tier (#375) ────────────────────
+//
+// `classify` in BRANCHY_RUST has cyclomatic == 5. A `[thresholds.soft]`
+// table overrides specific keys at the soft tier; unspecified keys
+// inherit the hard limit (no soft band).
+
+/// `--tier=soft` honors an absolute `[thresholds.soft]` override: a hard
+/// limit clean for `classify` becomes an offender at the tighter soft
+/// limit. The default hard tier still passes the same config.
+#[test]
+fn check_soft_table_absolute_override_trips_at_soft_tier() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let cfg = write_fixture(
+        &dir,
+        "thresholds.toml",
+        "[thresholds]\ncyclomatic = 10\n[thresholds.soft]\ncyclomatic = 3\n",
+    );
+
+    // Hard tier: limit 10, classify (5) is clean; the soft table is ignored.
+    cli()
+        .args(["--paths", &path, "check", "--config", &cfg])
+        .assert()
+        .success();
+
+    // Soft tier: limit 3, classify (5) trips.
+    cli()
+        .args([
+            "--paths", &path, "check", "--config", &cfg, "--tier", "soft",
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("cyclomatic = 5 (limit 3)"));
+}
+
+/// `"NNx"` scale syntax resolves against the metric's hard limit:
+/// `cyclomatic = 10` with `"0.4x"` yields a soft limit of `4`, which
+/// `classify` (5) exceeds.
+#[test]
+fn check_soft_table_scale_relative_resolves_against_hard() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let cfg = write_fixture(
+        &dir,
+        "thresholds.toml",
+        "[thresholds]\ncyclomatic = 10\n[thresholds.soft]\ncyclomatic = \"0.4x\"\n",
+    );
+
+    cli()
+        .args([
+            "--paths", &path, "check", "--config", &cfg, "--tier", "soft",
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("cyclomatic = 5 (limit 4)"));
+}
+
+/// A metric absent from `[thresholds.soft]` inherits its hard limit at
+/// the soft tier (no soft band). `nargs` here has no soft override, so a
+/// soft run gates `nargs` at the hard `7` while tightening `cyclomatic`.
+#[test]
+fn check_soft_table_unspecified_metric_inherits_hard_limit() {
+    let dir = TempDir::new().unwrap();
+    let cfg = write_fixture(
+        &dir,
+        "thresholds.toml",
+        "[thresholds]\ncyclomatic = 100\nnargs = 7\n[thresholds.soft]\ncyclomatic = 3\n",
+    );
+
+    cli()
+        .args([
+            "check",
+            "--config",
+            &cfg,
+            "--tier",
+            "soft",
+            "--print-effective-config",
+        ])
+        .assert()
+        .success()
+        // cyclomatic dropped to the soft override; nargs inherits hard 7.
+        // Anchor the `.0` so a buggy `30.0` / `70.0` can't substring-match.
+        .stdout(predicate::str::contains("cyclomatic = 3.0"))
+        .stdout(predicate::str::contains("nargs = 7.0"));
+}
+
+/// When a `[thresholds.soft]` table is present, `--headroom` is ignored
+/// at the soft tier with a stderr warning — per-metric intent wins over
+/// the scalar.
+#[test]
+fn check_soft_table_ignores_headroom_with_warning() {
+    let dir = TempDir::new().unwrap();
+    let cfg = write_fixture(
+        &dir,
+        "thresholds.toml",
+        "[thresholds]\ncyclomatic = 100\n[thresholds.soft]\ncyclomatic = 50\n",
+    );
+
+    cli()
+        .args([
+            "check",
+            "--config",
+            &cfg,
+            "--tier",
+            "soft",
+            "--headroom",
+            "0.5",
+            "--print-effective-config",
+        ])
+        .assert()
+        .success()
+        // 50.0 (soft override), NOT 25.0 (50 * 0.5 headroom). Anchor the
+        // `.0` so a buggy `500.0` can't substring-match.
+        .stdout(predicate::str::contains("cyclomatic = 50.0"))
+        .stderr(predicate::str::contains(
+            "--headroom is ignored because a [thresholds.soft] table",
+        ));
+}
+
+/// A `"NNx"` soft override with no hard limit to scale is a config error
+/// (exit 1) — a scale factor relative to nothing is meaningless.
+#[test]
+fn check_soft_table_scale_without_hard_base_errors() {
+    let dir = TempDir::new().unwrap();
+    let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let cfg = write_fixture(
+        &dir,
+        "thresholds.toml",
+        "[thresholds]\nnargs = 7\n[thresholds.soft]\ncyclomatic = \"0.9x\"\n",
+    );
+
+    cli()
+        .args([
+            "--paths", &path, "check", "--config", &cfg, "--tier", "soft",
+        ])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("no hard"))
+        .stderr(predicate::str::contains("cyclomatic"));
 }

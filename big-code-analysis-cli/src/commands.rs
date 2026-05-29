@@ -31,12 +31,14 @@ use crate::html_report::generate_html_report;
 use crate::manifest::{self, Manifest};
 use crate::markdown_report::{FunctionSummary, generate_report};
 use crate::metric_catalog::write_metrics;
-use crate::thresholds::{ThresholdSet, Violation, render_violation_line};
+use crate::thresholds::{
+    ParsedThresholds, SoftLimit, ThresholdSet, Violation, render_violation_line, scale_threshold,
+};
 use crate::{
     Action, CheckArgs, Cli, Command, Config, GlobalOpts, InitArgs, ListMetricsArgs, NodesArgs,
-    PreprocArgs, PrintConfigFormat, ReportArgs, StripCommentsArgs, StructuredArgs, die, die_io,
-    legacy_hint, load_baseline, load_preproc_data, load_threshold_config, run_walk, write_atomic,
-    write_stdout_or_die,
+    PreprocArgs, PrintConfigFormat, ReportArgs, StripCommentsArgs, StructuredArgs, Tier, die,
+    die_io, legacy_hint, load_baseline, load_preproc_data, load_threshold_config, run_walk,
+    write_atomic, write_stdout_or_die,
 };
 
 fn run_check(
@@ -46,15 +48,16 @@ fn run_check(
     preproc: Option<Arc<PreprocResults>>,
 ) {
     // Merge the check-only manifest keys (baseline / headroom) under the
-    // CLI flags, and take the `[thresholds]` table as the base layer for
-    // the resolver. `--config` merges on top of it; `--threshold`
-    // overrides win last (see `validate_and_build_thresholds`).
+    // CLI flags, and take the `[thresholds]` table (hard + soft layers)
+    // as the base for the resolver. `--config` merges on top of it;
+    // `--threshold` overrides win last (see
+    // `validate_and_build_thresholds`).
     let base_thresholds = match manifest {
         Some(m) => {
             m.merge_check(&mut args);
             m.thresholds()
         }
-        None => BTreeMap::new(),
+        None => ParsedThresholds::default(),
     };
     let set = validate_and_build_thresholds(&args, base_thresholds);
     // `--print-effective-config` is a read-only debug aid: print the
@@ -123,9 +126,10 @@ fn run_check(
 /// pipelines (CI dashboards, IDE plugins) that prefer structured data
 /// over TOML — the same field names; same shape.
 ///
-/// Future layers (headroom scaling per #373, `[thresholds.soft]` per
-/// #375, baseline state per #381, tiered exit codes per #385) will
-/// extend `EffectiveConfig` additively. This printer is the single
+/// The resolved layers (headroom scaling per #373, `[thresholds.soft]`
+/// / `--tier` per #375) are already folded into the printed limits;
+/// future layers (baseline state per #381, tiered exit codes per #385)
+/// will extend `EffectiveConfig` additively. This printer is the single
 /// place that needs to learn about them.
 fn print_effective_config(
     globals: &GlobalOpts,
@@ -198,6 +202,12 @@ struct EffectiveCheck {
     /// from "limit 14.25 because config literally said 14.25".
     #[serde(skip_serializing_if = "Option::is_none")]
     headroom: Option<f64>,
+    /// Which tier the `thresholds` table above was resolved for
+    /// (`"hard"` or `"soft"`, issue #375). The limits shown already
+    /// reflect any `[thresholds.soft]` merge or `--headroom` scaling, so
+    /// this field is the one signal that records *which* tier produced
+    /// them.
+    tier: &'static str,
     /// The `--baseline-line-tolerance` override, if set (issue #377).
     /// Absent means the built-in default applies.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -247,6 +257,7 @@ impl EffectiveConfig {
             changed_only: args.changed_only,
             since: args.since.clone(),
             headroom: args.headroom,
+            tier: args.tier.as_str(),
             baseline_line_tolerance: args.baseline_line_tolerance,
             baseline_fuzzy_match: args.baseline_fuzzy_match,
         };
@@ -254,56 +265,24 @@ impl EffectiveConfig {
     }
 }
 
-/// Significant figures retained when scaling a threshold by the
-/// `--headroom` ratio. Trims float-multiplication artifacts (e.g.
-/// `7 * 0.95 == 6.6499999999999995`) to a readable `6.65` while
-/// preserving full precision for the largest thresholds seen in
-/// practice (`halstead.effort`, on the order of `50000`). At 6
-/// figures the rounding error is far below any metric's granularity,
-/// so the offender set is identical to the un-rounded product. This
-/// matches the `{:.6g}` rounding the now-removed
-/// `bca-self-scan-headroom.py` helper used (#373), so soft-gate
-/// offender lines render byte-for-byte the same.
-const HEADROOM_SIG_FIGS: i32 = 6;
-
-/// Scale a threshold limit by `ratio`, rounding to
-/// [`HEADROOM_SIG_FIGS`] significant figures. `ratio` is assumed
-/// already validated to lie in `(0, 1]`.
-fn scale_threshold(limit: f64, ratio: f64) -> f64 {
-    let scaled = limit * ratio;
-    // `log10(0)` is `-inf`; short-circuit the degenerate inputs so the
-    // magnitude maths below only sees finite, non-zero values.
-    if scaled == 0.0 || !scaled.is_finite() {
-        return scaled;
-    }
-    // `log10` of a finite, non-zero f64 lies in roughly [-323, 308], so
-    // its floor always fits an i32 — the truncating cast cannot lose
-    // information here.
-    #[allow(clippy::cast_possible_truncation)]
-    let magnitude = scaled.abs().log10().floor() as i32;
-    let decimals = (HEADROOM_SIG_FIGS - 1) - magnitude;
-    let factor = 10f64.powi(decimals);
-    // For an absurdly tiny limit the sig-fig `factor` overflows to
-    // infinity, and `scaled * factor / factor` would be NaN. No real
-    // metric threshold is subnormal, but guard it so the function is
-    // total: such a value is already far below any rounding
-    // granularity, so return it unrounded rather than poisoning the
-    // threshold set with NaN.
-    if !factor.is_finite() {
-        return scaled;
-    }
-    (scaled * factor).round() / factor
-}
+/// Default soft-tier scale applied when `--tier=soft` is requested with
+/// neither a `[thresholds.soft]` table nor an explicit `--headroom`. A
+/// concrete default keeps `--tier=soft` from being a silent no-op (the
+/// "config error" the issue #375 resolution order warns against) — it
+/// always produces a band tighter than the hard gate.
+const DEFAULT_SOFT_HEADROOM: f64 = 0.95;
 
 /// Validate `--output` / `--output-format` pairing, then resolve the
-/// effective threshold set by layering, in order: the manifest
-/// `[thresholds]` base, the `--config` file (keys win on collision),
-/// `--headroom` scaling, and the absolute `--threshold` CLI overrides.
+/// effective threshold set per the documented resolution order
+/// (#373/#374/#375/#380): the manifest `[thresholds]` base, the
+/// `--config` file merged on top (keys win on collision), the tier
+/// resolution (hard verbatim, or soft via `[thresholds.soft]` /
+/// `--headroom`), and finally the absolute `--threshold` CLI overrides.
 /// Dies if no thresholds were configured. Returns the set wrapped in
 /// `Arc` so it can be cloned into each walker worker's `Config`.
 fn validate_and_build_thresholds(
     args: &CheckArgs,
-    base_thresholds: BTreeMap<String, f64>,
+    base_thresholds: ParsedThresholds,
 ) -> Arc<ThresholdSet> {
     // Validate --output / --output-format pairing before the walk so
     // a misconfigured invocation fails fast instead of after a full
@@ -325,38 +304,31 @@ fn validate_and_build_thresholds(
     // Layer 1: the manifest `[thresholds]` table (empty when no
     // `bca.toml` was discovered). Layer 2: `--config` merges on top,
     // its keys winning on collision, preserving every existing recipe.
-    let mut merged: BTreeMap<String, f64> = base_thresholds;
+    // Both the hard and soft layers merge the same way.
+    let ParsedThresholds { mut hard, mut soft } = base_thresholds;
     if let Some(config) = args.config.as_deref() {
-        merged.extend(load_threshold_config(config));
+        let cfg = load_threshold_config(config);
+        hard.extend(cfg.hard);
+        soft.extend(cfg.soft);
     }
-    // Soft-tier scaling (#373): shrink every config-derived limit by the
-    // headroom ratio so functions encroaching into the `(ratio, 1.0]`
-    // band fail before they trip the hard gate. Scaling happens *before*
-    // the `--threshold` overrides land because those overrides are
-    // absolute — a user who typed an exact limit means it, not 95% of it.
-    if let Some(ratio) = args.headroom {
-        // Half-open interval `(0, 1]`: `1.0` is a valid no-op (parity
-        // with the hard gate); `0` or `>1` (and NaN, which fails both
-        // comparisons) are usage errors.
-        if !(0.0 < ratio && ratio <= 1.0) {
-            die(format_args!("--headroom must be in (0, 1]; got {ratio}"));
-        }
-        if merged.is_empty() {
-            // No `[thresholds]` table to scale (neither a manifest nor
-            // `--config`). `--threshold` limits are absolute, so headroom
-            // would silently do nothing — surface that rather than let it
-            // look effective.
-            eprintln!(
-                "note: --headroom has no effect without configured thresholds \
-                 (bca.toml [thresholds] or --config); --threshold limits are \
-                 absolute and are not scaled"
-            );
-        }
-        for limit in merged.values_mut() {
-            *limit = scale_threshold(*limit, ratio);
-        }
+
+    // A `--headroom` value is validated regardless of tier so a typo
+    // (`--headroom 2`) is always a usage error, even when the tier
+    // ultimately ignores the scalar.
+    if let Some(ratio) = args.headroom
+        && !crate::thresholds::is_valid_scale_ratio(ratio)
+    {
+        die(format_args!("--headroom must be in (0, 1]; got {ratio}"));
     }
-    // CLI flags override config values for the same metric name.
+
+    // Layer 3: tier resolution. Produces the per-metric limits the gate
+    // compares against.
+    let mut merged = resolve_tier(args.tier, hard, &soft, args.headroom);
+
+    // Layer 4: `--threshold` CLI flags override the resolved limit for
+    // the same metric name. They are absolute — applied *after* any
+    // scaling — because a user who typed an exact limit means it, not a
+    // fraction of it.
     for (name, limit) in &args.thresholds {
         merged.insert(name.clone(), *limit);
     }
@@ -367,6 +339,72 @@ fn validate_and_build_thresholds(
         );
     }
     Arc::new(set)
+}
+
+/// Resolve the per-metric limits for the requested tier (#375).
+///
+/// - `Hard`: the `[thresholds]` table verbatim. `[thresholds.soft]` is
+///   ignored entirely; `--headroom` (a soft-tier dial) draws a note.
+/// - `Soft` with a `[thresholds.soft]` table: merge the soft overrides
+///   on top of the hard limits (metrics absent from the soft table keep
+///   their hard limit — no soft band). `--headroom` is ignored with a
+///   warning, because explicit per-metric limits encode intent more
+///   precisely than a scalar multiplier.
+/// - `Soft` without a soft table: scale every hard limit by `--headroom`
+///   (defaulting to [`DEFAULT_SOFT_HEADROOM`] when unset).
+fn resolve_tier(
+    tier: Tier,
+    hard: BTreeMap<String, f64>,
+    soft: &BTreeMap<String, SoftLimit>,
+    headroom: Option<f64>,
+) -> BTreeMap<String, f64> {
+    match tier {
+        Tier::Hard => {
+            if headroom.is_some() {
+                eprintln!(
+                    "note: --headroom applies only to the soft tier; pass --tier=soft \
+                     to enable it. Ignored at the hard tier."
+                );
+            }
+            hard
+        }
+        Tier::Soft if !soft.is_empty() => {
+            if headroom.is_some() {
+                eprintln!(
+                    "warning: --headroom is ignored because a [thresholds.soft] table \
+                     is configured; per-metric soft limits take precedence."
+                );
+            }
+            // Start from the hard limits so metrics without a soft
+            // override inherit their hard limit (no soft band), then
+            // apply each soft override on top.
+            let mut out = hard;
+            for (name, soft_limit) in soft {
+                let resolved = soft_limit
+                    .resolve(name, out.get(name).copied())
+                    .unwrap_or_else(|e| die(e));
+                out.insert(name.clone(), resolved);
+            }
+            out
+        }
+        Tier::Soft => {
+            // No soft table: scale the hard limits by the headroom ratio,
+            // defaulting so `--tier=soft` is never a silent no-op.
+            let ratio = headroom.unwrap_or(DEFAULT_SOFT_HEADROOM);
+            if hard.is_empty() {
+                eprintln!(
+                    "note: --tier=soft has no effect without configured thresholds \
+                     (bca.toml [thresholds] or --config); --threshold limits are \
+                     absolute and are not scaled"
+                );
+            }
+            let mut out = hard;
+            for limit in out.values_mut() {
+                *limit = scale_threshold(*limit, ratio);
+            }
+            out
+        }
+    }
 }
 
 /// Run the parallel walker with a check-flavoured `Config`, collect
@@ -1448,6 +1486,7 @@ fn run_command_init(globals: GlobalOpts, args: InitArgs, preproc: Option<Arc<Pre
             no_remediation: true,
             print_effective_config: None,
             headroom: None,
+            tier: Tier::Hard,
             baseline_line_tolerance: None,
             baseline_fuzzy_match: false,
         };

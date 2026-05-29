@@ -131,8 +131,89 @@ fn known_metric_names_contains_core_set() {
 fn config_parses_thresholds_table() {
     let toml_src = "[thresholds]\ncyclomatic = 15\n\"loc.lloc\" = 200\n";
     let cfg: ThresholdConfig = toml::from_str(toml_src).expect("parses");
-    assert_eq!(cfg.thresholds.get("cyclomatic"), Some(&15.0));
-    assert_eq!(cfg.thresholds.get("loc.lloc"), Some(&200.0));
+    let parsed = split_thresholds_table(&cfg.thresholds).expect("split");
+    assert_eq!(parsed.hard.get("cyclomatic"), Some(&15.0));
+    assert_eq!(parsed.hard.get("loc.lloc"), Some(&200.0));
+    assert!(parsed.soft.is_empty(), "no soft table configured");
+}
+
+#[test]
+fn split_separates_soft_subtable_from_hard_limits() {
+    let toml_src = "[thresholds]\n\
+                    cognitive = 25\n\
+                    cyclomatic = 15\n\
+                    nargs = 7\n\
+                    [thresholds.soft]\n\
+                    cognitive = 18\n\
+                    cyclomatic = \"0.9x\"\n";
+    let cfg: ThresholdConfig = toml::from_str(toml_src).expect("parses");
+    let parsed = split_thresholds_table(&cfg.thresholds).expect("split");
+
+    // Hard layer keeps every scalar; `soft` is not mistaken for one.
+    assert_eq!(parsed.hard.get("cognitive"), Some(&25.0));
+    assert_eq!(parsed.hard.get("nargs"), Some(&7.0));
+    assert!(!parsed.hard.contains_key("soft"));
+
+    // Absolute and scale-relative soft forms parse into the right variants.
+    assert_eq!(
+        parsed.soft.get("cognitive"),
+        Some(&SoftLimit::Absolute(18.0))
+    );
+    assert_eq!(parsed.soft.get("cyclomatic"), Some(&SoftLimit::Scale(0.9)));
+    // `nargs` has no soft override — it inherits the hard limit at the soft tier.
+    assert!(!parsed.soft.contains_key("nargs"));
+}
+
+#[test]
+fn soft_scale_resolves_against_hard_limit() {
+    // `7 * 0.95` rounds to the same readable 6.65 the headroom path emits.
+    assert_eq!(SoftLimit::Scale(0.95).resolve("nargs", Some(7.0)), Ok(6.65));
+    // Absolute ignores the hard base.
+    assert_eq!(
+        SoftLimit::Absolute(6.0).resolve("nargs", Some(7.0)),
+        Ok(6.0)
+    );
+    assert_eq!(SoftLimit::Absolute(6.0).resolve("nargs", None), Ok(6.0));
+}
+
+#[test]
+fn soft_scale_without_hard_base_is_an_error() {
+    let err = SoftLimit::Scale(0.9)
+        .resolve("cognitive", None)
+        .expect_err("scale-relative with no hard base must error");
+    assert!(
+        err.contains("no hard") && err.contains("cognitive"),
+        "error should name the metric and the missing hard limit: {err}"
+    );
+}
+
+#[test]
+fn soft_scale_string_must_end_in_x_and_be_in_range() {
+    // Missing `x` suffix.
+    let cfg: ThresholdConfig =
+        toml::from_str("[thresholds.soft]\ncyclomatic = \"0.9\"\n").expect("parses");
+    assert!(split_thresholds_table(&cfg.thresholds).is_err());
+
+    // Out-of-range factor (> 1) — a soft tier looser than hard is rejected.
+    let cfg: ThresholdConfig =
+        toml::from_str("[thresholds.soft]\ncyclomatic = \"1.5x\"\n").expect("parses");
+    assert!(split_thresholds_table(&cfg.thresholds).is_err());
+
+    // Non-numeric, non-string value.
+    let cfg: ThresholdConfig =
+        toml::from_str("[thresholds.soft]\ncyclomatic = true\n").expect("parses");
+    assert!(split_thresholds_table(&cfg.thresholds).is_err());
+}
+
+#[test]
+fn hard_limit_must_be_numeric() {
+    let cfg: ThresholdConfig =
+        toml::from_str("[thresholds]\ncyclomatic = \"15\"\n").expect("parses");
+    let err = split_thresholds_table(&cfg.thresholds).expect_err("string hard limit must error");
+    assert!(
+        err.contains("cyclomatic") && err.contains("number"),
+        "{err}"
+    );
 }
 
 #[test]
