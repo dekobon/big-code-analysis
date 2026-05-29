@@ -338,28 +338,57 @@ fn increase_nesting(stats: &mut Stats, nesting: &mut usize, depth: usize, lambda
     stats.boolean_seq.reset();
 }
 
-/// Write the nesting a comprehension `for` clause just introduced back
-/// onto the shared comprehension parent's `nesting_map` entry.
+/// Number of `for` clauses (kind id `for_clause_id`) appearing strictly
+/// before `clause` under the same comprehension `parent`.
 ///
-/// Comprehension clauses (`for_in_clause`, `if_clause`) are processed in
-/// document order as *siblings* of one another, all reading their nesting
-/// from the comprehension parent via [`get_nesting_from_map`]. A `for`
-/// clause's nesting increment is stored under its own node id, which no
-/// sibling reads — so without this, a trailing `for`/`if` clause would see
-/// the comprehension's original nesting and under-count. Propagating the
-/// elevated nesting onto the parent lets `[a for a in xs for b in ys]`
-/// (nested loops) and `[x for x in xs if x > 0]` (filter under the loop)
-/// match their explicit-statement equivalents (#417).
-fn propagate_comprehension_nesting(
-    node: &Node,
-    nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
-    nesting: usize,
-    depth: usize,
-    lambda: usize,
-) {
-    if let Some(parent) = node.parent() {
-        nesting_map.insert(parent.id(), (nesting, depth, lambda));
+/// A comprehension's clauses (`for_in_clause`, `if_clause`) are siblings,
+/// not parent/child. Each `for` clause is a loop that nests everything
+/// after it; an `if` clause is a filter that reads the running nesting but
+/// does not advance it (so consecutive `if` filters share a level, matching
+/// the #417 `[x for x in xs if a if b]` accounting). A clause's nesting is
+/// therefore `comprehension_inherited + (preceding for clause count)`.
+/// Deriving it from sibling position rather than a write-back into the
+/// shared parent slot makes it independent of traversal order — the fix for
+/// #421, where a comprehension in another comprehension's element position
+/// was visited before the outer clauses had written their nesting back.
+fn preceding_for_clauses(parent: &Node, clause: &Node, for_clause_id: u16) -> usize {
+    parent
+        .children()
+        .take_while(|sibling| sibling.id() != clause.id())
+        .filter(|sibling| sibling.kind_id() == for_clause_id)
+        .count()
+}
+
+/// Extra nesting a comprehension's clauses add to its element expression,
+/// relative to the comprehension's own inherited nesting.
+///
+/// The element executes inside the body opened by the *last* clause, so it
+/// sits one level below that clause. A `for` clause has already advanced the
+/// running nesting for whatever follows it, so when the last clause is a
+/// `for` the element is exactly `for_clause_count` levels deep; when the last
+/// clause is an `if` (which reads but does not advance the running nesting),
+/// the element is one level deeper still. Establishing this on the
+/// comprehension node — visited before any child — lets a comprehension in
+/// the element position inherit the correct depth regardless of the order in
+/// which the outer comprehension's sibling clauses are traversed (#421),
+/// matching the explicit nested loop+filter form (#417).
+fn comprehension_element_nesting(
+    comprehension: &Node,
+    for_clause_id: u16,
+    if_clause_id: u16,
+) -> usize {
+    let mut for_clauses = 0;
+    let mut last_clause_is_if = false;
+    for child in comprehension.children() {
+        let kind = child.kind_id();
+        if kind == for_clause_id {
+            for_clauses += 1;
+            last_clause_is_if = false;
+        } else if kind == if_clause_id {
+            last_clause_is_if = true;
+        }
     }
+    for_clauses + usize::from(last_clause_is_if)
 }
 
 impl Cognitive for PythonCode {
@@ -391,18 +420,39 @@ impl Cognitive for PythonCode {
             // already counts the `for`/`if` keyword tokens inside these
             // clauses; without these arms `[x for x in xs if x > 0]` scored
             // cognitive 0 while the equivalent explicit loop scored 3.
-            // Per the SonarSource model, each `for` clause is a loop
-            // (B1 nesting increment) and each `if` clause is a filter nested
-            // under those loops (B1 + nesting). `for_in_clause` and
-            // `if_clause` are SIBLINGS under the comprehension node, not
-            // parent/child, so the nesting a `for` introduces must be
-            // propagated onto the shared comprehension parent for later
-            // sibling clauses (a second `for`, or any `if`) to observe it.
-            ForInClause => {
-                increase_nesting(stats, &mut nesting, depth, lambda);
-                propagate_comprehension_nesting(node, nesting_map, nesting, depth, lambda);
+            //
+            // `for_in_clause` and `if_clause` are SIBLINGS under the
+            // comprehension node, not parent/child. Each clause's nesting is
+            // therefore derived from its sibling position —
+            // `comprehension_inherited + preceding for-clause count` — rather
+            // than from a write-back into the shared parent slot. This is the
+            // #421 fix: the original #417 approach wrote a `for` clause's
+            // nesting back onto the comprehension parent so later siblings
+            // could read it, but a comprehension in the *element* position is
+            // traversed (pre-order) before the outer clauses run, so it never
+            // saw that write-back and under-counted. Position-derived nesting
+            // is independent of traversal order.
+            //
+            // The comprehension node itself (visited before any child)
+            // establishes the element's nesting in its own map slot so a
+            // nested comprehension in element position inherits the full
+            // outer loop+filter depth.
+            ListComprehension
+            | DictionaryComprehension
+            | SetComprehension
+            | GeneratorExpression => {
+                nesting += comprehension_element_nesting(node, ForInClause as u16, IfClause as u16);
             }
-            IfClause => {
+            ForInClause | IfClause => {
+                // The comprehension node deepened its own map slot to the
+                // element's nesting, so re-read the comprehension's *inherited*
+                // nesting from its parent instead of from `node`'s parent (the
+                // comprehension itself). A clause then sits at
+                // `comprehension_inherited + preceding for-clause count`.
+                if let Some(comprehension) = node.parent() {
+                    nesting = get_nesting_from_map(&comprehension, nesting_map).0
+                        + preceding_for_clauses(&comprehension, node, ForInClause as u16);
+                }
                 stats.nesting = nesting + depth + lambda;
                 increment(stats);
                 stats.boolean_seq.reset();
@@ -1921,6 +1971,103 @@ mod tests {
                 },
             );
         }
+    }
+
+    #[test]
+    fn python_comprehension_nested_in_element() {
+        // Regression for #421: a comprehension in another comprehension's
+        // element position must carry the full nesting of the outer loop+
+        // filter, not the shallow depth the #417 sibling write-back left it
+        // with (it under-counted at 6). The element is traversed before the
+        // outer clauses, so the depth is established on the comprehension node
+        // itself, independent of sibling traversal order.
+        // expected cognitive: outer for +1 (nesting 0), outer if +2
+        // (nesting 1), inner for +3 (nesting 2), inner if +4 (nesting 3) = 10.
+        check_metrics::<PythonParser>(
+            "def f(xs):
+                return [[y for y in x if y] for x in xs if x]",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 10.0);
+            },
+        );
+        // The explicit doubly-nested loop+if form it desugars to: for +1,
+        // if +2, for +3, if +4 = 10, matching the comprehension above.
+        check_metrics::<PythonParser>(
+            "def g(xs):
+                out = []
+                for x in xs:
+                    if x:
+                        for y in x:
+                            if y:
+                                out.append(y)
+                return out",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 10.0);
+            },
+        );
+    }
+
+    #[test]
+    fn python_comprehension_three_levels_nested() {
+        // Three comprehensions nested through each other's element positions
+        // must equal their explicit triply-nested loop+if form at every depth.
+        // expected cognitive: for/if pairs at nesting 0..5 =
+        // 1+2+3+4+5+6 = 21.
+        check_metrics::<PythonParser>(
+            "def f(xss):
+                return [[[z for z in y if z] for y in x if y] for x in xss if x]",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 21.0);
+            },
+        );
+        check_metrics::<PythonParser>(
+            "def g(xss):
+                out = []
+                for x in xss:
+                    if x:
+                        for y in x:
+                            if y:
+                                for z in y:
+                                    if z:
+                                        out.append(z)
+                return out",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 21.0);
+            },
+        );
+    }
+
+    #[test]
+    fn python_generator_in_comprehension_element() {
+        // #421 edge case: a generator passed to a call (`sum(...)`) in a
+        // comprehension's element still inherits the outer loop+filter depth
+        // through the intervening call/argument_list nodes.
+        // expected cognitive: outer for +1, outer if +2, inner for +3,
+        // inner if +4 = 10.
+        check_metrics::<PythonParser>(
+            "def f(xs):
+                return [sum(y for y in x if y) for x in xs if x]",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 10.0);
+            },
+        );
+        check_metrics::<PythonParser>(
+            "def g(xs):
+                out = []
+                for x in xs:
+                    if x:
+                        out.append(sum(y for y in x if y))
+                return out",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 10.0);
+            },
+        );
     }
 
     #[test]
