@@ -96,11 +96,7 @@ macro_rules! impl_js_family_get_op_type {
                 // double-count its contribution to `N2` (issue #192, same
                 // pattern as #183 C# / #191 Kotlin / #199 Perl).
                 TemplateString => {
-                    if node.is_child(TemplateSubstitution as u16) {
-                        HalsteadType::Unknown
-                    } else {
-                        HalsteadType::Operand
-                    }
+                    Self::string_operand_type(node, &[TemplateSubstitution as u16])
                 }
                 _ => HalsteadType::Unknown,
             }
@@ -141,6 +137,26 @@ pub trait Getter {
 
     fn get_op_type(_node: &Node) -> HalsteadType {
         HalsteadType::Unknown
+    }
+
+    /// Classifies a string-literal `node` as a single Halstead
+    /// operand, *unless* it wraps an interpolation child drawn from
+    /// `interp_kinds` — in which case the wrapper yields
+    /// [`HalsteadType::Unknown`] because the inner expressions are
+    /// walked and counted separately. Counting the wrapper too would
+    /// double-count their contribution to `N2`.
+    ///
+    /// This declares the per-language interpolation skip once (issue
+    /// #420), replacing nine independently-added regression fixes
+    /// (#183 / #184 / #191 / #192 / #199 / #277, …). Each language
+    /// supplies only its own grammar's interpolation child-kind ids;
+    /// the per-call rationale lives at each call site.
+    fn string_operand_type(node: &Node, interp_kinds: &[u16]) -> HalsteadType {
+        if node.wraps_any(interp_kinds) {
+            HalsteadType::Unknown
+        } else {
+            HalsteadType::Operand
+        }
     }
 
     fn get_operator_id_as_str(_id: u16) -> &'static str {
@@ -215,11 +231,7 @@ impl Getter for PythonCode {
                 // whose inner expressions are walked and counted separately.
                 // Skip the wrapping literal to avoid double-counting (same
                 // pattern as #180 for Bash/Elixir and #184 for PHP).
-                if node.is_child(Interpolation as u16) {
-                    HalsteadType::Unknown
-                } else {
-                    HalsteadType::Operand
-                }
+                Self::string_operand_type(node, &[Interpolation as u16])
             }
             _ => HalsteadType::Unknown,
         }
@@ -784,11 +796,7 @@ impl Getter for CsharpCode {
             // identifiers' contribution to `N2` (issue #183, same
             // pattern as #180 for Elixir/Bash).
             InterpolatedStringExpression => {
-                if node.is_child(Interpolation as u16) {
-                    HalsteadType::Unknown
-                } else {
-                    HalsteadType::Operand
-                }
+                Self::string_operand_type(node, &[Interpolation as u16])
             }
             _ => HalsteadType::Unknown,
         }
@@ -861,11 +869,7 @@ impl Getter for KotlinCode {
             // multi-line (triple-quoted) string literals support
             // interpolation in Kotlin.
             StringLiteral | MultilineStringLiteral => {
-                if node.is_child(Interpolation as u16) {
-                    HalsteadType::Unknown
-                } else {
-                    HalsteadType::Operand
-                }
+                Self::string_operand_type(node, &[Interpolation as u16])
             }
             _ => HalsteadType::Unknown,
         }
@@ -987,11 +991,7 @@ impl Getter for PerlCode {
             // heredocs let the inner variables carry the count.
             P::StringDoubleQuoted | P::StringQqQuoted | P::BacktickQuoted
             | P::CommandQxQuoted | P::HeredocBodyStatement => {
-                if node.is_child(P::Interpolation as u16) {
-                    HalsteadType::Unknown
-                } else {
-                    HalsteadType::Operand
-                }
+                Self::string_operand_type(node, &[P::Interpolation as u16])
             }
             _ => HalsteadType::Unknown,
         }
@@ -1098,26 +1098,6 @@ fn bash_string_has_expansion(node: &Node) -> bool {
                 | Bash::Expansion
                 | Bash::CommandSubstitution
                 | Bash::ArithmeticExpansion
-        )
-    })
-}
-
-/// Returns whether a Tcl `quoted_word` node (`"..."`) carries any
-/// interpolation child that would itself be classified as an operand
-/// (or contribute operand children) by [`TclCode::get_op_type`].
-///
-/// In Tcl, `"..."` exposes `$var` as `variable_substitution` and
-/// `[cmd]` as `command_substitution`. Both substitutions either are
-/// operands themselves or wrap inner identifiers/literals that are.
-/// When such children are present, classifying the wrapping
-/// `QuotedWord` as an operand too would double-count `N2` (issue
-/// #277, same pattern as #180/#183/#184 for Bash/C#/PHP).
-#[inline]
-fn tcl_quoted_word_has_interpolation(node: &Node) -> bool {
-    node.children().any(|c| {
-        matches!(
-            c.kind_id().into(),
-            Tcl::VariableSubstitution | Tcl::CommandSubstitution
         )
     })
 }
@@ -1292,58 +1272,19 @@ impl Getter for TclCode {
             // contribute their own operands; counting the wrapping
             // `QuotedWord` too would double-count `N2` (issue #277, same
             // pattern as #180/#183/#184 for Bash/C#/PHP).
-            Tcl::QuotedWord => {
-                if tcl_quoted_word_has_interpolation(node) {
-                    HalsteadType::Unknown
-                } else {
-                    HalsteadType::Operand
-                }
-            }
+            Tcl::QuotedWord => Self::string_operand_type(
+                node,
+                &[
+                    Tcl::VariableSubstitution as u16,
+                    Tcl::CommandSubstitution as u16,
+                ],
+            ),
 
             _ => HalsteadType::Unknown,
         }
     }
 
     get_operator!(Tcl);
-}
-
-#[inline]
-fn php_string_has_interpolation(node: &Node) -> bool {
-    let is_interp = |kind: u16| {
-        matches!(
-            kind.into(),
-            // `"$name"` → direct `variable_name` child.
-            Php::VariableName
-            // `"${name}"` → direct `dynamic_variable_name` child.
-            | Php::DynamicVariableName
-            // `"$arr[0]"` → direct `subscript_expression` child.
-            // The grammar gives this kind three numeric aliases.
-            | Php::SubscriptExpression
-            | Php::SubscriptExpression2
-            | Php::SubscriptExpression3
-            // `"$obj->prop"` → direct `member_access_expression`
-            // child. PHP's bare-interpolation syntax does not
-            // support `?->` (nullsafe) or `::` (scope), so only
-            // member-access aliases need handling here; nullsafe /
-            // scope forms always go through the `{ … }` wrapper.
-            | Php::MemberAccessExpression
-            | Php::MemberAccessExpression2
-            | Php::MemberAccessExpression3
-            // `"{$expr}"` → anonymous `{` (LBRACE) opens the
-            // complex-interpolation wrapper whose body is an
-            // arbitrary expression; the brace appears as a direct
-            // child.
-            | Php::LBRACE
-        )
-    };
-    let is_heredoc_body = |kind: u16| matches!(kind.into(), Php::HeredocBody);
-    // `EncapsedString` holds interpolation children directly;
-    // `Heredoc` wraps them in a single `heredoc_body` child, so
-    // descend one level for that case.
-    node.children().any(|c| {
-        is_interp(c.kind_id())
-            || (is_heredoc_body(c.kind_id()) && c.children().any(|gc| is_interp(gc.kind_id())))
-    })
 }
 
 impl Getter for PhpCode {
@@ -1454,10 +1395,42 @@ impl Getter for PhpCode {
             // omitted entirely (issue #288), so backtick literals
             // contributed no Halstead operand at all even when inert.
             EncapsedString | Heredoc | ShellCommandExpression => {
-                if php_string_has_interpolation(node) {
+                // PHP's interpolation children appear directly on the
+                // wrapping literal, except `Heredoc`, which holds them
+                // one level down under a single `heredoc_body` child —
+                // so the descend below mirrors the original
+                // `php_string_has_interpolation` two-level walk.
+                const PHP_INTERP_KINDS: &[u16] = &[
+                    // `"$name"` → direct `variable_name` child.
+                    VariableName as u16,
+                    // `"${name}"` → direct `dynamic_variable_name` child.
+                    DynamicVariableName as u16,
+                    // `"$arr[0]"` → direct `subscript_expression` child.
+                    // The grammar gives this kind three numeric aliases.
+                    SubscriptExpression as u16,
+                    SubscriptExpression2 as u16,
+                    SubscriptExpression3 as u16,
+                    // `"$obj->prop"` → direct `member_access_expression`
+                    // child. PHP's bare-interpolation syntax does not
+                    // support `?->` (nullsafe) or `::` (scope), so only
+                    // member-access aliases need handling here; nullsafe /
+                    // scope forms always go through the `{ … }` wrapper.
+                    MemberAccessExpression as u16,
+                    MemberAccessExpression2 as u16,
+                    MemberAccessExpression3 as u16,
+                    // `"{$expr}"` → anonymous `{` (LBRACE) opens the
+                    // complex-interpolation wrapper whose body is an
+                    // arbitrary expression; the brace appears as a direct
+                    // child.
+                    LBRACE as u16,
+                ];
+                let heredoc_interp = node
+                    .children()
+                    .any(|c| c.kind_id() == HeredocBody as u16 && c.wraps_any(PHP_INTERP_KINDS));
+                if heredoc_interp {
                     HalsteadType::Unknown
                 } else {
-                    HalsteadType::Operand
+                    Self::string_operand_type(node, PHP_INTERP_KINDS)
                 }
             }
 
@@ -1636,11 +1609,7 @@ impl Getter for ElixirCode {
             // `RBRACE`, so an interpolated literal still adds operator
             // weight without inflating `N2`.
             E::String | E::Charlist | E::Sigil => {
-                if node.is_child(E::Interpolation as u16) {
-                    HalsteadType::Unknown
-                } else {
-                    HalsteadType::Operand
-                }
+                Self::string_operand_type(node, &[E::Interpolation as u16])
             }
 
             // Operands: identifiers and literals. Sigil names/modifiers
@@ -1740,11 +1709,7 @@ impl Getter for RubyCode {
             R::String | R::ChainedString | R::BareString | R::Subshell
             | R::Regex | R::HeredocBody | R::StringArray | R::SymbolArray
             | R::DelimitedSymbol => {
-                if node.is_child(R::Interpolation as u16) {
-                    HalsteadType::Unknown
-                } else {
-                    HalsteadType::Operand
-                }
+                Self::string_operand_type(node, &[R::Interpolation as u16])
             }
 
             // Operands: identifiers and literals.

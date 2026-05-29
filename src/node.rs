@@ -157,6 +157,24 @@ impl<'a> Node<'a> {
         false
     }
 
+    /// Returns `true` if any direct child matches one of the given
+    /// grammar `kind_id`s. Generalizes [`is_child`] to a set so the
+    /// shared string-interpolation operand skip can declare its rule
+    /// once (issue #420); shares the same allocation-free sibling walk.
+    ///
+    /// [`is_child`]: Self::is_child
+    #[inline]
+    pub(crate) fn wraps_any(&self, ids: &[u16]) -> bool {
+        let mut cur = self.0.child(0);
+        while let Some(c) = cur {
+            if ids.contains(&c.kind_id()) {
+                return true;
+            }
+            cur = c.next_sibling();
+        }
+        false
+    }
+
     pub(crate) fn child_count(&self) -> usize {
         self.0.child_count()
     }
