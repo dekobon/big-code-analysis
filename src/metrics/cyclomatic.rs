@@ -245,8 +245,18 @@ impl Cyclomatic for PythonCode {
         // adds the modified count. A bare `case _:` (no guard) is skipped,
         // mirroring Rust's `MatchArm` filter and Java/C#'s `default:`
         // exclusion. A guard (`case _ if g:`) still escapes the filter.
+        // `with` (and `async with`) is deliberately absent from the
+        // decision-point arm below: it is unconditional resource
+        // management, not a branch. Standard McCabe does not count it,
+        // and the C-family `using` / try-with-resources siblings are
+        // likewise uncounted, so counting it here would be an
+        // undocumented divergence. The `__exit__`-can-suppress-an-
+        // exception argument is rejected for parity with those
+        // siblings and with the textbook definition. Both plain
+        // `with` and `async with` surface the same `with` keyword
+        // token (`With`), so omitting it stops counting both. See #418.
         match node.kind_id().into() {
-            If | Elif | For | While | Except | With | Assert | And | Or => {
+            If | Elif | For | While | Except | Assert | And | Or => {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }
@@ -1112,6 +1122,91 @@ mod tests {
                 assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
                 assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4.0);
                 assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+            },
+        );
+    }
+
+    /// `with` is unconditional resource management, not a branch, so it
+    /// must not add to cyclomatic complexity — matching the C-family
+    /// `using` sibling and textbook McCabe. Regression test for #418.
+    ///
+    /// Expected: unit(1) + fn(1) = 2; the `with` adds nothing.
+    #[test]
+    fn python_with_is_not_a_decision_point_418() {
+        check_metrics::<PythonParser>(
+            "def f():
+    with open('a') as fp:
+        return fp.read()
+",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 1.0);
+            },
+        );
+    }
+
+    /// A `with` managing multiple context managers (`with a, b:`) parses
+    /// as a single `with_statement` with one `with` keyword token, so it
+    /// stays uncounted just like the single-manager form. Companion to
+    /// #418.
+    ///
+    /// Expected: unit(1) + fn(1) = 2.
+    #[test]
+    fn python_with_multiple_managers_is_not_a_decision_point_418() {
+        check_metrics::<PythonParser>(
+            "def f(a, b):
+    with a, b:
+        return 1
+",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 2.0);
+            },
+        );
+    }
+
+    /// `async with` reuses the same `with` keyword token as plain
+    /// `with`, so dropping `With` from the decision arm stops counting
+    /// it too. Companion to #418.
+    ///
+    /// Expected: unit(1) + fn(1) = 2; neither `async` nor `with` counts.
+    #[test]
+    fn python_async_with_is_not_a_decision_point_418() {
+        check_metrics::<PythonParser>(
+            "async def f():
+    async with open('a') as fp:
+        return fp.read()
+",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 2.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 2.0);
+            },
+        );
+    }
+
+    /// Dropping `With` must not suppress real branches *inside* a `with`
+    /// body: an `if` in the body still counts. Guards against an
+    /// over-broad fix. Companion to #418.
+    ///
+    /// Expected: unit(1) + fn(1) + if(1) = 3; the `with` adds nothing.
+    #[test]
+    fn python_with_body_branch_still_counts_418() {
+        check_metrics::<PythonParser>(
+            "def f(x):
+    with open('a') as fp:
+        if x:
+            return fp.read()
+        return None
+",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
             },
         );
     }
