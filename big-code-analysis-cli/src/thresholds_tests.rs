@@ -26,6 +26,28 @@ fn every_extractor_resolves_to_metric_kind_or_is_tokens() {
     }
 }
 
+/// The threshold engine's extractor ids and the library's canonical
+/// metric catalog must describe exactly the same set of offender ids,
+/// in both directions. This is the cross-crate guard the consolidation
+/// in #397 introduced: a metric added to one table but not the other
+/// (the failure mode that left ten `RULE_DESCRIPTIONS` keys orphaned
+/// for two model versions) fails here rather than silently shipping a
+/// half-wired metric.
+#[test]
+fn extractor_ids_match_library_catalog() {
+    use std::collections::BTreeSet;
+
+    let extractor_ids: BTreeSet<&str> = EXTRACTORS.iter().map(|e| e.name).collect();
+    let catalog_ids: BTreeSet<&str> = big_code_analysis::metric_catalog::METRICS
+        .iter()
+        .map(|m| m.id)
+        .collect();
+    assert_eq!(
+        extractor_ids, catalog_ids,
+        "threshold EXTRACTORS and library metric_catalog::METRICS disagree on offender ids",
+    );
+}
+
 #[test]
 fn parse_cli_threshold_accepts_integer() {
     let (name, limit) = parse_cli_threshold("cyclomatic=15").expect("parses");

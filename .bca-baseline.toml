@@ -467,7 +467,14 @@ path = "big-code-analysis-cli/src/metric_catalog.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 242362.90819456722
+value = 158781.73274610002
+
+[[entry]]
+path = "big-code-analysis-cli/src/metric_catalog.rs"
+function = "<file>"
+start_line = 1
+metric = "nargs"
+value = 8.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/threshold_suggestion.rs"
@@ -1629,7 +1636,7 @@ path = "src/lib.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 324.0
+value = 332.0
 
 [[entry]]
 path = "src/macros.rs"
@@ -1644,6 +1651,20 @@ function = "<file>"
 start_line = 1
 metric = "loc.sloc"
 value = 1238.0
+
+[[entry]]
+path = "src/metric_catalog.rs"
+function = "<file>"
+start_line = 1
+metric = "halstead.effort"
+value = 538455.8614153366
+
+[[entry]]
+path = "src/metric_catalog.rs"
+function = "<file>"
+start_line = 1
+metric = "loc.sloc"
+value = 355.0
 
 [[entry]]
 path = "src/metric_set.rs"
@@ -2903,28 +2924,28 @@ path = "src/output/code_climate.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1682110.6862836902
+value = 1687265.2338234184
 
 [[entry]]
 path = "src/output/code_climate.rs"
 function = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 672.0
+value = 679.0
 
 [[entry]]
 path = "src/output/code_climate.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 21.0
+value = 23.0
 
 [[entry]]
 path = "src/output/code_climate.rs"
 function = "<file>"
 start_line = 1
 metric = "nom"
-value = 39.0
+value = 41.0
 
 [[entry]]
 path = "src/output/csv.rs"
@@ -3256,18 +3277,11 @@ metric = "halstead.effort"
 value = 157549.12204105302
 
 [[entry]]
-path = "src/output/rule_descriptions.rs"
-function = "<file>"
-start_line = 1
-metric = "halstead.effort"
-value = 55715.192136029415
-
-[[entry]]
 path = "src/output/sarif.rs"
 function = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1267867.1004252515
+value = 1265744.8238745884
 
 [[entry]]
 path = "src/output/sarif.rs"
@@ -3281,7 +3295,7 @@ path = "src/output/sarif.rs"
 function = "<file>"
 start_line = 1
 metric = "nargs"
-value = 12.0
+value = 13.0
 
 [[entry]]
 path = "src/output/warning_line.rs"

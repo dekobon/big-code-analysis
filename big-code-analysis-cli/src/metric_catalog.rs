@@ -1,19 +1,18 @@
-//! Catalog of metric categories that `big-code-analysis` can compute.
+//! `bca list-metrics` rendering.
 //!
-//! Names match the keys downstream tools (e.g. `split-minimal-tests.py`)
-//! grep for in `--metrics` output: top-level keys from `CodeMetrics` plus
-//! the `loc` sub-metrics, which are conceptually distinct measurements.
-//! Descriptions are short (one line); the book contains the long form.
+//! The catalog itself is no longer maintained here: rows are derived
+//! from the library's canonical [`big_code_analysis::metric_catalog`]
+//! (`FAMILIES`), so adding a metric to the library automatically
+//! surfaces it here. Names match the keys downstream tools (e.g.
+//! `split-minimal-tests.py`) grep for in `list-metrics` output:
+//! top-level family names plus the `loc` sub-metrics, which are
+//! conceptually distinct measurements.
 
 use std::io::{self, Write};
 
-/// One row of the metric catalog: short identifier and a one-line summary.
-pub(crate) struct MetricEntry {
-    pub(crate) name: &'static str,
-    pub(crate) description: &'static str,
-}
+use big_code_analysis::metric_catalog::FAMILIES;
 
-/// Mode for `--list-metrics`. Names-only is the default to keep the output
+/// Mode for `list-metrics`. Names-only is the default to keep the output
 /// machine-readable for shell pipelines.
 #[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ListMetricsMode {
@@ -23,99 +22,29 @@ pub(crate) enum ListMetricsMode {
     Descriptions,
 }
 
-pub(crate) const METRICS: &[MetricEntry] = &[
-    MetricEntry {
-        name: "cognitive",
-        description: "Cognitive Complexity: how difficult code is to understand.",
-    },
-    MetricEntry {
-        name: "cyclomatic",
-        description: "Cyclomatic Complexity: linearly independent paths through the code; the modified variant collapses switch/match/when arms in a single switch statement into one decision point.",
-    },
-    MetricEntry {
-        name: "halstead",
-        description: "Halstead suite: vocabulary, length, volume, difficulty, effort, time, bugs.",
-    },
-    MetricEntry {
-        name: "sloc",
-        description: "Source lines of code: total lines in a source file.",
-    },
-    MetricEntry {
-        name: "ploc",
-        description: "Physical lines of code: instruction lines.",
-    },
-    MetricEntry {
-        name: "lloc",
-        description: "Logical lines of code: statement count.",
-    },
-    MetricEntry {
-        name: "cloc",
-        description: "Comment lines of code.",
-    },
-    MetricEntry {
-        name: "blank",
-        description: "Blank lines.",
-    },
-    MetricEntry {
-        name: "nom",
-        description: "Number of methods and closures.",
-    },
-    MetricEntry {
-        name: "tokens",
-        description: "Per-function token count: AST leaves excluding comments.",
-    },
-    MetricEntry {
-        name: "nexits",
-        description: "Number of exit points from a function or method.",
-    },
-    MetricEntry {
-        name: "nargs",
-        description: "Number of arguments to a function or method.",
-    },
-    MetricEntry {
-        name: "mi",
-        description: "Maintainability Index suite.",
-    },
-    MetricEntry {
-        name: "abc",
-        description: "ABC: assignments, branches, and conditions.",
-    },
-    MetricEntry {
-        name: "wmc",
-        description: "Weighted Methods per Class.",
-    },
-    MetricEntry {
-        name: "npm",
-        description: "Number of public methods of a class.",
-    },
-    MetricEntry {
-        name: "npa",
-        description: "Number of public attributes of a class.",
-    },
-];
+/// Flattened `(name, summary)` rows across every family, in library
+/// declaration order. `loc` expands to its sub-metrics (`sloc`, …);
+/// every other family yields a single row whose name is the family
+/// name.
+fn rows() -> impl Iterator<Item = (&'static str, &'static str)> {
+    FAMILIES
+        .iter()
+        .flat_map(|family| family.rows.iter().map(|row| (row.name, row.summary)))
+}
 
 /// Write the catalog to `out` according to `mode`. In `Descriptions` mode
 /// names are left-aligned to the widest name so the two columns line up.
 pub(crate) fn write_metrics(out: &mut dyn Write, mode: ListMetricsMode) -> io::Result<()> {
     match mode {
         ListMetricsMode::Names => {
-            for m in METRICS {
-                writeln!(out, "{}", m.name)?;
+            for (name, _) in rows() {
+                writeln!(out, "{name}")?;
             }
         }
         ListMetricsMode::Descriptions => {
-            let width = METRICS
-                .iter()
-                .map(|m| m.name.len())
-                .max()
-                .expect("METRICS is non-empty");
-            for m in METRICS {
-                writeln!(
-                    out,
-                    "{name:<width$}  {desc}",
-                    name = m.name,
-                    desc = m.description
-                )?;
+            let width = rows().map(|(name, _)| name.len()).max().unwrap_or(0);
+            for (name, desc) in rows() {
+                writeln!(out, "{name:<width$}  {desc}")?;
             }
         }
     }
@@ -123,24 +52,14 @@ pub(crate) fn write_metrics(out: &mut dyn Write, mode: ListMetricsMode) -> io::R
 }
 
 #[cfg(test)]
-#[allow(
-    clippy::float_cmp,
-    clippy::cast_precision_loss,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::similar_names,
-    clippy::doc_markdown,
-    clippy::needless_raw_string_hashes,
-    clippy::too_many_lines
-)]
+#[allow(clippy::doc_markdown)]
 mod tests {
     use super::*;
 
     #[test]
     fn names_unique_and_lowercase() {
         let mut seen = std::collections::HashSet::new();
-        for m in METRICS {
-            let name = m.name;
+        for (name, desc) in rows() {
             assert!(!name.is_empty(), "metric name must be non-empty");
             assert!(
                 name.chars()
@@ -148,10 +67,7 @@ mod tests {
                 "metric name {name:?} must be ascii lowercase",
             );
             assert!(seen.insert(name), "duplicate metric name {name:?}");
-            assert!(
-                !m.description.is_empty(),
-                "metric {name:?} missing description",
-            );
+            assert!(!desc.is_empty(), "metric {name:?} missing description");
         }
     }
 
@@ -161,10 +77,8 @@ mod tests {
         write_metrics(&mut buf, ListMetricsMode::Names).expect("write");
         let out = String::from_utf8(buf).expect("utf8");
         let lines: Vec<&str> = out.lines().collect();
-        assert_eq!(lines.len(), METRICS.len());
-        for (line, m) in lines.iter().zip(METRICS.iter()) {
-            assert_eq!(*line, m.name);
-        }
+        let expected: Vec<&str> = rows().map(|(name, _)| name).collect();
+        assert_eq!(lines, expected);
     }
 
     #[test]
@@ -173,23 +87,21 @@ mod tests {
         write_metrics(&mut buf, ListMetricsMode::Descriptions).expect("write");
         let out = String::from_utf8(buf).expect("utf8");
         let lines: Vec<&str> = out.lines().collect();
-        assert_eq!(lines.len(), METRICS.len());
-        for (line, m) in lines.iter().zip(METRICS.iter()) {
+        let expected: Vec<(&str, &str)> = rows().collect();
+        assert_eq!(lines.len(), expected.len());
+        for (line, (name, desc)) in lines.iter().zip(expected) {
             assert!(
-                line.starts_with(m.name),
+                line.starts_with(name),
                 "line {line:?} should start with name"
             );
-            assert!(
-                line.contains(m.description),
-                "line {line:?} missing description"
-            );
+            assert!(line.contains(desc), "line {line:?} missing description");
         }
     }
 
-    /// The catalog must include every top-level metric category the library
-    /// emits in `--metrics` output, plus the `loc` sub-metrics. If
-    /// `CodeMetrics` gains a new field, this test fails until the catalog
-    /// is updated.
+    /// The `list-metrics` view must include every top-level metric
+    /// category the library emits in `--metrics` output, plus the `loc`
+    /// sub-metrics. If `CodeMetrics` gains a new field, this fails until
+    /// the library catalog is updated.
     #[test]
     fn catalog_covers_library_output() {
         use big_code_analysis::CodeMetrics;
@@ -209,11 +121,11 @@ mod tests {
         expected.extend(
             ["sloc", "ploc", "lloc", "cloc", "blank", "wmc", "npm", "npa"].map(String::from),
         );
-        let catalog: HashSet<&str> = METRICS.iter().map(|m| m.name).collect();
+        let catalog: HashSet<&str> = rows().map(|(name, _)| name).collect();
         for name in &expected {
             assert!(
                 catalog.contains(name.as_str()),
-                "catalog missing metric {name:?}; CodeMetrics emits it but --list-metrics does not"
+                "catalog missing metric {name:?}; CodeMetrics emits it but list-metrics does not"
             );
         }
     }

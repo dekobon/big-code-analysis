@@ -23,6 +23,21 @@ for historical reference.
 
 ### Added
 
+- `metric_catalog` module — a single canonical registry of metric
+  metadata ([#397](https://github.com/dekobon/big-code-analysis/issues/397)).
+  Public items: `metric_catalog::{MetricInfo, MetricFamily, MetricRow,
+  Direction, METRICS, FAMILIES}`. `METRICS` is the canonical list of
+  offender sub-metric ids (`halstead.volume`, `mi.original`, …) with
+  their long-form SARIF / Code Climate sentences and
+  higher-/lower-is-worse `Direction`; `FAMILIES` is the view rendered
+  by `bca list-metrics`. The library's offender formatters and the
+  CLI's threshold engine now read this one source instead of three
+  hand-maintained tables that had silently drifted (ten rule-
+  description keys once matched no real offender id for two model
+  versions). A cross-crate parity test pins the threshold extractor
+  ids to `METRICS`, so a new metric can no longer ship with a half-
+  updated catalog. SARIF, Code Climate, and `bca list-metrics` output
+  are unchanged. Additive, minor bump.
 - Python bindings dev environment: `make py-bootstrap`, `make py-sync`
   (alias), `make py-relock`, and `make py-clean` Makefile targets.
   Bootstrap provisions `big-code-analysis-py/.venv` from the

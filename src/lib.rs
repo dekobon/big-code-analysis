@@ -193,6 +193,14 @@ pub use crate::metric_set::{Metric, MetricSet, ParseMetricError};
 mod suppression;
 pub use crate::suppression::{MetricKind, SuppressionPolicy, SuppressionScope};
 
+/// Canonical metric catalog: offender sub-metric ids with their
+/// long-form sentences and [`metric_catalog::Direction`], plus the
+/// family view rendered by `bca list-metrics`. Single source of truth
+/// shared by the library's offender formatters and the CLI's threshold
+/// engine, which pins its extractor ids to [`metric_catalog::METRICS`]
+/// via a parity test.
+pub mod metric_catalog;
+
 /// Output formatters: CSV, SARIF, Checkstyle, clang/MSVC warning
 /// lines, and AST/metric pretty-dumps used by `bca` and the offender
 /// reporters.

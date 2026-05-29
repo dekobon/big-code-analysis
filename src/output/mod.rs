@@ -10,8 +10,6 @@ pub use dump_ops::*;
 pub mod offenders;
 pub use offenders::{OffenderRecord, Severity, TOOL_ID};
 
-mod rule_descriptions;
-
 pub(crate) mod numfmt;
 
 pub mod checkstyle;

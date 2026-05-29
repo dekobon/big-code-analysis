@@ -14,7 +14,7 @@
 //!
 //! | JSON field | Source |
 //! |------------|--------|
-//! | `description` | `rule_description` long-form + [`OffenderRecord::default_message`]; bare `default_message` for unknown metrics |
+//! | `description` | [`metric_catalog`](crate::metric_catalog) long-form + [`OffenderRecord::default_message`]; bare `default_message` for unknown metrics |
 //! | `check_name` | `"big-code-analysis/<metric>"` (namespaced so multi-tool pipelines do not collide) |
 //! | `fingerprint` | SHA-256 of `path \0 function.unwrap_or("") \0 metric`, truncated to 32 hex chars. Deliberately excludes line / value so re-runs after upstream-line edits still dedup in the MR widget. |
 //! | `severity` | Ratio-band mapping over `value / limit` (inverted for the `mi.*` family — lower is worse there). Falls back to a per-record `Severity` lookup when the ratio is ill-defined. |
@@ -43,9 +43,9 @@ use std::io::{self, Write};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
+use crate::metric_catalog::{Direction, lookup};
 use crate::output::numfmt::MessageMetric;
 use crate::output::offenders::{OffenderRecord, Severity, TOOL_ID, warn_non_utf8_path};
-use crate::output::rule_descriptions::{is_lower_is_worse, rule_description};
 
 /// Number of leading SHA-256 bytes retained in each fingerprint
 /// (matches the issue spec — 128 bits is enough to keep collision
@@ -171,7 +171,9 @@ fn severity_band(metric: &str, value: f64, limit: f64, severity: Severity) -> &'
     if !value.is_finite() || !limit.is_finite() || limit <= 0.0 || value <= 0.0 {
         return fallback();
     }
-    let ratio = if is_lower_is_worse(metric) {
+    let lower_is_worse =
+        lookup(metric).is_some_and(|i| matches!(i.direction, Direction::LowerIsWorse));
+    let ratio = if lower_is_worse {
         limit / value
     } else {
         value / limit
@@ -241,7 +243,7 @@ fn normalize_path(raw: &str) -> Option<String> {
 }
 
 fn build_description(record: &OffenderRecord) -> String {
-    let Some(long_form) = rule_description(&record.metric) else {
+    let Some(long_form) = lookup(&record.metric).map(|i| i.long_description) else {
         return record.default_message();
     };
     // Single-allocation render: write the long-form prefix and the
@@ -401,24 +403,29 @@ mod tests {
 
     #[test]
     fn severity_band_table_mi_family_inverts() {
+        // `mi.original` is the real offender id (the threshold-engine
+        // EXTRACTOR key). `severity_band` only ever sees offender ids,
+        // and inversion is now driven by `metric_catalog`'s per-row
+        // `Direction` rather than a `starts_with("mi.")` prefix — so the
+        // id must match the catalog exactly, not just the `mi.` prefix.
         // limit=100 (MI threshold), lower value = worse violation.
         assert_eq!(
-            severity_band("mi.mi_original", 100.0, 100.0, Severity::Warning),
+            severity_band("mi.original", 100.0, 100.0, Severity::Warning),
             "minor"
         );
         // 100/50 = 2.0 → major.
         assert_eq!(
-            severity_band("mi.mi_original", 50.0, 100.0, Severity::Warning),
+            severity_band("mi.original", 50.0, 100.0, Severity::Warning),
             "major"
         );
         // 100/40 = 2.5 → critical.
         assert_eq!(
-            severity_band("mi.mi_original", 40.0, 100.0, Severity::Warning),
+            severity_band("mi.original", 40.0, 100.0, Severity::Warning),
             "critical"
         );
         // 100/10 = 10.0 → blocker.
         assert_eq!(
-            severity_band("mi.mi_original", 10.0, 100.0, Severity::Warning),
+            severity_band("mi.original", 10.0, 100.0, Severity::Warning),
             "blocker"
         );
     }
