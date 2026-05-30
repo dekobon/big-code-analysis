@@ -175,6 +175,19 @@ pub trait Getter {
         Self::get_op_type(node)
     }
 
+    /// Returns the source-byte slice used to key a Halstead *operand*.
+    /// The default keys on the operand node's full byte range. Kotlin
+    /// overrides this to narrow a short-interpolation name token
+    /// (`$name`) to its leading identifier prefix, because the grammar
+    /// glues trailing inter-segment text onto the name token
+    /// (`"$a $b"` → `"a "`); keying the raw bytes would record a
+    /// distinct `"a "` operand and break parity with the long `${a}`
+    /// form (#454).
+    #[inline]
+    fn get_operand_id<'a>(node: &Node, code: &'a [u8]) -> &'a [u8] {
+        &code[node.start_byte()..node.end_byte()]
+    }
+
     /// Classifies a string-literal `node` as a single Halstead
     /// operand, *unless* it wraps an interpolation child drawn from
     /// `interp_kinds` — in which case the wrapper yields
@@ -872,37 +885,55 @@ impl Getter for CsharpCode {
     get_operator!(Csharp);
 }
 
-/// Returns whether `text` is a complete Kotlin identifier — a Unicode
-/// letter or `_` start followed by letters / digits / `_`. The short
-/// string template `$name` interpolates a *simple identifier*, but the
-/// kotlin-ng grammar does not tokenise at the identifier boundary: it
-/// splits the literal only at each `$`, so the token after `$` is the
-/// bare variable (`name`) only when it ends the segment. `"price: $5"`
-/// (digit start), `"$x is "` (trailing space), and `"$obj."` (trailing
-/// `.`) all yield a token that is not a clean identifier, and are
-/// treated as literal text rather than a recoverable interpolation
-/// (#454). Recovering only the clean-identifier case keeps the operand
-/// store free of partial-literal junk like `"x is "`.
-fn kotlin_is_identifier(text: &str) -> bool {
-    let mut chars = text.chars();
-    let Some(first) = chars.next() else {
-        return false;
+/// Returns the byte length of the leading Kotlin identifier in `text`
+/// — a Unicode letter or `_` start followed by letters / digits / `_`
+/// — or `0` if `text` does not start with an identifier.
+///
+/// The short string template `$name` interpolates a *simple
+/// identifier*, but the kotlin-ng grammar does not tokenise at the
+/// identifier boundary: it splits the literal only at each `$`, so the
+/// token after `$` absorbs any trailing inter-segment text into its own
+/// byte range. For `"$a $b"` the token after the first `$` is `"a "`
+/// (with the trailing space), and for `"$x is "` it is `"x is "`. Taking
+/// the maximal leading-identifier prefix recovers the interpolated
+/// variable (`a`, `x`) and treats the remainder as literal text, so the
+/// short form matches the long `${a}` / `${x}` form (#454). A token with
+/// no identifier prefix (`"price: $5"` → `"5"`, digit start) yields `0`
+/// and stays literal.
+fn kotlin_leading_identifier_len(text: &str) -> usize {
+    let mut chars = text.char_indices();
+    let Some((_, first)) = chars.next() else {
+        return 0;
     };
     if first != '_' && !first.is_alphabetic() {
-        return false;
+        return 0;
     }
-    chars.all(|c| c == '_' || c.is_alphanumeric())
+    // The leading identifier ends at the first byte that is neither `_`
+    // nor alphanumeric; everything from there on is inter-segment
+    // literal text the grammar glued onto this `$name` token.
+    let mut end = first.len_utf8();
+    for (idx, c) in chars {
+        if c == '_' || c.is_alphanumeric() {
+            end = idx + c.len_utf8();
+        } else {
+            break;
+        }
+    }
+    end
 }
 
-/// Returns whether the `string_content` token `node` is the
-/// variable-name part of a Kotlin short string template (`$name`).
-/// The kotlin-ng grammar emits no structured node for this form — the
-/// `$` sigil and the variable name arrive as two adjacent
+/// Returns whether the `string_content` token `node` is (or begins
+/// with) the variable-name part of a Kotlin short string template
+/// (`$name`). The kotlin-ng grammar emits no structured node for this
+/// form — the `$` sigil and the variable name arrive as two adjacent
 /// `string_content` tokens (verified by AST dump, #454). The name token
 /// is recognised by a preceding `string_content` sibling spelled
-/// exactly `$` plus its own text being a complete identifier,
-/// distinguishing `$name` (recoverable) from the partial-literal tokens
-/// the grammar emits for `"price: $5"`, `"$x is "`, or `"$obj."`.
+/// exactly `$` plus its own text starting with an identifier. Because
+/// the grammar glues trailing inter-segment text onto the name token
+/// (`"$a $b"` → `"a "`, `"$x is "` → `"x is "`), a non-empty leading
+/// identifier prefix is sufficient; the prefix is the recovered operand
+/// and the remainder is literal text. Only a token with no identifier
+/// prefix (`"price: $5"` → `"5"`) stays literal.
 fn kotlin_is_short_interp_name(node: &Node, code: &[u8]) -> bool {
     use Kotlin::{StringContent, StringContent2, StringContent3};
 
@@ -924,7 +955,32 @@ fn kotlin_is_short_interp_name(node: &Node, code: &[u8]) -> bool {
     if !STRING_CONTENT_KINDS.contains(&prev.kind_id()) || prev.utf8_text(code) != Some("$") {
         return false;
     }
-    node.utf8_text(code).is_some_and(kotlin_is_identifier)
+    node.utf8_text(code)
+        .is_some_and(|text| kotlin_leading_identifier_len(text) > 0)
+}
+
+/// Returns the byte slice keying the Halstead operand for a Kotlin
+/// short-interpolation name token (`$name`). The grammar glues trailing
+/// inter-segment text onto the name token, so the raw node bytes for
+/// `"$a $b"` are `"a "` — keying that would record a distinct `"a "`
+/// operand and break parity with the long `${a}` form. Narrow the slice
+/// to the leading identifier prefix so the operand is keyed as the bare
+/// identifier (`"a"`), matching the long form (#454).
+fn kotlin_short_interp_operand_bytes<'a>(node: &Node, code: &'a [u8]) -> &'a [u8] {
+    let start = node.start_byte();
+    let end = node.end_byte();
+    let full = &code[start..end];
+    match std::str::from_utf8(full) {
+        Ok(text) => {
+            let prefix_len = kotlin_leading_identifier_len(text);
+            if prefix_len > 0 {
+                &full[..prefix_len]
+            } else {
+                full
+            }
+        }
+        Err(_) => full,
+    }
 }
 
 /// Returns whether a Kotlin string literal `node` carries any
@@ -1064,6 +1120,17 @@ impl Getter for KotlinCode {
                 }
             }
             _ => Self::get_op_type(node),
+        }
+    }
+
+    fn get_operand_id<'a>(node: &Node, code: &'a [u8]) -> &'a [u8] {
+        // Narrow a recovered short-interpolation name token to its
+        // leading identifier prefix so `"$a $b"` keys operand `"a"`,
+        // not `"a "`, matching the long `${a}` form (#454).
+        if kotlin_is_short_interp_name(node, code) {
+            kotlin_short_interp_operand_bytes(node, code)
+        } else {
+            &code[node.start_byte()..node.end_byte()]
         }
     }
 

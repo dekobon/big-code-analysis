@@ -388,7 +388,7 @@ fn compute_halstead<'a, T: Getter + Checker>(
         HalsteadType::Operand => {
             *halstead_maps
                 .operands
-                .entry(get_id(node, code))
+                .entry(T::get_operand_id(node, code))
                 .or_insert(0) += 1;
         }
         _ => {}
@@ -2483,6 +2483,54 @@ end",
             assert_eq!(metric.halstead.operands(), 5.0);
         });
         assert_ops_operands::<KotlinParser>(src, "foo.kt", 4, vec!["f", "x", "println", "1"]);
+    }
+
+    #[test]
+    fn kotlin_short_interpolation_space_separated() {
+        // Issue #454 follow-up: tree-sitter-kotlin-ng splits the literal
+        // only at each `$`, so a `$name` segment's name token absorbs any
+        // trailing inter-segment text into its byte range. For `"$a $b"`
+        // the token after the first `$` is `"a "` (with the trailing
+        // space). Pre-fix `kotlin_is_identifier("a ")` returned false and
+        // the leading variable `a` was silently dropped, yielding
+        // operands `{b, f, s}` (verified: `a` missing) — breaking parity
+        // with the long form `"${a} ${b}"`, which recovers `{a, b, f, s}`.
+        //
+        // The fix takes the maximal leading-identifier prefix of the name
+        // token, recovering `a` and keying it as the bare `"a"` (not
+        // `"a "`). Short and long forms must now agree exactly.
+        //
+        // `fun f() { val s = "$a $b" }\n`
+        //   operands by token text: `f`, `s`, `a` (recovered), `b`
+        //   (recovered). Wrapper suppressed → u_operands = 4, N2 = 4.
+        let short = "fun f() { val s = \"$a $b\" }\n";
+        let long = "fun f() { val s = \"${a} ${b}\" }\n";
+        check_metrics::<KotlinParser>(short, "foo.kt", |metric| {
+            assert_eq!(metric.halstead.u_operands(), 4.0);
+            assert_eq!(metric.halstead.operands(), 4.0);
+        });
+        // Both `a` and `b` present, wrapper absent, n2 == dedupe(operands).
+        assert_ops_operands::<KotlinParser>(short, "foo.kt", 4, vec!["f", "s", "a", "b"]);
+        // Exact parity with the long `${a} ${b}` form.
+        assert_ops_operands::<KotlinParser>(long, "foo.kt", 4, vec!["f", "s", "a", "b"]);
+
+        // Comma after the name (`"$a, $b"`): the first name token is
+        // `"a, "`; its leading identifier prefix is `a`.
+        let comma = "fun f() { val s = \"$a, $b\" }\n";
+        assert_ops_operands::<KotlinParser>(comma, "foo.kt", 4, vec!["f", "s", "a", "b"]);
+
+        // Name preceded by literal text and at end-of-segment (`"x=$a"`):
+        // the `a` token has no trailing text, so recovery is unchanged.
+        let prefixed = "fun f() { val s = \"x=$a\" }\n";
+        assert_ops_operands::<KotlinParser>(prefixed, "foo.kt", 3, vec!["f", "s", "a"]);
+
+        // Mid-prose `"$x is "`: the name token is `"x is "`. The leading
+        // identifier prefix is `x`, matching the long form `"${x} is "`,
+        // which also recovers `x` and treats `" is "` as literal text.
+        let prose_short = "fun f() { val s = \"$x is \" }\n";
+        let prose_long = "fun f() { val s = \"${x} is \" }\n";
+        assert_ops_operands::<KotlinParser>(prose_short, "foo.kt", 3, vec!["f", "s", "x"]);
+        assert_ops_operands::<KotlinParser>(prose_long, "foo.kt", 3, vec!["f", "s", "x"]);
     }
 
     #[test]
