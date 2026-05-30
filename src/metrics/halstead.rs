@@ -186,6 +186,9 @@ impl Stats {
     }
 
     /// Returns the program length
+    ///
+    /// Computed as `N = N1 + N2`, the sum of [`Self::operators`] and
+    /// [`Self::operands`].
     #[inline]
     #[must_use]
     pub fn length(&self) -> f64 {
@@ -193,6 +196,10 @@ impl Stats {
     }
 
     /// Returns the calculated estimated program length
+    ///
+    /// Computed as `N^ = n1 * log2(n1) + n2 * log2(n2)`, where `n1` is
+    /// [`Self::u_operators`] and `n2` is [`Self::u_operands`]. Each term is
+    /// treated as `0` when its unique count is `0`.
     #[inline]
     #[must_use]
     pub fn estimated_program_length(&self) -> f64 {
@@ -204,6 +211,9 @@ impl Stats {
     }
 
     /// Returns the purity ratio
+    ///
+    /// Computed as `PR = N^ / N`, the ratio of
+    /// [`Self::estimated_program_length`] to [`Self::length`].
     #[inline]
     #[must_use]
     pub fn purity_ratio(&self) -> f64 {
@@ -216,6 +226,9 @@ impl Stats {
     }
 
     /// Returns the program vocabulary
+    ///
+    /// Computed as `n = n1 + n2`, the sum of [`Self::u_operators`] and
+    /// [`Self::u_operands`].
     #[inline]
     #[must_use]
     pub fn vocabulary(&self) -> f64 {
@@ -223,6 +236,10 @@ impl Stats {
     }
 
     /// Returns the program volume.
+    ///
+    /// Computed as `V = N * log2(n)`, where `N` is [`Self::length`] and `n`
+    /// is [`Self::vocabulary`]. Returns `0` when the vocabulary is `<= 1`,
+    /// since `log2` would be non-positive.
     ///
     /// Unit of measurement: bits
     #[inline]
@@ -238,6 +255,10 @@ impl Stats {
     }
 
     /// Returns the estimated difficulty required to program
+    ///
+    /// Computed as `D = (n1 / 2) * (N2 / n2)`, where `n1` is
+    /// [`Self::u_operators`], `N2` is [`Self::operands`], and `n2` is
+    /// [`Self::u_operands`].
     #[inline]
     #[must_use]
     pub fn difficulty(&self) -> f64 {
@@ -250,6 +271,8 @@ impl Stats {
     }
 
     /// Returns the estimated level of difficulty required to program
+    ///
+    /// Computed as `L = 1 / D`, the reciprocal of [`Self::difficulty`].
     #[inline]
     #[must_use]
     pub fn level(&self) -> f64 {
@@ -258,6 +281,9 @@ impl Stats {
     }
 
     /// Returns the estimated effort required to program
+    ///
+    /// Computed as `E = D * V`, the product of [`Self::difficulty`] and
+    /// [`Self::volume`].
     #[inline]
     #[must_use]
     pub fn effort(&self) -> f64 {
@@ -265,6 +291,9 @@ impl Stats {
     }
 
     /// Returns the estimated time required to program.
+    ///
+    /// Computed as `T = E / 18`, where `E` is [`Self::effort`] and `18` is
+    /// the Stroud number (see the divisor rationale below).
     ///
     /// Unit of measurement: seconds
     #[inline]
@@ -288,6 +317,11 @@ impl Stats {
     ///
     /// This metric represents the average amount of work a programmer can do
     /// without introducing an error.
+    ///
+    /// Computed as `B = E^(2/3) / 3000`, where `E` is [`Self::effort`]. This
+    /// is the effort-based variant of Halstead's delivered-bugs estimate
+    /// rather than the more commonly cited volume-based form `B = V / 3000`;
+    /// it matches the formula used by upstream `rust-code-analysis`.
     #[inline]
     #[must_use]
     pub fn bugs(&self) -> f64 {
