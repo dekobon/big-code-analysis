@@ -675,6 +675,26 @@ for historical reference.
 
 ### Fixed
 
+- `Loc` per-function min/max (`sloc_min` / `sloc_max`, `ploc_*`,
+  `lloc_*`, `cloc_*`, `blank_*`) now reflect nested function spaces
+  instead of only top-level spaces
+  ([#437](https://github.com/dekobon/big-code-analysis/issues/437)).
+  The `merge` step folded each child space's *aggregate* value
+  (`other.sloc()`) into the parent min/max rather than the child's own
+  `min`/`max`, and a guarded `compute_minmax` skipped a container's own
+  span once a child had folded — so a file containing classes with
+  methods (or nested functions) reported min/max over the outermost
+  spaces only, dropping the smallest/largest leaf. `merge` now folds
+  `other.X_min`/`other.X_max` and `compute_minmax` folds the space's own
+  value unconditionally, matching every sibling metric (cyclomatic,
+  cognitive, exit, nargs, nom, tokens, abc): containers participate in
+  min/max, and nested leaves propagate to the root. The `blank()`
+  value is additionally clamped at `0.0` — its
+  `sloc - ploc - only_comment_lines` subtraction could go negative and
+  an `as usize` cast at the merge site saturated that to `0`, corrupting
+  `blank_min`; the serialized `blank` can no longer be negative. This
+  changes LOC min/max for every language whose files contain nested
+  spaces.
 - The `Npa` (`class_cda` / `interface_cda` / `total_cda`) and `Npm`
   (`class_coa` / `interface_coa` / `total_coa`) accessibility-ratio
   accessors no longer return `NaN` (serialized as JSON `null`) for an

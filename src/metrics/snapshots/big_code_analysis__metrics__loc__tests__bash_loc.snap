@@ -14,13 +14,13 @@ expression: metric.loc
   "cloc_average": 1.5,
   "blank_average": 0.5,
   "sloc_min": 3.0,
-  "sloc_max": 3.0,
+  "sloc_max": 8.0,
   "cloc_min": 0.0,
-  "cloc_max": 0.0,
+  "cloc_max": 3.0,
   "ploc_min": 3.0,
-  "ploc_max": 3.0,
+  "ploc_max": 4.0,
   "lloc_min": 2.0,
-  "lloc_max": 2.0,
+  "lloc_max": 3.0,
   "blank_min": 0.0,
-  "blank_max": 0.0
+  "blank_max": 1.0
 }

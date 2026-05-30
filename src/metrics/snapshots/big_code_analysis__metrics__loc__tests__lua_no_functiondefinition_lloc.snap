@@ -1,6 +1,5 @@
 ---
 source: src/metrics/loc.rs
-assertion_line: 4871
 expression: metric.loc
 ---
 {
@@ -21,7 +20,7 @@ expression: metric.loc
   "ploc_min": 3.0,
   "ploc_max": 3.0,
   "lloc_min": 1.0,
-  "lloc_max": 1.0,
+  "lloc_max": 2.0,
   "blank_min": 0.0,
   "blank_max": 0.0
 }

@@ -98,16 +98,22 @@ impl Sloc {
     /// Folds `other` into `self`, updating the min/max accumulators.
     #[inline]
     pub fn merge(&mut self, other: &Sloc) {
-        self.sloc_min = self.sloc_min.min(other.sloc() as usize);
-        self.sloc_max = self.sloc_max.max(other.sloc() as usize);
+        // Fold the child's own min/max (not its aggregate `sloc()`), so the
+        // granularity of deeply nested function spaces propagates to the
+        // root. This matches every sibling metric (cyclomatic, cognitive,
+        // exit, nargs, nom, tokens, abc) and fixed issue #437.
+        self.sloc_min = self.sloc_min.min(other.sloc_min);
+        self.sloc_max = self.sloc_max.max(other.sloc_max);
     }
 
     #[inline]
     pub(crate) fn compute_minmax(&mut self) {
-        if self.sloc_min == usize::MAX {
-            self.sloc_min = self.sloc_min.min(self.sloc() as usize);
-            self.sloc_max = self.sloc_max.max(self.sloc() as usize);
-        }
+        // Fold this space's own span unconditionally so containers (Unit,
+        // classes) participate in min/max, matching the sibling metrics'
+        // convention. Each space runs this before being merged upward, so
+        // the guarded form previously here dropped nested leaves (#437).
+        self.sloc_min = self.sloc_min.min(self.sloc() as usize);
+        self.sloc_max = self.sloc_max.max(self.sloc() as usize);
     }
 }
 
@@ -162,16 +168,17 @@ impl Ploc {
             self.lines.insert(*l);
         }
 
-        self.ploc_min = self.ploc_min.min(other.ploc() as usize);
-        self.ploc_max = self.ploc_max.max(other.ploc() as usize);
+        // Fold the child's own min/max so nested spaces propagate (#437).
+        self.ploc_min = self.ploc_min.min(other.ploc_min);
+        self.ploc_max = self.ploc_max.max(other.ploc_max);
     }
 
     #[inline]
     pub(crate) fn compute_minmax(&mut self) {
-        if self.ploc_min == usize::MAX {
-            self.ploc_min = self.ploc_min.min(self.ploc() as usize);
-            self.ploc_max = self.ploc_max.max(self.ploc() as usize);
-        }
+        // Fold this space's own value unconditionally so containers
+        // participate, matching the sibling metrics' convention (#437).
+        self.ploc_min = self.ploc_min.min(self.ploc() as usize);
+        self.ploc_max = self.ploc_max.max(self.ploc() as usize);
     }
 }
 
@@ -229,16 +236,17 @@ impl Cloc {
         self.only_comment_lines += other.only_comment_lines;
         self.code_comment_lines += other.code_comment_lines;
 
-        self.cloc_min = self.cloc_min.min(other.cloc() as usize);
-        self.cloc_max = self.cloc_max.max(other.cloc() as usize);
+        // Fold the child's own min/max so nested spaces propagate (#437).
+        self.cloc_min = self.cloc_min.min(other.cloc_min);
+        self.cloc_max = self.cloc_max.max(other.cloc_max);
     }
 
     #[inline]
     pub(crate) fn compute_minmax(&mut self) {
-        if self.cloc_min == usize::MAX {
-            self.cloc_min = self.cloc_min.min(self.cloc() as usize);
-            self.cloc_max = self.cloc_max.max(self.cloc() as usize);
-        }
+        // Fold this space's own value unconditionally so containers
+        // participate, matching the sibling metrics' convention (#437).
+        self.cloc_min = self.cloc_min.min(self.cloc() as usize);
+        self.cloc_max = self.cloc_max.max(self.cloc() as usize);
     }
 }
 
@@ -290,16 +298,17 @@ impl Lloc {
     pub fn merge(&mut self, other: &Lloc) {
         // Merge lloc lines
         self.logical_lines += other.logical_lines;
-        self.lloc_min = self.lloc_min.min(other.lloc() as usize);
-        self.lloc_max = self.lloc_max.max(other.lloc() as usize);
+        // Fold the child's own min/max so nested spaces propagate (#437).
+        self.lloc_min = self.lloc_min.min(other.lloc_min);
+        self.lloc_max = self.lloc_max.max(other.lloc_max);
     }
 
     #[inline]
     pub(crate) fn compute_minmax(&mut self) {
-        if self.lloc_min == usize::MAX {
-            self.lloc_min = self.lloc_min.min(self.lloc() as usize);
-            self.lloc_max = self.lloc_max.max(self.lloc() as usize);
-        }
+        // Fold this space's own value unconditionally so containers
+        // participate, matching the sibling metrics' convention (#437).
+        self.lloc_min = self.lloc_min.min(self.lloc() as usize);
+        self.lloc_max = self.lloc_max.max(self.lloc() as usize);
     }
 }
 
@@ -399,10 +408,9 @@ impl Stats {
         // Count spaces
         self.space_count += other.space_count;
 
-        // min and max
-
-        self.blank_min = self.blank_min.min(other.blank() as usize);
-        self.blank_max = self.blank_max.max(other.blank() as usize);
+        // Fold the child's own min/max so nested spaces propagate (#437).
+        self.blank_min = self.blank_min.min(other.blank_min);
+        self.blank_max = self.blank_max.max(other.blank_max);
     }
 
     /// The `Sloc` metric.
@@ -447,7 +455,12 @@ impl Stats {
     #[inline]
     #[must_use]
     pub fn blank(&self) -> f64 {
-        self.sloc() - self.ploc() - self.cloc.only_comment_lines as f64
+        // `sloc - ploc - only_comment_lines` can go negative when a space's
+        // physical and comment line attribution overlaps the span row count
+        // (e.g. single-line bodies). Clamp at 0 so the serialized value is
+        // never negative and `blank_min` is not corrupted toward 0 by an
+        // `as usize` saturation at the merge site (#437).
+        (self.sloc() - self.ploc() - self.cloc.only_comment_lines as f64).max(0.0)
     }
 
     /// The `Sloc` metric average value.
@@ -573,10 +586,12 @@ impl Stats {
         self.cloc.compute_minmax();
         self.lloc.compute_minmax();
 
-        if self.blank_min == usize::MAX {
-            self.blank_min = self.blank_min.min(self.blank() as usize);
-            self.blank_max = self.blank_max.max(self.blank() as usize);
-        }
+        // Fold this space's own blank value unconditionally so containers
+        // participate, matching the sibling metrics' convention (#437).
+        // `blank()` is clamped at 0, so the `as usize` cast cannot saturate
+        // a negative into a spurious 0 here.
+        self.blank_min = self.blank_min.min(self.blank() as usize);
+        self.blank_max = self.blank_max.max(self.blank() as usize);
     }
 
     pub(crate) fn init_unit_span(&mut self, start: usize, end: usize) {
@@ -3252,29 +3267,30 @@ line two
                 // Spaces: 3
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 3.0,
-                      "ploc": 3.0,
-                      "lloc": 3.0,
-                      "cloc": 3.0,
-                      "blank": 0.0,
-                      "sloc_average": 1.0,
-                      "ploc_average": 1.0,
-                      "lloc_average": 1.0,
-                      "cloc_average": 1.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 1.0,
-                      "sloc_max": 1.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 1.0,
-                      "ploc_max": 1.0,
-                      "lloc_min": 0.0,
-                      "lloc_max": 0.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 3.0,
+                  "ploc": 3.0,
+                  "lloc": 3.0,
+                  "cloc": 3.0,
+                  "blank": 0.0,
+                  "sloc_average": 1.0,
+                  "ploc_average": 1.0,
+                  "lloc_average": 1.0,
+                  "cloc_average": 1.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 1.0,
+                  "sloc_max": 3.0,
+                  "cloc_min": 0.0,
+                  "cloc_max": 3.0,
+                  "ploc_min": 1.0,
+                  "ploc_max": 3.0,
+                  "lloc_min": 0.0,
+                  "lloc_max": 3.0,
+                  "blank_min": 0.0,
+                  "blank_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -3387,29 +3403,30 @@ line two
                 // Spaces: 2
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 5.0,
-                      "ploc": 5.0,
-                      "lloc": 6.0,
-                      "cloc": 0.0,
-                      "blank": 0.0,
-                      "sloc_average": 2.5,
-                      "ploc_average": 2.5,
-                      "lloc_average": 3.0,
-                      "cloc_average": 0.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 5.0,
-                      "sloc_max": 5.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 5.0,
-                      "ploc_max": 5.0,
-                      "lloc_min": 5.0,
-                      "lloc_max": 5.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 5.0,
+                  "ploc": 5.0,
+                  "lloc": 6.0,
+                  "cloc": 0.0,
+                  "blank": 0.0,
+                  "sloc_average": 2.5,
+                  "ploc_average": 2.5,
+                  "lloc_average": 3.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 5.0,
+                  "sloc_max": 5.0,
+                  "cloc_min": 0.0,
+                  "cloc_max": 0.0,
+                  "ploc_min": 5.0,
+                  "ploc_max": 5.0,
+                  "lloc_min": 5.0,
+                  "lloc_max": 6.0,
+                  "blank_min": 0.0,
+                  "blank_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -3428,29 +3445,30 @@ line two
                 // Spaces: 2
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 5.0,
-                      "ploc": 5.0,
-                      "lloc": 6.0,
-                      "cloc": 0.0,
-                      "blank": 0.0,
-                      "sloc_average": 2.5,
-                      "ploc_average": 2.5,
-                      "lloc_average": 3.0,
-                      "cloc_average": 0.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 5.0,
-                      "sloc_max": 5.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 5.0,
-                      "ploc_max": 5.0,
-                      "lloc_min": 5.0,
-                      "lloc_max": 5.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 5.0,
+                  "ploc": 5.0,
+                  "lloc": 6.0,
+                  "cloc": 0.0,
+                  "blank": 0.0,
+                  "sloc_average": 2.5,
+                  "ploc_average": 2.5,
+                  "lloc_average": 3.0,
+                  "cloc_average": 0.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 5.0,
+                  "sloc_max": 5.0,
+                  "cloc_min": 0.0,
+                  "cloc_max": 0.0,
+                  "ploc_min": 5.0,
+                  "ploc_max": 5.0,
+                  "lloc_min": 5.0,
+                  "lloc_max": 6.0,
+                  "blank_min": 0.0,
+                  "blank_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -3469,29 +3487,30 @@ line two
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 6.0,
-                      "ploc": 3.0,
-                      "lloc": 1.0,
-                      "cloc": 1.0,
-                      "blank": 2.0,
-                      "sloc_average": 3.0,
-                      "ploc_average": 1.5,
-                      "lloc_average": 0.5,
-                      "cloc_average": 0.5,
-                      "blank_average": 1.0,
-                      "sloc_min": 5.0,
-                      "sloc_max": 5.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 3.0,
-                      "ploc_max": 3.0,
-                      "lloc_min": 1.0,
-                      "lloc_max": 1.0,
-                      "blank_min": 2.0,
-                      "blank_max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 6.0,
+                  "ploc": 3.0,
+                  "lloc": 1.0,
+                  "cloc": 1.0,
+                  "blank": 2.0,
+                  "sloc_average": 3.0,
+                  "ploc_average": 1.5,
+                  "lloc_average": 0.5,
+                  "cloc_average": 0.5,
+                  "blank_average": 1.0,
+                  "sloc_min": 5.0,
+                  "sloc_max": 6.0,
+                  "cloc_min": 0.0,
+                  "cloc_max": 1.0,
+                  "ploc_min": 3.0,
+                  "ploc_max": 3.0,
+                  "lloc_min": 1.0,
+                  "lloc_max": 1.0,
+                  "blank_min": 2.0,
+                  "blank_max": 2.0
+                }
+                "#
                 );
             },
         );
@@ -3506,29 +3525,30 @@ line two
                 // Spaces: 2
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 1.0,
-                      "ploc": 1.0,
-                      "lloc": 0.0,
-                      "cloc": 1.0,
-                      "blank": 0.0,
-                      "sloc_average": 0.5,
-                      "ploc_average": 0.5,
-                      "lloc_average": 0.0,
-                      "cloc_average": 0.5,
-                      "blank_average": 0.0,
-                      "sloc_min": 1.0,
-                      "sloc_max": 1.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 1.0,
-                      "ploc_max": 1.0,
-                      "lloc_min": 0.0,
-                      "lloc_max": 0.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 1.0,
+                  "ploc": 1.0,
+                  "lloc": 0.0,
+                  "cloc": 1.0,
+                  "blank": 0.0,
+                  "sloc_average": 0.5,
+                  "ploc_average": 0.5,
+                  "lloc_average": 0.0,
+                  "cloc_average": 0.5,
+                  "blank_average": 0.0,
+                  "sloc_min": 1.0,
+                  "sloc_max": 1.0,
+                  "cloc_min": 0.0,
+                  "cloc_max": 1.0,
+                  "ploc_min": 1.0,
+                  "ploc_max": 1.0,
+                  "lloc_min": 0.0,
+                  "lloc_max": 0.0,
+                  "blank_min": 0.0,
+                  "blank_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -4158,29 +4178,30 @@ line two
                 // Spaces: 4
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 9.0,
-                      "ploc": 9.0,
-                      "lloc": 2.0,
-                      "cloc": 2.0,
-                      "blank": 0.0,
-                      "sloc_average": 2.25,
-                      "ploc_average": 2.25,
-                      "lloc_average": 0.5,
-                      "cloc_average": 0.5,
-                      "blank_average": 0.0,
-                      "sloc_min": 9.0,
-                      "sloc_max": 9.0,
-                      "cloc_min": 2.0,
-                      "cloc_max": 2.0,
-                      "ploc_min": 9.0,
-                      "ploc_max": 9.0,
-                      "lloc_min": 2.0,
-                      "lloc_max": 2.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 9.0,
+                  "ploc": 9.0,
+                  "lloc": 2.0,
+                  "cloc": 2.0,
+                  "blank": 0.0,
+                  "sloc_average": 2.25,
+                  "ploc_average": 2.25,
+                  "lloc_average": 0.5,
+                  "cloc_average": 0.5,
+                  "blank_average": 0.0,
+                  "sloc_min": 3.0,
+                  "sloc_max": 9.0,
+                  "cloc_min": 1.0,
+                  "cloc_max": 2.0,
+                  "ploc_min": 3.0,
+                  "ploc_max": 9.0,
+                  "lloc_min": 1.0,
+                  "lloc_max": 2.0,
+                  "blank_min": 0.0,
+                  "blank_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -4338,29 +4359,30 @@ line two
                 // Spaces: 3
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 12.0,
-                      "ploc": 7.0,
-                      "lloc": 2.0,
-                      "cloc": 6.0,
-                      "blank": 1.0,
-                      "sloc_average": 4.0,
-                      "ploc_average": 2.3333333333333335,
-                      "lloc_average": 0.6666666666666666,
-                      "cloc_average": 2.0,
-                      "blank_average": 0.3333333333333333,
-                      "sloc_min": 6.0,
-                      "sloc_max": 6.0,
-                      "cloc_min": 2.0,
-                      "cloc_max": 2.0,
-                      "ploc_min": 6.0,
-                      "ploc_max": 6.0,
-                      "lloc_min": 2.0,
-                      "lloc_max": 2.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 12.0,
+                  "ploc": 7.0,
+                  "lloc": 2.0,
+                  "cloc": 6.0,
+                  "blank": 1.0,
+                  "sloc_average": 4.0,
+                  "ploc_average": 2.3333333333333335,
+                  "lloc_average": 0.6666666666666666,
+                  "cloc_average": 2.0,
+                  "blank_average": 0.3333333333333333,
+                  "sloc_min": 4.0,
+                  "sloc_max": 12.0,
+                  "cloc_min": 2.0,
+                  "cloc_max": 6.0,
+                  "ploc_min": 4.0,
+                  "ploc_max": 7.0,
+                  "lloc_min": 2.0,
+                  "lloc_max": 2.0,
+                  "blank_min": 0.0,
+                  "blank_max": 1.0
+                }
+                "#
                 );
             },
         );
@@ -4386,29 +4408,30 @@ line two
                 // cloc: 2 comments (line + block).
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 9.0,
-                      "ploc": 6.0,
-                      "lloc": 2.0,
-                      "cloc": 2.0,
-                      "blank": 1.0,
-                      "sloc_average": 4.5,
-                      "ploc_average": 3.0,
-                      "lloc_average": 1.0,
-                      "cloc_average": 1.0,
-                      "blank_average": 0.5,
-                      "sloc_min": 6.0,
-                      "sloc_max": 6.0,
-                      "cloc_min": 1.0,
-                      "cloc_max": 1.0,
-                      "ploc_min": 5.0,
-                      "ploc_max": 5.0,
-                      "lloc_min": 2.0,
-                      "lloc_max": 2.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 9.0,
+                  "ploc": 6.0,
+                  "lloc": 2.0,
+                  "cloc": 2.0,
+                  "blank": 1.0,
+                  "sloc_average": 4.5,
+                  "ploc_average": 3.0,
+                  "lloc_average": 1.0,
+                  "cloc_average": 1.0,
+                  "blank_average": 0.5,
+                  "sloc_min": 6.0,
+                  "sloc_max": 9.0,
+                  "cloc_min": 1.0,
+                  "cloc_max": 2.0,
+                  "ploc_min": 5.0,
+                  "ploc_max": 6.0,
+                  "lloc_min": 2.0,
+                  "lloc_max": 2.0,
+                  "blank_min": 0.0,
+                  "blank_max": 1.0
+                }
+                "#
                 );
             },
         );
@@ -4465,15 +4488,15 @@ line two
                   "cloc_average": 0.0,
                   "blank_average": 1.0,
                   "sloc_min": 5.0,
-                  "sloc_max": 5.0,
+                  "sloc_max": 7.0,
                   "cloc_min": 0.0,
                   "cloc_max": 0.0,
                   "ploc_min": 4.0,
-                  "ploc_max": 4.0,
+                  "ploc_max": 5.0,
                   "lloc_min": 2.0,
                   "lloc_max": 2.0,
                   "blank_min": 1.0,
-                  "blank_max": 1.0
+                  "blank_max": 2.0
                 }
                 "#
                 );
@@ -4511,15 +4534,15 @@ line two
                   "cloc_average": 1.5,
                   "blank_average": 0.5,
                   "sloc_min": 4.0,
-                  "sloc_max": 4.0,
+                  "sloc_max": 8.0,
                   "cloc_min": 1.0,
-                  "cloc_max": 1.0,
+                  "cloc_max": 3.0,
                   "ploc_min": 3.0,
-                  "ploc_max": 3.0,
+                  "ploc_max": 4.0,
                   "lloc_min": 1.0,
                   "lloc_max": 1.0,
                   "blank_min": 0.0,
-                  "blank_max": 0.0
+                  "blank_max": 1.0
                 }
                 "#
                 );
@@ -4556,15 +4579,15 @@ line two
                   "cloc_average": 1.5,
                   "blank_average": 0.5,
                   "sloc_min": 3.0,
-                  "sloc_max": 3.0,
+                  "sloc_max": 7.0,
                   "cloc_min": 1.0,
-                  "cloc_max": 1.0,
+                  "cloc_max": 3.0,
                   "ploc_min": 3.0,
-                  "ploc_max": 3.0,
+                  "ploc_max": 4.0,
                   "lloc_min": 1.0,
                   "lloc_max": 1.0,
                   "blank_min": 0.0,
-                  "blank_max": 0.0
+                  "blank_max": 1.0
                 }
                 "#
                 );
@@ -4605,15 +4628,15 @@ line two
                   "cloc_average": 0.0,
                   "blank_average": 0.5,
                   "sloc_min": 9.0,
-                  "sloc_max": 9.0,
+                  "sloc_max": 11.0,
                   "cloc_min": 0.0,
                   "cloc_max": 0.0,
                   "ploc_min": 9.0,
-                  "ploc_max": 9.0,
+                  "ploc_max": 10.0,
                   "lloc_min": 4.0,
                   "lloc_max": 4.0,
                   "blank_min": 0.0,
-                  "blank_max": 0.0
+                  "blank_max": 1.0
                 }
                 "#
                 );
@@ -4649,15 +4672,15 @@ line two
                   "cloc_average": 0.0,
                   "blank_average": 0.5,
                   "sloc_min": 4.0,
-                  "sloc_max": 4.0,
+                  "sloc_max": 6.0,
                   "cloc_min": 0.0,
                   "cloc_max": 0.0,
                   "ploc_min": 4.0,
-                  "ploc_max": 4.0,
+                  "ploc_max": 5.0,
                   "lloc_min": 2.0,
                   "lloc_max": 2.0,
                   "blank_min": 0.0,
-                  "blank_max": 0.0
+                  "blank_max": 1.0
                 }
                 "#
                 );
@@ -4697,15 +4720,15 @@ line two
                   "cloc_average": 0.0,
                   "blank_average": 0.5,
                   "sloc_min": 7.0,
-                  "sloc_max": 7.0,
+                  "sloc_max": 9.0,
                   "cloc_min": 0.0,
                   "cloc_max": 0.0,
                   "ploc_min": 7.0,
-                  "ploc_max": 7.0,
+                  "ploc_max": 8.0,
                   "lloc_min": 5.0,
                   "lloc_max": 5.0,
                   "blank_min": 0.0,
-                  "blank_max": 0.0
+                  "blank_max": 1.0
                 }
                 "#
                 );
@@ -4745,15 +4768,15 @@ line two
                   "cloc_average": 0.0,
                   "blank_average": 0.5,
                   "sloc_min": 6.0,
-                  "sloc_max": 6.0,
+                  "sloc_max": 8.0,
                   "cloc_min": 0.0,
                   "cloc_max": 0.0,
                   "ploc_min": 6.0,
-                  "ploc_max": 6.0,
+                  "ploc_max": 7.0,
                   "lloc_min": 2.0,
                   "lloc_max": 2.0,
                   "blank_min": 0.0,
-                  "blank_max": 0.0
+                  "blank_max": 1.0
                 }
                 "#
                 );
@@ -4791,15 +4814,15 @@ line two
                   "cloc_average": 0.0,
                   "blank_average": 0.5,
                   "sloc_min": 6.0,
-                  "sloc_max": 6.0,
+                  "sloc_max": 8.0,
                   "cloc_min": 0.0,
                   "cloc_max": 0.0,
                   "ploc_min": 6.0,
-                  "ploc_max": 6.0,
+                  "ploc_max": 7.0,
                   "lloc_min": 1.0,
                   "lloc_max": 1.0,
                   "blank_min": 0.0,
-                  "blank_max": 0.0
+                  "blank_max": 1.0
                 }
                 "#
                 );
@@ -4837,15 +4860,15 @@ line two
                   "cloc_average": 1.0,
                   "blank_average": 0.5,
                   "sloc_min": 4.0,
-                  "sloc_max": 4.0,
+                  "sloc_max": 6.0,
                   "cloc_min": 2.0,
                   "cloc_max": 2.0,
                   "ploc_min": 4.0,
-                  "ploc_max": 4.0,
+                  "ploc_max": 5.0,
                   "lloc_min": 2.0,
                   "lloc_max": 2.0,
                   "blank_min": 0.0,
-                  "blank_max": 0.0
+                  "blank_max": 1.0
                 }
                 "#
                 );
@@ -5712,29 +5735,30 @@ y, z = 2, 3",
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 10.0,
-                      "ploc": 6.0,
-                      "lloc": 4.0,
-                      "cloc": 3.0,
-                      "blank": 1.0,
-                      "sloc_average": 3.3333333333333335,
-                      "ploc_average": 2.0,
-                      "lloc_average": 1.3333333333333333,
-                      "cloc_average": 1.0,
-                      "blank_average": 0.3333333333333333,
-                      "sloc_min": 3.0,
-                      "sloc_max": 5.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 2.0,
-                      "ploc_min": 3.0,
-                      "ploc_max": 3.0,
-                      "lloc_min": 2.0,
-                      "lloc_max": 2.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 10.0,
+                  "ploc": 6.0,
+                  "lloc": 4.0,
+                  "cloc": 3.0,
+                  "blank": 1.0,
+                  "sloc_average": 3.3333333333333335,
+                  "ploc_average": 2.0,
+                  "lloc_average": 1.3333333333333333,
+                  "cloc_average": 1.0,
+                  "blank_average": 0.3333333333333333,
+                  "sloc_min": 3.0,
+                  "sloc_max": 10.0,
+                  "cloc_min": 0.0,
+                  "cloc_max": 3.0,
+                  "ploc_min": 3.0,
+                  "ploc_max": 6.0,
+                  "lloc_min": 2.0,
+                  "lloc_max": 4.0,
+                  "blank_min": 0.0,
+                  "blank_max": 1.0
+                }
+                "#
                 );
             },
         );
@@ -5755,29 +5779,30 @@ y, z = 2, 3",
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 8.0,
-                      "ploc": 4.0,
-                      "lloc": 2.0,
-                      "cloc": 3.0,
-                      "blank": 1.0,
-                      "sloc_average": 2.6666666666666665,
-                      "ploc_average": 1.3333333333333333,
-                      "lloc_average": 0.6666666666666666,
-                      "cloc_average": 1.0,
-                      "blank_average": 0.3333333333333333,
-                      "sloc_min": 1.0,
-                      "sloc_max": 3.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 1.0,
-                      "ploc_max": 3.0,
-                      "lloc_min": 0.0,
-                      "lloc_max": 2.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 8.0,
+                  "ploc": 4.0,
+                  "lloc": 2.0,
+                  "cloc": 3.0,
+                  "blank": 1.0,
+                  "sloc_average": 2.6666666666666665,
+                  "ploc_average": 1.3333333333333333,
+                  "lloc_average": 0.6666666666666666,
+                  "cloc_average": 1.0,
+                  "blank_average": 0.3333333333333333,
+                  "sloc_min": 1.0,
+                  "sloc_max": 8.0,
+                  "cloc_min": 0.0,
+                  "cloc_max": 3.0,
+                  "ploc_min": 1.0,
+                  "ploc_max": 4.0,
+                  "lloc_min": 0.0,
+                  "lloc_max": 2.0,
+                  "blank_min": 0.0,
+                  "blank_max": 1.0
+                }
+                "#
                 );
             },
         );
@@ -6183,30 +6208,30 @@ y, z = 2, 3",
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 8.0,
-                      "ploc": 7.0,
-                      "lloc": 4.0,
-                      "cloc": 1.0,
-                      "blank": 0.0,
-                      "sloc_average": 4.0,
-                      "ploc_average": 3.5,
-                      "lloc_average": 2.0,
-                      "cloc_average": 0.5,
-                      "blank_average": 0.0,
-                      "sloc_min": 7.0,
-                      "sloc_max": 7.0,
-                      "cloc_min": 0.0,
-                      "cloc_max": 0.0,
-                      "ploc_min": 7.0,
-                      "ploc_max": 7.0,
-                      "lloc_min": 4.0,
-                      "lloc_max": 4.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }
-                    "###
+                    @r#"
+                {
+                  "sloc": 8.0,
+                  "ploc": 7.0,
+                  "lloc": 4.0,
+                  "cloc": 1.0,
+                  "blank": 0.0,
+                  "sloc_average": 4.0,
+                  "ploc_average": 3.5,
+                  "lloc_average": 2.0,
+                  "cloc_average": 0.5,
+                  "blank_average": 0.0,
+                  "sloc_min": 7.0,
+                  "sloc_max": 8.0,
+                  "cloc_min": 0.0,
+                  "cloc_max": 1.0,
+                  "ploc_min": 7.0,
+                  "ploc_max": 7.0,
+                  "lloc_min": 4.0,
+                  "lloc_max": 4.0,
+                  "blank_min": 0.0,
+                  "blank_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -8526,15 +8551,15 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
                   "lloc_average": 0.75,
                   "cloc_average": 0.0,
                   "blank_average": 0.5,
-                  "sloc_min": 6.0,
+                  "sloc_min": 1.0,
                   "sloc_max": 6.0,
                   "cloc_min": 0.0,
                   "cloc_max": 0.0,
-                  "ploc_min": 4.0,
+                  "ploc_min": 1.0,
                   "ploc_max": 4.0,
-                  "lloc_min": 3.0,
+                  "lloc_min": 1.0,
                   "lloc_max": 3.0,
-                  "blank_min": 2.0,
+                  "blank_min": 0.0,
                   "blank_max": 2.0
                 }
                 "#
@@ -9781,6 +9806,101 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
                 assert_eq!(metric.loc.cloc(), 0.0);
                 assert_eq!(metric.loc.blank(), 0.0);
                 insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    /// Regression for #437: `Loc` min/max must fold each nested function
+    /// space's *own* min/max, not its aggregate value, so the smallest
+    /// (and largest) leaf function propagates to the root. Before the fix,
+    /// merge folded `other.sloc()` and a guarded `compute_minmax` skipped
+    /// containers, so `sloc_min` reflected only top-level spaces.
+    ///
+    /// Layout: Unit (whole file) -> class C -> two methods of *different*
+    /// sizes. The smaller method is the global minimum; the file/class
+    /// spans are larger; `sloc_min` must be the small leaf, not the class
+    /// or unit span. Verified against the pre-fix code by reverting the
+    /// merge/compute_minmax change (it reports the unit span instead).
+    #[test]
+    fn rust_nested_min_max_propagates() {
+        check_metrics::<RustParser>(
+            "struct C;\nimpl C {\n    fn small(&self) {\n        let _ = 1;\n    }\n    fn big(&self) {\n        let _ = 1;\n        let _ = 2;\n        let _ = 3;\n    }\n}\n",
+            "c.rs",
+            |metric| {
+                // Spaces: Unit + impl C + small() + big().
+                // small() spans 3 rows (signature .. closing brace),
+                // big() spans 5 rows. The Unit/impl spans are larger
+                // still. sloc_min must be the smallest leaf (3), not the
+                // top-level span; sloc_max must be the largest space.
+                let loc = &metric.loc;
+                assert!(
+                    loc.sloc_min() <= loc.sloc(),
+                    "sloc_min {} must not exceed unit sloc {}",
+                    loc.sloc_min(),
+                    loc.sloc()
+                );
+                assert_eq!(loc.sloc_min(), 3.0, "smallest leaf method span");
+                assert_eq!(loc.sloc_max(), loc.sloc(), "largest space is the unit");
+                // The smallest leaf has one statement; min must reflect it.
+                assert_eq!(loc.lloc_min(), 1.0);
+            },
+        );
+    }
+
+    /// Java sibling of `rust_nested_min_max_propagates` (#437). The
+    /// `java_class_loc` snapshot above showed the bug directly: a class
+    /// with methods reported `sloc_min == sloc` (the unit span). Here we
+    /// assert the smallest method propagates.
+    #[test]
+    fn java_nested_min_max_propagates() {
+        check_metrics::<JavaParser>(
+            "public class C {\n  void small() {\n    int x = 1;\n  }\n  void big() {\n    int a = 1;\n    int b = 2;\n    int c = 3;\n  }\n}\n",
+            "C.java",
+            |metric| {
+                // Spaces: Unit + class C + small() + big().
+                let loc = &metric.loc;
+                assert!(loc.sloc_min() <= loc.sloc());
+                assert_eq!(loc.sloc_min(), 3.0, "smallest leaf method span");
+                assert_eq!(loc.sloc_max(), loc.sloc());
+                assert_eq!(loc.lloc_min(), 1.0);
+            },
+        );
+    }
+
+    /// Python sibling of `rust_nested_min_max_propagates` (#437). Python
+    /// nesting is class -> method, mirroring the worked example in the
+    /// issue (file -> class C -> method m).
+    #[test]
+    fn python_nested_min_max_propagates() {
+        check_metrics::<PythonParser>(
+            "class C:\n    def small(self):\n        x = 1\n    def big(self):\n        a = 1\n        b = 2\n        c = 3\n",
+            "c.py",
+            |metric| {
+                // Spaces: Unit + class C + small() + big().
+                let loc = &metric.loc;
+                assert!(loc.sloc_min() <= loc.sloc());
+                assert_eq!(loc.sloc_min(), 2.0, "smallest leaf method span");
+                assert_eq!(loc.sloc_max(), loc.sloc());
+                assert_eq!(loc.lloc_min(), 1.0);
+            },
+        );
+    }
+
+    /// `blank()` is `sloc - ploc - only_comment_lines`, an f64 subtraction
+    /// that can go negative for single-line bodies where physical-line and
+    /// span attribution overlap. It must clamp at 0 so the serialized value
+    /// is never negative and `blank_min` is not corrupted by an `as usize`
+    /// saturation at the merge site (#437).
+    #[test]
+    fn rust_blank_never_negative() {
+        check_metrics::<RustParser>(
+            "struct C;\nimpl C {\n    fn small(&self) { let _ = 1; }\n    fn other(&self) { let _ = 2; }\n}\n",
+            "c.rs",
+            |metric| {
+                let loc = &metric.loc;
+                assert!(loc.blank() >= 0.0, "blank() must not be negative");
+                assert!(loc.blank_min() >= 0.0, "blank_min must not be negative");
+                assert!(loc.blank_max() >= 0.0, "blank_max must not be negative");
             },
         );
     }
