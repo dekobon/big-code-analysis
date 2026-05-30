@@ -1,0 +1,16 @@
+# cargo-nextest configuration.
+#
+# The `ci` profile emits a JUnit XML report so GitHub Actions can render
+# a per-test summary table and annotate failing tests on the PR (see the
+# `test` job in .github/workflows/ci.yml). nextest does NOT run doctests;
+# the workflow runs those separately via `cargo test --doc`, mirroring the
+# `test` / `test-doc` split in the Makefile.
+
+[profile.ci]
+# Collect the full failure set in a single run rather than stopping at the
+# first failure, so the JUnit report is complete after one invocation.
+fail-fast = false
+
+[profile.ci.junit]
+# Written to target/nextest/ci/junit.xml.
+path = "junit.xml"
