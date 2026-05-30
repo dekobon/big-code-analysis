@@ -84,7 +84,17 @@ impl Callback for Count {
 
     fn call<T: ParserTrait>(cfg: Self::Cfg, parser: &T) -> Self::Res {
         let (good, total) = count(parser, &cfg.filters);
-        let mut results = cfg.stats.lock().unwrap();
+        // The aggregation is two monotonically-incremented counters, so a
+        // peer worker that panicked mid-update leaves at worst a slightly
+        // low tally — never an unsafe state. Recover the poisoned guard
+        // (issue #445) so one panicked worker does not cascade into a
+        // pool-wide abort the way an `.unwrap()` would, and clear the
+        // poison so later peers and the CLI's final `into_inner()`
+        // (`run_command_count`) also degrade rather than panic.
+        let mut results = cfg.stats.lock().unwrap_or_else(|poisoned| {
+            cfg.stats.clear_poison();
+            poisoned.into_inner()
+        });
         results.good += good;
         results.total += total;
         Ok(())
@@ -108,5 +118,62 @@ impl fmt::Display for Count {
             "Percentage: {:.2}%",
             (self.good as f64) / (self.total as f64) * 100.
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::RustParser;
+    use std::path::PathBuf;
+    use std::thread;
+
+    // Regression test for issue #445: a poisoned `stats` mutex must not
+    // cascade into a pool-wide panic. A worker that panics while holding
+    // the shared guard poisons the lock; every subsequent `Count::call`
+    // used to re-panic on `.lock().unwrap()`. Verified by revert per
+    // `.claude/rules/testing.md`: reverting the recovery makes this test
+    // panic instead of returning `Ok(())`.
+    #[test]
+    fn call_degrades_on_poisoned_stats_mutex() {
+        let stats = Arc::new(Mutex::new(Count::default()));
+
+        // Poison the mutex: panic while holding the guard on a helper
+        // thread, mirroring the dispatch_preproc #425 regression test.
+        let poisoner = stats.clone();
+        let handle = thread::spawn(move || {
+            let _guard = poisoner.lock().expect("fresh mutex is unpoisoned");
+            panic!("intentional panic to poison the stats mutex");
+        });
+        assert!(
+            handle.join().is_err(),
+            "poisoner thread should have panicked"
+        );
+        assert!(stats.is_poisoned(), "test setup failed to poison the mutex");
+
+        let source = b"fn main() { let _ = 1; }".to_vec();
+        let parser = RustParser::new(source, &PathBuf::from("poisoned.rs"), None);
+        let cfg = CountCfg {
+            filters: Arc::from(Vec::<String>::new()),
+            stats: stats.clone(),
+        };
+
+        let result = Count::call(cfg, &parser);
+        assert!(
+            result.is_ok(),
+            "poisoned stats mutex should degrade to Ok(()), not panic"
+        );
+
+        // The recovery clears the poison so later peers and the CLI's
+        // final `into_inner()` see a usable, fully-applied tally.
+        assert!(
+            !stats.is_poisoned(),
+            "recovery should clear the poison flag"
+        );
+        let recovered = stats.lock().expect("poison cleared, lock must succeed");
+        assert!(
+            recovered.total > 0,
+            "the surviving worker's counts must still be applied"
+        );
     }
 }
