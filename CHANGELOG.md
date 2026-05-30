@@ -740,6 +740,21 @@ for historical reference.
 
 ### Fixed
 
+- ABC assignment counting for Kotlin no longer drops standalone
+  assignments that follow a `val` declaration
+  ([#455](https://github.com/dekobon/big-code-analysis/issues/455)).
+  The previous design pushed a `Const` sentinel on `val` and cleared
+  the declaration stack only on an explicit `SEMI` token, but
+  tree-sitter-kotlin emits no `SEMI` (even for explicit semicolons),
+  so the sentinel leaked and suppressed every later `=` in the same
+  function — `val x = …; a = 1; b = 2` reported `A = 0` instead of `2`.
+  The `=` is now classified structurally from its parent node
+  (`property_declaration` / `class_parameter` carrying a `val`
+  keyword) rather than from a persistent stack, so only the immutable
+  initialiser is exempt. Groovy was audited and is not affected: its
+  `def` declarations push only a mutable sentinel and the grammar does
+  not produce a reachable `final` variable-declaration node, so no
+  `Const` sentinel can leak.
 - Halstead now classifies interpolated-string operands correctly for
   Groovy GStrings and the Kotlin short `$name` template form
   ([#454](https://github.com/dekobon/big-code-analysis/issues/454)).

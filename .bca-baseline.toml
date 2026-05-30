@@ -1762,89 +1762,82 @@ path = "src/metrics/abc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 62060484.62676522
+value = 62001115.26000792
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 10479.0
+value = 10519.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 557.0
+value = 560.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nexits"
-value = 51.0
+value = 53.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 794.0
+value = 799.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "wmc"
-value = 189.0
+value = 183.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "CppCode::compute"
-start_line = 2106
+start_line = 2102
 metric = "cyclomatic"
 value = 15.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "GoCode"
-start_line = 1903
+start_line = 1899
 metric = "halstead.effort"
 value = 51348.53958809567
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "GoCode::compute"
-start_line = 1904
-metric = "cyclomatic"
-value = 15.0
-
-[[entry]]
-path = "src/metrics/abc.rs"
-qualified = "KotlinCode::compute"
-start_line = 1033
+start_line = 1900
 metric = "cyclomatic"
 value = 15.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "PerlCode"
-start_line = 3139
+start_line = 3135
 metric = "halstead.effort"
 value = 74315.72438997906
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "PerlCode::compute"
-start_line = 3140
+start_line = 3136
 metric = "halstead.effort"
 value = 67862.8313802447
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "RustCode::compute"
-start_line = 1703
+start_line = 1699
 metric = "cyclomatic"
 value = 16.0
 
@@ -1886,7 +1879,7 @@ value = 14.0
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "perl_inspect_container"
-start_line = 2995
+start_line = 2991
 metric = "halstead.effort"
 value = 53345.08959628053
 

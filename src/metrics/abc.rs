@@ -1029,57 +1029,54 @@ impl Abc for MozjsCode {
 // `Modifiers` children; the Kotlin grammar exposes the relevant
 // operators directly as token nodes inside `binary_expression`,
 // `assignment`, `prefix_expression`, and `postfix_expression`.
+
+// Returns true when this `=` token initialises an *immutable* (`val`)
+// binding, whose initialiser is part of the declaration and therefore not
+// an ABC assignment. The decision is structural: the `=` must be a direct
+// child of a `property_declaration` or `class_parameter`, and that parent
+// must carry a `val` keyword child. A `var`/plain declaration initialiser
+// and any standalone `assignment` return false (they count).
+fn kotlin_eq_initializes_immutable_binding(eq_node: &Node) -> bool {
+    use Kotlin::*;
+
+    let Some(parent) = eq_node.parent() else {
+        return false;
+    };
+    if !matches!(
+        parent.kind_id().into(),
+        PropertyDeclaration | ClassParameter
+    ) {
+        return false;
+    }
+    parent
+        .children()
+        .any(|child| matches!(child.kind_id().into(), Val))
+}
+
 impl Abc for KotlinCode {
     fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
         use Kotlin::*;
 
         match node.kind_id().into() {
-            // Property / local-variable declaration and primary-constructor
-            // parameter property (`class C(val a: Int = 5)`) both push a
-            // sentinel so the `=` operator initialising the binding is NOT
-            // counted as a standalone assignment (Fitzpatrick:
-            // "initialisation is part of the declaration", mirroring Java).
-            // The `Val` keyword arm below promotes the sentinel to `Const`
-            // for immutable bindings.
-            PropertyDeclaration | ClassParameter => {
-                stats.declaration.push(DeclKind::Var);
-            }
-            // `val` introduces an immutable binding; promote the pending
-            // declaration to `Const` so the upcoming `=` is suppressed
-            // (constants are not assignments in ABC).
-            Val => {
-                if let Some(DeclKind::Var) = stats.declaration.last() {
-                    stats.declaration.push(DeclKind::Const);
-                }
-            }
-            // Statement terminator: the grammar emits an explicit `SEMI`
-            // only for explicit semicolons. Property declarations also
-            // terminate without one when the next token starts a new
-            // statement. We clear the sentinel on the explicit `SEMI`
-            // here; the implicit-terminator case is benign because the
-            // EQ arm reads only `last()`, which is the most recently
-            // pushed sentinel — any older entries left on the stack
-            // from preceding implicit terminators do not affect the
-            // assignment count.
-            SEMI => {
-                if let Some(DeclKind::Const | DeclKind::Var) = stats.declaration.last() {
-                    stats.declaration.clear();
-                }
-            }
             // Augmented assignments and pre/post increment-decrement
             // always count, regardless of declaration context.
             PLUSEQ | DASHEQ | STAREQ | SLASHEQ | PERCENTEQ | PLUSPLUS | DASHDASH => {
                 stats.assignments += 1.;
             }
-            // Plain `=` token. Skip when inside a `val` declaration; count
-            // when inside a `var` declaration (initialiser of mutable
-            // binding) or a standalone `Assignment`. The DeclKind stack is
-            // cleared at the property statement boundary above.
-            EQ if stats
-                .declaration
-                .last()
-                .is_none_or(|decl| matches!(decl, DeclKind::Var)) =>
-            {
+            // Plain `=` token. A declaration initialiser (`val`/`var x = …`,
+            // primary-constructor parameter default `class C(val a = 5)`) is
+            // "part of the declaration" (Fitzpatrick), so the `=` is counted
+            // only for *mutable* bindings; an immutable `val` initialiser is
+            // suppressed. A standalone `assignment` always counts.
+            //
+            // This is decided structurally from the `=` token's parent node
+            // rather than a persistent declaration stack. tree-sitter-kotlin
+            // does NOT emit a `SEMI` token even for explicit semicolons, and
+            // newline-terminated statements emit no terminator at all, so a
+            // stack cleared on `SEMI` (the pre-#455 design) never cleared:
+            // the immutable-`val` sentinel leaked and suppressed every later
+            // standalone assignment in the same function (issue #455).
+            EQ if !kotlin_eq_initializes_immutable_binding(node) => {
                 stats.assignments += 1.;
             }
             // Branches: every call expression plus object construction.
@@ -6005,6 +6002,50 @@ function f(int $a, int $b): int {
             "foo.kt",
             |metric| {
                 assert_eq!(metric.abc.assignments_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_val_then_assignments_count() {
+        // Regression for #455: a `val` initialiser must not suppress the
+        // standalone `=` assignments that follow it. tree-sitter-kotlin
+        // emits no `SEMI` token (even for explicit semicolons), so the
+        // pre-#455 `SEMI`-cleared declaration stack never cleared and the
+        // immutable-`val` sentinel leaked, reporting A=0 here.
+        check_metrics::<KotlinParser>(
+            "fun f() {
+                val cfg = 0
+                a = 1
+                b = 2
+            }",
+            "foo.kt",
+            |metric| {
+                // val initialiser suppressed; `a = 1` and `b = 2` count.
+                assert_eq!(metric.abc.assignments_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_var_then_assignments_count() {
+        // Companion to the #455 regression: a `var` declaration leaves a
+        // mutable-binding sentinel that *permits* the `=` — this path
+        // accidentally masked the leak (its `Var` sentinel never suppressed
+        // anything), so it must keep counting both the initialiser and the
+        // following standalone assignments.
+        check_metrics::<KotlinParser>(
+            "fun f() {
+                var cfg = 0
+                a = 1
+                b = 2
+            }",
+            "foo.kt",
+            |metric| {
+                // var initialiser (+1) plus `a = 1` and `b = 2` (+2).
+                assert_eq!(metric.abc.assignments_sum(), 3.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
