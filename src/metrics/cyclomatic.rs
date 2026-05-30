@@ -506,10 +506,12 @@ impl_cyclomatic_c_family!(CppCode, Cpp, ConditionalExpression, [AMPAMP, PIPEPIPE
 // `groovy_enhanced_for_statement_counts_in_cyclomatic` pin the
 // correct keyword-driven counts.
 //
-// Groovy note: Elvis `?:` and Groovy 3 identity / safe-navigation
-// operators do NOT contribute branches here because amaanq's grammar
-// emits ERROR nodes for them; tracked as follow-up issues. The
-// standard short-circuits and `Assert` still count.
+// Groovy note: under the pinned dekobon grammar (root Cargo.toml),
+// Elvis `?:` and the safe-navigation operators `?.` / `??.` all parse
+// cleanly to dedicated nodes with real lexer tokens, so they are
+// counted as branches via the GroovyCode extra-token list below (see
+// the per-call rationale at that invocation). This differs from
+// amaanq's grammar, which emitted ERROR nodes for those constructs.
 macro_rules! impl_cyclomatic_java_like {
     ($code:ty, $lang:ident, [$($extra:ident),* $(,)?]) => {
         impl Cyclomatic for $code {
@@ -536,12 +538,29 @@ macro_rules! impl_cyclomatic_java_like {
 }
 
 impl_cyclomatic_java_like!(JavaCode, Java, []);
-// Groovy adds `Assert` (cyclomatic branch — same as Java) and the
-// Elvis operator token `?:` (`QMARKCOLON`). The dekobon Groovy grammar
-// surfaces Elvis as a distinct `elvis_expression` node and the `?:`
-// token as a real lexer element, so the macro picks it up as a +1
-// cyclomatic branch per occurrence (closes #246 cyclomatic case).
-impl_cyclomatic_java_like!(GroovyCode, Groovy, [Assert, QMARKCOLON]);
+// Groovy extra branches under the pinned dekobon grammar:
+// - `Assert` (cyclomatic branch — same as Java; its `assert` keyword
+//   is a runtime check that branches on its condition).
+// - Elvis operator token `?:` (`QMARKCOLON`): the grammar surfaces
+//   Elvis as a distinct `elvis_expression` node with `?:` as a real
+//   lexer token, so the macro picks it up as +1 per occurrence
+//   (closes #246 cyclomatic case).
+// - Safe-navigation `?.` (`QMARKDOT`) and `??.` (`QMARKQMARKDOT`):
+//   both are short-circuit — they skip the member access/call when the
+//   LHS is null — so each occurrence is one decision point, mirroring
+//   the Kotlin/PHP/JS/C# treatment of `?.` (issues #281, #452). The
+//   grammar emits the `?.` token once per operator inside a
+//   `safe_navigation_expression` and the `??.` token inside a
+//   `safe_chain_dot_expression`, so matching the tokens counts each
+//   textual operator exactly once, including in chains (`a?.b?.c` is
+//   +2). Matching the wrapper nodes instead would miscount nested
+//   chains; the token is the single granularity that fires once per
+//   textual operator, paralleling Kotlin/TS which match `QMARKDOT`.
+impl_cyclomatic_java_like!(
+    GroovyCode,
+    Groovy,
+    [Assert, QMARKCOLON, QMARKDOT, QMARKQMARKDOT]
+);
 
 impl Cyclomatic for CsharpCode {
     fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
@@ -802,7 +821,16 @@ impl Cyclomatic for RubyCode {
             | R::AMPAMP
             | R::PIPEPIPE
             | R::And
-            | R::Or => {
+            | R::Or
+            // Safe-navigation `&.` (`AMPDOT`) is short-circuit — it
+            // skips the method call when the receiver is nil — so each
+            // occurrence is one decision point, mirroring the
+            // Kotlin/PHP/JS/C# treatment of `?.` (issues #281, #452).
+            // The grammar emits the `&.` token once per operator inside
+            // a `call` node, so matching the token counts each textual
+            // `&.` exactly once, including in chains (`a&.b&.c` is +2),
+            // paralleling Kotlin's `QMARKDOT` token approach.
+            | R::AMPDOT => {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }
@@ -3093,6 +3121,37 @@ mod tests {
                 assert_eq!(s.cyclomatic_modified_sum(), 3.0);
             },
         );
+    }
+
+    #[test]
+    fn groovy_safe_navigation_cyclomatic() {
+        // Issue #452: Groovy's safe-navigation `?.` (QMARKDOT) is a
+        // short-circuit decision point per link, mirroring the
+        // Kotlin/PHP/JS/C# treatment of `?.` (#281). The chain
+        // `a?.b?.c` adds +2 to both standard and modified CCN.
+        check_metrics::<GroovyParser>("def read(a){ return a?.b?.c }", "foo.groovy", |metric| {
+            // unit(1) + fn(base 1 + ?. 1 + ?. 1) = sum 4, max 3.
+            let s = &metric.cyclomatic;
+            assert_eq!(s.cyclomatic_sum(), 4.0);
+            assert_eq!(s.cyclomatic_max(), 3.0);
+            assert_eq!(s.cyclomatic_modified_sum(), 4.0);
+            assert_eq!(s.cyclomatic_modified_max(), 3.0);
+        });
+    }
+
+    #[test]
+    fn groovy_safe_chain_dot_cyclomatic() {
+        // Issue #452: Groovy's `??.` (QMARKQMARKDOT, the spread-safe
+        // chain-dot operator) is also a short-circuit decision point,
+        // counted once per occurrence like `?.`.
+        check_metrics::<GroovyParser>("def read(a){ return a??.b }", "foo.groovy", |metric| {
+            // unit(1) + fn(base 1 + ??. 1) = sum 3, max 2.
+            let s = &metric.cyclomatic;
+            assert_eq!(s.cyclomatic_sum(), 3.0);
+            assert_eq!(s.cyclomatic_max(), 2.0);
+            assert_eq!(s.cyclomatic_modified_sum(), 3.0);
+            assert_eq!(s.cyclomatic_modified_max(), 2.0);
+        });
     }
 
     #[test]
@@ -6271,5 +6330,21 @@ f() {
                 insta::assert_json_snapshot!(metric.cyclomatic);
             },
         );
+    }
+
+    #[test]
+    fn ruby_safe_navigation_cyclomatic() {
+        // Issue #452: Ruby's safe-navigation `&.` (AMPDOT) is a
+        // short-circuit decision point per link, mirroring the
+        // Kotlin/PHP/JS/C# treatment of `?.` (#281). The chain
+        // `a&.b&.c` adds +2 to both standard and modified CCN.
+        check_metrics::<RubyParser>("def read(a); a&.b&.c; end\n", "foo.rb", |metric| {
+            // unit(1) + method(base 1 + &. 1 + &. 1) = sum 4, max 3.
+            let s = &metric.cyclomatic;
+            assert_eq!(s.cyclomatic_sum(), 4.0);
+            assert_eq!(s.cyclomatic_max(), 3.0);
+            assert_eq!(s.cyclomatic_modified_sum(), 4.0);
+            assert_eq!(s.cyclomatic_modified_max(), 3.0);
+        });
     }
 }

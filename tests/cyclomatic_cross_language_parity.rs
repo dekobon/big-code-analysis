@@ -900,3 +900,61 @@ fn range_for_loop_parity() {
     let offsets = BTreeMap::from([("java", JAVA_CLASS_OFFSET), ("csharp", JAVA_CLASS_OFFSET)]);
     assert_parity("range_for_loop", &sums, &offsets);
 }
+
+// --- Family 8: safe-navigation operator chains ---------------------------
+//
+// A two-link safe-navigation chain — Kotlin `a?.b?.c`, Groovy `a?.b?.c`,
+// PHP `$a?->b?->c`, Ruby `a&.b&.c`, JS `a?.b?.c`, C# `a?.b?.c` — must each
+// contribute exactly two decision points (one short-circuit per operator),
+// matching the inconsistency #281 / c8b7d93 set out to remove and the
+// Ruby/Groovy fix in #452.
+//
+// Each operator is short-circuit (it skips the member access/call when the
+// LHS is null/nil), so standard CCN counts it like `&&` / `||`. Kotlin /
+// JS / TS / Groovy match the `?.` token (`QMARKDOT`), PHP matches `?->`
+// (`QMARKDASHGT`), Ruby matches `&.` (`AMPDOT`), and C# matches the
+// `ConditionalAccessExpression` node — every granularity fires once per
+// textual operator, so the chain is +2 everywhere.
+//
+// Per-language post-offset expectation: unit(1) + fn(1) + 2 ops = 4.
+
+#[test]
+fn safe_navigation_chain_parity() {
+    let mut sums = BTreeMap::new();
+    sums.insert(
+        "kotlin",
+        ccn_sum(LANG::Kotlin, "fun f(a: A?): C? { return a?.b?.c }\n", "kt"),
+    );
+    sums.insert(
+        "groovy",
+        ccn_sum(LANG::Groovy, "def f(a){ return a?.b?.c }\n", "groovy"),
+    );
+    sums.insert(
+        "php",
+        ccn_sum(
+            LANG::Php,
+            "<?php function f($a){ return $a?->b?->c; }\n",
+            "php",
+        ),
+    );
+    sums.insert(
+        "ruby",
+        ccn_sum(LANG::Ruby, "def f(a); a&.b&.c; end\n", "rb"),
+    );
+    sums.insert(
+        "javascript",
+        ccn_sum(LANG::Javascript, "function f(a){ return a?.b?.c; }\n", "js"),
+    );
+    sums.insert(
+        "csharp",
+        ccn_sum(
+            LANG::Csharp,
+            "public class Parity { static object F(Parity a){ return a?.b?.c; } }\n",
+            "cs",
+        ),
+    );
+    // C# requires the function inside a class, adding one FuncSpace (+1),
+    // identical to the Java structural offset used elsewhere in this file.
+    let offsets = BTreeMap::from([("csharp", JAVA_CLASS_OFFSET)]);
+    assert_parity("safe_navigation_chain", &sums, &offsets);
+}

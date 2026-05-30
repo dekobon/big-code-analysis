@@ -768,6 +768,19 @@ for historical reference.
   `else` of `begin`/`rescue` (mirroring Python `try`/`except`/`else`)
   still add `+1`. Metric-value change for affected Ruby sources;
   derived MI shifts accordingly.
+- Cyclomatic complexity now counts safe-navigation operators for Ruby
+  (`&.`) and Groovy (`?.` / `??.`)
+  ([#452](https://github.com/dekobon/big-code-analysis/issues/452)).
+  These short-circuit operators were already counted as decision
+  points for Kotlin (`?.`), PHP (`?->`), JS/TS (`?.`), and C#
+  (conditional access), but Ruby and Groovy silently scored `+0`,
+  making cyclomatic non-comparable across languages. Each operator
+  now adds `+1` to both standard and modified CCN per link, so
+  `a&.b&.c` / `a?.b?.c` scores `+2` like the Kotlin/PHP analogues.
+  The stale comment blaming amaanq's grammar for Groovy ERROR nodes
+  is corrected to describe the pinned dekobon grammar. Metric-value
+  change for affected Ruby/Groovy sources; derived MI shifts
+  accordingly.
 - `bca count` no longer aborts the whole worker pool when one worker
   panics: `Count::call` now recovers the poisoned shared `stats`
   mutex (via `into_inner()` + `clear_poison()`) instead of cascading
