@@ -43,6 +43,16 @@ WEB_MANIFEST = REPO_ROOT / "big-code-analysis-web" / "Cargo.toml"
 WEB_PAGE = "bca-web.1"
 
 
+def _is_subcommand_man(basename: str) -> bool:
+    """True for ``bca-*.1`` man-page basenames.
+
+    Scopes the reverse-direction guards (#447) to man pages only, so
+    binaries, completions, the top-level ``bca.1`` (no hyphen), and
+    licence files are not swept into the wrong-crate / stale checks.
+    """
+    return basename.startswith("bca-") and basename.endswith(".1")
+
+
 def asset_basenames(manifest: pathlib.Path) -> dict[str, set[str]]:
     """Return ``{"deb": {basenames…}, "rpm": {basenames…}}``.
 
@@ -100,6 +110,65 @@ def main() -> int:
             "owning crate's Cargo.toml. bca-web.1 lives in\n"
             "big-code-analysis-web; all other pages live in\n"
             "big-code-analysis-cli. See #444 for the bug class this guards.\n"
+        )
+        return 1
+
+    # Reverse-direction guards (#447). The forward check above only
+    # proves each page is present in its owner; it cannot see a page
+    # listed in the WRONG crate, nor an asset entry whose source no
+    # longer exists. Both are scoped to bca-*.1 basenames so shared
+    # assets (binaries, completions, the top-level bca.1, licences)
+    # are not swept in.
+    cli_man = {b for b in cli_assets["deb"] | cli_assets["rpm"] if _is_subcommand_man(b)}
+    web_man = {b for b in web_assets["deb"] | web_assets["rpm"] if _is_subcommand_man(b)}
+
+    crossed: list[str] = []
+    # The web page must not appear in the CLI tables, and no CLI
+    # subcommand page may appear in the web tables. (bca.1 is owned by
+    # the CLI crate, so it is excluded from both directions.)
+    for table_label, basenames in (
+        ("big-code-analysis-cli deb", cli_assets["deb"]),
+        ("big-code-analysis-cli rpm", cli_assets["rpm"]),
+    ):
+        if WEB_PAGE in basenames:
+            crossed.append(f"  {WEB_PAGE}: wrongly listed in {table_label} (owned by big-code-analysis-web)")
+    for table_label, basenames in (
+        ("big-code-analysis-web deb", web_assets["deb"]),
+        ("big-code-analysis-web rpm", web_assets["rpm"]),
+    ):
+        for page in sorted(basenames):
+            if _is_subcommand_man(page) and page != WEB_PAGE:
+                crossed.append(f"  {page}: wrongly listed in {table_label} (owned by big-code-analysis-cli)")
+
+    if crossed:
+        sys.stderr.write(
+            "error: man page(s) listed in the wrong crate's asset lists\n"
+        )
+        sys.stderr.write("\n".join(crossed) + "\n")
+        sys.stderr.write(
+            "\nbca-web.1 belongs to big-code-analysis-web; every other\n"
+            "bca-*.1 subcommand page belongs to big-code-analysis-cli.\n"
+            "Move the offending entry to its owning crate's Cargo.toml.\n"
+        )
+        return 1
+
+    stale: list[str] = []
+    for crate, basenames in (
+        ("big-code-analysis-cli", cli_man),
+        ("big-code-analysis-web", web_man),
+    ):
+        for page in sorted(basenames):
+            if not (MAN_DIR / page).is_file():
+                stale.append(f"  {page}: listed in {crate} assets but missing from man/")
+
+    if stale:
+        sys.stderr.write(
+            "error: asset entry points at a man page that does not exist\n"
+        )
+        sys.stderr.write("\n".join(stale) + "\n")
+        sys.stderr.write(
+            "\nEvery bca-*.1 asset source must resolve to a file under\n"
+            "man/. Remove the stale entry or restore the missing page.\n"
         )
         return 1
 
