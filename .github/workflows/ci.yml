@@ -360,6 +360,14 @@ jobs:
       # refactor drops it from the aggregate recipe.
       - name: check-versions (explicit)
         run: python3 check-versions.py
+      # Defensive twin for the man-page packaging gate (#446): a bca
+      # subcommand man page that drops out of the hand-maintained
+      # deb/rpm asset lists ships an artifact without its page (the
+      # #444 bug class). `make lint` already runs this gate; pinning
+      # it here guarantees enforcement even if a future refactor drops
+      # it from the aggregate recipe.
+      - name: check-manpage-assets (explicit)
+        run: python3 check-manpage-assets.py
       # Defensive twin for the grammar-marker-sync gate (#400): bumping
       # the notification-only marker in tree-sitter-{mozjs,mozcpp}/
       # Cargo.toml without re-running the matching generate-*.sh

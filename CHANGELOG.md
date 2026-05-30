@@ -259,6 +259,22 @@ for historical reference.
   `.pre-commit-config.yaml` system hook, and a defensive
   explicit `lint`-job step in `.github/workflows/ci.yml`.
 
+- `check-manpage-assets` static lint
+  (`check-manpage-assets.py`) blocking the failure mode from
+  [#444](https://github.com/dekobon/big-code-analysis/issues/444):
+  a `bca` subcommand man page that drops out of the
+  hand-maintained deb/rpm asset lists ships a package without its
+  page. The gate globs `man/bca-*.1`, partitions `bca-web.1` to
+  `big-code-analysis-web` and every other page to
+  `big-code-analysis-cli`, and asserts each page appears in BOTH
+  the `[package.metadata.deb].assets` and
+  `[package.metadata.generate-rpm].assets` tables of its owning
+  crate's `Cargo.toml`, failing loud with the offending
+  filename(s). Wired into `make lint`, `make pre-commit`, `make
+  ci`, the `.pre-commit-config.yaml` system hook, and a defensive
+  explicit `lint`-job step in `.github/workflows/ci.yml`
+  ([#446](https://github.com/dekobon/big-code-analysis/issues/446)).
+
 - `bca check` actionable failure output (umbrella
   [#356](https://github.com/dekobon/big-code-analysis/issues/356)
   now complete):
