@@ -241,3 +241,33 @@ fn print_effective_config_lists_check_exclude() {
         .stdout(predicate::str::contains("check_exclude"))
         .stdout(predicate::str::contains("tests/**"));
 }
+
+/// An unreadable `--check-exclude-from` file must attribute the error
+/// to the flag the user actually passed, not the walker's
+/// `--exclude-from`. Regression for the shared `read_exclude_patterns_from`
+/// label, which previously hardcoded `--exclude-from` for both surfaces.
+#[test]
+fn check_exclude_from_missing_file_names_the_right_flag() {
+    let dir = two_file_fixture();
+    let missing = dir.path().join("does-not-exist.txt");
+
+    cli()
+        .args([
+            "--paths",
+            dir.path().to_str().unwrap(),
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--check-exclude-from",
+            missing.to_str().unwrap(),
+        ])
+        .assert()
+        // Tool error (bad input), not the exit-2 gate failure.
+        .code(1)
+        .stderr(predicate::str::contains("--check-exclude-from"))
+        // The misleading walker-flag attribution must not appear. The
+        // double-dash anchor distinguishes it from the correct
+        // `--check-exclude-from` substring (which has a single dash
+        // before `exclude-from`).
+        .stderr(predicate::str::contains(" --exclude-from").not());
+}

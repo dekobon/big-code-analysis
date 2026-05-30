@@ -858,10 +858,13 @@ fn mk_globset(elems: Vec<String>) -> Result<GlobSet, String> {
 /// (exit 1) on a file-read or glob-compile error. Shared by the walker's
 /// `--exclude` / `--exclude-from` deny-set and `bca check`'s
 /// `--check-exclude` / `--check-exclude-from` gate-exemption set (#378)
-/// so the two surfaces union and compile globs identically.
-fn build_exclude_globset(mut patterns: Vec<String>, from: Option<&Path>) -> GlobSet {
+/// so the two surfaces union and compile globs identically. `flag` is
+/// the originating option name (`--exclude-from` or
+/// `--check-exclude-from`), used only to attribute a file-read error to
+/// the surface the user actually invoked.
+fn build_exclude_globset(mut patterns: Vec<String>, from: Option<&Path>, flag: &str) -> GlobSet {
     if let Some(src) = from {
-        patterns.extend(read_exclude_patterns_from(src).unwrap_or_else(|e| die(e)));
+        patterns.extend(read_exclude_patterns_from(src, flag).unwrap_or_else(|e| die(e)));
     }
     mk_globset(patterns).unwrap_or_else(|e| die(e))
 }
@@ -932,9 +935,11 @@ fn path_pattern_filter(trimmed: &str) -> Option<PathBuf> {
 /// skipped; surrounding whitespace and any UTF-8 BOM on retained
 /// lines are trimmed. Returns `Err(message)` on I/O failure with
 /// the path / failing line; the CLI caller translates this into a
-/// `die` exit.
-fn read_exclude_patterns_from(src: &Path) -> Result<Vec<String>, String> {
-    read_lines_from(src, "--exclude-from", exclude_pattern_filter)
+/// `die` exit. `flag` names the originating option (`--exclude-from`
+/// vs `--check-exclude-from`) so the error points at the surface the
+/// user actually used.
+fn read_exclude_patterns_from(src: &Path, flag: &str) -> Result<Vec<String>, String> {
+    read_lines_from(src, flag, exclude_pattern_filter)
 }
 
 /// Retention policy for `--exclude-from` lines: keep the trimmed
@@ -1057,7 +1062,11 @@ fn expand_seed_paths(
 
 fn run_walk(globals: GlobalOpts, cfg: Config) -> HashMap<String, Vec<PathBuf>> {
     let include = mk_globset(globals.include).unwrap_or_else(|e| die(e));
-    let exclude = build_exclude_globset(globals.exclude, globals.exclude_from.as_deref());
+    let exclude = build_exclude_globset(
+        globals.exclude,
+        globals.exclude_from.as_deref(),
+        "--exclude-from",
+    );
     let num_jobs = globals.num_jobs.resolve();
     let paths = expand_seed_paths(globals.paths, globals.paths_from, globals.no_ignore);
     let files_data = FilesData {

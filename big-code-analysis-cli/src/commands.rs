@@ -498,6 +498,7 @@ fn apply_check_exclude(violations: Vec<Violation>, args: &CheckArgs) -> Vec<Viol
     let globset = crate::build_exclude_globset(
         args.check_exclude.clone(),
         args.check_exclude_from.as_deref(),
+        "--check-exclude-from",
     );
     let before = violations.len();
     let kept: Vec<Violation> = violations
