@@ -661,6 +661,19 @@ for historical reference.
 
 ### Fixed
 
+- **Security (DoS):** the web server's `application/octet-stream`
+  endpoints (`/comment`, `/metrics`, `/function`) no longer accept an
+  unbounded request body
+  ([#426](https://github.com/dekobon/big-code-analysis/issues/426)).
+  These handlers read the body with the raw `web::Payload` extractor,
+  which ignores the `web::PayloadConfig` size limit the routes carried,
+  so the body was buffered with no cap — an attacker could stream an
+  arbitrarily large body and exhaust server memory before admission
+  control ever ran. `get_code` now enforces the configured
+  `max_body_size` (4 MiB) incrementally, rejecting with `413 Payload
+  Too Large` as soon as the running total would exceed the limit rather
+  than buffering the whole body first. The dead per-route
+  `PayloadConfig` is removed.
 - The `bca-diff-baseline(1)` man page is now shipped in the `.deb` and
   `.rpm` packages
   ([#444](https://github.com/dekobon/big-code-analysis/issues/444)).

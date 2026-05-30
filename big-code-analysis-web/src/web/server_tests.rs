@@ -12,12 +12,20 @@ use serde_json::value::Value;
 
 use super::*;
 
+/// Generous body limit for tests that are not exercising the 413 path.
+const TEST_MAX_BODY_SIZE: usize = 1_024 * 1_024 * 4;
+
 fn test_config() -> web::Data<ParseConfig> {
+    test_config_with_body_limit(TEST_MAX_BODY_SIZE)
+}
+
+fn test_config_with_body_limit(max_body_size: usize) -> web::Data<ParseConfig> {
     web::Data::new(ParseConfig {
         timeout: None,
         semaphore: Arc::new(Semaphore::new(4)),
         orphaned_tasks: Arc::new(AtomicUsize::new(0)),
         max_orphaned_tasks: 64,
+        max_body_size,
     })
 }
 
@@ -27,6 +35,7 @@ fn test_config_with_timeout(d: Duration) -> web::Data<ParseConfig> {
         semaphore: Arc::new(Semaphore::new(4)),
         orphaned_tasks: Arc::new(AtomicUsize::new(0)),
         max_orphaned_tasks: 64,
+        max_body_size: TEST_MAX_BODY_SIZE,
     })
 }
 
@@ -867,6 +876,7 @@ async fn test_run_parse_timeout_increments_orphan_counter_and_decrements_on_comp
         semaphore: Arc::new(Semaphore::new(4)),
         orphaned_tasks: Arc::clone(&orphaned),
         max_orphaned_tasks: 64,
+        max_body_size: TEST_MAX_BODY_SIZE,
     });
 
     let err = run_parse(&config, move || {
@@ -902,6 +912,7 @@ async fn test_run_parse_rejects_with_503_when_orphan_threshold_exceeded() {
         semaphore: Arc::new(Semaphore::new(4)),
         orphaned_tasks: Arc::clone(&orphaned),
         max_orphaned_tasks: 10,
+        max_body_size: TEST_MAX_BODY_SIZE,
     });
 
     // The closure should never run because the threshold check fires first.
@@ -934,6 +945,7 @@ async fn test_run_parse_rechecks_orphan_cap_after_semaphore_admission() {
         semaphore: Arc::new(Semaphore::new(1)),
         orphaned_tasks: Arc::clone(&orphaned),
         max_orphaned_tasks: 10,
+        max_body_size: TEST_MAX_BODY_SIZE,
     });
 
     // Hold the single semaphore permit so the second request must queue.
@@ -1034,4 +1046,91 @@ async fn test_web_json_payload_too_large() {
 
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+// The octet-stream handlers read the body with the raw `web::Payload`
+// extractor, which ignores `web::PayloadConfig`. Before this fix the
+// previously-attached `PayloadConfig` was dead config and the body was
+// accumulated with no size limit (issue #426: unbounded-body OOM DoS).
+// `get_code` now enforces `ParseConfig::max_body_size` incrementally and
+// returns 413 once the running total would exceed it.
+//
+// Small limit so the oversized body is a handful of bytes, not megabytes.
+const TEST_OCTET_LIMIT: usize = 16;
+
+/// Builds an app routing `/{path}` (octet-stream) to `handler` with a tiny
+/// body limit, then asserts an oversized body is rejected with 413.
+macro_rules! assert_plain_payload_too_large {
+    ($name:ident, $path:literal, $handler:ident) => {
+        #[actix_rt::test]
+        async fn $name() {
+            let app = test::init_service(
+                App::new()
+                    .app_data(test_config_with_body_limit(TEST_OCTET_LIMIT))
+                    .service(
+                        web::resource($path)
+                            .guard(guard::Header("content-type", "application/octet-stream"))
+                            .route(web::post().to($handler)),
+                    ),
+            )
+            .await;
+
+            // One byte over the limit must be rejected.
+            let oversized = "a".repeat(TEST_OCTET_LIMIT + 1);
+            let req = test::TestRequest::post()
+                .uri(concat!($path, "?file_name=foo.c"))
+                .insert_header(ContentType::octet_stream())
+                .set_payload(oversized)
+                .to_request();
+
+            let resp = test::call_service(&app, req).await;
+            assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        }
+    };
+}
+
+assert_plain_payload_too_large!(
+    test_web_comment_plain_payload_too_large,
+    "/comment",
+    comment_removal_plain
+);
+assert_plain_payload_too_large!(
+    test_web_metrics_plain_payload_too_large,
+    "/metrics",
+    metrics_plain
+);
+assert_plain_payload_too_large!(
+    test_web_function_plain_payload_too_large,
+    "/function",
+    function_plain
+);
+
+// A body whose length is exactly at the limit must still be accepted (not
+// rejected with 413): the incremental check rejects only when the running
+// total *exceeds* `max_body_size`. `int x;//c` is 9 bytes, within the
+// 16-byte limit, and carries a comment so the handler emits stripped code
+// (200) rather than 204 No Content.
+#[actix_rt::test]
+async fn test_web_comment_plain_at_limit_succeeds() {
+    const BODY: &str = "int x;//c";
+    assert!(BODY.len() <= TEST_OCTET_LIMIT);
+
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config_with_body_limit(TEST_OCTET_LIMIT))
+            .service(
+                web::resource("/comment")
+                    .guard(guard::Header("content-type", "application/octet-stream"))
+                    .route(web::post().to(comment_removal_plain)),
+            ),
+    )
+    .await;
+    let req = test::TestRequest::post()
+        .uri("/comment?file_name=foo.c")
+        .insert_header(ContentType::octet_stream())
+        .set_payload(BODY)
+        .to_request();
+
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
 }

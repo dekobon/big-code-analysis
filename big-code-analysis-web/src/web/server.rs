@@ -44,10 +44,15 @@ struct ParseConfig {
     orphaned_tasks: Arc<AtomicUsize>,
     /// Reject new requests with 503 once orphaned task count reaches this limit.
     max_orphaned_tasks: usize,
+    /// Maximum accepted request-body size in bytes for the streaming
+    /// octet-stream handlers. Enforced incrementally in [`get_code`] so an
+    /// oversized body is rejected with 413 before it is fully buffered.
+    max_body_size: usize,
 }
 
 const PARSE_TIMEOUT: &str = "Parse timed out";
 const PARSE_POOL_SATURATED: &str = "parse pool saturated";
+const PAYLOAD_TOO_LARGE: &str = "Request body exceeds the maximum allowed size";
 
 /// Default parse timeout used by [`run`].
 pub const DEFAULT_PARSE_TIMEOUT_SECS: u64 = 30;
@@ -130,10 +135,22 @@ struct Error {
     error: &'static str,
 }
 
-async fn get_code(mut body: web::Payload) -> Result<Vec<u8>, actix_web::Error> {
+/// Drains a streaming request body into a byte buffer, enforcing `max_size`.
+///
+/// The `web::Payload` extractor ignores `web::PayloadConfig`, so the size
+/// limit must be enforced here. The running total is checked against
+/// `max_size` *before* each chunk is appended, so an oversized body is
+/// rejected with 413 as soon as it would exceed the limit rather than being
+/// fully buffered first. A body whose total length equals `max_size` is
+/// accepted; one byte over is rejected.
+async fn get_code(mut body: web::Payload, max_size: usize) -> Result<Vec<u8>, actix_web::Error> {
     let mut code = BytesMut::new();
     while let Some(item) = body.next().await {
-        code.extend_from_slice(&item?);
+        let chunk = item?;
+        if code.len() + chunk.len() > max_size {
+            return Err(actix_web::error::ErrorPayloadTooLarge(PAYLOAD_TOO_LARGE));
+        }
+        code.extend_from_slice(&chunk);
     }
 
     Ok(code.to_vec())
@@ -196,7 +213,7 @@ async fn comment_removal_plain(
     info: Query<WebCommentInfo>,
     config: web::Data<ParseConfig>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    let buf = get_code(body).await?;
+    let buf = get_code(body, config.max_body_size).await?;
     let path = PathBuf::from(&info.file_name);
     let (language, _) = guess_language(&buf, path);
     if let Some(language) = language {
@@ -256,7 +273,7 @@ async fn metrics_plain(
     info: Query<WebMetricsInfo>,
     config: web::Data<ParseConfig>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    let buf = get_code(body).await?;
+    let buf = get_code(body, config.max_body_size).await?;
     let path = PathBuf::from(&info.file_name);
     let (language, name) = guess_language(&buf, &path);
     if let Some(language) = language {
@@ -310,7 +327,7 @@ async fn function_plain(
     info: Query<WebFunctionInfo>,
     config: web::Data<ParseConfig>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    let buf = get_code(body).await?;
+    let buf = get_code(body, config.max_body_size).await?;
     let path = PathBuf::from(&info.file_name);
     let (language, _) = guess_language(&buf, path);
     if let Some(language) = language {
@@ -401,6 +418,7 @@ pub async fn run_with_timeout(
         semaphore: Arc::new(Semaphore::new(n_threads)),
         orphaned_tasks: Arc::new(AtomicUsize::new(0)),
         max_orphaned_tasks,
+        max_body_size: max_size,
     });
 
     HttpServer::new(move || {
@@ -420,7 +438,6 @@ pub async fn run_with_timeout(
             .service(
                 web::resource("/comment")
                     .guard(guard::Header("content-type", "application/octet-stream"))
-                    .app_data(web::PayloadConfig::default().limit(max_size))
                     .route(web::post().to(comment_removal_plain)),
             )
             .service(
@@ -431,7 +448,6 @@ pub async fn run_with_timeout(
             .service(
                 web::resource("/metrics")
                     .guard(guard::Header("content-type", "application/octet-stream"))
-                    .app_data(web::PayloadConfig::default().limit(max_size))
                     .route(web::post().to(metrics_plain)),
             )
             .service(
@@ -442,7 +458,6 @@ pub async fn run_with_timeout(
             .service(
                 web::resource("/function")
                     .guard(guard::Header("content-type", "application/octet-stream"))
-                    .app_data(web::PayloadConfig::default().limit(max_size))
                     .route(web::post().to(function_plain)),
             )
             .service(web::resource("/ping").route(web::get().to(ping)))
