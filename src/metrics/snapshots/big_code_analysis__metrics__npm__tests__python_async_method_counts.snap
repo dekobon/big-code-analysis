@@ -1,6 +1,5 @@
 ---
 source: src/metrics/npm.rs
-assertion_line: 2198
 expression: metric.npm
 ---
 {
@@ -9,7 +8,7 @@ expression: metric.npm
   "class_methods": 1.0,
   "interface_methods": 0.0,
   "classes_average": 1.0,
-  "interfaces_average": null,
+  "interfaces_average": 0.0,
   "total": 1.0,
   "total_methods": 1.0,
   "average": 1.0

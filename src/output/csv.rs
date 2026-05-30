@@ -291,9 +291,14 @@ mod tests {
     }
 
     #[test]
-    fn empty_metric_values_render_as_empty_cells() {
-        // A bare unit space has NaN for every average/min/max — those
-        // must come out as empty cells, never `NaN`, never `0`.
+    fn non_finite_metric_values_never_leak() {
+        // A bare unit space must never emit `NaN` / `inf` in any cell.
+        // Since #438 guarded the npa/npm accessibility ratios, a default
+        // space no longer produces non-finite averages, so this asserts
+        // the durable end-to-end invariant rather than the (now absent)
+        // empty-cell columns. The non-finite -> empty-string rendering
+        // itself is covered directly by
+        // `numfmt::tests::cell_renders_non_finite_as_empty`.
         let space = empty_space("root", SpaceKind::Unit, 1, 1);
         let out = render(&space, Path::new("a.rs"));
         assert!(
@@ -304,9 +309,6 @@ mod tests {
             !out.contains("inf"),
             "infinity must not leak into CSV output:\n{out}"
         );
-        // Two adjacent commas indicate an empty field — there must be
-        // at least one such pair given the empty space's NaN columns.
-        assert!(out.contains(",,"), "expected empty cells in:\n{out}");
     }
 
     #[test]

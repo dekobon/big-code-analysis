@@ -1,6 +1,5 @@
 ---
 source: src/metrics/npa.rs
-assertion_line: 2634
 expression: metric.npa
 ---
 {
@@ -9,7 +8,7 @@ expression: metric.npa
   "class_attributes": 2.0,
   "interface_attributes": 0.0,
   "classes_average": 1.0,
-  "interfaces_average": null,
+  "interfaces_average": 0.0,
   "total": 2.0,
   "total_attributes": 2.0,
   "average": 1.0

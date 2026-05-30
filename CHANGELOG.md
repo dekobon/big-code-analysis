@@ -675,6 +675,22 @@ for historical reference.
 
 ### Fixed
 
+- The `Npa` (`class_cda` / `interface_cda` / `total_cda`) and `Npm`
+  (`class_coa` / `interface_coa` / `total_coa`) accessibility-ratio
+  accessors no longer return `NaN` (serialized as JSON `null`) for an
+  attribute-less / method-less class or interface
+  ([#438](https://github.com/dekobon/big-code-analysis/issues/438)).
+  The ratios divided the public-member count by the total-member count
+  with no zero-guard, so `class Foo {}` produced `0.0 / 0.0 = NaN`. A
+  shared `accessibility_ratio` helper now returns `0.0` when the divisor
+  is zero — an empty type exposes no public surface, so `0.0` is the
+  defined value, consistent with the codebase's existing empty-divisor
+  convention (`mi.comments_percentage`). The convention is applied
+  uniformly across every class / interface / total CDA and COA accessor.
+  Metric-value drift: previously-`null` `classes_average` /
+  `interfaces_average` / `average` fields now read `0.0` for empty
+  types.
+
 - The preprocessor no longer panics when an `#include` `string_literal`
   is shorter than its two surrounding quotes
   ([#432](https://github.com/dekobon/big-code-analysis/issues/432)).

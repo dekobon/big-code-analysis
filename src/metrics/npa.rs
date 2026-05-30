@@ -158,7 +158,7 @@ impl Stats {
     #[inline]
     #[must_use]
     pub fn class_cda(&self) -> f64 {
-        self.class_npa_sum() / self.class_na_sum as f64
+        accessibility_ratio(self.class_npa_sum(), self.class_na_sum())
     }
 
     /// Returns the interface `Cda` metric value
@@ -178,7 +178,7 @@ impl Stats {
         if self.interface_npa_sum == self.interface_na_sum && self.interface_npa_sum != 0 {
             1.0
         } else {
-            self.interface_npa_sum() / self.interface_na_sum()
+            accessibility_ratio(self.interface_npa_sum(), self.interface_na_sum())
         }
     }
 
@@ -194,7 +194,7 @@ impl Stats {
     #[inline]
     #[must_use]
     pub fn total_cda(&self) -> f64 {
-        self.total_npa() / self.total_na()
+        accessibility_ratio(self.total_npa(), self.total_na())
     }
 
     /// Returns the total number of public attributes in a space.
@@ -226,6 +226,16 @@ impl Stats {
     pub(crate) fn is_disabled(&self) -> bool {
         !self.is_class_space
     }
+}
+
+// Computes an accessibility ratio (public members / total members),
+// guarding the empty case. A class/interface with no attributes or
+// methods has no exposed surface, so the defined value is `0.0` rather
+// than `0.0 / 0.0 = NaN` (which serializes to JSON `null`). Shared by
+// `Npa`'s CDA accessors and `Npm`'s COA accessors (issue #438).
+#[inline]
+pub(crate) fn accessibility_ratio(public: f64, total: f64) -> f64 {
+    if total == 0.0 { 0.0 } else { public / total }
 }
 
 #[doc(hidden)]
@@ -1888,18 +1898,19 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.npa,
-                    @r###"
-                    {
-                      "classes": 8.0,
-                      "interfaces": 0.0,
-                      "class_attributes": 16.0,
-                      "interface_attributes": 0.0,
-                      "classes_average": 0.5,
-                      "interfaces_average": null,
-                      "total": 8.0,
-                      "total_attributes": 16.0,
-                      "average": 0.5
-                    }"###
+                    @r#"
+                {
+                  "classes": 8.0,
+                  "interfaces": 0.0,
+                  "class_attributes": 16.0,
+                  "interface_attributes": 0.0,
+                  "classes_average": 0.5,
+                  "interfaces_average": 0.0,
+                  "total": 8.0,
+                  "total_attributes": 16.0,
+                  "average": 0.5
+                }
+                "#
                 );
             },
         );
@@ -1930,18 +1941,19 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.npa,
-                    @r###"
-                    {
-                      "classes": 20.0,
-                      "interfaces": 0.0,
-                      "class_attributes": 40.0,
-                      "interface_attributes": 0.0,
-                      "classes_average": 0.5,
-                      "interfaces_average": null,
-                      "total": 20.0,
-                      "total_attributes": 40.0,
-                      "average": 0.5
-                    }"###
+                    @r#"
+                {
+                  "classes": 20.0,
+                  "interfaces": 0.0,
+                  "class_attributes": 40.0,
+                  "interface_attributes": 0.0,
+                  "classes_average": 0.5,
+                  "interfaces_average": 0.0,
+                  "total": 20.0,
+                  "total_attributes": 40.0,
+                  "average": 0.5
+                }
+                "#
                 );
             },
         );
@@ -1972,18 +1984,19 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.npa,
-                    @r###"
-                    {
-                      "classes": 20.0,
-                      "interfaces": 0.0,
-                      "class_attributes": 40.0,
-                      "interface_attributes": 0.0,
-                      "classes_average": 0.5,
-                      "interfaces_average": null,
-                      "total": 20.0,
-                      "total_attributes": 40.0,
-                      "average": 0.5
-                    }"###
+                    @r#"
+                {
+                  "classes": 20.0,
+                  "interfaces": 0.0,
+                  "class_attributes": 40.0,
+                  "interface_attributes": 0.0,
+                  "classes_average": 0.5,
+                  "interfaces_average": 0.0,
+                  "total": 20.0,
+                  "total_attributes": 40.0,
+                  "average": 0.5
+                }
+                "#
                 );
             },
         );
@@ -2014,18 +2027,19 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.npa,
-                    @r###"
-                    {
-                      "classes": 20.0,
-                      "interfaces": 0.0,
-                      "class_attributes": 40.0,
-                      "interface_attributes": 0.0,
-                      "classes_average": 0.5,
-                      "interfaces_average": null,
-                      "total": 20.0,
-                      "total_attributes": 40.0,
-                      "average": 0.5
-                    }"###
+                    @r#"
+                {
+                  "classes": 20.0,
+                  "interfaces": 0.0,
+                  "class_attributes": 40.0,
+                  "interface_attributes": 0.0,
+                  "classes_average": 0.5,
+                  "interfaces_average": 0.0,
+                  "total": 20.0,
+                  "total_attributes": 40.0,
+                  "average": 0.5
+                }
+                "#
                 );
             },
         );
@@ -2052,18 +2066,19 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.npa,
-                    @r###"
-                    {
-                      "classes": 12.0,
-                      "interfaces": 0.0,
-                      "class_attributes": 24.0,
-                      "interface_attributes": 0.0,
-                      "classes_average": 0.5,
-                      "interfaces_average": null,
-                      "total": 12.0,
-                      "total_attributes": 24.0,
-                      "average": 0.5
-                    }"###
+                    @r#"
+                {
+                  "classes": 12.0,
+                  "interfaces": 0.0,
+                  "class_attributes": 24.0,
+                  "interface_attributes": 0.0,
+                  "classes_average": 0.5,
+                  "interfaces_average": 0.0,
+                  "total": 12.0,
+                  "total_attributes": 24.0,
+                  "average": 0.5
+                }
+                "#
                 );
             },
         );
@@ -2341,18 +2356,19 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.npa,
-                    @r###"
-                    {
-                      "classes": 9.0,
-                      "interfaces": 0.0,
-                      "class_attributes": 18.0,
-                      "interface_attributes": 0.0,
-                      "classes_average": 0.5,
-                      "interfaces_average": null,
-                      "total": 9.0,
-                      "total_attributes": 18.0,
-                      "average": 0.5
-                    }"###
+                    @r#"
+                {
+                  "classes": 9.0,
+                  "interfaces": 0.0,
+                  "class_attributes": 18.0,
+                  "interface_attributes": 0.0,
+                  "classes_average": 0.5,
+                  "interfaces_average": 0.0,
+                  "total": 9.0,
+                  "total_attributes": 18.0,
+                  "average": 0.5
+                }
+                "#
                 );
             },
         );
@@ -2383,18 +2399,19 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.npa,
-                    @r###"
-                    {
-                      "classes": 10.0,
-                      "interfaces": 0.0,
-                      "class_attributes": 16.0,
-                      "interface_attributes": 0.0,
-                      "classes_average": 0.625,
-                      "interfaces_average": null,
-                      "total": 10.0,
-                      "total_attributes": 16.0,
-                      "average": 0.625
-                    }"###
+                    @r#"
+                {
+                  "classes": 10.0,
+                  "interfaces": 0.0,
+                  "class_attributes": 16.0,
+                  "interface_attributes": 0.0,
+                  "classes_average": 0.625,
+                  "interfaces_average": 0.0,
+                  "total": 10.0,
+                  "total_attributes": 16.0,
+                  "average": 0.625
+                }
+                "#
                 );
             },
         );
@@ -2417,18 +2434,19 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.npa,
-                    @r###"
-                    {
-                      "classes": 3.0,
-                      "interfaces": 0.0,
-                      "class_attributes": 6.0,
-                      "interface_attributes": 0.0,
-                      "classes_average": 0.5,
-                      "interfaces_average": null,
-                      "total": 3.0,
-                      "total_attributes": 6.0,
-                      "average": 0.5
-                    }"###
+                    @r#"
+                {
+                  "classes": 3.0,
+                  "interfaces": 0.0,
+                  "class_attributes": 6.0,
+                  "interface_attributes": 0.0,
+                  "classes_average": 0.5,
+                  "interfaces_average": 0.0,
+                  "total": 3.0,
+                  "total_attributes": 6.0,
+                  "average": 0.5
+                }
+                "#
                 );
             },
         );
@@ -2450,18 +2468,19 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.npa,
-                    @r###"
-                    {
-                      "classes": 3.0,
-                      "interfaces": 0.0,
-                      "class_attributes": 3.0,
-                      "interface_attributes": 0.0,
-                      "classes_average": 1.0,
-                      "interfaces_average": null,
-                      "total": 3.0,
-                      "total_attributes": 3.0,
-                      "average": 1.0
-                    }"###
+                    @r#"
+                {
+                  "classes": 3.0,
+                  "interfaces": 0.0,
+                  "class_attributes": 3.0,
+                  "interface_attributes": 0.0,
+                  "classes_average": 1.0,
+                  "interfaces_average": 0.0,
+                  "total": 3.0,
+                  "total_attributes": 3.0,
+                  "average": 1.0
+                }
+                "#
                 );
             },
         );
@@ -2488,18 +2507,19 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.npa,
-                    @r###"
-                    {
-                      "classes": 3.0,
-                      "interfaces": 0.0,
-                      "class_attributes": 3.0,
-                      "interface_attributes": 0.0,
-                      "classes_average": 1.0,
-                      "interfaces_average": null,
-                      "total": 3.0,
-                      "total_attributes": 3.0,
-                      "average": 1.0
-                    }"###
+                    @r#"
+                {
+                  "classes": 3.0,
+                  "interfaces": 0.0,
+                  "class_attributes": 3.0,
+                  "interface_attributes": 0.0,
+                  "classes_average": 1.0,
+                  "interfaces_average": 0.0,
+                  "total": 3.0,
+                  "total_attributes": 3.0,
+                  "average": 1.0
+                }
+                "#
                 );
             },
         );
@@ -2529,18 +2549,19 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.npa,
-                    @r###"
-                    {
-                      "classes": 3.0,
-                      "interfaces": 0.0,
-                      "class_attributes": 5.0,
-                      "interface_attributes": 0.0,
-                      "classes_average": 0.6,
-                      "interfaces_average": null,
-                      "total": 3.0,
-                      "total_attributes": 5.0,
-                      "average": 0.6
-                    }"###
+                    @r#"
+                {
+                  "classes": 3.0,
+                  "interfaces": 0.0,
+                  "class_attributes": 5.0,
+                  "interface_attributes": 0.0,
+                  "classes_average": 0.6,
+                  "interfaces_average": 0.0,
+                  "total": 3.0,
+                  "total_attributes": 5.0,
+                  "average": 0.6
+                }
+                "#
                 );
             },
         );
@@ -2558,18 +2579,19 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.npa,
-                    @r###"
-                    {
-                      "classes": 0.0,
-                      "interfaces": 3.0,
-                      "class_attributes": 0.0,
-                      "interface_attributes": 3.0,
-                      "classes_average": null,
-                      "interfaces_average": 1.0,
-                      "total": 3.0,
-                      "total_attributes": 3.0,
-                      "average": 1.0
-                    }"###
+                    @r#"
+                {
+                  "classes": 0.0,
+                  "interfaces": 3.0,
+                  "class_attributes": 0.0,
+                  "interface_attributes": 3.0,
+                  "classes_average": 0.0,
+                  "interfaces_average": 1.0,
+                  "total": 3.0,
+                  "total_attributes": 3.0,
+                  "average": 1.0
+                }
+                "#
                 );
             },
         );
@@ -4965,5 +4987,42 @@ mod tests {
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
+    }
+
+    // Regression for #438: an empty class has zero attributes, so the
+    // CDA accessors divide 0.0 / 0.0. Before the zero-guard this yielded
+    // NaN (serialized to JSON `null`). The defined value is 0.0 — an
+    // attribute-less class exposes no public surface. Asserting
+    // `!is_nan()` proves the guard fires; the `== 0.0` checks pin the
+    // chosen convention. Exercised across the explicit-visibility OO
+    // languages (Java, C#, Kotlin, PHP).
+    #[test]
+    fn empty_class_cda_is_zero_not_nan() {
+        let assert_zero = |metric: crate::CodeMetrics| {
+            assert_eq!(metric.npa.class_na_sum(), 0.0);
+            assert!(!metric.npa.class_cda().is_nan());
+            assert!(!metric.npa.total_cda().is_nan());
+            assert_eq!(metric.npa.class_cda(), 0.0);
+            assert_eq!(metric.npa.total_cda(), 0.0);
+        };
+        check_metrics::<JavaParser>("class Foo {}", "foo.java", assert_zero);
+        check_metrics::<CsharpParser>("class Foo {}", "foo.cs", assert_zero);
+        check_metrics::<KotlinParser>("class Foo {}", "foo.kt", assert_zero);
+        check_metrics::<PhpParser>("<?php class Foo {}", "foo.php", assert_zero);
+    }
+
+    // Regression for #438: an empty interface has zero attributes; the
+    // existing all-public guard explicitly excludes the empty case
+    // (`!= 0`), so without the divisor guard `interface_cda` returned
+    // 0.0 / 0.0 = NaN. The defined value is 0.0.
+    #[test]
+    fn empty_interface_cda_is_zero_not_nan() {
+        let assert_zero = |metric: crate::CodeMetrics| {
+            assert_eq!(metric.npa.interface_na_sum(), 0.0);
+            assert!(!metric.npa.interface_cda().is_nan());
+            assert_eq!(metric.npa.interface_cda(), 0.0);
+        };
+        check_metrics::<JavaParser>("interface Foo {}", "foo.java", assert_zero);
+        check_metrics::<CsharpParser>("interface Foo {}", "foo.cs", assert_zero);
     }
 }

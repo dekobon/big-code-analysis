@@ -7,7 +7,7 @@ expression: metric.npa
   "interfaces": 2.0,
   "class_attributes": 0.0,
   "interface_attributes": 2.0,
-  "classes_average": null,
+  "classes_average": 0.0,
   "interfaces_average": 1.0,
   "total": 2.0,
   "total_attributes": 2.0,

@@ -8,7 +8,7 @@ expression: metric.npm
   "class_methods": 4.0,
   "interface_methods": 0.0,
   "classes_average": 1.0,
-  "interfaces_average": null,
+  "interfaces_average": 0.0,
   "total": 4.0,
   "total_methods": 4.0,
   "average": 1.0
