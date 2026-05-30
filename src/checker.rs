@@ -1693,11 +1693,19 @@ impl Checker for GroovyCode {
 
     // `command_chain` is the new grammar's distinct node for Groovy's
     // command-style juxtaposed calls (`foo bar baz`) which the prior
-    // amaanq grammar mis-modelled as `juxt_function_call`.
+    // amaanq grammar mis-modelled as `juxt_function_call`; it is a
+    // genuine method-call form and stays in `is_call`.
+    //
+    // Intentionally excludes `ObjectCreationExpression` (`new Foo()`):
+    // `is_call` follows the Java-family convention (Java's `is_call` =
+    // `MethodInvocation`, C#'s = `InvocationExpression`) of counting
+    // method/function call sites only. Constructor invocations are an
+    // ABC concern — Groovy's ABC `branches` counts `New` separately
+    // (see `groovy_count_token_branch` in metrics/abc.rs).
     fn is_call(node: &Node) -> bool {
         matches!(
             node.kind_id().into(),
-            Groovy::MethodInvocation | Groovy::CommandChain | Groovy::ObjectCreationExpression
+            Groovy::MethodInvocation | Groovy::CommandChain
         )
     }
 
@@ -2079,6 +2087,46 @@ mod tests {
             GroovyParser::new(src.as_bytes().to_vec(), &PathBuf::from("test.groovy"), None);
         let node = find_first_kind(&parser, Groovy::IfStatement as u16).expect("if_statement");
         assert!(!GroovyCode::is_else_if(&node));
+    }
+
+    #[test]
+    fn groovy_is_call_excludes_constructors() {
+        // Regression for #430. `GroovyCode::is_call` previously matched
+        // `ObjectCreationExpression`, so `new Foo()` was counted as a
+        // call in Groovy but not in Java/C# (whose `is_call` is method
+        // invocation only). The Java-family convention is that `is_call`
+        // (the `--ops`/`call` filter) counts method/function call sites
+        // only; constructors are an ABC concern. This test mixes all
+        // three Groovy call-shaped forms and pins the count at 2:
+        //   * `new Foo()`        -> object_creation_expression (NOT a call)
+        //   * `a.bar()`          -> method_invocation           (a call)
+        //   * `println "hi"`     -> command_chain               (a call)
+        // Pre-fix this count was 3 (the constructor was miscounted).
+        let src = "def m() {\n  def a = new Foo()\n  a.bar()\n  println \"hi\"\n}\n";
+        let parser =
+            GroovyParser::new(src.as_bytes().to_vec(), &PathBuf::from("test.groovy"), None);
+        assert_eq!(
+            count(&parser, &["call".to_string()]).0,
+            2,
+            "is_call must count method_invocation + command_chain only, not the constructor"
+        );
+
+        // Direct predicate assertions: the constructor node must be
+        // rejected while both genuine call forms are accepted.
+        let ctor = find_first_kind(&parser, Groovy::ObjectCreationExpression as u16)
+            .expect("object_creation_expression");
+        assert!(
+            !GroovyCode::is_call(&ctor),
+            "object_creation_expression must not be a call"
+        );
+        let method =
+            find_first_kind(&parser, Groovy::MethodInvocation as u16).expect("method_invocation");
+        assert!(
+            GroovyCode::is_call(&method),
+            "method_invocation must be a call"
+        );
+        let chain = find_first_kind(&parser, Groovy::CommandChain as u16).expect("command_chain");
+        assert!(GroovyCode::is_call(&chain), "command_chain must be a call");
     }
 
     fn parse_python(src: &str) -> PythonParser {

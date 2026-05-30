@@ -675,6 +675,21 @@ for historical reference.
 
 ### Fixed
 
+- Groovy `Checker::is_call` no longer counts constructor invocations
+  (`new Foo()`, `object_creation_expression`) as call sites, aligning
+  it with the Java-family convention
+  ([#430](https://github.com/dekobon/big-code-analysis/issues/430)).
+  Java's `is_call` is `MethodInvocation` only and C#'s is
+  `InvocationExpression` only; Groovy diverged by also matching
+  `ObjectCreationExpression`, so the CLI `call` filter / `--ops`
+  feature counted `new Foo()` as a call in Groovy but not in Java or
+  C#. `is_call` now matches `MethodInvocation | CommandChain` only
+  (`command_chain` is Groovy's juxtaposed command-call form and stays
+  a genuine call). ABC counting is unaffected: Groovy's ABC `branches`
+  still counts constructors via its separate `New` arm. This changes
+  only the `call`/`--ops` CLI counts for Groovy sources that construct
+  objects; it does not touch any value in the `Metrics` struct or any
+  snapshot.
 - C# `enum` declarations now report `kind: "class"` instead of
   `kind: "unknown"` in the per-space output, matching the existing
   Java, PHP, and Groovy treatment of enum declarations
