@@ -4863,12 +4863,14 @@ mod tests {
         // Two structs declared at file scope each contribute their
         // fields to the same Unit space (no per-receiver class
         // grouping in Go). `Foo` has 1 field, `Bar` has 2 → total
-        // class_na_sum = 3.
+        // class_na_sum = 3. All three names are lowercase
+        // (unexported), so class_npa_sum = 0 (issue #458).
         check_metrics::<GoParser>(
             "package main\ntype Foo struct { x int }\ntype Bar struct { a int; b string }\n",
             "foo.go",
             |metric| {
                 assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );

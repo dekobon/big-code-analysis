@@ -2413,14 +2413,14 @@ path = "src/metrics/npa.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 27398498.371304087
+value = 27442769.51796014
 
 [[entry]]
 path = "src/metrics/npa.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 5267.0
+value = 5269.0
 
 [[entry]]
 path = "src/metrics/npa.rs"
