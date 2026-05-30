@@ -59,6 +59,23 @@ fn with_dependencies_pulls_in_wmc_inputs() {
     assert!(set.contains(Metric::Nom), "Wmc depends on Nom");
 }
 
+// #428: Cognitive, Exit, and NArgs each compute a per-function
+// average whose divisor is sourced from Nom. Selecting any of
+// them alone must pull Nom into the closure so the divisor
+// reflects the real function count instead of the zero default
+// (which produced inf/NaN averages).
+#[test]
+fn with_dependencies_pulls_in_nom_for_averaging_metrics() {
+    for m in [Metric::Cognitive, Metric::Exit, Metric::NArgs] {
+        let set = MetricSet::from_slice_with_deps(&[m]);
+        assert!(set.contains(m));
+        assert!(
+            set.contains(Metric::Nom),
+            "{m:?} depends on Nom for its per-function average divisor (#428)"
+        );
+    }
+}
+
 // Listing a metric that is already in another entry's closure
 // is a no-op and does not corrupt or duplicate state. Today's
 // dependency graph is flat (Mi/Wmc both depend only on leaf

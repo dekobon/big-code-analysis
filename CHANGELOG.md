@@ -675,6 +675,24 @@ for historical reference.
 
 ### Fixed
 
+- The per-function averages for `Cognitive`, `Exit`, and `NArgs` no
+  longer emit `inf`/`NaN` (serialized as `null`)
+  ([#428](https://github.com/dekobon/big-code-analysis/issues/428)).
+  These three averages divide by a function/closure count sourced from
+  `Nom`, but `Metric::dependencies` did not declare `Nom` as a
+  dependency of any of them — so selecting one through the public
+  `MetricsOptions::with_only` API without also selecting `Nom` left the
+  divisor at the `Stats` default (0), producing `inf`/`NaN`. Two
+  defenses now apply: (1) `Metric::dependencies` declares `Nom` for
+  `Cognitive`, `Exit`, and `NArgs`, so `with_only` pulls in the
+  function counter automatically (matching how `Wmc` already declares
+  `Nom`); and (2) `cognitive_average` and `exit_average` guard their
+  divisor with `.max(1)`, matching the existing `nargs_average`, so a
+  zero divisor degrades to `sum / 1` instead of `inf`/`NaN`. As a
+  consequence, spaces that genuinely contain zero functions now report
+  `average: 0` rather than `null` (consistent with `NArgs`, which has
+  always used the guard). Both changes are additive runtime-behaviour
+  fixes; `Metric::dependencies` keeps its `&'static [Metric]` shape.
 - `Loc` per-function min/max (`sloc_min` / `sloc_max`, `ploc_*`,
   `lloc_*`, `cloc_*`, `blank_*`) now reflect nested function spaces
   instead of only top-level spaces

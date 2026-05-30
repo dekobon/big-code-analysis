@@ -405,11 +405,15 @@ fn compute_halstead_mi_and_wmc<T: ParserTrait>(state: &mut State, selected: Metr
 
 #[inline]
 fn compute_averages(state: &mut State, selected: MetricSet) {
-    // `Nom::functions_sum / closures_sum / total` are only meaningful
-    // if Nom was selected; when it isn't, the divisor is the Stats
-    // default (0) and the per-metric `finalize` calls treat that as
-    // "no functions, no closures, no items". Compute the divisors
-    // once and feed them into each gated finalize.
+    // The per-function averages for Cognitive, Exit, and NArgs divide
+    // by counts sourced from `Nom`. `Metric::dependencies` declares
+    // `Nom` as a dependency of all three, so `with_only` pulls it into
+    // any selection that includes them and these divisors reflect the
+    // real function/closure counts. As defense-in-depth, each `average`
+    // accessor additionally guards its divisor with `.max(1)`, so even
+    // a zero divisor degrades to `sum / 1` rather than `inf`/`NaN`
+    // (#428). Compute the divisors once and feed them into each gated
+    // finalize.
     let nom_functions = state.space.metrics.nom.functions_sum() as usize;
     let nom_closures = state.space.metrics.nom.closures_sum() as usize;
     let nom_total = state.space.metrics.nom.total() as usize;
@@ -2404,6 +2408,76 @@ fn prod(x: i32) -> i32 {
                 pruned.metrics.nom.functions_sum() > 0.0,
                 "Nom must have run (Wmc dependency); got functions_sum=0"
             );
+        }
+
+        // #428: selecting Cognitive/Exit/NArgs alone must auto-pull
+        // Nom so their per-function averages divide by the real
+        // function count instead of the `Stats` default (0), which
+        // would otherwise yield inf/NaN. `SOURCE` is a single
+        // function with one `if` branch and one argument, so the
+        // function count is exactly 1 and each average equals its
+        // own sum.
+        #[test]
+        fn cognitive_only_pulls_nom_and_average_is_finite() {
+            let pruned = analyse(&[Metric::Cognitive]);
+            let sel = pruned.metrics.selected();
+            assert!(sel.contains(Metric::Cognitive));
+            assert!(sel.contains(Metric::Nom), "Cognitive depends on Nom (#428)");
+            // Nom must actually run, supplying the divisor.
+            assert!(
+                pruned.metrics.nom.total() > 0.0,
+                "Nom must have run (Cognitive dependency); got total=0"
+            );
+            let avg = pruned.metrics.cognitive.cognitive_average();
+            assert!(
+                avg.is_finite(),
+                "cognitive_average must be finite when Nom is pulled in; got {avg}"
+            );
+            // The `if`/`else` over one function => cognitive sum == 2
+            // => average == 2 (one increment for the `if`, one for the
+            // `else` branch).
+            assert_eq!(pruned.metrics.cognitive.cognitive_sum(), 2.0);
+            assert_eq!(avg, 2.0);
+        }
+
+        #[test]
+        fn exit_only_pulls_nom_and_average_is_finite() {
+            let pruned = analyse(&[Metric::Exit]);
+            let sel = pruned.metrics.selected();
+            assert!(sel.contains(Metric::Exit));
+            assert!(sel.contains(Metric::Nom), "Exit depends on Nom (#428)");
+            assert!(
+                pruned.metrics.nom.total() > 0.0,
+                "Nom must have run (Exit dependency); got total=0"
+            );
+            let avg = pruned.metrics.nexits.exit_average();
+            assert!(
+                avg.is_finite(),
+                "exit_average must be finite when Nom is pulled in; got {avg}"
+            );
+            // `prod` has no explicit `return`, so exit_sum == 0 and the
+            // guarded divisor (1) keeps the average a finite 0.0.
+            assert_eq!(pruned.metrics.nexits.exit_sum(), 0.0);
+            assert_eq!(avg, 0.0);
+        }
+
+        #[test]
+        fn nargs_only_pulls_nom_and_average_is_finite() {
+            let pruned = analyse(&[Metric::NArgs]);
+            let sel = pruned.metrics.selected();
+            assert!(sel.contains(Metric::NArgs));
+            assert!(sel.contains(Metric::Nom), "NArgs depends on Nom (#428)");
+            assert!(
+                pruned.metrics.nom.total() > 0.0,
+                "Nom must have run (NArgs dependency); got total=0"
+            );
+            let avg = pruned.metrics.nargs.nargs_average();
+            assert!(
+                avg.is_finite(),
+                "nargs_average must be finite when Nom is pulled in; got {avg}"
+            );
+            // One argument over one function => average == 1.
+            assert_eq!(avg, 1.0);
         }
 
         // `MetricsOptions::default()` selects every metric (#257's

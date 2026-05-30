@@ -119,10 +119,12 @@ impl Stats {
     /// This value is computed dividing the `NExit` value
     /// for the total number of functions/closures in a space.
     ///
-    /// If there are no functions in a code, its value is `NAN`.
+    /// The divisor is guarded with `.max(1)` so a space with no
+    /// counted functions (or one where `Nom` was not selected)
+    /// degrades to `sum / 1` instead of producing `inf`/`NaN` (#428).
     #[must_use]
     pub fn exit_average(&self) -> f64 {
-        self.exit_sum() / self.total_space_functions as f64
+        self.exit_sum() / self.total_space_functions.max(1) as f64
     }
     #[inline]
     pub(crate) fn compute_sum(&mut self) {
@@ -385,13 +387,14 @@ mod tests {
             // 0 functions
             insta::assert_json_snapshot!(
                 metric.nexits,
-                @r###"
-                    {
-                      "sum": 0.0,
-                      "average": null,
-                      "min": 0.0,
-                      "max": 0.0
-                    }"###
+                @r#"
+            {
+              "sum": 0.0,
+              "average": 0.0,
+              "min": 0.0,
+              "max": 0.0
+            }
+            "#
             );
         });
     }
@@ -402,13 +405,14 @@ mod tests {
             // 0 functions
             insta::assert_json_snapshot!(
                 metric.nexits,
-                @r###"
-                    {
-                      "sum": 0.0,
-                      "average": null,
-                      "min": 0.0,
-                      "max": 0.0
-                    }"###
+                @r#"
+            {
+              "sum": 0.0,
+              "average": 0.0,
+              "min": 0.0,
+              "max": 0.0
+            }
+            "#
             );
         });
     }
@@ -419,13 +423,14 @@ mod tests {
             // 0 functions
             insta::assert_json_snapshot!(
                 metric.nexits,
-                @r###"
-                    {
-                      "sum": 3.0,
-                      "average": null,
-                      "min": 3.0,
-                      "max": 3.0
-                    }"###
+                @r#"
+            {
+              "sum": 3.0,
+              "average": 3.0,
+              "min": 3.0,
+              "max": 3.0
+            }
+            "#
             );
         });
     }
@@ -547,13 +552,14 @@ mod tests {
             // 0 functions
             insta::assert_json_snapshot!(
                 metric.nexits,
-                @r###"
-                    {
-                      "sum": 0.0,
-                      "average": null,
-                      "min": 0.0,
-                      "max": 0.0
-                    }"###
+                @r#"
+            {
+              "sum": 0.0,
+              "average": 0.0,
+              "min": 0.0,
+              "max": 0.0
+            }
+            "#
             );
         });
     }
@@ -692,13 +698,14 @@ mod tests {
             // 0 functions
             insta::assert_json_snapshot!(
                 metric.nexits,
-                @r###"
-                    {
-                      "sum": 0.0,
-                      "average": null,
-                      "min": 0.0,
-                      "max": 0.0
-                    }"###
+                @r#"
+            {
+              "sum": 0.0,
+              "average": 0.0,
+              "min": 0.0,
+              "max": 0.0
+            }
+            "#
             );
         });
     }
@@ -836,13 +843,14 @@ mod tests {
             // 0 functions
             insta::assert_json_snapshot!(
                 metric.nexits,
-                @r###"
-                    {
-                      "sum": 0.0,
-                      "average": null,
-                      "min": 0.0,
-                      "max": 0.0
-                    }"###
+                @r#"
+            {
+              "sum": 0.0,
+              "average": 0.0,
+              "min": 0.0,
+              "max": 0.0
+            }
+            "#
             );
         });
     }
@@ -1032,13 +1040,14 @@ mod tests {
         check_metrics::<CsharpParser>("int a = 42;", "foo.cs", |metric| {
             insta::assert_json_snapshot!(
                 metric.nexits,
-                @r###"
-                {
-                  "sum": 0.0,
-                  "average": null,
-                  "min": 0.0,
-                  "max": 0.0
-                }"###
+                @r#"
+            {
+              "sum": 0.0,
+              "average": 0.0,
+              "min": 0.0,
+              "max": 0.0
+            }
+            "#
             );
         });
     }
@@ -1154,7 +1163,7 @@ mod tests {
             insta::assert_json_snapshot!(metric.nexits, @r#"
             {
               "sum": 0.0,
-              "average": null,
+              "average": 0.0,
               "min": 0.0,
               "max": 0.0
             }
@@ -1219,13 +1228,14 @@ mod tests {
         check_metrics::<TypescriptParser>("const x: number = 42;", "foo.ts", |metric| {
             insta::assert_json_snapshot!(
                 metric.nexits,
-                @r###"
-                    {
-                      "sum": 0.0,
-                      "average": null,
-                      "min": 0.0,
-                      "max": 0.0
-                    }"###
+                @r#"
+            {
+              "sum": 0.0,
+              "average": 0.0,
+              "min": 0.0,
+              "max": 0.0
+            }
+            "#
             );
         });
     }
@@ -1260,13 +1270,14 @@ mod tests {
         check_metrics::<MozjsParser>("var a = 42;", "foo.js", |metric| {
             insta::assert_json_snapshot!(
                 metric.nexits,
-                @r###"
-                    {
-                      "sum": 0.0,
-                      "average": null,
-                      "min": 0.0,
-                      "max": 0.0
-                    }"###
+                @r#"
+            {
+              "sum": 0.0,
+              "average": 0.0,
+              "min": 0.0,
+              "max": 0.0
+            }
+            "#
             );
         });
     }
@@ -1376,13 +1387,14 @@ end",
         check_metrics::<BashParser>("echo \"no exits\"", "foo.sh", |metric| {
             insta::assert_json_snapshot!(
                 metric.nexits,
-                @r###"
-                {
-                  "sum": 0.0,
-                  "average": null,
-                  "min": 0.0,
-                  "max": 0.0
-                }"###
+                @r#"
+            {
+              "sum": 0.0,
+              "average": 0.0,
+              "min": 0.0,
+              "max": 0.0
+            }
+            "#
             );
         });
     }
@@ -1676,13 +1688,14 @@ end",
         check_metrics::<PhpParser>("<?php $a = 42;", "foo.php", |metric| {
             insta::assert_json_snapshot!(
                 metric.nexits,
-                @r###"
-                {
-                  "sum": 0.0,
-                  "average": null,
-                  "min": 0.0,
-                  "max": 0.0
-                }"###
+                @r#"
+            {
+              "sum": 0.0,
+              "average": 0.0,
+              "min": 0.0,
+              "max": 0.0
+            }
+            "#
             );
         });
     }
@@ -1759,13 +1772,14 @@ end",
                 assert_eq!(metric.nexits.exit_sum(), 0.0);
                 insta::assert_json_snapshot!(
                     metric.nexits,
-                    @r###"
+                    @r#"
                 {
                   "sum": 0.0,
-                  "average": null,
+                  "average": 0.0,
                   "min": 0.0,
                   "max": 0.0
-                }"###
+                }
+                "#
                 );
             },
         );
@@ -1785,7 +1799,7 @@ end",
                     @r#"
                 {
                   "sum": 3.0,
-                  "average": null,
+                  "average": 3.0,
                   "min": 0.0,
                   "max": 3.0
                 }

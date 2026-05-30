@@ -72,10 +72,10 @@ impl Metric {
 
     /// Returns the slice of metrics this metric depends on.
     ///
-    /// Derived metrics (`Mi`, `Wmc`) consume the outputs of other
+    /// Derived and averaged metrics consume the outputs of other
     /// metrics during the finalize step; selecting one without its
     /// dependencies would leave the dependency's `Stats` at default
-    /// (zero) values and silently corrupt the derived value. Callers
+    /// (zero) values and silently corrupt the result. Callers
     /// typically reach this through
     /// [`MetricsOptions::with_only`](crate::MetricsOptions::with_only),
     /// which auto-resolves the closure transparently.
@@ -88,6 +88,12 @@ impl Metric {
             // Wmc aggregates per-method cyclomatic complexity and
             // needs Nom to count those methods.
             Self::Wmc => &[Self::Cyclomatic, Self::Nom],
+            // Cognitive, Exit, and NArgs each expose a per-function
+            // average whose divisor is the function/closure count
+            // sourced from Nom (see `spaces::compute_averages`).
+            // Without Nom the divisor would be the `Stats` default
+            // (zero), producing inf/NaN averages (#428).
+            Self::Cognitive | Self::Exit | Self::NArgs => &[Self::Nom],
             _ => &[],
         }
     }

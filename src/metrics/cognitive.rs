@@ -137,10 +137,12 @@ impl Stats {
     /// This value is computed dividing the `Cognitive Complexity` value
     /// for the total number of functions/closures in a space.
     ///
-    /// If there are no functions in a code, its value is `NAN`.
+    /// The divisor is guarded with `.max(1)` so a space with no
+    /// counted functions (or one where `Nom` was not selected)
+    /// degrades to `sum / 1` instead of producing `inf`/`NaN` (#428).
     #[must_use]
     pub fn cognitive_average(&self) -> f64 {
-        self.cognitive_sum() / self.total_space_functions as f64
+        self.cognitive_sum() / self.total_space_functions.max(1) as f64
     }
     #[inline]
     pub(crate) fn compute_sum(&mut self) {
@@ -1483,13 +1485,14 @@ mod tests {
         check_metrics::<PythonParser>("a = 42", "foo.py", |metric| {
             insta::assert_json_snapshot!(
                 metric.cognitive,
-                @r###"
-                    {
-                      "sum": 0.0,
-                      "average": null,
-                      "min": 0.0,
-                      "max": 0.0
-                    }"###
+                @r#"
+            {
+              "sum": 0.0,
+              "average": 0.0,
+              "min": 0.0,
+              "max": 0.0
+            }
+            "#
             );
         });
     }
@@ -1499,13 +1502,14 @@ mod tests {
         check_metrics::<RustParser>("let a = 42;", "foo.rs", |metric| {
             insta::assert_json_snapshot!(
                 metric.cognitive,
-                @r###"
-                    {
-                      "sum": 0.0,
-                      "average": null,
-                      "min": 0.0,
-                      "max": 0.0
-                    }"###
+                @r#"
+            {
+              "sum": 0.0,
+              "average": 0.0,
+              "min": 0.0,
+              "max": 0.0
+            }
+            "#
             );
         });
     }
@@ -1515,13 +1519,14 @@ mod tests {
         check_metrics::<CppParser>("int a = 42;", "foo.c", |metric| {
             insta::assert_json_snapshot!(
                 metric.cognitive,
-                @r###"
-                    {
-                      "sum": 0.0,
-                      "average": null,
-                      "min": 0.0,
-                      "max": 0.0
-                    }"###
+                @r#"
+            {
+              "sum": 0.0,
+              "average": 0.0,
+              "min": 0.0,
+              "max": 0.0
+            }
+            "#
             );
         });
     }
@@ -1531,13 +1536,14 @@ mod tests {
         check_metrics::<MozjsParser>("var a = 42;", "foo.js", |metric| {
             insta::assert_json_snapshot!(
                 metric.cognitive,
-                @r###"
-                    {
-                      "sum": 0.0,
-                      "average": null,
-                      "min": 0.0,
-                      "max": 0.0
-                    }"###
+                @r#"
+            {
+              "sum": 0.0,
+              "average": 0.0,
+              "min": 0.0,
+              "max": 0.0
+            }
+            "#
             );
         });
     }
@@ -1547,13 +1553,14 @@ mod tests {
         check_metrics::<JavascriptParser>("var a = 42;", "foo.js", |metric| {
             insta::assert_json_snapshot!(
                 metric.cognitive,
-                @r###"
-                    {
-                      "sum": 0.0,
-                      "average": null,
-                      "min": 0.0,
-                      "max": 0.0
-                    }"###
+                @r#"
+            {
+              "sum": 0.0,
+              "average": 0.0,
+              "min": 0.0,
+              "max": 0.0
+            }
+            "#
             );
         });
     }
@@ -4200,14 +4207,14 @@ mod tests {
         check_metrics::<JavaParser>("int a = 42;", "foo.java", |metric| {
             insta::assert_json_snapshot!(
                 metric.cognitive,
-                @r###"
+                @r#"
             {
               "sum": 0.0,
-              "average": null,
+              "average": 0.0,
               "min": 0.0,
               "max": 0.0
             }
-            "###
+            "#
             );
         });
     }
@@ -4597,14 +4604,14 @@ mod tests {
         check_metrics::<CsharpParser>("int a = 42;", "foo.cs", |metric| {
             insta::assert_json_snapshot!(
                 metric.cognitive,
-                @r###"
+                @r#"
             {
               "sum": 0.0,
-              "average": null,
+              "average": 0.0,
               "min": 0.0,
               "max": 0.0
             }
-            "###
+            "#
             );
         });
     }
@@ -4919,7 +4926,7 @@ mod tests {
             insta::assert_json_snapshot!(metric.cognitive, @r#"
             {
               "sum": 0.0,
-              "average": null,
+              "average": 0.0,
               "min": 0.0,
               "max": 0.0
             }
@@ -5505,14 +5512,14 @@ mod tests {
         check_metrics::<GoParser>("package main\nvar x = 42", "foo.go", |metric| {
             insta::assert_json_snapshot!(
                 metric.cognitive,
-                @r###"
-                {
-                  "sum": 0.0,
-                  "average": null,
-                  "min": 0.0,
-                  "max": 0.0
-                }
-                "###
+                @r#"
+            {
+              "sum": 0.0,
+              "average": 0.0,
+              "min": 0.0,
+              "max": 0.0
+            }
+            "#
             );
         });
     }
@@ -5731,13 +5738,14 @@ mod tests {
         check_metrics::<BashParser>("a=42", "foo.sh", |metric| {
             insta::assert_json_snapshot!(
                 metric.cognitive,
-                @r###"
-                {
-                  "sum": 0.0,
-                  "average": null,
-                  "min": 0.0,
-                  "max": 0.0
-                }"###
+                @r#"
+            {
+              "sum": 0.0,
+              "average": 0.0,
+              "min": 0.0,
+              "max": 0.0
+            }
+            "#
             );
         });
     }
@@ -6179,13 +6187,14 @@ mod tests {
         check_metrics::<LuaParser>("local x = 42", "foo.lua", |metric| {
             insta::assert_json_snapshot!(
                 metric.cognitive,
-                @r###"
-                {
-                  "sum": 0.0,
-                  "average": null,
-                  "min": 0.0,
-                  "max": 0.0
-                }"###
+                @r#"
+            {
+              "sum": 0.0,
+              "average": 0.0,
+              "min": 0.0,
+              "max": 0.0
+            }
+            "#
             );
         });
     }
@@ -8209,13 +8218,14 @@ end",
                 assert_eq!(metric.cognitive.cognitive_sum(), 0.0);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
-                    @r###"
+                    @r#"
                 {
                   "sum": 0.0,
-                  "average": null,
+                  "average": 0.0,
                   "min": 0.0,
                   "max": 0.0
-                }"###
+                }
+                "#
                 );
             },
         );

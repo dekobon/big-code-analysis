@@ -4,7 +4,7 @@ expression: metric.cognitive
 ---
 {
   "sum": 1.0,
-  "average": null,
+  "average": 1.0,
   "min": 0.0,
   "max": 1.0
 }
