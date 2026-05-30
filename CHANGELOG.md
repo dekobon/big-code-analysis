@@ -323,6 +323,19 @@ for historical reference.
 
 ### Changed
 
+- Cyclomatic complexity now counts the safe-navigation operator as a
+  decision point for Kotlin (`?.`, `QMARKDOT`) and PHP (`?->`,
+  `QMARKDASHGT`), matching the existing JS/TS/C# treatment of `?.`
+  ([#281](https://github.com/dekobon/big-code-analysis/issues/281)).
+  Each occurrence adds +1 to both standard and modified cyclomatic
+  (a chain `a?.b?.c` adds +2). Matching the operator *token* — rather
+  than the wrapper node — counts each operator exactly once across PHP's
+  `nullsafe_member_access_expression` and
+  `nullsafe_member_call_expression` forms, and across Kotlin's
+  `navigation_expression`. This raises published cyclomatic (and the
+  derived MI) values for Kotlin/PHP code that uses safe navigation, so
+  metrics are now comparable across these languages.
+  Fixes [#436](https://github.com/dekobon/big-code-analysis/issues/436).
 - `bca init` now scaffolds `bca-thresholds.toml` with `loc.sloc = 800`
   (was `300`). File-level SLOC counts inline `#[cfg(test)]` tests,
   comments, and blank lines, so the old limit sat below the median

@@ -622,8 +622,18 @@ impl Cyclomatic for KotlinCode {
             // Kotlin's Elvis operator `?:` (`QMARKCOLON`) is a short-circuit
             // nullish operator analogous to JS `??` and each occurrence is a
             // distinct decision point, mirroring `&&` / `||`.
+            //
+            // Safe-navigation `?.` (`QMARKDOT`) is short-circuit too — it
+            // skips the member access when the LHS is null — so each
+            // occurrence is one decision point, mirroring the JS/C#
+            // treatment of `?.` (issues #281, #436). The grammar emits the
+            // `?.` token (`QMARKDOT`, id 140) once per operator inside a
+            // `navigation_expression`, so matching the token counts each
+            // textual `?.` exactly once, including in chains (`a?.b?.c` is
+            // +2), and parallels TS/TSX which also match the `QMARKDOT`
+            // token rather than the wrapper node.
             IfExpression | ForStatement | WhileStatement | DoWhileStatement | CatchBlock
-            | AMPAMP | PIPEPIPE | QMARKCOLON => {
+            | AMPAMP | PIPEPIPE | QMARKCOLON | QMARKDOT => {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }
@@ -680,7 +690,20 @@ impl Cyclomatic for PhpCode {
             | Or
             | Xor
             | QMARKQMARK
-            | QMARKQMARKEQ => {
+            | QMARKQMARKEQ
+            // Nullsafe operator `?->` (`QMARKDASHGT`) is short-circuit — it
+            // skips the member access/call when the LHS is null — so each
+            // occurrence is one decision point, mirroring the JS/C#
+            // treatment of `?.` (issues #281, #436). Matching the `?->`
+            // token (`QMARKDASHGT`, id 129) counts each operator exactly
+            // once across BOTH `nullsafe_member_access_expression`
+            // (property access) and `nullsafe_member_call_expression`
+            // (method call), and in chains (`$a?->b?->c` is +2). Matching
+            // either node kind instead would miss the other form and could
+            // double-count nested access/call; the token is the single
+            // granularity that fires once per textual `?->`, paralleling
+            // TS/TSX's `QMARKDOT` token approach.
+            | QMARKDASHGT => {
                 stats.cyclomatic += 1.;
                 stats.cyclomatic_modified += 1.;
             }
@@ -4620,6 +4643,27 @@ f() {
     }
 
     #[test]
+    fn kotlin_safe_navigation_436() {
+        // Issue #436: Kotlin's safe-navigation `?.` is a short-circuit
+        // decision point, mirroring the JS/TS/C# treatment of `?.`
+        // (#281). Each `?.` adds +1; the chain `a?.b?.c` adds +2.
+        check_metrics::<KotlinParser>(
+            "fun read(a: A?): String? { // +2 (+1 unit)
+             return a?.b?.c  // +2 (two ?. short-circuits)
+         }",
+            "foo.kt",
+            |metric| {
+                // unit(1) + fn(base 1 + ?. 1 + ?. 1) = sum 4, max 3.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                // modified mirrors standard: each `?.` is both-metric.
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_max(), 3.0);
+            },
+        );
+    }
+
+    #[test]
     fn typescript_for_loop() {
         check_metrics::<TypescriptParser>(
             "function sum(n: number): number { // +2 (+1 unit)
@@ -5126,6 +5170,31 @@ f() {
                       }
                     }"###
                 );
+            },
+        );
+    }
+
+    #[test]
+    fn php_nullsafe_operator_436() {
+        // Issue #436: PHP's nullsafe operator `?->` is a short-circuit
+        // decision point, mirroring the JS/TS/C# treatment of `?.`
+        // (#281). The `QMARKDASHGT` token fires once per operator across
+        // both property access (`$a?->b`) and method call (`$a?->c()`),
+        // and once per link in a chain. Here: one access + one chained
+        // call (`$a?->b?->c()`) = +2 for that statement.
+        check_metrics::<PhpParser>(
+            "<?php
+            function read($a) {
+                return $a?->b?->c();
+            }",
+            "foo.php",
+            |metric| {
+                // unit(1) + fn(base 1 + ?-> 1 + ?-> 1) = sum 4, max 3.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                // modified mirrors standard: each `?->` is both-metric.
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_max(), 3.0);
             },
         );
     }
