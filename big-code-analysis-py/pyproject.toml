@@ -67,6 +67,19 @@ dev = [
 # (`jupyter nbconvert --execute --to notebook --inplace`) is stable.
 examples = ["jupyter>=1.0", "nbconvert>=7.0", "pandas>=2.0", "matplotlib>=3.7"]
 
+[tool.coverage.run]
+branch = true
+relative_files = true
+source = ["big_code_analysis"]
+
+[tool.coverage.paths]
+# `maturin develop` installs the package into the venv's site-packages,
+# so the executed files live there rather than under python/. Map that
+# copy back to the checked-in source tree (first entry wins) so the
+# coverage report — and Codecov — attributes coverage to repo files
+# instead of an unmappable site-packages path.
+source = ["python/big_code_analysis", "*/site-packages/big_code_analysis"]
+
 [tool.maturin]
 # Compiled extension lands at `big_code_analysis._native` so the
 # Python facade in `python/big_code_analysis/__init__.py` can re-export

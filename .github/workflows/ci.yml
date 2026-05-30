@@ -257,6 +257,71 @@ jobs:
           include_passed: false
           fail_on_failure: false
 
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      # Coverage instruments and runs the full test suite, so it needs the
+      # big-code-analysis-output submodule exactly like the test job above.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          submodules: recursive
+      # llvm-tools-preview supplies llvm-profdata/llvm-cov for source-based
+      # coverage instrumentation.
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable tip
+        with:
+          toolchain: stable
+          components: llvm-tools-preview
+      # Coverage builds carry -C instrument-coverage, so their artifacts are
+      # incompatible with the regular build cache; a distinct key keeps the
+      # two from thrashing each other.
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: coverage
+      - uses: taiki-e/install-action@f48d2f8ba2b452934c948b7be1a768079c3632ff # v2.79.6
+        with:
+          tool: cargo-nextest,cargo-llvm-cov
+      # nextest is the same runner the `test` job uses, so instrumenting it
+      # keeps the coverage numbers aligned with what CI actually exercises.
+      # --no-report defers reporting so the same profile data can be emitted
+      # in two shapes below (Codecov upload + human-readable job summary).
+      #
+      # Doctests are intentionally excluded: `cargo llvm-cov --doc` requires
+      # nightly, and pairing nightly with the workflow-wide `-D warnings`
+      # would red-X CI on unrelated new nightly lints. The `test` job still
+      # runs doctests for correctness — only their coverage is omitted.
+      - name: Run tests with coverage instrumentation
+        run: cargo llvm-cov --no-report nextest --all-features --workspace --locked
+      # Codecov's native format preserves region coverage (lcov would drop to
+      # line-only).
+      - name: Generate Codecov report
+        run: cargo llvm-cov report --codecov --output-path codecov.json
+      # Per-file coverage table in the run's Summary tab, so reviewers can
+      # read coverage without leaving GitHub or waiting on the Codecov PR
+      # comment.
+      - name: Write coverage to job summary
+        run: |
+          {
+            echo '### Coverage'
+            echo ''
+            echo '```'
+            cargo llvm-cov report
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      # token authenticates same-repo runs; fork PRs fall back to Codecov's
+      # tokenless upload for public repos (the secret resolves empty there).
+      # fail_ci_if_error stays off so a Codecov outage or a credential-less
+      # fork PR cannot red-X the merge gate — coverage is informational.
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6.0.1
+        with:
+          files: codecov.json
+          flags: rust
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
   msrv:
     name: msrv (1.94)
     runs-on: ubuntu-latest
@@ -659,7 +724,7 @@ jobs:
         run: |
           python -m venv .venv
           .venv/bin/pip install --upgrade pip
-          .venv/bin/pip install "maturin>=1.7,<2.0" "pytest>=8.0"
+          .venv/bin/pip install "maturin>=1.7,<2.0" "pytest>=8.0" "pytest-cov>=5.0"
       - name: Create venv + install deps (Windows)
         if: runner.os == 'Windows'
         working-directory: big-code-analysis-py
@@ -690,7 +755,7 @@ jobs:
         working-directory: big-code-analysis-py
         run: |
           source .venv/bin/activate
-          python -m pytest
+          python -m pytest --cov=big_code_analysis --cov-report=xml --cov-report=term-missing
       - name: pytest (Windows)
         if: runner.os == 'Windows'
         working-directory: big-code-analysis-py
@@ -698,6 +763,22 @@ jobs:
         run: |
           .venv\Scripts\Activate.ps1
           python -m pytest
+      # Python-side coverage measures the pure-Python surface
+      # (python/big_code_analysis/_flatten.py + __init__.py); the Rust
+      # extension is measured by the `coverage` job. Collected on a single
+      # matrix leg because pure-Python coverage is identical across OS /
+      # interpreter — uploading from all six legs would only race parallel
+      # uploads to Codecov. flags:python keeps it distinct from the Rust
+      # upload; fail_ci_if_error stays off for the same reason as the Rust
+      # job (informational, fork-PR-safe).
+      - name: Upload coverage to Codecov
+        if: runner.os == 'Linux' && matrix.python == '3.12'
+        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6.0.1
+        with:
+          files: big-code-analysis-py/coverage.xml
+          flags: python
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
 
   # Execute examples/jupyter_quickstart.ipynb end-to-end so a notebook
   # cell that drifts away from the bindings API (renamed kwarg, removed
@@ -806,6 +887,7 @@ jobs:
       - clippy
       - docs
       - test
+      - coverage
       - msrv
       - feature-matrix
       - deny
