@@ -82,6 +82,12 @@ struct RawManifest {
     baseline: Option<PathBuf>,
     baseline_line_tolerance: Option<usize>,
     baseline_fuzzy_match: Option<bool>,
+    /// When `false`, Rust's `?` operator does not contribute to
+    /// cyclomatic complexity (#409). Defaults to counting (the key
+    /// absent is equivalent to `true`). The `--no-cyclomatic-try` CLI
+    /// flag ORs on top: it can force opt-out but cannot force counting
+    /// back on, mirroring `--strict-exit-codes`.
+    cyclomatic_count_try: Option<bool>,
     headroom: Option<f64>,
     /// Scalar values are hard limits; the nested `soft` sub-table
     /// (`[thresholds.soft]`, #375) carries the soft-tier overrides.
@@ -214,6 +220,12 @@ impl Manifest {
         }
         if !num_jobs_from_cli && let Some(num_jobs) = self.num_jobs() {
             g.num_jobs = num_jobs;
+        }
+        // `--no-cyclomatic-try` ORs on top: a CLI opt-out cannot be
+        // undone by the manifest, but the manifest can opt out when the
+        // flag is absent (#409).
+        if !g.no_cyclomatic_try && self.raw.cyclomatic_count_try == Some(false) {
+            g.no_cyclomatic_try = true;
         }
     }
 

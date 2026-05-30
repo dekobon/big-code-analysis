@@ -233,6 +233,26 @@ where
     /// for example) can identify them by inspecting the call target's
     /// text. Most languages discard the parameter with `_`.
     fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats);
+
+    /// Like [`Cyclomatic::compute`], but honors per-traversal options.
+    ///
+    /// `count_try` toggles whether Rust's `?` operator (the
+    /// `try_expression` grammar node) contributes to cyclomatic
+    /// complexity. The default body ignores `count_try` and delegates
+    /// to [`Cyclomatic::compute`], so every language whose grammar has
+    /// no `try_expression` node keeps its existing behaviour with no
+    /// per-language edit. Only [`RustCode`] overrides this to act on
+    /// the flag (#409).
+    #[inline]
+    fn compute_with_options<'a>(
+        node: &Node<'a>,
+        code: &'a [u8],
+        stats: &mut Stats,
+        count_try: bool,
+    ) {
+        let _ = count_try;
+        Self::compute(node, code, stats);
+    }
 }
 
 impl Cyclomatic for PythonCode {
@@ -375,42 +395,77 @@ impl_cyclomatic_js_family!(TypescriptCode, Typescript, QMARKDOT);
 impl_cyclomatic_js_family!(TsxCode, Tsx, QMARKDOT);
 
 impl Cyclomatic for RustCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
-        use Rust::*;
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+        // The default (#409): `?` counts toward cyclomatic, matching
+        // upstream rust-code-analysis and every published metric value.
+        Self::compute_with_options(node, code, stats, true);
+    }
 
-        match node.kind_id().into() {
-            // Standard-only: individual match arms.
-            // Lizard counts `match` as a single control-flow keyword; we count
-            // each arm, so the modified metric collapses them back to the
-            // container.
-            // Bare wildcard `_ =>` arms are skipped to match C-family
-            // `default:` treatment. Patterns like `Some(_)`, `(_, x)`,
-            // or `_ if guard` are not bare wildcards and still count.
-            // The check scans NAMED children of `match_pattern`, so
-            // anonymous tokens like a leading `|` (legal in or-patterns:
-            // `| _ => ...`) don't throw off detection, and a guard
-            // (`_ if g`) adds a second named child so it correctly
-            // escapes the filter. Shared helper with the `Abc` impl
-            // (`super::npa::pattern_is_bare_underscore`).
-            MatchArm | MatchArm2 => {
-                let is_bare_wildcard = node.child_by_field_name("pattern").is_some_and(|pat| {
-                    crate::metrics::npa::pattern_is_bare_underscore(&pat, UNDERSCORE as u16)
-                });
-                if !is_bare_wildcard {
-                    stats.cyclomatic += 1.;
-                }
-            }
-            // Modified-only: the match expression container.
-            MatchExpression => {
-                stats.cyclomatic_modified += 1.;
-            }
-            // Both standard and modified.
-            If | For | While | Loop | TryExpression | AMPAMP | PIPEPIPE => {
+    fn compute_with_options<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        stats: &mut Stats,
+        count_try: bool,
+    ) {
+        rust_cyclomatic_increment(node, stats, count_try);
+    }
+}
+
+/// Rust's per-node cyclomatic increment, shared by both
+/// [`Cyclomatic::compute`] and [`Cyclomatic::compute_with_options`].
+///
+/// Extracted as a free function so the `impl Cyclomatic for RustCode`
+/// block carries only the two thin trait methods — the bare-wildcard
+/// closure lives here instead, keeping the impl block's aggregate
+/// `nargs` within the self-scan gate.
+///
+/// `count_try` toggles the `?` operator's contribution (#409): `true`
+/// counts it toward both standard and modified cyclomatic, `false`
+/// treats it as linear error propagation.
+fn rust_cyclomatic_increment(node: &Node<'_>, stats: &mut Stats, count_try: bool) {
+    use Rust::*;
+
+    match node.kind_id().into() {
+        // Standard-only: individual match arms.
+        // Lizard counts `match` as a single control-flow keyword; we count
+        // each arm, so the modified metric collapses them back to the
+        // container.
+        // Bare wildcard `_ =>` arms are skipped to match C-family
+        // `default:` treatment. Patterns like `Some(_)`, `(_, x)`,
+        // or `_ if guard` are not bare wildcards and still count.
+        // The check scans NAMED children of `match_pattern`, so
+        // anonymous tokens like a leading `|` (legal in or-patterns:
+        // `| _ => ...`) don't throw off detection, and a guard
+        // (`_ if g`) adds a second named child so it correctly
+        // escapes the filter. Shared helper with the `Abc` impl
+        // (`super::npa::pattern_is_bare_underscore`).
+        MatchArm | MatchArm2 => {
+            let is_bare_wildcard = node.child_by_field_name("pattern").is_some_and(|pat| {
+                crate::metrics::npa::pattern_is_bare_underscore(&pat, UNDERSCORE as u16)
+            });
+            if !is_bare_wildcard {
                 stats.cyclomatic += 1.;
-                stats.cyclomatic_modified += 1.;
             }
-            _ => {}
         }
+        // Modified-only: the match expression container.
+        MatchExpression => {
+            stats.cyclomatic_modified += 1.;
+        }
+        // The `?` operator. Counted toward both standard and modified by
+        // default; when `count_try` is false the arm's guard fails and
+        // `?` falls through to `_ => {}`, treating it as linear error
+        // propagation (#409). Gated separately from the unconditional
+        // branching kinds below.
+        TryExpression if count_try => {
+            stats.cyclomatic += 1.;
+            stats.cyclomatic_modified += 1.;
+        }
+        // Both standard and modified.
+        If | For | While | Loop | AMPAMP | PIPEPIPE => {
+            stats.cyclomatic += 1.;
+            stats.cyclomatic_modified += 1.;
+        }
+        _ => {}
     }
 }
 
@@ -1451,6 +1506,76 @@ mod tests {
                 );
             },
         );
+    }
+
+    // The `?` operator (TryExpression) is the configurable arm (#409).
+    // Fixture has exactly N=3 `?` operators in a single function. With
+    // counting on (the default) each adds +1 to both standard and
+    // modified; with counting off they add nothing. The two runs must
+    // therefore differ by exactly N on both sub-metrics.
+    const RUST_TRY_FIXTURE: &str = "fn f(s: &str) -> Result<i64, std::num::ParseIntError> {
+             let a: i64 = s.parse()?;
+             let b: i64 = s.parse()?;
+             let c: i64 = s.parse()?;
+             Ok(a + b + c)
+         }";
+    const RUST_TRY_COUNT: f64 = 3.0;
+
+    fn rust_cyclomatic_with_try(count_try: bool) -> super::Stats {
+        let func_space = crate::analyze(
+            crate::Source::new(crate::LANG::Rust, RUST_TRY_FIXTURE.as_bytes())
+                .with_name(Some("try.rs".to_owned())),
+            crate::MetricsOptions::default().with_count_cyclomatic_try(count_try),
+        )
+        .expect("analyze must succeed on a well-formed Rust fixture");
+        func_space.metrics.cyclomatic
+    }
+
+    #[test]
+    fn rust_try_toggle_differs_by_exactly_n() {
+        let with = rust_cyclomatic_with_try(true);
+        let without = rust_cyclomatic_with_try(false);
+
+        // Headline acceptance (#409): the toggle's whole effect is the N
+        // `?` operators, on both standard and modified cyclomatic.
+        assert_eq!(
+            with.cyclomatic_sum() - without.cyclomatic_sum(),
+            RUST_TRY_COUNT,
+            "standard cyclomatic must drop by exactly N when `?` is not counted"
+        );
+        assert_eq!(
+            with.cyclomatic_modified_sum() - without.cyclomatic_modified_sum(),
+            RUST_TRY_COUNT,
+            "modified cyclomatic must drop by exactly N when `?` is not counted"
+        );
+        // Guard against a no-op toggle: the two runs must actually differ.
+        assert_ne!(with.cyclomatic_sum(), without.cyclomatic_sum());
+    }
+
+    #[test]
+    fn rust_try_default_counts() {
+        // The default (no options) must keep counting `?`, preserving
+        // every published metric value (#409). Equivalent to the
+        // `count_try == true` run above.
+        let default_path = {
+            let func_space = crate::analyze(
+                crate::Source::new(crate::LANG::Rust, RUST_TRY_FIXTURE.as_bytes())
+                    .with_name(Some("try.rs".to_owned())),
+                crate::MetricsOptions::default(),
+            )
+            .expect("analyze must succeed on a well-formed Rust fixture");
+            func_space.metrics.cyclomatic
+        };
+        let explicit_on = rust_cyclomatic_with_try(true);
+        assert_eq!(default_path.cyclomatic_sum(), explicit_on.cyclomatic_sum());
+        assert_eq!(
+            default_path.cyclomatic_modified_sum(),
+            explicit_on.cyclomatic_modified_sum()
+        );
+        // unit(1) + fn(entry 1 + 3*`?` = 4) = 5 standard; modified same
+        // shape (no match container here): 1 + 4 = 5.
+        assert_eq!(default_path.cyclomatic_sum(), 5.0);
+        assert_eq!(default_path.cyclomatic_modified_sum(), 5.0);
     }
 
     #[test]

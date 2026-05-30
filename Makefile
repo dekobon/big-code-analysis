@@ -398,6 +398,15 @@ SELF_SCAN_BCA := cargo run --quiet --release -p big-code-analysis-cli --
 # aware on Linux via Rust's std lib), so no `$(nproc)` plumbing is
 # needed for the self-scan recipes (issue #383).
 SELF_SCAN_BASE_ARGS := --paths . --exclude-from .bcaignore
+# Cyclomatic `?` (TryExpression) counting in the self-scan gate (#409).
+# Default keeps counting, so the gate matches every published metric
+# value and the checked-in .bca-baseline.toml. Set
+# BCA_COUNT_CYCLOMATIC_TRY=0 to treat Rust's `?` as linear error
+# propagation in the gate (it appends `--no-cyclomatic-try`); regenerate
+# .bca-baseline.toml in the same toggle, since cyclomatic values for
+# `?`-heavy functions drop.
+SELF_SCAN_TRY_ARGS := $(if $(filter 0,$(BCA_COUNT_CYCLOMATIC_TRY)),--no-cyclomatic-try,)
+SELF_SCAN_BASE_ARGS += $(SELF_SCAN_TRY_ARGS)
 
 self-scan:
 	@echo "bca self-scan (hard gate)..."

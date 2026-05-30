@@ -267,6 +267,17 @@ struct GlobalOpts {
     /// flag.
     #[clap(long = "exclude-tests", global = true)]
     exclude_tests: bool,
+    /// Stop Rust's `?` operator (the `try_expression` node) from
+    /// contributing to cyclomatic complexity (standard and modified).
+    /// By default `?` counts +1, matching upstream rust-code-analysis
+    /// and every published metric value. Pass this to treat `?` as
+    /// linear error propagation — useful when cyclomatic is used as a
+    /// maintainability gate that should not penalize fallible-but-
+    /// linear code. Rust-only: no other language emits the node, so
+    /// the flag is inert elsewhere. Mirrors the `cyclomatic_count_try`
+    /// manifest key (the CLI flag wins when both are set).
+    #[clap(long = "no-cyclomatic-try", global = true)]
+    no_cyclomatic_try: bool,
     /// Skip auto-discovery of a `bca.toml` manifest. By default `bca`
     /// climbs from the working directory to the repo root looking for
     /// `bca.toml` and merges its keys *under* any explicit CLI flags.
@@ -876,6 +887,13 @@ struct Config {
     /// their test subtrees before metric computation. See
     /// `GlobalOpts::exclude_tests` for the user-facing description.
     exclude_tests: bool,
+    /// When true, Rust's `?` operator does NOT contribute to cyclomatic
+    /// complexity. Projected onto
+    /// [`MetricsOptions::with_count_cyclomatic_try`] (negated). Defaults
+    /// off, so `?` counts and numbers match the published default
+    /// (#409). Set by `--no-cyclomatic-try` or the `cyclomatic_count_try`
+    /// manifest key.
+    no_cyclomatic_try: bool,
     /// When true (`--baseline-fuzzy-match`), the check walk stamps each
     /// emitted [`Violation`] with a normalised body hash so the baseline
     /// can match a renamed-but-unchanged function. Off by default; the
@@ -911,6 +929,7 @@ impl Config {
             skip_generated: !globals.no_skip_generated,
             report_skipped: globals.report_skipped,
             exclude_tests: globals.exclude_tests,
+            no_cyclomatic_try: globals.no_cyclomatic_try,
             // Defaults off; `run_check_walk` flips it on for the check
             // action when `--baseline-fuzzy-match` is set.
             fuzzy_baseline: false,
@@ -923,7 +942,9 @@ impl Config {
     /// every `act_on_file` arm that drives a metric computation.
     #[inline]
     fn metrics_options(&self) -> MetricsOptions {
-        MetricsOptions::default().with_exclude_tests(self.exclude_tests)
+        MetricsOptions::default()
+            .with_exclude_tests(self.exclude_tests)
+            .with_count_cyclomatic_try(!self.no_cyclomatic_try)
     }
 }
 

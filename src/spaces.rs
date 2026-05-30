@@ -957,17 +957,23 @@ fn compute_per_node<'a, T: ParserTrait>(
     state: &mut State<'a>,
     node: &Node<'a>,
     code: &'a [u8],
-    selected: MetricSet,
+    options: MetricsOptions,
     func_space: bool,
     unit: bool,
     nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
 ) {
+    let selected = options.metrics;
     let last = &mut state.space;
     if selected.contains(Metric::Cognitive) {
         T::Cognitive::compute(node, code, &mut last.metrics.cognitive, nesting_map);
     }
     if selected.contains(Metric::Cyclomatic) {
-        T::Cyclomatic::compute(node, code, &mut last.metrics.cyclomatic);
+        T::Cyclomatic::compute_with_options(
+            node,
+            code,
+            &mut last.metrics.cyclomatic,
+            options.count_cyclomatic_try,
+        );
     }
     if selected.contains(Metric::Halstead) {
         T::Halstead::compute(node, code, &mut state.halstead_maps);
@@ -1114,7 +1120,7 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
                 state,
                 &node,
                 code,
-                selected,
+                options,
                 func_space,
                 unit,
                 &mut nesting_map,
@@ -1199,7 +1205,7 @@ fn apply_suppression(state_stack: &mut [State], suppression: &Suppression) {
 /// use big_code_analysis::MetricsOptions;
 /// let opts = MetricsOptions::default().with_exclude_tests(true);
 /// ```
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct MetricsOptions {
     /// When true, the traversal asks the language module to skip
@@ -1212,6 +1218,31 @@ pub struct MetricsOptions {
     /// every metric is enabled, matching the pre-#257 behaviour.
     /// Restrict via [`MetricsOptions::with_only`].
     pub metrics: MetricSet,
+    /// When true (the default), Rust's `?` operator (the
+    /// `try_expression` grammar node) contributes `+1` to both
+    /// standard and modified cyclomatic complexity, matching upstream
+    /// rust-code-analysis. Set to `false` (via
+    /// [`MetricsOptions::with_count_cyclomatic_try`]) to treat `?` as
+    /// linear error propagation rather than a branch — useful when
+    /// cyclomatic is used as a maintainability gate that should not
+    /// penalize fallible-but-linear code. Rust-only: no other
+    /// language emits `try_expression`, so the flag is inert
+    /// elsewhere. Defaulting to `true` keeps every published metric
+    /// value unchanged (#409).
+    pub count_cyclomatic_try: bool,
+}
+
+impl Default for MetricsOptions {
+    /// Defaults preserve every metric value emitted by the pre-#182
+    /// [`metrics`] entry point: every metric selected, tests
+    /// included, and Rust `?` counted toward cyclomatic (#409).
+    fn default() -> Self {
+        Self {
+            exclude_tests: false,
+            metrics: MetricSet::default(),
+            count_cyclomatic_try: true,
+        }
+    }
 }
 
 impl MetricsOptions {
@@ -1225,6 +1256,20 @@ impl MetricsOptions {
     #[must_use]
     pub fn with_exclude_tests(mut self, exclude_tests: bool) -> Self {
         self.exclude_tests = exclude_tests;
+        self
+    }
+
+    /// Builder-style setter for [`MetricsOptions::count_cyclomatic_try`].
+    ///
+    /// Pass `false` to stop Rust's `?` operator from contributing to
+    /// cyclomatic complexity (standard and modified). The default is
+    /// `true`, which keeps every published metric value unchanged
+    /// (#409). Inert for non-Rust languages, none of which emit the
+    /// `try_expression` grammar node.
+    #[inline]
+    #[must_use]
+    pub fn with_count_cyclomatic_try(mut self, count: bool) -> Self {
+        self.count_cyclomatic_try = count;
         self
     }
 

@@ -23,6 +23,24 @@ for historical reference.
 
 ### Added
 
+- Cyclomatic complexity's counting of Rust's `?` operator (the
+  `try_expression` grammar node) is now configurable
+  ([#409](https://github.com/dekobon/big-code-analysis/issues/409)).
+  `MetricsOptions` gains a `count_cyclomatic_try` field (default
+  `true`) and a `with_count_cyclomatic_try` builder; the CLI gains a
+  global `--no-cyclomatic-try` flag and a `cyclomatic_count_try`
+  `bca.toml` key (the flag ORs on top — it can force opt-out but not
+  force counting back on). Setting it false treats `?` as linear error
+  propagation rather than a branch, on both standard and modified
+  cyclomatic. The `make self-scan` gate exposes the same opt-out via
+  `BCA_COUNT_CYCLOMATIC_TRY=0`. **The default is unchanged**: `?` keeps
+  counting `+1`, matching upstream rust-code-analysis, so every
+  published metric value and existing snapshot is byte-identical (no
+  value change on the default path). Rust-only — no other language
+  emits the node, so the toggle is inert elsewhere. Additive per
+  `STABILITY.md`: `MetricsOptions` is `#[non_exhaustive]`, so the new
+  field and builder do not break downstream callers; a global default
+  flip is deferred to a deliberate `2.0` decision.
 - `metric_catalog::MetricInfo` gains a `skip_at_unit: bool` field
   recording whether a metric's serialized JSON headline at the
   file-level `unit` space is an aggregate over descendant spaces that

@@ -117,6 +117,53 @@ fn merge_globals_does_not_clobber_cli_values() {
 }
 
 #[test]
+fn merge_globals_cyclomatic_count_try_opts_out_when_false() {
+    // Manifest `cyclomatic_count_try = false` opts the gate out of
+    // counting `?` (#409) when the CLI flag is absent.
+    let m = manifest(RawManifest {
+        cyclomatic_count_try: Some(false),
+        ..Default::default()
+    });
+    let mut g = GlobalOpts::default();
+    assert!(!g.no_cyclomatic_try);
+    m.merge_globals(&mut g, false);
+    assert!(g.no_cyclomatic_try);
+}
+
+#[test]
+fn merge_globals_cyclomatic_count_try_default_keeps_counting() {
+    // Absent key (or `true`) leaves the default counting behaviour
+    // intact, so published metric values are preserved (#409).
+    for raw in [
+        RawManifest::default(),
+        RawManifest {
+            cyclomatic_count_try: Some(true),
+            ..Default::default()
+        },
+    ] {
+        let mut g = GlobalOpts::default();
+        manifest(raw).merge_globals(&mut g, false);
+        assert!(!g.no_cyclomatic_try);
+    }
+}
+
+#[test]
+fn merge_globals_cyclomatic_count_try_cli_flag_wins() {
+    // `--no-cyclomatic-try` ORs on top: a manifest `true` cannot turn
+    // counting back on once the CLI flag has opted out (#409).
+    let m = manifest(RawManifest {
+        cyclomatic_count_try: Some(true),
+        ..Default::default()
+    });
+    let mut g = GlobalOpts {
+        no_cyclomatic_try: true,
+        ..Default::default()
+    };
+    m.merge_globals(&mut g, false);
+    assert!(g.no_cyclomatic_try);
+}
+
+#[test]
 fn merge_globals_respects_explicit_cli_num_jobs() {
     let m = manifest(RawManifest {
         num_jobs: Some(toml::Value::Integer(8)),

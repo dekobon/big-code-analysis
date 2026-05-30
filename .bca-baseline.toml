@@ -3376,6 +3376,13 @@ value = 99.0
 
 [[entry]]
 path = "src/spaces.rs"
+qualified = "MetricsOptions"
+start_line = 1249
+metric = "nargs"
+value = 8.0
+
+[[entry]]
+path = "src/spaces.rs"
 qualified = "Ast"
 start_line = 695
 metric = "nargs"

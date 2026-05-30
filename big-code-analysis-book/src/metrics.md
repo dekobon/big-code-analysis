@@ -361,6 +361,25 @@ echoes the long-standing `-m` mode from Terry Yin's
 many readers will first have seen it.) Both numbers are exported
 side by side; pick one and be consistent.
 
+### Counting Rust's `?` operator
+
+By default Rust's `?` operator (the `try_expression` grammar node)
+adds `+1` to both standard and modified cyclomatic, matching upstream
+rust-code-analysis: `?` is an early-return branch. When cyclomatic is
+used as a maintainability *gate*, this can over-penalize linear-but-
+fallible code that threads a handful of `?` through a happy path. You
+can opt out so `?` is treated as linear error propagation:
+
+- Library: `MetricsOptions::default().with_count_cyclomatic_try(false)`.
+- CLI: the global `--no-cyclomatic-try` flag, or `cyclomatic_count_try
+  = false` in `bca.toml` (the flag wins when both are set).
+- `make self-scan`: `BCA_COUNT_CYCLOMATIC_TRY=0` (regenerate
+  `.bca-baseline.toml` in the same toggle, since values drop).
+
+The default is unchanged — `?` keeps counting — so published metric
+values are preserved. The toggle is Rust-only; no other language emits
+`try_expression`.
+
 ### How to read it
 
 McCabe's original recommendation, repeated in the 1976 paper and

@@ -27,6 +27,7 @@ fn test_config(action: Action) -> Config {
         skip_generated: true,
         report_skipped: false,
         exclude_tests: false,
+        no_cyclomatic_try: false,
         fuzzy_baseline: false,
     }
 }
