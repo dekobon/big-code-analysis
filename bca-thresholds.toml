@@ -34,12 +34,22 @@
 cognitive = 25
 cyclomatic = 15
 "halstead.effort" = 50000
-# Raised to 300 to leave room for modules that are naturally
-# longer (output formatters with a block of helpers, CLI catalog
-# / config-predicate modules) without resorting to artificial
-# splits. Files structurally over this limit still need the
-# baseline ratchet.
-"loc.sloc" = 300
+# Set to 800 from the observed file-level distribution: the median
+# source file is ~380 SLOC and the dense cluster of normal hand-
+# written modules runs up to ~890. Rust co-locates `#[cfg(test)]`
+# tests in-file, so file SLOC runs 2-3x what it would with separate
+# test files; a healthy ~300-350 non-test ceiling maps to this range.
+# 800 lets most ordinary documented modules pass without an
+# artificial split or a baseline entry. Still on the baseline ratchet:
+# the genuinely large / test-heavy modules (metrics/*, macros, the big
+# report files), plus a few mid-size modules in the ~760-890 band
+# (alterator.rs, ops.rs, baseline.rs, ...). The soft tier scales this
+# limit to 760 (BCA_HEADROOM 0.95), so files between 760 and 800 are
+# baselined for the soft gate even though they clear the hard one. The
+# same limit also gates per-function SLOC, but that is redundant here:
+# cognitive / cyclomatic / nom / abc catch an oversized function long
+# before it nears 800 lines.
+"loc.sloc" = 800
 nom = 30
 nargs = 7
 nexits = 5

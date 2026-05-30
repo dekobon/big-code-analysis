@@ -927,3 +927,30 @@ fn exit_code_tiered_maps_each_category() {
     assert_eq!(CheckOutcome::Mixed.exit_code(true), Some(4));
     assert_eq!(CheckOutcome::HardBreach.exit_code(true), Some(5));
 }
+
+/// `bca init` writes `bca-thresholds.toml` from the embedded
+/// [`INIT_THRESHOLDS_TEMPLATE`], whose doc-comment promises its
+/// `[thresholds]` values mirror the repo's own root
+/// `bca-thresholds.toml`. Nothing else enforces that, so this guards
+/// against the two silently diverging when either gate is retuned
+/// (e.g. the `loc.sloc` 300->800 change that motivated this test).
+/// Only the `[thresholds]` table is compared — the two files carry
+/// different explanatory prose by design.
+#[test]
+fn init_template_thresholds_match_repo_root() {
+    let root_text = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../bca-thresholds.toml"
+    ))
+    .expect("repo-root bca-thresholds.toml must be readable from the CLI crate dir");
+    let root: toml::Table = toml::from_str(&root_text).expect("root bca-thresholds.toml parses");
+    let template: toml::Table =
+        toml::from_str(INIT_THRESHOLDS_TEMPLATE).expect("INIT_THRESHOLDS_TEMPLATE parses");
+    assert_eq!(
+        template.get("thresholds"),
+        root.get("thresholds"),
+        "the `bca init` scaffold's [thresholds] drifted from the repo-root \
+         bca-thresholds.toml; update INIT_THRESHOLDS_TEMPLATE (commands.rs) and \
+         the root file together"
+    );
+}

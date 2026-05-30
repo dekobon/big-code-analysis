@@ -1497,15 +1497,20 @@ fn run_command_preproc(globals: GlobalOpts, args: PreprocArgs) {
 }
 
 /// Canonical contents of a freshly-scaffolded `bca-thresholds.toml`.
-/// Mirrors the project's own root `bca-thresholds.toml` (which is what
-/// the book's adoption recipe asks readers to copy) so a `bca init`
-/// produces the exact same shape adopters previously copy-pasted.
+/// The `[thresholds]` values mirror the project's own root
+/// `bca-thresholds.toml` (which the book's adoption recipe asks
+/// readers to copy), so `bca init` hands adopters the same limits the
+/// project gates itself with. The two are kept in lock-step by the
+/// `init_template_thresholds_match_repo_root` drift test: retuning the
+/// root gate fails that test until this template is updated to match,
+/// and vice versa.
 ///
-/// The thresholds chosen here are the conservative starter values
-/// from the book recipe — not the post-baselined values pinned in the
-/// repo's own checked-in file. New adopters typically start lax and
-/// tighten over time; the `--write-baseline` step that follows pins
-/// today's offenders so subsequent runs only fail on regressions.
+/// Only the surrounding prose differs by design — the root file
+/// carries the repo-specific rationale for each limit, while this
+/// template keeps the generic editing-rules header. Adopters typically
+/// run `--write-baseline` right after `init`, which pins today's
+/// offenders so subsequent runs fail only on regressions, then tighten
+/// limits over time.
 const INIT_THRESHOLDS_TEMPLATE: &str = "\
 # bca per-function threshold configuration.
 #
@@ -1536,7 +1541,7 @@ const INIT_THRESHOLDS_TEMPLATE: &str = "\
 cognitive = 25
 cyclomatic = 15
 \"halstead.effort\" = 50000
-\"loc.sloc\" = 300
+\"loc.sloc\" = 800
 nom = 30
 nargs = 7
 nexits = 5

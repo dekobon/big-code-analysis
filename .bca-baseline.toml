@@ -88,13 +88,6 @@ value = 1296377.4551275175
 path = "big-code-analysis-cli/src/baseline_diff.rs"
 qualified = "<file>"
 start_line = 1
-metric = "loc.sloc"
-value = 386.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/baseline_diff.rs"
-qualified = "<file>"
-start_line = 1
 metric = "nargs"
 value = 49.0
 
@@ -194,7 +187,7 @@ path = "big-code-analysis-cli/src/commands.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1905.0
+value = 1910.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
@@ -262,14 +255,14 @@ value = 54349.29454319902
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "run_command_init"
-start_line = 1599
+start_line = 1604
 metric = "halstead.effort"
 value = 61032.23742172194
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "run_command_init"
-start_line = 1599
+start_line = 1604
 metric = "nargs"
 value = 8.0
 
@@ -279,13 +272,6 @@ qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
 value = 377960.1455394685
-
-[[entry]]
-path = "big-code-analysis-cli/src/diff.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 379.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/diff.rs"
@@ -307,13 +293,6 @@ qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
 value = 1349432.9986605828
-
-[[entry]]
-path = "big-code-analysis-cli/src/dispatch.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 455.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/dispatch.rs"
@@ -361,13 +340,6 @@ value = 874767.6030822633
 path = "big-code-analysis-cli/src/exemptions.rs"
 qualified = "<file>"
 start_line = 1
-metric = "loc.sloc"
-value = 386.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/exemptions.rs"
-qualified = "<file>"
-start_line = 1
 metric = "nargs"
 value = 27.0
 
@@ -398,13 +370,6 @@ qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
 value = 1390840.935290976
-
-[[entry]]
-path = "big-code-analysis-cli/src/formats.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 423.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/formats.rs"
@@ -501,13 +466,6 @@ value = 571769.2320466853
 path = "big-code-analysis-cli/src/manifest.rs"
 qualified = "<file>"
 start_line = 1
-metric = "loc.sloc"
-value = 348.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/manifest.rs"
-qualified = "<file>"
-start_line = 1
 metric = "nargs"
 value = 18.0
 
@@ -566,13 +524,6 @@ qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
 value = 2549426.9832654498
-
-[[entry]]
-path = "big-code-analysis-cli/src/markdown_report/sections.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 601.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/markdown_report/sections.rs"
@@ -739,13 +690,6 @@ value = 721580.5694261151
 path = "big-code-analysis-py/src/batch.rs"
 qualified = "<file>"
 start_line = 1
-metric = "loc.sloc"
-value = 604.0
-
-[[entry]]
-path = "big-code-analysis-py/src/batch.rs"
-qualified = "<file>"
-start_line = 1
 metric = "nargs"
 value = 22.0
 
@@ -816,13 +760,6 @@ value = 401768.26979644725
 path = "big-code-analysis-py/src/conversion.rs"
 qualified = "<file>"
 start_line = 1
-metric = "loc.sloc"
-value = 314.0
-
-[[entry]]
-path = "big-code-analysis-py/src/conversion.rs"
-qualified = "<file>"
-start_line = 1
 metric = "nargs"
 value = 14.0
 
@@ -832,13 +769,6 @@ qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
 value = 375435.300585897
-
-[[entry]]
-path = "big-code-analysis-py/src/language.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 410.0
 
 [[entry]]
 path = "big-code-analysis-py/src/language.rs"
@@ -860,13 +790,6 @@ qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
 value = 329862.44387144997
-
-[[entry]]
-path = "big-code-analysis-py/src/lib.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 360.0
 
 [[entry]]
 path = "big-code-analysis-py/src/lib.rs"
@@ -909,13 +832,6 @@ qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
 value = 1430473.5355172544
-
-[[entry]]
-path = "big-code-analysis-py/src/sarif.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 644.0
 
 [[entry]]
 path = "big-code-analysis-py/src/sarif.rs"
@@ -1019,13 +935,6 @@ value = 1809806.4736633168
 path = "big-code-analysis-web/src/web/server.rs"
 qualified = "<file>"
 start_line = 1
-metric = "loc.sloc"
-value = 470.0
-
-[[entry]]
-path = "big-code-analysis-web/src/web/server.rs"
-qualified = "<file>"
-start_line = 1
 metric = "nargs"
 value = 33.0
 
@@ -1117,13 +1026,6 @@ value = 706347.5709095739
 path = "src/ast.rs"
 qualified = "<file>"
 start_line = 1
-metric = "loc.sloc"
-value = 344.0
-
-[[entry]]
-path = "src/ast.rs"
-qualified = "<file>"
-start_line = 1
 metric = "nargs"
 value = 24.0
 
@@ -1168,13 +1070,6 @@ qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
 value = 1526794.9543266622
-
-[[entry]]
-path = "src/c_macro.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 495.0
 
 [[entry]]
 path = "src/c_macro.rs"
@@ -1509,13 +1404,6 @@ value = 955833.2643573226
 path = "src/concurrent_files.rs"
 qualified = "<file>"
 start_line = 1
-metric = "loc.sloc"
-value = 319.0
-
-[[entry]]
-path = "src/concurrent_files.rs"
-qualified = "<file>"
-start_line = 1
 metric = "nargs"
 value = 33.0
 
@@ -1786,20 +1674,6 @@ metric = "halstead.effort"
 value = 174386.6346337888
 
 [[entry]]
-path = "src/langs.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 423.0
-
-[[entry]]
-path = "src/lib.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 335.0
-
-[[entry]]
 path = "src/macros.rs"
 qualified = "<file>"
 start_line = 1
@@ -1821,25 +1695,11 @@ metric = "halstead.effort"
 value = 538455.8614153366
 
 [[entry]]
-path = "src/metric_catalog.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 355.0
-
-[[entry]]
 path = "src/metric_set.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
 value = 462935.3539720444
-
-[[entry]]
-path = "src/metric_set.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 326.0
 
 [[entry]]
 path = "src/metric_set.rs"
@@ -2454,13 +2314,6 @@ value = 541890.070997593
 path = "src/metrics/mi.rs"
 qualified = "<file>"
 start_line = 1
-metric = "loc.sloc"
-value = 380.0
-
-[[entry]]
-path = "src/metrics/mi.rs"
-qualified = "<file>"
-start_line = 1
 metric = "nargs"
 value = 22.0
 
@@ -2846,13 +2699,6 @@ value = 1020937.7738378608
 path = "src/metrics/tokens.rs"
 qualified = "<file>"
 start_line = 1
-metric = "loc.sloc"
-value = 559.0
-
-[[entry]]
-path = "src/metrics/tokens.rs"
-qualified = "<file>"
-start_line = 1
 metric = "nargs"
 value = 50.0
 
@@ -2946,13 +2792,6 @@ qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
 value = 1049487.431782116
-
-[[entry]]
-path = "src/node.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 358.0
 
 [[entry]]
 path = "src/node.rs"
@@ -3091,13 +2930,6 @@ value = 1687265.2338234184
 path = "src/output/code_climate.rs"
 qualified = "<file>"
 start_line = 1
-metric = "loc.sloc"
-value = 679.0
-
-[[entry]]
-path = "src/output/code_climate.rs"
-qualified = "<file>"
-start_line = 1
 metric = "nargs"
 value = 23.0
 
@@ -3114,13 +2946,6 @@ qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
 value = 384230.3944815031
-
-[[entry]]
-path = "src/output/csv.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 384.0
 
 [[entry]]
 path = "src/output/csv.rs"
@@ -3147,13 +2972,6 @@ value = 1355882.3773851823
 path = "src/output/dump.rs"
 qualified = "<file>"
 start_line = 1
-metric = "loc.sloc"
-value = 450.0
-
-[[entry]]
-path = "src/output/dump.rs"
-qualified = "<file>"
-start_line = 1
 metric = "nargs"
 value = 41.0
 
@@ -3170,13 +2988,6 @@ qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
 value = 1733872.104248343
-
-[[entry]]
-path = "src/output/dump_metrics.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 464.0
 
 [[entry]]
 path = "src/output/dump_metrics.rs"
@@ -3420,13 +3231,6 @@ value = 1265744.8238745884
 path = "src/output/sarif.rs"
 qualified = "<file>"
 start_line = 1
-metric = "loc.sloc"
-value = 473.0
-
-[[entry]]
-path = "src/output/sarif.rs"
-qualified = "<file>"
-start_line = 1
 metric = "nargs"
 value = 13.0
 
@@ -3441,13 +3245,6 @@ value = 567757.2814920848
 path = "src/output/warning_line.rs"
 qualified = "<file>"
 start_line = 1
-metric = "loc.sloc"
-value = 347.0
-
-[[entry]]
-path = "src/output/warning_line.rs"
-qualified = "<file>"
-start_line = 1
 metric = "nargs"
 value = 12.0
 
@@ -3457,13 +3254,6 @@ qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
 value = 525001.0514267822
-
-[[entry]]
-path = "src/parser.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 336.0
 
 [[entry]]
 path = "src/parser.rs"
@@ -3499,13 +3289,6 @@ qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
 value = 1238461.191377924
-
-[[entry]]
-path = "src/preproc.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 413.0
 
 [[entry]]
 path = "src/preproc.rs"
@@ -3723,13 +3506,6 @@ qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
 value = 1986738.8772322927
-
-[[entry]]
-path = "src/tools.rs"
-qualified = "<file>"
-start_line = 1
-metric = "loc.sloc"
-value = 716.0
 
 [[entry]]
 path = "src/tools.rs"

@@ -309,6 +309,15 @@ for historical reference.
 
 ### Changed
 
+- `bca init` now scaffolds `bca-thresholds.toml` with `loc.sloc = 800`
+  (was `300`). File-level SLOC counts inline `#[cfg(test)]` tests,
+  comments, and blank lines, so the old limit sat below the median
+  source file and flagged ordinary well-documented modules rather than
+  genuinely oversized ones; `800` better reflects a healthy Rust file
+  ceiling (inline tests inflate file SLOC 2-3x). The scaffold tracks the
+  project's own gate, now pinned by a drift test so the two cannot
+  silently diverge. `init` still refuses to overwrite an existing
+  `bca-thresholds.toml`, so only newly-scaffolded files are affected.
 - Python's hidden `block` / `lambda` kind-id aliases are now normalized
   behind a single `python_is_block` helper, and `is_closure` accepts the
   currently-unseen `Lambda2` alias, with drift-guard tests mirroring the
