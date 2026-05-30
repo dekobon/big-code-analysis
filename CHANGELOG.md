@@ -661,6 +661,17 @@ for historical reference.
 
 ### Fixed
 
+- `bca check --github-annotations` overflow rollup no longer re-breaches
+  the GitHub Actions 10-error/step quota. The emitter wrote one
+  uncapped `::error::` rollup line per overflowing metric, so a run that
+  tripped many distinct metrics could emit `10×k + k` error annotations
+  — exceeding the very cap the per-metric limit exists to enforce. The
+  overflow is now consolidated into a single `::notice::` line that
+  carries the total hidden count and the per-metric breakdown; a notice
+  lives outside the error band and one line cannot multiply with the
+  metric count, so the total `::error::` annotations stay bounded
+  regardless of how many metrics overflow.
+  Fixes [#440](https://github.com/dekobon/big-code-analysis/issues/440).
 - `bca check --github-annotations` no longer undercounts violations
   with non-UTF-8 paths in the per-metric overflow rollup. The emitter
   incremented the cap counter *before* skipping a non-UTF-8 path, so a

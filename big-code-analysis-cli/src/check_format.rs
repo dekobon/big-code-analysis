@@ -98,6 +98,15 @@ impl AggregatedFormat {
 /// keeps each metric visible while leaving headroom under the
 /// step-level cap (most failing runs trip one or two distinct
 /// metrics, not the full N-metric list).
+///
+/// The per-metric overflow is rolled up into a *single* `::notice::`
+/// line, not one `::error::` per overflowing metric (#440). A
+/// per-metric `::error::` rollup multiplied the error annotations by
+/// the number of distinct overflowing metrics (up to N ~ 24), which
+/// could re-breach the very 10-error/step quota the cap protects.
+/// Consolidating into one line — and emitting it as a notice rather
+/// than an error — bounds the rollup at one non-error annotation
+/// regardless of how many metrics overflow.
 pub(crate) const DEFAULT_GITHUB_ANNOTATION_CAP: usize = 10;
 
 /// Env var GitHub Actions sets to `"true"` inside every workflow
@@ -163,10 +172,27 @@ where
             *overflow.entry(v.metric).or_insert(0) += 1;
         }
     }
-    for (metric, n) in overflow {
+    // Roll the per-metric overflow into a *single* `::notice::` line
+    // (#440). One `::error::` per overflowing metric multiplied the
+    // error-annotation count by the number of distinct overflowing
+    // metrics (up to N ~ 24 metrics), re-breaching the 10-error/step
+    // quota the cap exists to protect. A notice does not consume the
+    // error band, and a single consolidated line cannot multiply with
+    // the metric count, so the total `::error::` annotations stay
+    // bounded by the cap regardless of how many metrics overflow.
+    if !overflow.is_empty() {
+        // `metric: n` pairs, comma-joined, in BTreeMap (metric-name)
+        // order so the line is deterministic across runs.
+        let detail = overflow
+            .iter()
+            .map(|(metric, n)| format!("{metric}: {n}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let total: usize = overflow.values().sum();
         writeln!(
             w,
-            "::error::{n} more {metric} violations not shown — see full log"
+            "::notice::{total} more violations not shown ({detail}) — see full log",
+            detail = escape_gha(&detail, GhaSlot::Message),
         )?;
     }
     Ok(())
@@ -651,9 +677,86 @@ mod tests {
         assert_eq!(cyclomatic_lines, 10, "expected 10 capped cyclomatic lines");
         let cognitive_lines = out.matches("title=cognitive::g:").count();
         assert_eq!(cognitive_lines, 1, "uncapped cognitive line missing");
+        // The overflow is a single consolidated `::notice::` line that
+        // names the per-metric counts (#440), not a per-metric
+        // `::error::`. A notice keeps the rollup out of the error band
+        // entirely so it cannot re-breach the 10-error/step quota.
         assert!(
-            out.contains("::error::2 more cyclomatic violations not shown — see full log"),
-            "missing overflow line for cyclomatic; got:\n{out}"
+            out.contains("::notice::2 more violations not shown (cyclomatic: 2) — see full log"),
+            "missing consolidated overflow notice for cyclomatic; got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn write_github_annotations_overflow_rollup_is_single_notice_not_per_metric_error() {
+        // Regression for #440: many distinct metrics, each overflowing
+        // its per-metric cap, must NOT emit one `::error::` rollup line
+        // apiece. The pre-fix code wrote one `::error::… more <metric>
+        // violations` per overflowing metric, so with k metrics the
+        // error-annotation total was (shown) + k — re-breaching the
+        // same 10-error/step GHA quota the cap protects. The fix
+        // consolidates every metric's overflow into ONE `::notice::`
+        // line, which lives outside the error band entirely.
+        //
+        // Build 12 metrics, 11 violations each, at cap = 10: every
+        // metric overflows by exactly 1. The pre-fix output would have
+        // carried 12 extra `::error::` rollup lines; the fix carries 0
+        // extra error lines and exactly 1 notice.
+        let metrics: [&'static str; 12] = [
+            "cyclomatic",
+            "cognitive",
+            "halstead",
+            "nargs",
+            "nom",
+            "npa",
+            "npm",
+            "wmc",
+            "abc",
+            "exit",
+            "loc",
+            "mi",
+        ];
+        let cap = DEFAULT_GITHUB_ANNOTATION_CAP;
+        let per_metric = cap + 1;
+        let mut vs: Vec<Violation> = Vec::new();
+        for metric in metrics {
+            for i in 0..per_metric {
+                vs.push(violation_for(&format!("{metric}-{i}.rs"), "f", metric));
+            }
+        }
+        let mut buf = Vec::new();
+        write_github_annotations(&mut buf, vs.iter(), cap).expect("write");
+        let out = String::from_utf8(buf).expect("utf8");
+
+        // Every line that begins with `::error` is an inline annotation
+        // (the rollup must not be one of them anymore).
+        let error_lines = out.lines().filter(|l| l.starts_with("::error")).count();
+        // The inline annotations are still capped per metric, so the
+        // grand total is exactly cap * number_of_metrics shown lines —
+        // and crucially ZERO of them come from the overflow rollup.
+        assert_eq!(
+            error_lines,
+            cap * metrics.len(),
+            "overflow rollup must not add any `::error::` lines; got:\n{out}"
+        );
+        // Exactly one consolidated notice carries the whole overflow.
+        let notice_lines = out.lines().filter(|l| l.starts_with("::notice")).count();
+        assert_eq!(
+            notice_lines, 1,
+            "expected exactly one consolidated overflow notice; got:\n{out}"
+        );
+        // The consolidated total equals the sum of per-metric overflows
+        // (1 per metric here), and the per-metric breakdown is present.
+        assert!(
+            out.contains(&format!(
+                "::notice::{} more violations not shown",
+                metrics.len()
+            )),
+            "notice must report the total hidden count; got:\n{out}"
+        );
+        assert!(
+            out.contains("cyclomatic: 1") && out.contains("mi: 1"),
+            "notice must carry the per-metric breakdown; got:\n{out}"
         );
     }
 
@@ -789,8 +892,9 @@ mod tests {
 
         let shown = out.matches("title=cyclomatic::f:").count();
         // Overflow accounts for the one emittable violation beyond the
-        // cap; the non-UTF-8 entry never enters either tally.
-        let overflow_line = "::error::1 more cyclomatic violations not shown — see full log";
+        // cap; the non-UTF-8 entry never enters either tally. The
+        // rollup is a single consolidated `::notice::` line (#440).
+        let overflow_line = "::notice::1 more violations not shown (cyclomatic: 1) — see full log";
         let overflow = usize::from(out.contains(overflow_line));
         assert_eq!(
             shown, 2,
