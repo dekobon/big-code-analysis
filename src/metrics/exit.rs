@@ -195,7 +195,16 @@ impl_exit_match_kinds!(
     [ReturnStatement, ThrowStatement, YieldExpression]
 );
 impl_exit_match_kinds!(CppCode, Cpp, [ReturnStatement, ThrowStatement]);
-impl_exit_match_kinds!(JavaCode, Java, [ReturnStatement, ThrowStatement]);
+// Java's `yield` is the Java-14+ switch-expression yield statement
+// (an unambiguous statement node, distinct from a labeled `break`).
+// It hands the switch-expression value back as an explicit exit, so it
+// counts identically to Groovy and C#. Implicit final-expression
+// returns are not counted — only explicit return / throw / yield.
+impl_exit_match_kinds!(
+    JavaCode,
+    Java,
+    [ReturnStatement, ThrowStatement, YieldStatement]
+);
 // Groovy's `yield` is the Java-14+ switch-expression yield, identical
 // to Java's. Implicit-return-from-closure is NOT counted as an exit
 // (consistent with Java) — only explicit return / throw / yield count.
@@ -2027,6 +2036,26 @@ end",
                 }
                 "###
                 );
+            },
+        );
+    }
+
+    #[test]
+    fn java_yield_in_switch_expression() {
+        // Java-14+ switch-expression `yield` is an explicit exit. Each
+        // `yield` counts as one, alongside the enclosing `return`.
+        check_metrics::<JavaParser>(
+            "class A {
+                int describe(int n) {
+                    return switch (n) {
+                        case 0: yield 100;
+                        default: yield 200;
+                    };
+                }
+            }",
+            "foo.java",
+            |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 3.0);
             },
         );
     }

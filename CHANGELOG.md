@@ -675,6 +675,15 @@ for historical reference.
 
 ### Fixed
 
+- The Java Exit (`nexits`) metric now counts the switch-expression
+  `yield` statement as an exit point, matching the existing Groovy and
+  C# behaviour
+  ([#434](https://github.com/dekobon/big-code-analysis/issues/434)).
+  Java 14+ switch expressions use `yield value;` to hand a value back,
+  which is an explicit exit; the Java arm previously matched only
+  `return` / `throw`, under-counting exits for any method using a
+  switch expression and diverging from its sibling languages.
+
 - Kotlin `companion object { ... }` now opens its own `Class`
   func-space, consistent with named `object` declarations
   ([#431](https://github.com/dekobon/big-code-analysis/issues/431)).
