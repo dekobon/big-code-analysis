@@ -407,11 +407,29 @@ SELF_SCAN_BASE_ARGS := --paths . --exclude-from .bcaignore
 # `?`-heavy functions drop.
 SELF_SCAN_TRY_ARGS := $(if $(filter 0,$(BCA_COUNT_CYCLOMATIC_TRY)),--no-cyclomatic-try,)
 SELF_SCAN_BASE_ARGS += $(SELF_SCAN_TRY_ARGS)
+# Diff-aware footer partitioning in the self-scan gate (#356/#387). Set
+# BCA_SINCE=<ref> to append `--since <ref>`, which splits the per-file
+# rollup footer into "Files in this range:" (offenders the diff touched)
+# vs "Other offenders:". CI (`.github/workflows/pages.yml`) sets it to
+# `origin/${GITHUB_BASE_REF:-main}` so PR runs highlight the offenders a
+# PR introduced; local runs leave it unset, so the gate is unchanged and
+# the local/CI invocation stays identical by construction. `--since` is
+# presentational only — it never changes pass/fail (that would be
+# `--changed-only`, deliberately not adopted here, see #387). The
+# `--github-annotations` / `$GITHUB_STEP_SUMMARY` digest / remediation
+# block all auto-enable from GitHub Actions env vars, so no flag is
+# needed for them.
+#
+# Unlike SELF_SCAN_TRY_ARGS (a global `bca` flag), `--since` is a `check`
+# *subcommand* argument, so it is spliced in after `check` in each gate
+# target below — not into SELF_SCAN_BASE_ARGS (which precedes `check`).
+SELF_SCAN_SINCE_ARGS := $(if $(BCA_SINCE),--since $(BCA_SINCE),)
 
 self-scan:
 	@echo "bca self-scan (hard gate)..."
 	@$(SELF_SCAN_BCA) $(SELF_SCAN_BASE_ARGS) \
 	  check \
+	  $(SELF_SCAN_SINCE_ARGS) \
 	  --config bca-thresholds.toml \
 	  --baseline .bca-baseline.toml
 
@@ -419,6 +437,7 @@ self-scan-headroom:
 	@echo "bca self-scan (soft gate, BCA_HEADROOM=$${BCA_HEADROOM:-0.95})..."
 	@$(SELF_SCAN_BCA) $(SELF_SCAN_BASE_ARGS) \
 	  check \
+	  $(SELF_SCAN_SINCE_ARGS) \
 	  --config bca-thresholds.toml \
 	  --tier soft \
 	  --headroom $${BCA_HEADROOM:-0.95} \

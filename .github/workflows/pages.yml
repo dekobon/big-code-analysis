@@ -164,7 +164,14 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 1
+          # `--since "origin/${GITHUB_BASE_REF:-main}"` (set via
+          # BCA_SINCE on the threshold-gate step below, #387) resolves a
+          # merge-base, which needs full history; the default shallow
+          # `fetch-depth: 1` would make that ref unreachable. `bca`
+          # soft-warns and falls back to an unpartitioned footer if the
+          # base is still unresolvable, so this is a readability win, not
+          # a correctness dependency.
+          fetch-depth: 0
           submodules: false
 
       # Build `bca` from the current checkout so the gate always
@@ -239,8 +246,21 @@ jobs:
       # Makefile owns the path filters, --exclude-from, --num-jobs
       # defaults, and threshold/baseline file selection. Drift between
       # local and CI is now impossible by construction.
-      - name: Threshold gate (baseline-ratcheted)
+      #
+      # `BCA_SINCE` opts the gate into the #356 diff-aware footer
+      # partition (#387): the per-file rollup splits into "Files in this
+      # range:" (offenders this PR touched) vs "Other offenders:", so a
+      # reviewer skimming a red gate sees what the PR introduced. On a
+      # `push` to main `GITHUB_BASE_REF` is empty, so it resolves to
+      # `origin/main` (a near-empty range — harmless). `--github-annotations`,
+      # the `$GITHUB_STEP_SUMMARY` digest, and the remediation block all
+      # auto-enable from GitHub Actions env vars, so no flag is needed for
+      # them. `--since` is presentational only; it never changes the
+      # gate's pass/fail.
+      - name: Threshold gate (baseline-ratcheted, diff-aware)
         run: make self-scan
+        env:
+          BCA_SINCE: origin/${{ github.base_ref || 'main' }}
 
       - name: Upload reports artifact
         if: always()
