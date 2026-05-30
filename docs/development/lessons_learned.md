@@ -3116,3 +3116,72 @@ refactor like this is verified by zero snapshot drift across every
 affected language, including the integration snapshots.
 
 ---
+
+## 60. A metric-computation change is only validated workspace-wide — downstream crates pin the numbers
+
+When a change alters how a metric is *computed* — a merge convention, a
+divisor guard, a new counted node kind — the library's own test suite is
+not the whole story. `big-code-analysis-cli`, `big-code-analysis-web`, and
+`big-code-analysis-py` each assert concrete metric values: the web crate's
+`test_web_metrics_json` compares a full serialized metrics blob byte-for-byte,
+and the py SARIF / threshold tests pin per-metric numbers. A `cargo test -p
+big-code-analysis` run never compiles, let alone exercises, any of them, so a
+value shift the library's own (often snapshot-anchored) tests accept can leave
+a downstream crate's hardcoded expectation stale — and the regression merges
+green.
+
+**The #437 LOC min/max fix went stale in the web crate, invisible to a
+lib-only review** (#437, `cbe18b21`; fix `bdc44a13`). Making `compute_minmax`
+include each container's own span legitimately raised the unit-level
+`sloc_max` / `cloc_max` / `blank_max`, which shifted `test_web_metrics_json`'s
+expected JSON. The review for that wave ran only `cargo test -p
+big-code-analysis` and merged the change clean; the failure surfaced only at
+the full-workspace gate. A subsequent agent then dismissed it as
+"pre-existing" without checking `main` — but it passed on `main` and failed on
+the branch, which is the definition of a regression, not a pre-existing
+failure.
+
+**Lesson:** After any change to metric computation or AST traversal, validate
+with `cargo test --workspace --all-features`, never just `-p
+big-code-analysis` — the downstream crates that pin metric numbers are exactly
+the ones a library-scoped run skips. And "fails on the integration branch" is
+not "fails on `main`": bisect against `main` before calling a failure
+pre-existing. A downstream assertion that is green on `main` and red on your
+branch is your regression to fix, not a background condition to step around.
+
+---
+
+## 61. The label-child node kind is grammar-specific — a copied kind-gate silently no-ops
+
+A predicate that gates on a child node's *kind* — for example, scoring a jump
+as an unstructured (cognitive +1) jump only when it carries a label,
+`BreakStatement | ContinueStatement if node.is_child(Identifier as u16)` —
+bakes in one grammar's kind id for that child. The *semantic* child (a jump
+label, a condition, a name) is shared across languages, but the node *kind* it
+surfaces under is per-grammar. Copying a sibling language's gate verbatim into
+another language compiles, runs, and matches nothing, because the kind id it
+names never appears under that grammar's construct. There is no compiler or
+clippy signal, and no test failure unless a fixture exercises the exact gated
+shape — an unlabeled-only test suite scores the gated branch at zero forever.
+
+**The SonarSource jump-statement fix had to use a different label kind for
+each grammar family** (#435, `e81b3f31`). Adding labeled-`break`/`continue`
+gating to the shared `js_cognitive!` macro required
+`is_child(StatementIdentifier as u16)`: JS-family labels surface as
+`statement_identifier`, not the `Identifier` that Java and Groovy use, nor
+Go's `LabelName` or Perl's `Label`. Copying Java's `is_child(Identifier)` into
+the JS macro would have silently scored every `outer: for (…) { break outer; }`
+at +0. The fix was verified to resolve `StatementIdentifier` correctly for all
+four enums the macro instantiates (Javascript / Typescript / Tsx / mozjs)
+before relying on it.
+
+**Lesson:** Before reusing a sibling's child-kind-gated predicate in another
+language, dump the AST for the construct in the *target* grammar and confirm
+the gating kind actually appears there — the semantic role transfers, the node
+kind does not. Add a fixture that exercises the gated branch (a labeled jump,
+not a plain one) and test-via-revert that branch alone; a suite of only
+unlabeled inputs proves nothing. This is the cousin of lesson #53 (a positional
+`child(idx)` breaking on an optional grammar slot): both are "the grammar's
+actual shape is not the shape you assumed from a sibling."
+
+---
