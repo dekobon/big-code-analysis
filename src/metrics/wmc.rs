@@ -69,13 +69,9 @@ impl Stats {
     pub fn merge(&mut self, other: &Stats) {
         use SpaceKind::*;
 
-        // Merges the cyclomatic complexity of a method into the `Wmc`
-        // value of the enclosing class or interface. A method's own
-        // contribution is its cumulative cyclomatic minus the cyclomatic
-        // already claimed by any nested class / interface spaces it
-        // contains: those nested classes form their own WMC scope (their
-        // members roll up via `class_wmc_sum` below), so re-adding their
-        // complexity here would double-count it (#463).
+        // Rolls a child space's cyclomatic into the enclosing class /
+        // interface WMC, subtracting any nested-class complexity so it is
+        // not double-counted (#463). See the per-arm rationale below.
         match other.space_kind {
             // A method contributes its own cyclomatic minus the
             // complexity already claimed by nested class / interface
@@ -2071,6 +2067,15 @@ mod tests {
                 assert_eq!(
                     anon_methods, 2,
                     "run + helper attributed to the anonymous class"
+                );
+                // Issue's core requirement: members are *removed* from the
+                // enclosing method, not merely added to the anonymous space.
+                // `get`'s own function count is just itself; reverting the
+                // space-opening arm folds run/helper back in, lifting it to 3.
+                assert_eq!(
+                    get.metrics.nom.functions(),
+                    1.0,
+                    "get owns only itself; run/helper are not folded in"
                 );
                 // The anonymous class rolls up both methods' WMC (run +
                 // helper = 2). These two methods are accounted for in the

@@ -2658,14 +2658,14 @@ path = "src/metrics/wmc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 8194062.214590067
+value = 8214732.614746491
 
 [[entry]]
 path = "src/metrics/wmc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 3559.0
+value = 3564.0
 
 [[entry]]
 path = "src/metrics/wmc.rs"
