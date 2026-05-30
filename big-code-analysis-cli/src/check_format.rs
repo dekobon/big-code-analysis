@@ -497,7 +497,10 @@ fn write_top_offenders(out: &mut String, pairs: &[(Violation, Option<Coverage>)]
 /// break rather than the literal `a\|b`). Newlines and carriage
 /// returns are collapsed to a single space — multi-line cells
 /// would break the table layout entirely.
-fn escape_gfm_cell(s: &str) -> String {
+///
+/// `markdown_report::escape_cell` delegates here so the two GFM-table
+/// emitters in this crate share one escaping policy (see issue #439).
+pub(crate) fn escape_gfm_cell(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for ch in s.chars() {
         match ch {

@@ -934,6 +934,18 @@ for historical reference.
   widening. Fixes
   [#348](https://github.com/dekobon/big-code-analysis/issues/348).
 
+### Fixed
+
+- The markdown report (`bca --output-format markdown`) no longer
+  corrupts File-column values that contain a backslash
+  ([#439](https://github.com/dekobon/big-code-analysis/issues/439)).
+  Its cell escaper escaped `|` and newlines but not `\`, so a GFM
+  table cell treated `\` as an escape introducer — `src\main.rs`
+  rendered as `srcmain.rs` and `a\|b` broke out of the cell.
+  `escape_cell` now delegates to the `check` report's
+  `escape_gfm_cell`, which escapes `\` before `|`, so the two
+  GFM-table emitters share one escaping policy.
+
 ## [1.1.0] - 2026-05-25
 
 ### Added

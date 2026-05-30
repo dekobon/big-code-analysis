@@ -136,8 +136,12 @@ fn extract_summaries_inner(
 // Report generation
 // ---------------------------------------------------------------------------
 
+/// Escape a value for a GFM table cell. Delegates to the crate's single
+/// GFM-cell escaper so backslash, pipe, and newline handling stay in sync
+/// with the `check` report (issue #439 — the previous local copy escaped
+/// `|` and newlines but not `\`, corrupting backslash-bearing paths).
 fn escape_cell(s: &str) -> String {
-    s.replace('|', "\\|").replace(['\n', '\r'], " ")
+    crate::check_format::escape_gfm_cell(s)
 }
 
 fn escape_name(s: &str) -> String {
@@ -1040,6 +1044,24 @@ mod tests {
         assert_eq!(title_case("python"), "Python");
         assert_eq!(title_case("c/c++"), "C/C++");
         assert_eq!(title_case(""), "");
+    }
+
+    #[test]
+    fn escape_cell_escapes_backslash_before_pipe() {
+        // Regression for #439: a Windows-style path must render literally.
+        // `\` is a GFM escape introducer, so an unescaped `src\main.rs`
+        // renders as `srcmain.rs` (the `\m` is consumed). Escaping `\` to
+        // `\\` keeps the backslash visible.
+        assert_eq!(escape_cell("src\\main.rs"), "src\\\\main.rs");
+        // `\` is escaped first so the cell cannot break out of the column:
+        // `a\|b` becomes `a\\\|b` (escaped backslash + escaped pipe), not
+        // `a\\|b` (which would split the cell).
+        assert_eq!(escape_cell("a\\|b"), "a\\\\\\|b");
+        // A trailing backslash must not consume the closing column border.
+        assert_eq!(escape_cell("dir\\"), "dir\\\\");
+        // Newlines still collapse to a single space — a cell cannot hold a
+        // raw line break.
+        assert_eq!(escape_cell("a\nb\rc"), "a b c");
     }
 
     #[test]
