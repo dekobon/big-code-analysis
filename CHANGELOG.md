@@ -740,6 +740,19 @@ for historical reference.
 
 ### Fixed
 
+- The cyclomatic cross-language parity tests now anchor each family's
+  absolute normalised CCN, not just mutual cross-language agreement
+  ([#468](https://github.com/dekobon/big-code-analysis/issues/468)).
+  Seven of the eight families (`switch_with_default`,
+  `switch_without_default`, `if_else_if_else_chain`, `single_if_no_else`,
+  `two_arm_switch_with_wildcard`, `do_while_loop`, `range_for_loop`)
+  asserted only `assert_parity` (all languages agree), so a regression
+  shifting every language's count by the same amount would pass green at
+  the wrong number (lessons #6 / #23). Each family now also asserts the
+  hand-derived expected magnitude via `assert_normalised`, mirroring the
+  anchor already present in `safe_navigation_chain_parity`. Test-only —
+  no production behaviour or metric value changes.
+
 - C# indexers are no longer triple-counted in `nom` and `wmc`
   ([#464](https://github.com/dekobon/big-code-analysis/issues/464)).
   A bodied indexer (`this[int i] { get => …; set => …; }`) opened a

@@ -83,6 +83,28 @@ fn assert_parity(family: &str, sums: &BTreeMap<&str, f64>, offsets: &BTreeMap<&s
     );
 }
 
+/// Asserts every language's normalised CCN (`sums[lang] - offsets[lang]`)
+/// equals `expected`. This pins the *absolute* magnitude a family is
+/// built around, so a regression that shifts every language by the same
+/// amount — passing `assert_parity` because they still agree — is caught.
+/// The per-family `expected` value and its derivation live at the call
+/// site (lessons #6 / #23 / #468).
+#[track_caller]
+fn assert_normalised(
+    sums: &BTreeMap<&str, f64>,
+    offsets: &BTreeMap<&str, f64>,
+    expected: f64,
+    family: &str,
+) {
+    for (lang, sum) in sums {
+        let normalised = sum - offsets.get(lang).copied().unwrap_or(0.0);
+        assert_eq!(
+            normalised, expected,
+            "{family}/{lang}: normalised CCN {normalised} != expected {expected}",
+        );
+    }
+}
+
 // --- Family 1: switch / match with fallback arm ----------------------------
 //
 // Three semantically equivalent fixtures, each defining a single function
@@ -185,6 +207,13 @@ fn switch_with_default_parity() {
         ("csharp", JAVA_CLASS_OFFSET),
     ]);
     assert_parity("switch_with_default", &sums, &offsets);
+
+    // Anchor the absolute magnitude, not just mutual agreement (lessons
+    // #6 / #23 / #468): a symmetric regression that dropped or added +1
+    // across every language would still satisfy `assert_parity`. Pin the
+    // hand-derived spec value: unit(1) + fn(1) + 3 explicit arms = 5
+    // (fallback skipped post-#106), Java/C# normalised by JAVA_CLASS_OFFSET.
+    assert_normalised(&sums, &offsets, 5.0, "switch_with_default");
 }
 
 // --- Family 2: switch / case / match without fallback ----------------------
@@ -307,6 +336,11 @@ f() {
     );
     let offsets = BTreeMap::from([("java", JAVA_CLASS_OFFSET), ("csharp", JAVA_CLASS_OFFSET)]);
     assert_parity("switch_without_default", &sums, &offsets);
+
+    // Anchor the absolute magnitude (lessons #6 / #23 / #468):
+    // unit(1) + fn(1) + 3 arms = 5 (no fallback to count; Rust's bare
+    // `_ => {}` skipped post-#106, Bash arms count once post-#107).
+    assert_normalised(&sums, &offsets, 5.0, "switch_without_default");
 }
 
 // --- Family 3: if / else if / else chain -----------------------------------
@@ -456,6 +490,13 @@ f() {
     );
     let offsets = BTreeMap::from([("java", JAVA_CLASS_OFFSET)]);
     assert_parity("if_else_if_else_chain", &sums, &offsets);
+
+    // Anchor the absolute magnitude (lessons #6 / #23 / #468):
+    // unit(1) + fn(1) + 3 conditions = 5 (one `if`, two `else if`/`elif`;
+    // the trailing `else` is not a decision point). This family caught
+    // the #229 Python over-count, so pinning the value also guards the
+    // `parent_grandparent_match` fix from a symmetric regression.
+    assert_normalised(&sums, &offsets, 5.0, "if_else_if_else_chain");
 }
 
 // --- Family 4: single `if` with no `else` ----------------------------------
@@ -563,6 +604,11 @@ f() {
     );
     let offsets = BTreeMap::from([("java", JAVA_CLASS_OFFSET)]);
     assert_parity("single_if_no_else", &sums, &offsets);
+
+    // Anchor the absolute magnitude (lessons #6 / #23 / #468):
+    // unit(1) + fn(1) + 1 if = 3. No else clause, so no per-language
+    // else/elif idiosyncrasy contributes.
+    assert_normalised(&sums, &offsets, 3.0, "single_if_no_else");
 }
 
 // --- Family 5: 2-arm switch / match with wildcard / default ---------------
@@ -714,6 +760,13 @@ function f($x) {
     );
     let offsets = BTreeMap::from([("java", JAVA_CLASS_OFFSET), ("csharp", JAVA_CLASS_OFFSET)]);
     assert_parity("two_arm_switch_with_wildcard", &sums, &offsets);
+
+    // Anchor the absolute magnitude (lessons #6 / #23 / #468):
+    // unit(1) + fn(1) + 1 explicit arm = 3 (the wildcard/`default` is
+    // skipped). This is the canonical lesson-11 trigger (#106): pinning
+    // the value guards against both an over-count of the wildcard and an
+    // under-count of the explicit arm shifting symmetrically.
+    assert_normalised(&sums, &offsets, 3.0, "two_arm_switch_with_wildcard");
 }
 
 // --- Family 6: do-while loop ---------------------------------------------
@@ -807,6 +860,12 @@ fn do_while_loop_parity() {
     );
     let offsets = BTreeMap::from([("java", JAVA_CLASS_OFFSET), ("csharp", JAVA_CLASS_OFFSET)]);
     assert_parity("do_while_loop", &sums, &offsets);
+
+    // Anchor the absolute magnitude (lessons #6 / #23 / #468):
+    // unit(1) + fn(1) + do(1) = 3. The loop fires once via the inner
+    // `while` keyword token; pinning the value catches a regression that
+    // additionally listed `DoStatement` (double-count, #284) symmetrically.
+    assert_normalised(&sums, &offsets, 3.0, "do_while_loop");
 }
 
 // --- Family 7: range / enhanced for loop ---------------------------------
@@ -899,6 +958,13 @@ fn range_for_loop_parity() {
     );
     let offsets = BTreeMap::from([("java", JAVA_CLASS_OFFSET), ("csharp", JAVA_CLASS_OFFSET)]);
     assert_parity("range_for_loop", &sums, &offsets);
+
+    // Anchor the absolute magnitude (lessons #6 / #23 / #468):
+    // unit(1) + fn(1) + for(1) = 3. Each range/enhanced-for fires exactly
+    // one decision point; pinning the value catches a regression that
+    // additionally listed the statement node (double-count, #284) across
+    // all languages symmetrically.
+    assert_normalised(&sums, &offsets, 3.0, "range_for_loop");
 }
 
 // --- Family 8: safe-navigation operator chains ---------------------------
