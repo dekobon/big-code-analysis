@@ -1150,8 +1150,6 @@ for historical reference.
   widening. Fixes
   [#348](https://github.com/dekobon/big-code-analysis/issues/348).
 
-### Fixed
-
 - The markdown report (`bca --output-format markdown`) no longer
   corrupts File-column values that contain a backslash
   ([#439](https://github.com/dekobon/big-code-analysis/issues/439)).
