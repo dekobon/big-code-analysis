@@ -23,6 +23,31 @@ fails the pipeline before the change lands.
 `1` is reserved so CI can distinguish a regression (`2`) from a tool
 misconfiguration (`1`).
 
+### Tiered exit codes (`--strict-exit-codes`)
+
+`--strict-exit-codes` (or `[check] exit_codes = "tiered"` in
+`bca.toml`) splits the single violation code `2` by severity so CI can
+branch on it without parsing the `[new]` / `[regr +N%]` stderr tags:
+
+| Code | Meaning (tiered mode) |
+|------|-----------------------|
+| `0`  | All functions within thresholds (or `--no-fail` set). |
+| `1`  | Tool error. |
+| `2`  | New offenders only (no `--baseline` entry matched). |
+| `3`  | Baseline regressions only (a baselined offender worsened). |
+| `4`  | Both new offenders and regressions. |
+| `5`  | A `--tier=soft` violation that also breaches the hard limit. |
+
+The tiered codes are opt-in; the default contract above stays
+`0`/`1`/`2`. Every fail-state remains non-zero, so `exit != 0 → fail`
+wrappers keep working — only tooling that tests `$? -eq 2` explicitly
+needs to widen to `2`-`5`. `--no-fail` still forces exit `0`. Code `5`
+is emitted only at the soft tier; at the hard tier every violation is a
+hard breach by definition, so the `2`/`3`/`4` split applies instead.
+The manifest key can only enable the tiered mode (`--strict-exit-codes`
+ORs on top); an invalid `exit_codes` value is a tool error (`1`).
+`--print-effective-config` reports the resolved `exit_codes` style.
+
 ## Declaring thresholds
 
 Pass `--threshold <metric>=<limit>` once per metric (repeatable). Metric

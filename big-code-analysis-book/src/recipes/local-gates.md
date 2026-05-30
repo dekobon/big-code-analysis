@@ -202,13 +202,16 @@ self-scan-write-baseline-headroom:  # absorb soft-tier offenders
 - A `[check]` table sets gate-only options. `exclude` is a glob list
   whose matching files are analysed and reported but exempt from the
   threshold gate (and from `--write-baseline`); `exclude_from` points
-  at a `.gitignore`-style file of the same globs. Both mirror the
-  `--check-exclude` / `--check-exclude-from` flags.
+  at a `.gitignore`-style file of the same globs (both mirror the
+  `--check-exclude` / `--check-exclude-from` flags). `exit_codes =
+  "tiered"` opts into the finer-grained exit codes (mirrors
+  `--strict-exit-codes`; see [Exit codes](#exit-codes)); `"default"`
+  (the implicit value) keeps the stable `0`/`1`/`2` contract.
 - A `[thresholds.soft]` table sets per-metric soft-tier limits
   (consumed by `--tier=soft`; see [Two-tier thresholds](#two-tier-thresholds)).
-  Other unrecognized keys (forthcoming options such as `[exit_codes]`)
-  are ignored with a one-line warning, so you can pre-adopt schema
-  additions without breaking older `bca` builds.
+  Unrecognized keys are ignored with a one-line warning, so you can
+  pre-adopt forthcoming schema additions without breaking older `bca`
+  builds.
 - `bca check --print-effective-config` prints the resolved view,
   including a `manifest` provenance line, so you can see exactly what
   the merge produced.
@@ -304,11 +307,22 @@ not rescaled. There is no separate helper script or second TOML
 file to maintain — the soft tier is the hard-tier invocation plus
 one flag.
 
+### Exit codes
+
 The gate exit codes propagate verbatim from `bca check`: **`0`
 clean, `2` on any threshold violation (hard or soft), `1` on tool
 error**. The soft tier is a real gate — never wrap
 `make self-scan-headroom` in `|| true` thinking it's advisory; the
 non-zero exit is the whole point of the encroachment band.
+
+Pass `--strict-exit-codes` (or set `[check] exit_codes = "tiered"`)
+to split the single violation code `2` by severity: `2` new
+offenders only, `3` regressions only, `4` both, `5` a `--tier=soft`
+violation that also breaches the hard limit. The tiered codes are
+opt-in; the default stays `0`/`1`/`2`, and every fail-state remains
+non-zero. Use them when CI needs to route "a new offender appeared"
+differently from "a baselined offender got worse" without parsing
+the `[new]` / `[regr +N%]` stderr tags.
 
 ### Wiring into pre-commit and CI
 

@@ -97,7 +97,7 @@ bca\-list\-metrics(1)
 List the metrics this tool can compute and exit
 .TP
 bca\-check(1)
-Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed"
+Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed". `\-\-strict\-exit\-codes` opts into tiered codes (2\-5) that split the violation case by severity
 .TP
 bca\-init(1)
 Scaffold the canonical adoption files (`bca\-thresholds.toml`, `.bcaignore`, `.bca\-baseline.toml`) in the current directory. Replaces the six\-step copy\-paste flow from the book\*(Aqs adoption recipe. Refuses to overwrite existing files without `\-\-force`

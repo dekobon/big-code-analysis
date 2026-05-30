@@ -35,12 +35,13 @@ use crate::{CheckArgs, GlobalOpts, NumJobs, die, die_io, read_utf8_file};
 const MANIFEST_FILE: &str = "bca.toml";
 
 /// Top-level manifest keys understood today. Any other top-level key
-/// triggers a one-line "ignored" warning (forward-compat for the
-/// `exit_codes` fragment tracked under #385). The `[thresholds.soft]`
-/// sub-table (#375) is *not* a top-level key — it lives under the known
-/// `thresholds` key and is split out by [`split_thresholds_table`]. The
-/// `[check]` table (#378) carries gate-only options (`exclude`,
-/// `exclude_from`) and is consumed as the typed [`RawCheck`].
+/// triggers a one-line "ignored" warning, so unreleased options can be
+/// pre-adopted without breaking older `bca` builds. The
+/// `[thresholds.soft]` sub-table (#375) is *not* a top-level key — it
+/// lives under the known `thresholds` key and is split out by
+/// [`split_thresholds_table`]. The `[check]` table (#378/#385) carries
+/// gate-only options (`exclude`, `exclude_from`, `exit_codes`) and is
+/// consumed as the typed [`RawCheck`].
 const KNOWN_KEYS: &[&str] = &[
     "paths",
     "exclude_from",
@@ -104,6 +105,11 @@ struct RawCheck {
     exclude: Option<Vec<String>>,
     /// Path to a `.gitignore`-style file of additional exclude globs.
     exclude_from: Option<PathBuf>,
+    /// Exit-code style (#385): `"default"` keeps the stable 0/1/2
+    /// contract; `"tiered"` opts into the 2-5 severity split. Mirrors
+    /// `--strict-exit-codes`, which ORs on top (the CLI flag can only
+    /// enable, never disable).
+    exit_codes: Option<String>,
 }
 
 /// Discover and load `bca.toml`. Returns `None` when no manifest exists
@@ -249,6 +255,20 @@ impl Manifest {
             && let Some(exclude_from) = &self.raw.check.exclude_from
         {
             args.check_exclude_from = Some(self.resolve(exclude_from));
+        }
+        // `[check] exit_codes` (#385). A bare `--strict-exit-codes` flag
+        // cannot represent "off", so the manifest can only *enable* the
+        // tiered mode; it never overrides an explicit CLI opt-in. OR the
+        // two sources, mirroring `baseline_fuzzy_match`. An unrecognised
+        // value is a hard error rather than a silent default — a typo
+        // (`exit_codes = "teired"`) must not quietly fall back to the
+        // legacy contract.
+        match self.raw.check.exit_codes.as_deref() {
+            None | Some("default") => {}
+            Some("tiered") => args.strict_exit_codes = true,
+            Some(other) => die(format_args!(
+                "bca.toml: [check] exit_codes must be \"default\" or \"tiered\"; got {other:?}"
+            )),
         }
     }
 

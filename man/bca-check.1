@@ -2,11 +2,11 @@
 .el .ds Aq '
 .TH BCA-CHECK 1  "big-code-analysis 1.1.0" "big-code-analysis Manual"
 .SH NAME
-bca\-check \- Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed"
+bca\-check \- Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed". `\-\-strict\-exit\-codes` opts into tiered codes (2\-5) that split the violation case by severity
 .SH SYNOPSIS
-\fBbca\-check\fR [\fB\-\-threshold\fR] [\fB\-\-config\fR] [\fB\-\-no\-fail\fR] [\fB\-\-no\-suppress\fR] [\fB\-O\fR|\fB\-\-output\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-baseline\fR] [\fB\-\-write\-baseline\fR] [\fB\-\-no\-summary\fR] [\fB\-\-since\fR] [\fB\-\-changed\-only\fR] [\fB\-\-github\-annotations\fR] [\fB\-\-summary\-file\fR] [\fB\-\-no\-remediation\fR] [\fB\-\-print\-effective\-config\fR] [\fB\-\-headroom\fR] [\fB\-\-tier\fR] [\fB\-\-baseline\-line\-tolerance\fR] [\fB\-\-baseline\-fuzzy\-match\fR] [\fB\-\-check\-exclude\fR] [\fB\-\-check\-exclude\-from\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+\fBbca\-check\fR [\fB\-\-threshold\fR] [\fB\-\-config\fR] [\fB\-\-no\-fail\fR] [\fB\-\-no\-suppress\fR] [\fB\-O\fR|\fB\-\-output\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-baseline\fR] [\fB\-\-write\-baseline\fR] [\fB\-\-no\-summary\fR] [\fB\-\-since\fR] [\fB\-\-changed\-only\fR] [\fB\-\-github\-annotations\fR] [\fB\-\-summary\-file\fR] [\fB\-\-no\-remediation\fR] [\fB\-\-print\-effective\-config\fR] [\fB\-\-headroom\fR] [\fB\-\-tier\fR] [\fB\-\-strict\-exit\-codes\fR] [\fB\-\-baseline\-line\-tolerance\fR] [\fB\-\-baseline\-fuzzy\-match\fR] [\fB\-\-check\-exclude\fR] [\fB\-\-check\-exclude\-from\fR] [\fB\-h\fR|\fB\-\-help\fR] 
 .SH DESCRIPTION
-Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed"
+Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed". `\-\-strict\-exit\-codes` opts into tiered codes (2\-5) that split the violation case by severity
 .SH OPTIONS
 .TP
 \fB\-\-threshold\fR \fI<THRESHOLDS>\fR
@@ -101,6 +101,13 @@ hard
 .IP \(bu 2
 soft
 .RE
+.TP
+\fB\-\-strict\-exit\-codes\fR
+Opt into tiered exit codes (issue #385). Default behaviour is the stable 0/1/2 contract: `0` clean, `1` tool error, `2` on any threshold violation. With this flag, exit `2` is split by category so CI can branch on severity without parsing the `[new]` / `[regr +N%]` stderr tags:
+
+\- `0` — clean. \- `1` — tool error (bad config, unknown metric, unreadable path). \- `2` — new offenders only (no baseline entry matched). \- `3` — regressions only (a baselined offender worsened). \- `4` — both new offenders and regressions. \- `5` — at least one `\-\-tier=soft` violation also breaches the hard limit (more urgent than soft\-band encroachment). Only emitted at the soft tier; at the hard tier every violation is a hard breach by definition, so the 2/3/4 split is used instead.
+
+Every fail\-state stays non\-zero, so existing `exit != 0 → fail` tooling is unaffected; only consumers that test `$? \-eq 2` explicitly need to widen to 2\-5. `\-\-no\-fail` still forces exit `0`. Mirrored by `[check] exit_codes = "tiered"` in `bca.toml`; the flag can only enable the tiered mode (a bare flag cannot represent "off"), so it ORs with the manifest key rather than replacing it.
 .TP
 \fB\-\-baseline\-line\-tolerance\fR \fI<LINES>\fR
 Tolerance, in lines, for matching a `\-\-baseline` entry whose qualified symbol is ambiguous (two methods with the same name on different `impl` blocks, overloads, collided anonymous spaces). Unambiguous symbols match regardless of line drift; this only disambiguates a tie. Defaults to 50. Mirrored by the `baseline_line_tolerance` key in `bca.toml`

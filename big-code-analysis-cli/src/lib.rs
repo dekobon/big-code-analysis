@@ -301,6 +301,8 @@ enum Command {
     /// Check per-function metrics against thresholds. Exits 2 when any
     /// threshold is exceeded; reserve exit 1 for tool errors so CI can
     /// distinguish "metric regression" from "tool crashed".
+    /// `--strict-exit-codes` opts into tiered codes (2-5) that split the
+    /// violation case by severity.
     // Boxed because `CheckArgs` is by far the largest variant payload
     // (its many gate-tuning flags dwarf the other subcommands' args);
     // boxing keeps `Command` small and silences `large_enum_variant`.
@@ -536,6 +538,31 @@ struct CheckArgs {
     /// Both tiers ratchet through the same `--baseline`.
     #[clap(long = "tier", value_enum, default_value_t = Tier::Hard)]
     tier: Tier,
+    /// Opt into tiered exit codes (issue #385). Default behaviour is the
+    /// stable 0/1/2 contract: `0` clean, `1` tool error, `2` on any
+    /// threshold violation. With this flag, exit `2` is split by
+    /// category so CI can branch on severity without parsing the
+    /// `[new]` / `[regr +N%]` stderr tags:
+    ///
+    /// - `0` — clean.
+    /// - `1` — tool error (bad config, unknown metric, unreadable path).
+    /// - `2` — new offenders only (no baseline entry matched).
+    /// - `3` — regressions only (a baselined offender worsened).
+    /// - `4` — both new offenders and regressions.
+    /// - `5` — at least one `--tier=soft` violation also breaches the
+    ///   hard limit (more urgent than soft-band encroachment). Only
+    ///   emitted at the soft tier; at the hard tier every violation is a
+    ///   hard breach by definition, so the 2/3/4 split is used instead.
+    ///
+    /// Every fail-state stays non-zero, so existing `exit != 0 → fail`
+    /// tooling is unaffected; only consumers that test `$? -eq 2`
+    /// explicitly need to widen to 2-5. `--no-fail` still forces exit
+    /// `0`. Mirrored by `[check] exit_codes = "tiered"` in `bca.toml`;
+    /// the flag can only enable the tiered mode (a bare flag cannot
+    /// represent "off"), so it ORs with the manifest key rather than
+    /// replacing it.
+    #[clap(long = "strict-exit-codes")]
+    strict_exit_codes: bool,
     /// Tolerance, in lines, for matching a `--baseline` entry whose
     /// qualified symbol is ambiguous (two methods with the same name on
     /// different `impl` blocks, overloads, collided anonymous spaces).

@@ -339,6 +339,7 @@ fn base_check_args() -> CheckArgs {
         print_effective_config: None,
         headroom: None,
         tier: crate::Tier::Hard,
+        strict_exit_codes: false,
         baseline_line_tolerance: None,
         baseline_fuzzy_match: false,
         check_exclude: Vec::new(),
@@ -564,6 +565,7 @@ fn effective_config_toml_roundtrips_through_threshold_config_schema() {
             since: None,
             headroom: None,
             tier: "hard",
+            exit_codes: "default",
             baseline_line_tolerance: None,
             baseline_fuzzy_match: false,
         },
@@ -613,6 +615,7 @@ fn effective_config_json_serializes_threshold_overrides() {
             since: None,
             headroom: None,
             tier: "hard",
+            exit_codes: "default",
             baseline_line_tolerance: None,
             baseline_fuzzy_match: false,
         },
@@ -793,4 +796,134 @@ fn apply_check_exclude_unions_flag_and_file() {
 
     assert_eq!(kept.len(), 1);
     assert_eq!(kept[0].path, PathBuf::from("src/lib.rs"));
+}
+
+// -- Tiered exit-code classification (#385) -------------------------------
+
+/// Build a `(Violation, Option<Coverage>)` pair for the classifier
+/// tests: `value` drives hard-breach detection; `coverage` selects the
+/// new/regressed bucket (`None` models "no `--baseline` supplied").
+fn pair(value: f64, coverage: Option<Coverage>) -> (Violation, Option<Coverage>) {
+    (violation("a.rs", "f", value, 10.0), coverage)
+}
+
+/// Hard-tier limits used across the soft-tier escalation tests: a
+/// `cyclomatic` ceiling of 10. The `violation` helper stamps the metric
+/// as `cyclomatic`, so this key always matches.
+fn hard_limits() -> BTreeMap<String, f64> {
+    BTreeMap::from([("cyclomatic".to_owned(), 10.0)])
+}
+
+#[test]
+fn classify_empty_pairs_is_clean() {
+    let outcome = classify_check_outcome(&[], Tier::Hard, &hard_limits());
+    assert_eq!(outcome, CheckOutcome::Clean);
+}
+
+#[test]
+fn classify_no_baseline_is_new_only() {
+    // Without `--baseline` every violation carries `None` coverage and
+    // counts as a new offender — there is nothing baselined to regress
+    // against.
+    let pairs = [pair(20.0, None), pair(30.0, None)];
+    let outcome = classify_check_outcome(&pairs, Tier::Hard, &hard_limits());
+    assert_eq!(outcome, CheckOutcome::NewOnly);
+}
+
+#[test]
+fn classify_new_variant_is_new_only() {
+    let pairs = [pair(20.0, Some(Coverage::New))];
+    let outcome = classify_check_outcome(&pairs, Tier::Hard, &hard_limits());
+    assert_eq!(outcome, CheckOutcome::NewOnly);
+}
+
+#[test]
+fn classify_regressed_only() {
+    let pairs = [
+        pair(20.0, Some(Coverage::Regressed { recorded: 15.0 })),
+        pair(30.0, Some(Coverage::Regressed { recorded: 25.0 })),
+    ];
+    let outcome = classify_check_outcome(&pairs, Tier::Hard, &hard_limits());
+    assert_eq!(outcome, CheckOutcome::RegressionOnly);
+}
+
+#[test]
+fn classify_mixed_new_and_regression() {
+    let pairs = [
+        pair(20.0, Some(Coverage::New)),
+        pair(30.0, Some(Coverage::Regressed { recorded: 25.0 })),
+    ];
+    let outcome = classify_check_outcome(&pairs, Tier::Hard, &hard_limits());
+    assert_eq!(outcome, CheckOutcome::Mixed);
+}
+
+#[test]
+fn classify_soft_tier_hard_breach_escalates_over_regression() {
+    // Soft tier, value 12 over the hard ceiling 10: a true breach, more
+    // urgent than the regression bucket it would otherwise land in.
+    let pairs = [pair(12.0, Some(Coverage::Regressed { recorded: 11.0 }))];
+    let outcome = classify_check_outcome(&pairs, Tier::Soft, &hard_limits());
+    assert_eq!(outcome, CheckOutcome::HardBreach);
+}
+
+#[test]
+fn classify_soft_tier_encroachment_is_not_hard_breach() {
+    // Soft tier, value 8: over the soft band (the gate already kept it)
+    // but under the hard ceiling 10 — encroachment, not a breach.
+    let pairs = [pair(8.0, Some(Coverage::New))];
+    let outcome = classify_check_outcome(&pairs, Tier::Soft, &hard_limits());
+    assert_eq!(outcome, CheckOutcome::NewOnly);
+}
+
+#[test]
+fn classify_hard_tier_never_escalates_to_breach() {
+    // At the hard tier every violation is over the hard limit, so the
+    // breach escalation is suppressed and the new/regr split survives.
+    let pairs = [pair(20.0, Some(Coverage::Regressed { recorded: 15.0 }))];
+    let outcome = classify_check_outcome(&pairs, Tier::Hard, &hard_limits());
+    assert_eq!(outcome, CheckOutcome::RegressionOnly);
+}
+
+#[test]
+fn classify_soft_tier_nan_value_is_not_breach() {
+    // A NaN metric value yields `NaN > hard == false`, so it never
+    // escalates to a hard breach; it falls to the new/regr split. Pins
+    // the documented defensive branch in `classify_check_outcome`.
+    let pairs = [pair(f64::NAN, Some(Coverage::New))];
+    let outcome = classify_check_outcome(&pairs, Tier::Soft, &hard_limits());
+    assert_eq!(outcome, CheckOutcome::NewOnly);
+}
+
+#[test]
+fn classify_soft_tier_unknown_metric_is_not_breach() {
+    // A metric absent from the hard-limit map cannot be a hard breach
+    // (no ceiling to exceed); it falls through to the new/regr split.
+    let pairs = [pair(999.0, Some(Coverage::New))];
+    let outcome = classify_check_outcome(&pairs, Tier::Soft, &BTreeMap::new());
+    assert_eq!(outcome, CheckOutcome::NewOnly);
+}
+
+#[test]
+fn exit_code_default_collapses_every_violation_to_two() {
+    // The stable contract: any non-clean outcome is exit 2 regardless of
+    // category. This is what every existing `exit != 0` integration
+    // relies on.
+    for outcome in [
+        CheckOutcome::NewOnly,
+        CheckOutcome::RegressionOnly,
+        CheckOutcome::Mixed,
+        CheckOutcome::HardBreach,
+    ] {
+        assert_eq!(outcome.exit_code(false), Some(2), "{outcome:?}");
+    }
+    assert_eq!(CheckOutcome::Clean.exit_code(false), None);
+}
+
+#[test]
+fn exit_code_tiered_maps_each_category() {
+    assert_eq!(CheckOutcome::Clean.exit_code(true), None);
+    assert_eq!(CheckOutcome::NewOnly.exit_code(true), Some(2));
+    assert_eq!(CheckOutcome::RegressionOnly.exit_code(true), Some(3));
+    assert_eq!(CheckOutcome::Mixed.exit_code(true), Some(4));
+    assert_eq!(CheckOutcome::HardBreach.exit_code(true), Some(5));
 }

@@ -23,6 +23,20 @@ for historical reference.
 
 ### Added
 
+- `bca check --strict-exit-codes` opts into tiered exit codes that
+  split the violation case (previously a single exit `2`) by severity
+  ([#385](https://github.com/dekobon/big-code-analysis/issues/385)):
+  `2` new offenders only, `3` regressions only, `4` both, `5` a
+  `--tier=soft` violation that also breaches the hard limit. CI can
+  now branch on severity without parsing the `[new]` / `[regr +N%]`
+  stderr tags. The default 0/1/2 contract is unchanged — the tiered
+  mode is opt-in via the flag or `[check] exit_codes = "tiered"` in
+  `bca.toml` (the flag ORs on top: a bare flag cannot represent
+  "off"). Every fail-state stays non-zero, so existing
+  `exit != 0 → fail` tooling is unaffected; only consumers that test
+  `$? -eq 2` explicitly need to widen to `2`-`5`. `--no-fail` still
+  forces exit `0`. `--print-effective-config` reports the resolved
+  `exit_codes` style.
 - `bca diff-baseline old.toml new.toml` emits a structured diff
   between two `.bca-baseline.toml` files — `added`, `removed`,
   `worsened`, `improved` — replacing the in-the-head TOML diff

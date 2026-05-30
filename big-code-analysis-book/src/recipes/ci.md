@@ -869,7 +869,14 @@ Applies regardless of provider:
   threshold violation, `1` on tool error (bad config, unknown
   metric, unreadable path). Reserving `1` for tool errors lets CI
   distinguish "a function got too complex" from "the analyzer
-  crashed".
+  crashed". Pass `--strict-exit-codes` (or set `[check] exit_codes
+  = "tiered"` in `bca.toml`) to split the violation case by
+  severity: `2` new offenders only, `3` regressions only, `4` both,
+  `5` a `--tier=soft` violation that also breaches the hard limit.
+  The tiered codes are opt-in; the default stays `0`/`1`/`2`. Every
+  fail-state remains non-zero, so `exit != 0 → fail` wrappers keep
+  working — only tooling that tests `$? -eq 2` explicitly needs to
+  widen to `2`-`5`.
 - **Honor in-source suppression markers, audit with
   `--no-suppress`.** The default `bca check` honors
   [`bca: suppress` / `bca: suppress-file` markers](../commands/suppression.md);

@@ -60,7 +60,8 @@ fn run_check(
         }
         None => ParsedThresholds::default(),
     };
-    let set = validate_and_build_thresholds(&args, base_thresholds);
+    let ResolvedThresholds { set, hard_limits } =
+        validate_and_build_thresholds(&args, base_thresholds);
     // `--print-effective-config` is a read-only debug aid: print the
     // resolved configuration and exit 0 before the walk. clap already
     // rejects pairing with `--write-baseline` (conflicts_with), so by
@@ -107,6 +108,9 @@ fn run_check(
     );
     let pairs = apply_changed_only(pairs, scope.as_ref(), args.changed_only);
     let any_violations = !pairs.is_empty();
+    // Categorise the kept violations for the exit-code contract (#385)
+    // before `emit_check_results` consumes `pairs`.
+    let outcome = classify_check_outcome(&pairs, args.tier, &hard_limits);
     // Build the remediation block ONLY when we have something to
     // remediate. Empty pairs (clean run) get no trailing block —
     // there is no baseline to refresh and no artifact worth pointing
@@ -116,10 +120,16 @@ fn run_check(
     } else {
         None
     };
-    let emitted = emit_check_results(pairs, &args, scope.as_ref(), remediation.as_deref());
+    emit_check_results(pairs, &args, scope.as_ref(), remediation.as_deref());
 
-    if emitted && !args.no_fail {
-        process::exit(2);
+    // `--no-fail` always forces exit 0; otherwise map the outcome to the
+    // process exit code (tiered when `--strict-exit-codes` is set, the
+    // stable 0/1/2 contract otherwise). A clean run returns `None` and
+    // the process exits 0 implicitly.
+    if !args.no_fail
+        && let Some(code) = outcome.exit_code(args.strict_exit_codes)
+    {
+        process::exit(code);
     }
 }
 
@@ -135,10 +145,10 @@ fn run_check(
 /// over TOML — the same field names; same shape.
 ///
 /// The resolved layers (headroom scaling per #373, `[thresholds.soft]`
-/// / `--tier` per #375) are already folded into the printed limits;
-/// future layers (baseline state per #381, tiered exit codes per #385)
-/// will extend `EffectiveConfig` additively. This printer is the single
-/// place that needs to learn about them.
+/// / `--tier` per #375, the tiered exit-code style per #385) are already
+/// folded into the serialized view; future layers (baseline state per
+/// #381) will extend `EffectiveConfig` additively. This printer is the
+/// single place that needs to learn about them.
 fn print_effective_config(
     globals: &GlobalOpts,
     args: &CheckArgs,
@@ -224,6 +234,10 @@ struct EffectiveCheck {
     /// this field is the one signal that records *which* tier produced
     /// them.
     tier: &'static str,
+    /// Which exit-code contract is in force (#385): `"default"` (the
+    /// stable 0/1/2 codes) or `"tiered"` (the 2-5 severity split,
+    /// enabled by `--strict-exit-codes` or `[check] exit_codes`).
+    exit_codes: &'static str,
     /// The `--baseline-line-tolerance` override, if set (issue #377).
     /// Absent means the built-in default applies.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -279,6 +293,11 @@ impl EffectiveConfig {
             since: args.since.clone(),
             headroom: args.headroom,
             tier: args.tier.as_str(),
+            exit_codes: if args.strict_exit_codes {
+                "tiered"
+            } else {
+                "default"
+            },
             baseline_line_tolerance: args.baseline_line_tolerance,
             baseline_fuzzy_match: args.baseline_fuzzy_match,
         };
@@ -293,18 +312,32 @@ impl EffectiveConfig {
 /// always produces a band tighter than the hard gate.
 const DEFAULT_SOFT_HEADROOM: f64 = 0.95;
 
+/// Resolved threshold layers handed back to [`run_check`].
+///
+/// `set` is the gate the walker compares against (the requested tier's
+/// limits). `hard_limits` is the hard-tier limit per metric — equal to
+/// `set` at the hard tier, but the *un-scaled* ceilings at the soft
+/// tier, so [`classify_check_outcome`] can tell a soft-band
+/// encroachment apart from a true hard breach (#385).
+struct ResolvedThresholds {
+    set: Arc<ThresholdSet>,
+    hard_limits: BTreeMap<String, f64>,
+}
+
 /// Validate `--output` / `--output-format` pairing, then resolve the
 /// effective threshold set per the documented resolution order
 /// (#373/#374/#375/#380): the manifest `[thresholds]` base, the
 /// `--config` file merged on top (keys win on collision), the tier
 /// resolution (hard verbatim, or soft via `[thresholds.soft]` /
 /// `--headroom`), and finally the absolute `--threshold` CLI overrides.
-/// Dies if no thresholds were configured. Returns the set wrapped in
+/// Dies if no thresholds were configured. Also returns the un-scaled
+/// hard-tier limits per metric (#385) so the caller can tell a soft-band
+/// encroachment apart from a true hard breach. The set is wrapped in
 /// `Arc` so it can be cloned into each walker worker's `Config`.
 fn validate_and_build_thresholds(
     args: &CheckArgs,
     base_thresholds: ParsedThresholds,
-) -> Arc<ThresholdSet> {
+) -> ResolvedThresholds {
     // Validate --output / --output-format pairing before the walk so
     // a misconfigured invocation fails fast instead of after a full
     // parse. `--output` without `--output-format` is silently ignored
@@ -343,15 +376,19 @@ fn validate_and_build_thresholds(
     }
 
     // Layer 3: tier resolution. Produces the per-metric limits the gate
-    // compares against.
-    let mut merged = resolve_tier(args.tier, hard, &soft, args.headroom);
+    // compares against. Clone `hard` so the un-scaled hard-tier limits
+    // survive for #385 hard-breach detection below.
+    let mut merged = resolve_tier(args.tier, hard.clone(), &soft, args.headroom);
 
     // Layer 4: `--threshold` CLI flags override the resolved limit for
     // the same metric name. They are absolute — applied *after* any
     // scaling — because a user who typed an exact limit means it, not a
-    // fraction of it.
+    // fraction of it. The same value also defines the hard-tier ceiling
+    // for that metric (#385): an explicit `--threshold` is the user's
+    // declared limit, replacing whatever the hard table held.
     for (name, limit) in &args.thresholds {
         merged.insert(name.clone(), *limit);
+        hard.insert(name.clone(), *limit);
     }
     let set = ThresholdSet::build(&merged).unwrap_or_else(|e| die(e));
     if set.is_empty() {
@@ -359,7 +396,10 @@ fn validate_and_build_thresholds(
             "no thresholds configured; pass --threshold, --config, or a bca.toml [thresholds] table",
         );
     }
-    Arc::new(set)
+    ResolvedThresholds {
+        set: Arc::new(set),
+        hard_limits: hard,
+    }
 }
 
 /// Resolve the per-metric limits for the requested tier (#375).
@@ -698,7 +738,7 @@ fn emit_check_results(
     args: &CheckArgs,
     scope: Option<&diff::DiffScope>,
     remediation: Option<&str>,
-) -> bool {
+) {
     // BrokenPipe on stderr (e.g. when piped to `head`) is the only
     // realistic write failure here; swallow it rather than die so the
     // exit-code contract is honored.
@@ -750,7 +790,6 @@ fn emit_check_results(
     // produces a well-formed but offender-free document, which CI
     // consumers can ingest unchanged on clean runs. The exit-code
     // contract is unaffected by this branch.
-    let any_violations = !pairs.is_empty();
     if let Some(fmt) = args.output_format {
         let offenders: Vec<_> = pairs
             .into_iter()
@@ -759,7 +798,99 @@ fn emit_check_results(
         fmt.dump(&offenders, args.output.as_deref())
             .unwrap_or_else(|e| die(format_args!("failed to write {}: {e}", fmt.name())));
     }
-    any_violations
+}
+
+/// Severity category of a `bca check` run, used to derive the process
+/// exit code (#385). The variants are *not* the exit codes — the
+/// mapping depends on `--strict-exit-codes` (see [`Self::exit_code`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CheckOutcome {
+    /// No violations survived filtering.
+    Clean,
+    /// Violations exist, but none is a baseline regression and none
+    /// breaches the hard limit under `--tier=soft`. Also the bucket for
+    /// every violation when no `--baseline` was supplied (nothing is
+    /// baselined, so nothing can have "regressed").
+    NewOnly,
+    /// Every kept violation matched a baseline entry that worsened.
+    RegressionOnly,
+    /// A mix of new offenders and baseline regressions.
+    Mixed,
+    /// At least one `--tier=soft` violation also exceeds the hard
+    /// limit — escalated above the new/regression split because a true
+    /// breach is more urgent than soft-band encroachment.
+    HardBreach,
+}
+
+impl CheckOutcome {
+    /// Map the outcome to a process exit code. In the default contract
+    /// (`strict == false`) every non-clean run collapses to exit `2`,
+    /// preserving the stable 0/1/2 behaviour every existing integration
+    /// relies on. In tiered mode (`--strict-exit-codes`) each category
+    /// gets its own code (2-5). Returns `None` for a clean run, where
+    /// the caller exits 0 implicitly by returning.
+    fn exit_code(self, strict: bool) -> Option<i32> {
+        let tiered = match self {
+            Self::Clean => return None,
+            Self::NewOnly => 2,
+            Self::RegressionOnly => 3,
+            Self::Mixed => 4,
+            Self::HardBreach => 5,
+        };
+        // The default contract collapses every violation category to
+        // exit 2; only `--strict-exit-codes` surfaces the 3/4/5 split.
+        Some(if strict { tiered } else { 2 })
+    }
+}
+
+/// Categorise the kept violations for the exit-code contract (#385).
+///
+/// `hard_limits` holds the resolved hard-tier limit per metric. It is
+/// consulted only at the soft tier, where a violation whose value also
+/// exceeds the hard limit escalates to [`CheckOutcome::HardBreach`]. At
+/// the hard tier every violation already exceeds the hard limit, so the
+/// escalation is suppressed (it would otherwise swallow the new/regr
+/// split) and only baseline coverage drives the result.
+fn classify_check_outcome(
+    pairs: &[(Violation, Option<Coverage>)],
+    tier: Tier,
+    hard_limits: &BTreeMap<String, f64>,
+) -> CheckOutcome {
+    if pairs.is_empty() {
+        return CheckOutcome::Clean;
+    }
+    let mut has_new = false;
+    let mut has_regression = false;
+    let mut has_hard_breach = false;
+    for (v, coverage) in pairs {
+        // A NaN value (degenerate Halstead on a trivial function) yields
+        // `NaN > hard == false`, so it never escalates to a hard breach;
+        // it falls to the new/regr split below, mirroring how
+        // `Baseline::classify` treats a NaN as `Regressed` rather than a
+        // magnitude. A NaN has no meaningful distance from the ceiling.
+        if tier == Tier::Soft
+            && let Some(&hard) = hard_limits.get(v.metric)
+            && v.value > hard
+        {
+            has_hard_breach = true;
+        }
+        match coverage {
+            Some(Coverage::Regressed { .. }) => has_regression = true,
+            // `Coverage::New`, or `None` when no `--baseline` was given.
+            // `Coverage::Covered` never reaches here — `filter_by_baseline`
+            // drops it before the kept set is built.
+            _ => has_new = true,
+        }
+    }
+    if has_hard_breach {
+        CheckOutcome::HardBreach
+    } else if has_new && has_regression {
+        CheckOutcome::Mixed
+    } else if has_regression {
+        CheckOutcome::RegressionOnly
+    } else {
+        CheckOutcome::NewOnly
+    }
 }
 
 /// Decide whether GitHub Actions `::error` annotations should be
@@ -1538,6 +1669,7 @@ fn run_command_init(globals: GlobalOpts, args: InitArgs, preproc: Option<Arc<Pre
             print_effective_config: None,
             headroom: None,
             tier: Tier::Hard,
+            strict_exit_codes: false,
             baseline_line_tolerance: None,
             baseline_fuzzy_match: false,
             check_exclude: Vec::new(),

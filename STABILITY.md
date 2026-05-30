@@ -287,6 +287,42 @@ constant must also:
 The schema author owns this checklist. The release-prep section of
 [`RELEASING.md`](RELEASING.md) references back to this contract.
 
+### `bca check` exit codes
+
+`bca check` has a stable process-exit contract, separate from the
+library SemVer surface:
+
+| Exit | Meaning |
+|------|---------|
+| `0`  | clean — no threshold violations |
+| `1`  | tool error (bad config, unknown metric, unreadable path) |
+| `2`  | one or more threshold violations |
+
+Reserving `1` for tool errors lets CI distinguish "a function got too
+complex" from "the analyzer crashed". This 0/1/2 contract is the
+default and will not change within `1.x`.
+
+`--strict-exit-codes` (or `[check] exit_codes = "tiered"` in
+`bca.toml`, [#385](https://github.com/dekobon/big-code-analysis/issues/385))
+opts into a finer split of the violation case. It is **opt-in** — the
+default codes above are unaffected:
+
+| Exit | Meaning (tiered mode only) |
+|------|----------------------------|
+| `0`  | clean |
+| `1`  | tool error |
+| `2`  | new offenders only (no baseline entry matched) |
+| `3`  | baseline regressions only (a baselined offender worsened) |
+| `4`  | both new offenders and regressions |
+| `5`  | a `--tier=soft` violation that also breaches the hard limit |
+
+Every fail-state stays non-zero, so existing `exit != 0 → fail`
+tooling is unaffected. Only consumers that test `$? -eq 2`
+explicitly need to widen to `2`-`5` when they opt in. `--no-fail`
+still forces exit `0` in both modes. Code `5` is emitted only at the
+soft tier; at the hard tier every violation is a hard breach by
+definition, so the `2`/`3`/`4` split applies instead.
+
 ## MSRV policy
 
 The workspace pins `rust-version = "1.94"` (see the
