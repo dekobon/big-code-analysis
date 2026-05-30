@@ -36,10 +36,11 @@
 //! For most metrics the JSON's headline field at the file-level `unit`
 //! space IS the file-wide value (e.g. `loc.sloc`, `wmc.total`,
 //! `mi.original`, `halstead.volume`), so emitting unit findings matches
-//! the CLI. For three metrics — `cyclomatic`, `cyclomatic.modified`,
-//! `cognitive` — the JSON exposes the aggregate `sum` across child
-//! spaces while the CLI's per-space accessor returns just the unit's
-//! own scalar (typically 1). For those three the binding skips the
+//! the CLI. For four metrics — `cyclomatic`, `cyclomatic.modified`,
+//! `cognitive`, and `abc` — the JSON exposes the aggregate value across
+//! child spaces (a `sum` field, or `abc.magnitude` built from the
+//! `*_sum` accumulators) while the CLI's per-space accessor returns
+//! just the unit's own scalar. For those four the binding skips the
 //! unit space; for everything else it does not. The per-metric
 //! `skip_at_unit` flag in [`METRIC_FIELDS`] encodes this.
 //!
@@ -71,9 +72,9 @@ const UNNAMED_FUNCTION_PLACEHOLDER: &str = "<unnamed>";
 
 /// One metric entry in the threshold-name → JSON-path table.
 ///
-/// `skip_at_unit` is true for the three metrics whose CLI accessor
+/// `skip_at_unit` is true for the metrics whose CLI accessor
 /// returns the per-space scalar while the JSON exposes only the
-/// aggregate sum across children. For these, emitting at the unit
+/// aggregate across children. For these, emitting at the unit
 /// level would produce findings the CLI never emits with metric
 /// values that look per-space but are actually file-wide. For every
 /// other metric the JSON field IS the per-space value (or matches the
@@ -115,6 +116,15 @@ const METRIC_FIELDS: &[MetricField] = &[
     MetricField {
         name: "cyclomatic.modified",
         path: &["cyclomatic", "modified", "sum"],
+        skip_at_unit: true,
+    },
+    // JSON `abc.magnitude` is serialized from `magnitude_sum()` (the
+    // aggregate across descendant spaces) while the CLI threshold
+    // accessor is the per-space `m.abc.magnitude()` — the same
+    // sum-vs-per-space divergence as the three metrics above (#441).
+    MetricField {
+        name: "abc",
+        path: &["abc", "magnitude"],
         skip_at_unit: true,
     },
     // Everything below: JSON field == CLI per-space accessor at unit.
@@ -201,11 +211,6 @@ const METRIC_FIELDS: &[MetricField] = &[
     MetricField {
         name: "mi.visual_studio",
         path: &["mi", "mi_visual_studio"],
-        skip_at_unit: false,
-    },
-    MetricField {
-        name: "abc",
-        path: &["abc", "magnitude"],
         skip_at_unit: false,
     },
     MetricField {
@@ -629,16 +634,44 @@ mod tests {
     }
 
     #[test]
-    fn skip_at_unit_is_true_only_for_per_space_accessor_metrics() {
-        // Exactly the three CLI metrics whose `MetricExtractor.extract`
-        // returns the per-space scalar (not the aggregate sum) — see
-        // `big-code-analysis-cli/src/thresholds.rs::EXTRACTORS`. Any
-        // change here must be reviewed against the CLI table.
-        let skip: Vec<&str> = METRIC_FIELDS
+    fn skip_at_unit_matches_sum_vs_per_space_divergence() {
+        // `skip_at_unit` must be true exactly for the metrics whose JSON
+        // headline is an aggregate over descendant spaces while the CLI
+        // threshold accessor (`big-code-analysis-cli/src/thresholds.rs::
+        // EXTRACTORS`) returns the unit's own per-space scalar:
+        //
+        //   - `cognitive`     JSON `cognitive.sum` vs CLI `cognitive()`.
+        //   - `cyclomatic`    JSON `cyclomatic.sum` vs CLI `cyclomatic()`.
+        //   - `cyclomatic.modified`
+        //                     JSON `cyclomatic.modified.sum` vs CLI
+        //                     `cyclomatic_modified()`.
+        //   - `abc`           JSON `abc.magnitude` is serialized from
+        //                     `magnitude_sum()` (built from the `*_sum`
+        //                     accumulators) while the CLI uses the
+        //                     per-space `m.abc.magnitude()` (#441).
+        //
+        // The property is NOT derivable from the JSON path alone: `nexits`
+        // also walks a `sum` field (`nexits.sum`), but the CLI's nexits
+        // accessor is `exit_sum()` — the same aggregate the JSON exposes —
+        // so it does NOT diverge and is correctly `skip_at_unit: false`.
+        // The divergence is between the JSON field and the *CLI accessor*,
+        // which only the EXTRACTORS table records; hence the expected set
+        // is enumerated here with a per-metric rationale rather than
+        // inferred from the path string. Until #442 shares one registry
+        // across the CLI and this binding, adding a metric whose JSON
+        // headline is an aggregate-not-matching-its-accessor requires a
+        // deliberate edit to this set.
+        let mut skip: Vec<&str> = METRIC_FIELDS
             .iter()
             .filter(|m| m.skip_at_unit)
             .map(|m| m.name)
             .collect();
-        assert_eq!(skip, ["cognitive", "cyclomatic", "cyclomatic.modified"]);
+        skip.sort_unstable();
+        assert_eq!(
+            skip,
+            ["abc", "cognitive", "cyclomatic", "cyclomatic.modified"],
+            "skip_at_unit set drifted from the JSON-aggregate-vs-CLI-accessor \
+             property; review against the CLI EXTRACTORS table before editing"
+        );
     }
 }

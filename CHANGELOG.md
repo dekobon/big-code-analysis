@@ -661,6 +661,21 @@ for historical reference.
 
 ### Fixed
 
+- Python `to_sarif` no longer emits a file-scope `abc` finding the CLI
+  never produces
+  ([#441](https://github.com/dekobon/big-code-analysis/issues/441)).
+  The `abc` threshold was flagged `skip_at_unit: false`, but the JSON
+  `abc.magnitude` headline is serialized from `magnitude_sum()` (the
+  aggregate across descendant spaces) while the CLI's threshold
+  accessor is the per-space `m.abc.magnitude()` — the same
+  sum-vs-per-space divergence as `cyclomatic` / `cyclomatic.modified`
+  / `cognitive`, which are already skipped at the unit space. `abc` is
+  now `skip_at_unit: true`, restoring byte-for-byte parity with `bca
+  check -O sarif`. The unit test that enumerated the skip set was
+  reworked to document the JSON-aggregate-vs-CLI-accessor property
+  (and why `nexits`, whose JSON path also ends in `sum`, is correctly
+  not skipped) so it guards the invariant rather than enshrining the
+  bug.
 - `bca-web --num-jobs 0` no longer panics the server at startup
   ([#427](https://github.com/dekobon/big-code-analysis/issues/427)).
   The flag was an unconstrained `Option<usize>`, so `0` flowed through

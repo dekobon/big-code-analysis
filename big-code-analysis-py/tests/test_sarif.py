@@ -658,9 +658,11 @@ def test_to_sarif_rejects_mappingproxytype_with_clear_error() -> None:
 def test_to_sarif_emits_unit_level_finding_for_non_sum_metrics() -> None:
     """Unit-level findings are now emitted for metrics whose JSON
     headline matches the CLI's per-space accessor (loc, halstead,
-    wmc, mi, nom, abc, tokens, nargs, nexits, npa, npm). Pinned with
+    wmc, mi, nom, tokens, nargs, nexits, npa, npm). Pinned with
     ``wmc`` because the multi-class fixture cleanly distinguishes
-    unit-aggregate from per-class.
+    unit-aggregate from per-class. (``abc`` is NOT in this list — its
+    JSON ``magnitude`` is an aggregate sum, so it is skipped at unit;
+    see ``test_to_sarif_still_skips_unit_for_aggregate_metrics``.)
     """
     code = (
         "class A:\n"
@@ -686,16 +688,17 @@ def test_to_sarif_emits_unit_level_finding_for_non_sum_metrics() -> None:
 
 @pytest.mark.parametrize(
     "metric_name",
-    ["cyclomatic", "cyclomatic.modified", "cognitive"],
+    ["cyclomatic", "cyclomatic.modified", "cognitive", "abc"],
 )
-def test_to_sarif_still_skips_unit_for_cyclomatic_family(metric_name: str) -> None:
-    """The three metrics whose CLI accessor returns the per-space
-    scalar (cyclomatic / cyclomatic.modified / cognitive) MUST still
-    be skipped at the unit level, because the JSON exposes only the
-    aggregate ``sum``. A regression that emitted unit findings for
-    any of these would diverge from the CLI in a way that's hard to
-    spot. Parameterised so the contract is pinned for each member of
-    the family, not just `cyclomatic`.
+def test_to_sarif_still_skips_unit_for_aggregate_metrics(metric_name: str) -> None:
+    """The metrics whose CLI accessor returns the per-space scalar
+    while the JSON exposes an aggregate over children MUST be skipped
+    at the unit level. These are cyclomatic / cyclomatic.modified /
+    cognitive (JSON ``sum``) and abc (JSON ``magnitude`` built from
+    the ``*_sum`` accumulators — #441). A regression that emitted unit
+    findings for any of these would diverge from the CLI in a way
+    that's hard to spot. Parameterised so the contract is pinned for
+    each member, not just `cyclomatic`.
     """
     code = (
         "def branchy(x):\n"
