@@ -137,7 +137,12 @@ where
         stats.comments_percentage = if stats.sloc == 0.0 {
             0.0
         } else {
-            loc.cloc() / stats.sloc * 100.0
+            // Clamp to [0, 100]: a comment ratio is a percentage of
+            // source lines and cannot exceed 100%. The SEI term
+            // `50·sin(√(2.4·CM))` has no clamp of its own, so an
+            // out-of-range CM (e.g. cloc > sloc) would distort
+            // `mi_sei` by tens of points (issue #461).
+            (loc.cloc() / stats.sloc * 100.0).clamp(0.0, 100.0)
         };
     }
 }
@@ -375,6 +380,33 @@ mod tests {
                 assert!(mi.mi_sei() > 0.0);
                 assert!(mi.mi_visual_studio() > 0.0);
             },
+        );
+    }
+
+    /// `comments_percentage` feeds the unclamped SEI term
+    /// `50·sin(√(2.4·CM))`. A degenerate `Loc` with `cloc > sloc`
+    /// (which the loc.rs fix prevents for parsed input, but which the
+    /// clamp defends regardless) must yield a `comments_percentage`
+    /// capped at exactly 100, not the ~209 the raw ratio would give
+    /// (issue #461). Here `cloc = 2`, `sloc = 1` => raw 200%. Reverting
+    /// the `.clamp(0.0, 100.0)` in `Mi::compute` makes this fail.
+    #[test]
+    fn mi_comments_percentage_clamped() {
+        // cloc = 2 (degenerate), sloc = 1 (single non-unit row) => raw
+        // comments_percentage = 200%.
+        let loc = loc::Stats::with_cloc_sloc(2, 0);
+        assert_eq!(loc.cloc(), 2.0);
+        assert_eq!(loc.sloc(), 1.0);
+
+        let cyclomatic = cyclomatic::Stats::default();
+        let halstead = halstead::Stats::default();
+        let mut mi = Stats::default();
+        PythonCode::compute(&loc, &cyclomatic, &halstead, &mut mi);
+
+        assert!(
+            (mi.comments_percentage - 100.0).abs() < f64::EPSILON,
+            "comments_percentage must clamp to 100, got {}",
+            mi.comments_percentage
         );
     }
 }

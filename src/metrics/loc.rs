@@ -187,6 +187,13 @@ impl Ploc {
 pub struct Cloc {
     only_comment_lines: usize,
     code_comment_lines: usize,
+    // Physical lines already counted toward `code_comment_lines`. A
+    // line carrying several inline block comments (`f(int /*a*/, int
+    // /*b*/)`) must contribute a single comment line, not one per
+    // node, otherwise cloc can exceed sloc/ploc and push the MI
+    // comments_percentage above 100% (issue #461). Mirrors `Ploc`'s
+    // per-line de-dup via `Ploc::lines`.
+    code_comment_line_starts: HashSet<usize>,
     comment_line_end: Option<usize>,
     cloc_min: usize,
     cloc_max: usize,
@@ -197,6 +204,7 @@ impl Default for Cloc {
         Self {
             only_comment_lines: 0,
             code_comment_lines: 0,
+            code_comment_line_starts: HashSet::default(),
             comment_line_end: Option::default(),
             cloc_min: usize::MAX,
             cloc_max: 0,
@@ -235,6 +243,10 @@ impl Cloc {
         // Merge cloc lines
         self.only_comment_lines += other.only_comment_lines;
         self.code_comment_lines += other.code_comment_lines;
+        // Carry the counted-line set so a code-comment line shared
+        // across merged spaces is not re-counted (mirrors `Ploc`).
+        self.code_comment_line_starts
+            .extend(&other.code_comment_line_starts);
 
         // Fold the child's own min/max so nested spaces propagate (#437).
         self.cloc_min = self.cloc_min.min(other.cloc_min);
@@ -398,6 +410,21 @@ impl fmt::Display for Stats {
 }
 
 impl Stats {
+    /// Test-only constructor that forces a degenerate `cloc`/`sloc`
+    /// pair (here `cloc > sloc`) so callers in other metric modules can
+    /// exercise downstream clamps without depending on the parsing
+    /// pipeline. `cloc <= sloc` always holds for parsed input after
+    /// issue #461, so this state is unreachable through normal use.
+    #[cfg(test)]
+    pub(crate) fn with_cloc_sloc(code_comment_lines: usize, sloc_end_row: usize) -> Self {
+        let mut stats = Stats::default();
+        stats.sloc.unit = false;
+        stats.sloc.start = 0;
+        stats.sloc.end = sloc_end_row;
+        stats.cloc.code_comment_lines = code_comment_lines;
+        stats
+    }
+
     /// Merges a second `Loc` metric suite into the first one
     pub fn merge(&mut self, other: &Stats) {
         self.sloc.merge(&other.sloc);
@@ -635,11 +662,11 @@ fn add_cloc_lines(stats: &mut Stats, start: usize, end: usize) {
     let is_comment_after_code_line = stats.ploc.lines.contains(&start);
     if is_comment_after_code_line && comment_diff == 0 {
         // A comment is *entirely* next to a code line
-        stats.cloc.code_comment_lines += 1;
+        add_code_comment_line(stats, start);
     } else if is_comment_after_code_line && comment_diff > 0 {
         // A block comment that starts next to a code line and ends on
         // independent lines.
-        stats.cloc.code_comment_lines += 1;
+        add_code_comment_line(stats, start);
         stats.cloc.only_comment_lines += comment_diff;
     } else {
         // A comment on an independent line AND
@@ -661,8 +688,23 @@ fn check_comment_ends_on_code_line(stats: &mut Stats, start_code_line: usize) {
         && end == start_code_line
         && !stats.ploc.lines.contains(&start_code_line)
     {
-        // Comment entirely *before* a code line
+        // Comment entirely *before* a code line: reclassify the line
+        // from standalone to code-comment. Decrement unconditionally
+        // (the line was counted as standalone), but only credit
+        // `code_comment_lines` when this physical line has not already
+        // been counted there (issue #461 per-line de-dup).
         stats.cloc.only_comment_lines -= 1;
+        add_code_comment_line(stats, start_code_line);
+    }
+}
+
+#[inline]
+// Counts a physical line toward `code_comment_lines` at most once,
+// mirroring `Ploc`'s per-line de-duplication. Several inline block
+// comments on one code line (`f(int /*a*/, int /*b*/)`) must yield a
+// single comment line, not one per comment node (issue #461).
+fn add_code_comment_line(stats: &mut Stats, line: usize) {
+    if stats.cloc.code_comment_line_starts.insert(line) {
         stats.cloc.code_comment_lines += 1;
     }
 }
@@ -2360,31 +2402,39 @@ mod tests {
             "foo.rs",
             |metric| {
                 // Spaces: 1
+                // expected: cloc = 4 — the 2-line block (lines 1-2) and
+                // the standalone `//Line Comment` (line 3) give 3
+                // only-comment lines; line 4 carries a leading block
+                // comment AND a trailing line comment but is one
+                // physical code line, so it adds a single code-comment
+                // line, not two (issue #461). Pre-fix this reported 5,
+                // violating cloc <= sloc (sloc = 4).
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 4.0,
-                      "ploc": 1.0,
-                      "lloc": 1.0,
-                      "cloc": 5.0,
-                      "blank": 0.0,
-                      "sloc_average": 4.0,
-                      "ploc_average": 1.0,
-                      "lloc_average": 1.0,
-                      "cloc_average": 5.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 4.0,
-                      "sloc_max": 4.0,
-                      "cloc_min": 5.0,
-                      "cloc_max": 5.0,
-                      "ploc_min": 1.0,
-                      "ploc_max": 1.0,
-                      "lloc_min": 1.0,
-                      "lloc_max": 1.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 4.0,
+                  "ploc": 1.0,
+                  "lloc": 1.0,
+                  "cloc": 4.0,
+                  "blank": 0.0,
+                  "sloc_average": 4.0,
+                  "ploc_average": 1.0,
+                  "lloc_average": 1.0,
+                  "cloc_average": 4.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 4.0,
+                  "sloc_max": 4.0,
+                  "cloc_min": 4.0,
+                  "cloc_max": 4.0,
+                  "ploc_min": 1.0,
+                  "ploc_max": 1.0,
+                  "lloc_min": 1.0,
+                  "lloc_max": 1.0,
+                  "blank_min": 0.0,
+                  "blank_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -2400,31 +2450,36 @@ mod tests {
             "foo.c",
             |metric| {
                 // Spaces: 1
+                // expected: cloc = 4 — see `rust_cloc`; line 4's leading
+                // block comment and trailing line comment share one
+                // physical code line and add a single code-comment line
+                // (issue #461). Pre-fix reported 5 (cloc > sloc = 4).
                 insta::assert_json_snapshot!(
                     metric.loc,
-                    @r###"
-                    {
-                      "sloc": 4.0,
-                      "ploc": 1.0,
-                      "lloc": 1.0,
-                      "cloc": 5.0,
-                      "blank": 0.0,
-                      "sloc_average": 4.0,
-                      "ploc_average": 1.0,
-                      "lloc_average": 1.0,
-                      "cloc_average": 5.0,
-                      "blank_average": 0.0,
-                      "sloc_min": 4.0,
-                      "sloc_max": 4.0,
-                      "cloc_min": 5.0,
-                      "cloc_max": 5.0,
-                      "ploc_min": 1.0,
-                      "ploc_max": 1.0,
-                      "lloc_min": 1.0,
-                      "lloc_max": 1.0,
-                      "blank_min": 0.0,
-                      "blank_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "sloc": 4.0,
+                  "ploc": 1.0,
+                  "lloc": 1.0,
+                  "cloc": 4.0,
+                  "blank": 0.0,
+                  "sloc_average": 4.0,
+                  "ploc_average": 1.0,
+                  "lloc_average": 1.0,
+                  "cloc_average": 4.0,
+                  "blank_average": 0.0,
+                  "sloc_min": 4.0,
+                  "sloc_max": 4.0,
+                  "cloc_min": 4.0,
+                  "cloc_max": 4.0,
+                  "ploc_min": 1.0,
+                  "ploc_max": 1.0,
+                  "lloc_min": 1.0,
+                  "lloc_max": 1.0,
+                  "blank_min": 0.0,
+                  "blank_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -9917,6 +9972,69 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
             stats.blank(),
             0.0,
             "blank() must clamp the negative subtraction to 0"
+        );
+    }
+
+    /// Two inline block comments on a single code line must count as a
+    /// single comment line, not one per comment node. Pre-fix this
+    /// reported `cloc = 2` (one increment per node) for a one-line
+    /// construct, violating `cloc <= sloc`/`cloc <= ploc` and pushing
+    /// the MI comments_percentage above 100% (issue #461). Reverting
+    /// the per-line de-dup in `add_code_comment_line` makes the
+    /// `cloc == 1` assertions fail with `2`.
+    #[test]
+    fn cloc_multiple_block_comments_one_line_cpp() {
+        check_metrics::<CppParser>(
+            "int f(int /*a*/, int /*b*/) { return 1; }",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(metric.loc.cloc(), 1.0, "two inline comments => 1 cloc");
+                assert!(
+                    metric.loc.cloc() <= metric.loc.sloc(),
+                    "cloc must not exceed sloc"
+                );
+                assert!(
+                    metric.loc.cloc() <= metric.loc.ploc(),
+                    "cloc must not exceed ploc for a single-line construct"
+                );
+            },
+        );
+    }
+
+    /// Sibling-language coverage: `add_cloc_lines` is shared across
+    /// every block-comment language, so the Rust path must behave
+    /// identically to C++ (issue #461).
+    #[test]
+    fn cloc_multiple_block_comments_one_line_rust() {
+        check_metrics::<RustParser>(
+            "fn f(/*a*/ x: i32, /*b*/ y: i32) -> i32 { 1 }",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.loc.cloc(), 1.0, "two inline comments => 1 cloc");
+                assert!(
+                    metric.loc.cloc() <= metric.loc.sloc(),
+                    "cloc must not exceed sloc"
+                );
+            },
+        );
+    }
+
+    /// Guard against over-de-dup: a single multi-line block comment
+    /// must still contribute one comment line per physical line it
+    /// spans. The de-dup keys on the start row only, so the three
+    /// independent continuation lines are unaffected (issue #461).
+    #[test]
+    fn cloc_multiline_block_comment_counts_each_line() {
+        check_metrics::<CppParser>(
+            "int g() {\n  /* l1\n     l2\n     l3 */\n  return 0;\n}",
+            "foo.cpp",
+            |metric| {
+                assert_eq!(
+                    metric.loc.cloc(),
+                    3.0,
+                    "a 3-line block comment counts 3 comment lines"
+                );
+            },
         );
     }
 }

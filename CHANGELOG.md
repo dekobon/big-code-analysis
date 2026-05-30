@@ -740,6 +740,21 @@ for historical reference.
 
 ### Fixed
 
+- `cloc` no longer over-counts multiple block comments sharing a
+  single code line
+  ([#461](https://github.com/dekobon/big-code-analysis/issues/461)).
+  `add_cloc_lines` previously incremented `code_comment_lines` once
+  per comment node, so a one-line construct such as
+  `int f(int /*a*/, int /*b*/) { return 1; }` reported `cloc = 2` for
+  a single physical line — violating `cloc <= sloc` and pushing the MI
+  `comments_percentage` (`cloc / sloc · 100`) above 100%, which
+  distorted the unclamped SEI term `50·sin(√(2.4·CM))` by tens of MI
+  points. Comment-bearing code lines are now de-duplicated per
+  physical line (mirroring `ploc`), and `comments_percentage` is
+  defensively clamped to `[0, 100]` in `mi_sei`. Affects every
+  block-comment language (the helper is shared); multi-line block
+  comments still count one comment line per spanned line. Corpus
+  `cloc` / `mi_sei` snapshots shift accordingly.
 - Rust `npm` / `npa` no longer count `pub(self)` / `pub(in self)`
   items as public
   ([#460](https://github.com/dekobon/big-code-analysis/issues/460)).

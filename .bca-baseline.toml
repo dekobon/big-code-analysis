@@ -2154,21 +2154,21 @@ path = "src/metrics/loc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 60552399.39044432
+value = 61136808.65977756
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 9922.0
+value = 10040.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 444.0
+value = 451.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
@@ -2182,82 +2182,82 @@ path = "src/metrics/loc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 748.0
+value = 756.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "wmc"
-value = 203.0
+value = 204.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "CppCode"
-start_line = 900
+start_line = 942
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "CppCode::compute"
-start_line = 901
+start_line = 943
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "GroovyCode"
-start_line = 988
+start_line = 1030
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "GroovyCode::compute"
-start_line = 989
+start_line = 1031
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "PerlCode"
-start_line = 1143
+start_line = 1185
 metric = "halstead.effort"
 value = 49965.90777079715
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "Stats"
-start_line = 341
+start_line = 353
 metric = "nexits"
 value = 21.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "Stats"
-start_line = 400
+start_line = 412
 metric = "halstead.effort"
-value = 215522.3695783801
+value = 239881.75541767868
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "Stats::serialize"
-start_line = 342
+start_line = 354
 metric = "abc"
 value = 63.00793600809346
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "Stats::serialize"
-start_line = 342
+start_line = 354
 metric = "cyclomatic"
 value = 22.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "Stats::serialize"
-start_line = 342
+start_line = 354
 metric = "nexits"
 value = 21.0
 
@@ -2266,7 +2266,7 @@ path = "src/metrics/mi.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 541890.070997593
+value = 617151.3741356567
 
 [[entry]]
 path = "src/metrics/mi.rs"
