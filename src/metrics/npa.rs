@@ -930,6 +930,41 @@ fn rust_count_assoc_type(node: &Node, stats: &mut Stats) {
     }
 }
 
+// Go's lexical export rule: an identifier names an exported (public)
+// member iff its first character is an uppercase Unicode letter
+// (`unicode.IsUpper`). Uses `char::is_uppercase` on the first `char`
+// (not `is_ascii_uppercase`) so non-ASCII exports such as `Ärger`
+// are recognised. The blank identifier `_` and lowercase names are
+// unexported. Shared by `Npa` (field names) and `Npm` (method
+// names); see issue #458.
+pub(crate) fn go_is_exported(name: &str) -> bool {
+    name.chars().next().is_some_and(char::is_uppercase)
+}
+
+// Extracts the declared name of a Go struct field for visibility
+// purposes. A named field carries one or more `FieldIdentifier`
+// children; an embedded field has none and instead embeds a type,
+// whose base identifier (`TypeIdentifier`) is the field's name —
+// `io.Reader` embeds as `Reader`, `*Foo` as `Foo`. Returns the
+// embedded type's name node so callers can read its text from
+// `code`.
+pub(crate) fn go_embedded_field_name<'a>(declaration: &Node<'a>) -> Option<Node<'a>> {
+    use self::Go::{PointerType, QualifiedType, TypeIdentifier};
+
+    declaration
+        .children()
+        .find_map(|child| match child.kind_id().into() {
+            // `*Foo` (pointer embed) and `pkg.Foo` (qualified embed)
+            // wrap the type; the base name is the final TypeIdentifier.
+            PointerType | QualifiedType => child
+                .children()
+                .filter(|n| matches!(n.kind_id().into(), TypeIdentifier))
+                .last(),
+            TypeIdentifier => Some(child),
+            _ => None,
+        })
+}
+
 // Go attribute counting.
 //
 // Go has no `class` concept; struct types declared at file scope
@@ -937,20 +972,19 @@ fn rust_count_assoc_type(node: &Node, stats: &mut Stats) {
 // as `MethodDeclaration` nodes attached to a receiver type. Because
 // `StructType` is NOT a func_space (per `Checker::is_func_space`),
 // the iterator visits it with the enclosing func_space's stats
-// (typically the file-level `Unit`). Each direct `FieldDeclaration`
-// child of the struct's `FieldDeclarationList` counts as one
-// attribute, including embedded types (an embedded type parses as a
-// `FieldDeclaration` with no name field, just a type — still one
-// attribute per the issue spec).
+// (typically the file-level `Unit`). Each declared field NAME counts
+// as one attribute: a grouped declaration `A, b int` declares two
+// names (two attributes), and an embedded type (`io.Reader`, `*Foo`)
+// declares one attribute whose name is the embedded type's base
+// identifier (`Reader`, `Foo`).
 //
-// Visibility note: Go exports identifiers whose first character is
-// uppercase. The `Npa::compute` trait signature does not include the
-// source byte slice, so reading the identifier text from the node
-// alone is not possible. We therefore treat every counted attribute
-// as public (`class_npa == class_na`), matching the choice Python's
-// Npm makes when no visibility token is present in the AST. The
-// alternative — adding a `code: &[u8]` parameter to the trait — is a
-// cross-language API change out of scope for this fix.
+// Visibility (issue #458): Go's export rule is purely lexical — an
+// identifier is exported (public) iff its first character is an
+// uppercase Unicode letter (`unicode.IsUpper`). `Npa::compute`
+// receives the source bytes as `code`, so we read each field name's
+// text and gate the public count (`class_npa`) on `go_is_exported`.
+// The total count (`class_na`) stays unconditional. The blank
+// identifier `_` is never exported.
 //
 // Limitations:
 // - Struct fields are attributed to the enclosing func_space (the
@@ -962,7 +996,7 @@ fn rust_count_assoc_type(node: &Node, stats: &mut Stats) {
 //   they are method signatures, counted by Npm under
 //   `interface_nm`, not by Npa.
 impl Npa for GoCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
         use Go as G;
 
         if !matches!(node.kind_id().into(), G::StructType) {
@@ -979,22 +1013,45 @@ impl Npa for GoCode {
             return;
         };
 
-        let attrs = body
+        // Tally per declared NAME: named fields carry one or more
+        // `FieldIdentifier` children (`A, b int` → two names), while
+        // an embedded field carries none and contributes the embedded
+        // type's base name. Public count is gated on Go's lexical
+        // export rule; the total is unconditional.
+        let mut total = 0usize;
+        let mut public = 0usize;
+        for declaration in body
             .children()
             .filter(|c| matches!(c.kind_id().into(), G::FieldDeclaration))
-            .count();
+        {
+            let mut names = declaration
+                .children()
+                .filter(|c| matches!(c.kind_id().into(), G::FieldIdentifier))
+                .peekable();
+            if names.peek().is_some() {
+                for name in names {
+                    total += 1;
+                    if name.utf8_text(code).is_some_and(go_is_exported) {
+                        public += 1;
+                    }
+                }
+            } else if let Some(name) = go_embedded_field_name(&declaration) {
+                total += 1;
+                if name.utf8_text(code).is_some_and(go_is_exported) {
+                    public += 1;
+                }
+            }
+        }
 
-        if attrs == 0 {
+        if total == 0 {
             return;
         }
 
         if stats.is_disabled() {
             stats.is_class_space = true;
         }
-        stats.class_na += attrs;
-        // Visibility cannot be detected without the source bytes;
-        // every field is treated as public (see module-level note).
-        stats.class_npa += attrs;
+        stats.class_na += total;
+        stats.class_npa += public;
     }
 }
 
@@ -4617,11 +4674,27 @@ mod tests {
     #[test]
     fn go_struct_fields_are_attributes() {
         // Three named fields: `X int`, `y string`, `Z float64` → 3
-        // attributes. Visibility is by identifier case in Go, but the
-        // trait signature does not give us source bytes, so every
-        // field is counted as public: class_npa == class_na.
+        // attributes. Go visibility is lexical (issue #458): `X` and
+        // `Z` are exported, `y` is not → class_npa_sum = 2.
         check_metrics::<GoParser>(
             "package main\ntype Foo struct { X int; y string; Z float64 }\n",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn go_grouped_struct_fields_each_count() {
+        // `X, Y int` declares two field names in one
+        // field_declaration; each name is its own attribute
+        // (issue #458). With the trailing `Z` → 3 attributes total,
+        // all exported → class_npa_sum = 3.
+        check_metrics::<GoParser>(
+            "package main\ntype Point struct { X, Y int; Z float64 }\n",
             "foo.go",
             |metric| {
                 assert_eq!(metric.npa.class_na_sum(), 3.0);
@@ -4632,34 +4705,19 @@ mod tests {
     }
 
     #[test]
-    fn go_grouped_struct_fields_each_count() {
-        // `X, Y int` parses as ONE field_declaration with two name
-        // identifiers — counted as 1 attribute per the
-        // "FieldDeclaration is the unit" rule. The trailing `Z` is a
-        // separate field_declaration → 2 attributes total. This
-        // mirrors Rust's per-FieldDeclaration counting.
-        check_metrics::<GoParser>(
-            "package main\ntype Point struct { X, Y int; Z float64 }\n",
-            "foo.go",
-            |metric| {
-                assert_eq!(metric.npa.class_na_sum(), 2.0);
-                insta::assert_json_snapshot!(metric.npa);
-            },
-        );
-    }
-
-    #[test]
     fn go_embedded_type_counts_as_attribute() {
         // `io.Reader` and `*Foo` are embedded types — field
-        // declarations with no name, just a type. Each is one
-        // attribute per the issue spec ("Embedded types: a field
-        // with no name, just a type — count as one field"). Plus
-        // `n int` → 3 attributes total.
+        // declarations with no name, just a type; the embedded
+        // type's base name (`Reader`, `Foo`) is the attribute name
+        // and decides its visibility (issue #458). Both are
+        // exported; `n int` is not → class_na_sum = 3,
+        // class_npa_sum = 2.
         check_metrics::<GoParser>(
             "package main\nimport \"io\"\ntype Bar struct { io.Reader; *Foo; n int }\ntype Foo struct {}\n",
             "foo.go",
             |metric| {
                 assert_eq!(metric.npa.class_na_sum(), 3.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );
@@ -4691,6 +4749,30 @@ mod tests {
             "foo.go",
             |metric| {
                 assert_eq!(metric.npa.class_na_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn go_npa_excludes_unexported() {
+        // Issue #458: mixed exported / unexported fields exercising a
+        // multi-name declaration (`A, b int`), an embedded field
+        // (`io.Reader`), the blank identifier (`_`), and a Unicode
+        // uppercase first char (`Ärger`).
+        //
+        // Names: Name(exp), secret(no), A(exp), b(no), Reader(exp),
+        //   _(no), Ärger(exp) → na = 7, npa = 4. Revert-verified
+        //   against the old all-public code, which counted every
+        //   FieldDeclaration node once (class_npa_sum = class_na_sum
+        //   = 6, undercounting the grouped names).
+        check_metrics::<GoParser>(
+            "package main\nimport \"io\"\n\
+             type T struct { Name string; secret int; A, b int; io.Reader; _ int; Ärger bool }\n",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 7.0);
+                assert_eq!(metric.npa.class_npa_sum(), 4.0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );

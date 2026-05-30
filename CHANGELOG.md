@@ -740,6 +740,24 @@ for historical reference.
 
 ### Fixed
 
+- Go `npm` / `npa` now respect Go's lexical export rule instead of
+  marking every method and field public
+  ([#458](https://github.com/dekobon/big-code-analysis/issues/458)).
+  The public counts (`npm.classes`, `npa.classes`) now increment only
+  for members whose name begins with an uppercase Unicode letter
+  (`unicode.IsUpper`, checked via `char::is_uppercase` so non-ASCII
+  exports such as `Ärger` are recognised); unexported (lowercase) and
+  blank (`_`) members are private. As part of the same fix, `npa` now
+  tallies per declared field *name* rather than per `FieldDeclaration`
+  node, so a grouped declaration `A, b int` contributes two attributes
+  (one public, one private) instead of one, and an embedded field
+  (`io.Reader`, `*Foo`) takes its visibility from the embedded type's
+  base name. This makes Go's COA / CDA accessibility ratios reflect
+  real visibility rather than always reporting `1.0`. Go-only — no
+  other language uses capitalization for visibility, and the `nm` /
+  `na` totals are unchanged in count semantics aside from the
+  grouped-field correction.
+
 - Rust `nargs` no longer counts the `self` receiver as a formal
   parameter ([#457](https://github.com/dekobon/big-code-analysis/issues/457)).
   `RustCode::is_non_arg` now excludes the `self_parameter` node, so

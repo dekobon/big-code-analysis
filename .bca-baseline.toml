@@ -2413,21 +2413,21 @@ path = "src/metrics/npa.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 26063050.75290144
+value = 26725491.96923674
 
 [[entry]]
 path = "src/metrics/npa.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 5050.0
+value = 5132.0
 
 [[entry]]
 path = "src/metrics/npa.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 310.0
+value = 316.0
 
 [[entry]]
 path = "src/metrics/npa.rs"
@@ -2441,14 +2441,14 @@ path = "src/metrics/npa.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 454.0
+value = 461.0
 
 [[entry]]
 path = "src/metrics/npa.rs"
 qualified = "<file>"
 start_line = 1
 metric = "wmc"
-value = 121.0
+value = 128.0
 
 [[entry]]
 path = "src/metrics/npa.rs"
@@ -2502,7 +2502,7 @@ value = 10.0
 [[entry]]
 path = "src/metrics/npa.rs"
 qualified = "python_self_attr_name_bytes"
-start_line = 1438
+start_line = 1495
 metric = "nexits"
 value = 6.0
 
@@ -2518,21 +2518,21 @@ path = "src/metrics/npm.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 15325593.584287735
+value = 15476418.256846266
 
 [[entry]]
 path = "src/metrics/npm.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 3827.0
+value = 3859.0
 
 [[entry]]
 path = "src/metrics/npm.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 202.0
+value = 205.0
 
 [[entry]]
 path = "src/metrics/npm.rs"
@@ -2546,14 +2546,28 @@ path = "src/metrics/npm.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 346.0
+value = 350.0
 
 [[entry]]
 path = "src/metrics/npm.rs"
 qualified = "<file>"
 start_line = 1
 metric = "wmc"
-value = 130.0
+value = 133.0
+
+[[entry]]
+path = "src/metrics/npm.rs"
+qualified = "GoCode"
+start_line = 573
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "src/metrics/npm.rs"
+qualified = "GoCode::compute"
+start_line = 574
+metric = "nargs"
+value = 7.0
 
 [[entry]]
 path = "src/metrics/npm.rs"

@@ -571,7 +571,7 @@ impl Npm for RustCode {
 // visibility is `public`, the opposite of Java's
 
 impl Npm for GoCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
         use Go as G;
 
         match node.kind_id().into() {
@@ -594,9 +594,19 @@ impl Npm for GoCode {
             // per-function npm block stays suppressed.
             G::MethodDeclaration => {
                 stats.class_nm += 1;
-                // Visibility cannot be detected without source bytes;
-                // every method is treated as public.
-                stats.class_npm += 1;
+                // Go's export rule is lexical (issue #458): the method
+                // is public iff its own name's first character is an
+                // uppercase Unicode letter — the receiver's visibility
+                // is irrelevant. The method name is the
+                // `FieldIdentifier` child of the declaration.
+                let exported = node
+                    .children()
+                    .find(|c| matches!(c.kind_id().into(), G::FieldIdentifier))
+                    .and_then(|name| name.utf8_text(code))
+                    .is_some_and(super::npa::go_is_exported);
+                if exported {
+                    stats.class_npm += 1;
+                }
             }
             // `interface { Foo(); Bar() int }` declares method
             // signatures via `MethodElem` children of an
@@ -3363,8 +3373,8 @@ class C {
     #[test]
     fn go_method_declarations_count() {
         // Two `func (r Foo) ...` methods on the same receiver type →
-        // class_nm_sum = 2. Visibility cannot be detected from the
-        // node alone, so class_npm == class_nm.
+        // class_nm_sum = 2. Go visibility is lexical (issue #458):
+        // `DoX` is exported, `doY` is not, so class_npm_sum = 1.
         check_metrics::<GoParser>(
             "package main\n\
              type Foo struct{}\n\
@@ -3373,7 +3383,7 @@ class C {
             "foo.go",
             |metric| {
                 assert_eq!(metric.npm.class_nm_sum(), 2.0);
-                assert_eq!(metric.npm.class_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_npm_sum(), 1.0);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
@@ -3454,6 +3464,28 @@ class C {
             "foo.go",
             |metric| {
                 assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn go_npm_excludes_unexported() {
+        // Mixed exported / unexported methods (issue #458). `Greet`
+        // and `Ärger` (Unicode uppercase first char) are exported;
+        // `helper` is not. nm counts all three, npm only the two
+        // exported. Revert-verified against the old all-public code
+        // (which scored class_npm_sum = 3).
+        check_metrics::<GoParser>(
+            "package main\n\
+             type T struct{}\n\
+             func (t *T) Greet() {}\n\
+             func (t *T) helper() {}\n\
+             func (t *T) Ärger() {}\n",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 3.0);
+                assert_eq!(metric.npm.class_npm_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.npm);
             },
         );
