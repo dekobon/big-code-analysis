@@ -960,15 +960,6 @@ impl Cognitive for KotlinCode {
             LabeledExpression => {
                 increment_by_one(stats);
             }
-            // SonarSource §B2: labeled `break@outer` / `continue@outer`
-            // each add +1 for breaking structured control flow; bare
-            // `break` / `continue` are +0. tree-sitter-kotlin-ng has no
-            // break/continue/jump statement kind — it models a labeled
-            // jump as a `labeled_expression` wrapping the `break@`/
-            // `continue@` token, while `return@label` is a distinct
-            // `return_expression` (so it is correctly excluded here). A
-            // bare `break`/`continue` parses as a plain identifier, never
-            // a `labeled_expression`, so it never matches (#450).
             BinaryExpression => {
                 // Kotlin's Elvis operator `?:` (token `QMARKCOLON`) is a
                 // short-circuit nullish operator analogous to JS `??` and
