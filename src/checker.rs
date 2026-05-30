@@ -574,6 +574,22 @@ impl Checker for JavaCode {
     }
 }
 
+/// Counts the `accessor_declaration` children (`get` / `set` / `init`) of a C#
+/// `property_declaration` / `indexer_declaration` by walking its
+/// `accessor_list`. Returns `0` for the expression-bodied form
+/// (`this[int i] => _d[i];` / `int W => _w;`), which has no accessor list.
+///
+/// Shared by `csharp_indexer_has_accessors` (here) and the npm reference
+/// `csharp_count_member`, which keeps its own `.max(1)` fallback so an
+/// accessor-less expression-bodied member still counts as one method (#464).
+pub(crate) fn csharp_accessor_count(node: &Node) -> usize {
+    node.children()
+        .filter(|c| c.kind_id() == Csharp::AccessorList as u16)
+        .flat_map(|list| list.children())
+        .filter(|c| c.kind_id() == Csharp::AccessorDeclaration as u16)
+        .count()
+}
+
 /// Returns `true` when a C# `indexer_declaration` carries bodied accessors —
 /// an `accessor_list` containing at least one `accessor_declaration`
 /// (`get` / `set` / `init`). Returns `false` for the expression-bodied form
@@ -587,10 +603,7 @@ impl Checker for JavaCode {
 /// its accessor count, falling back to 1 for the accessor-less
 /// expression-bodied form (#464).
 pub(crate) fn csharp_indexer_has_accessors(node: &Node) -> bool {
-    node.children()
-        .filter(|c| c.kind_id() == Csharp::AccessorList as u16)
-        .flat_map(|list| list.children())
-        .any(|c| c.kind_id() == Csharp::AccessorDeclaration as u16)
+    csharp_accessor_count(node) > 0
 }
 
 impl Checker for CsharpCode {

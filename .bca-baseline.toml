@@ -1146,21 +1146,21 @@ path = "src/checker.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 13821707.830915457
+value = 13854839.58381975
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 2860.0
+value = 2873.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 272.0
+value = 273.0
 
 [[entry]]
 path = "src/checker.rs"
@@ -1174,7 +1174,7 @@ path = "src/checker.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 257.0
+value = 258.0
 
 [[entry]]
 path = "src/checker.rs"
@@ -1186,7 +1186,7 @@ value = 239.0
 [[entry]]
 path = "src/checker.rs"
 qualified = "BashCode"
-start_line = 1362
+start_line = 1375
 metric = "nargs"
 value = 10.0
 
@@ -1221,49 +1221,49 @@ value = 10.0
 [[entry]]
 path = "src/checker.rs"
 qualified = "CsharpCode"
-start_line = 596
+start_line = 609
 metric = "halstead.effort"
 value = 63962.11659762646
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "CsharpCode"
-start_line = 596
+start_line = 609
 metric = "nargs"
 value = 11.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "ElixirCode"
-start_line = 1559
+start_line = 1572
 metric = "halstead.effort"
 value = 92612.18359125816
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "ElixirCode"
-start_line = 1559
+start_line = 1572
 metric = "nargs"
 value = 16.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "ElixirCode"
-start_line = 1559
+start_line = 1572
 metric = "nexits"
 value = 7.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "GoCode"
-start_line = 1109
+start_line = 1122
 metric = "nargs"
 value = 11.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "GroovyCode"
-start_line = 1762
+start_line = 1775
 metric = "nargs"
 value = 11.0
 
@@ -1277,42 +1277,42 @@ value = 11.0
 [[entry]]
 path = "src/checker.rs"
 qualified = "JavascriptCode"
-start_line = 756
+start_line = 769
 metric = "nargs"
 value = 9.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "KotlinCode"
-start_line = 1159
+start_line = 1172
 metric = "nargs"
 value = 11.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "LuaCode"
-start_line = 1303
+start_line = 1316
 metric = "nargs"
 value = 10.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "MozjsCode"
-start_line = 701
+start_line = 714
 metric = "nargs"
 value = 8.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "PerlCode"
-start_line = 1224
+start_line = 1237
 metric = "nargs"
 value = 10.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "PhpCode"
-start_line = 1466
+start_line = 1479
 metric = "nargs"
 value = 10.0
 
@@ -1333,56 +1333,56 @@ value = 12.0
 [[entry]]
 path = "src/checker.rs"
 qualified = "RubyCode"
-start_line = 1675
+start_line = 1688
 metric = "nargs"
 value = 10.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "RustCode"
-start_line = 983
+start_line = 996
 metric = "halstead.effort"
 value = 99487.96893048193
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "RustCode"
-start_line = 983
+start_line = 996
 metric = "nargs"
 value = 13.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "TclCode"
-start_line = 1422
+start_line = 1435
 metric = "nargs"
 value = 10.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "TsxCode"
-start_line = 866
+start_line = 879
 metric = "nargs"
 value = 9.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "TypescriptCode"
-start_line = 808
+start_line = 821
 metric = "nargs"
 value = 8.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "simple_is_string_macro_recognises_each_language"
-start_line = 2540
+start_line = 2553
 metric = "abc"
 value = 49.49747468305833
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "simple_is_string_macro_recognises_each_language"
-start_line = 2540
+start_line = 2553
 metric = "halstead.effort"
 value = 105721.44190330332
 
@@ -2455,7 +2455,7 @@ path = "src/metrics/npa.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 5269.0
+value = 5280.0
 
 [[entry]]
 path = "src/metrics/npa.rs"
@@ -2537,7 +2537,7 @@ value = 10.0
 [[entry]]
 path = "src/metrics/npa.rs"
 qualified = "python_self_attr_name_bytes"
-start_line = 1509
+start_line = 1520
 metric = "nexits"
 value = 6.0
 
@@ -2553,21 +2553,21 @@ path = "src/metrics/npm.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 15541040.697248526
+value = 15451095.086261101
 
 [[entry]]
 path = "src/metrics/npm.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 3887.0
+value = 3881.0
 
 [[entry]]
 path = "src/metrics/npm.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 206.0
+value = 203.0
 
 [[entry]]
 path = "src/metrics/npm.rs"
@@ -2581,7 +2581,7 @@ path = "src/metrics/npm.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 352.0
+value = 349.0
 
 [[entry]]
 path = "src/metrics/npm.rs"
@@ -2593,28 +2593,28 @@ value = 133.0
 [[entry]]
 path = "src/metrics/npm.rs"
 qualified = "GoCode"
-start_line = 573
+start_line = 567
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "src/metrics/npm.rs"
 qualified = "GoCode::compute"
-start_line = 574
+start_line = 568
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "src/metrics/npm.rs"
 qualified = "PhpCode"
-start_line = 408
+start_line = 402
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "src/metrics/npm.rs"
 qualified = "PhpCode::compute"
-start_line = 409
+start_line = 403
 metric = "nargs"
 value = 7.0
 

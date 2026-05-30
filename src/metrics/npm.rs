@@ -21,7 +21,7 @@ use serde::Serialize;
 use serde::ser::{SerializeStruct, Serializer};
 use std::fmt;
 
-use crate::checker::Checker;
+use crate::checker::{Checker, csharp_accessor_count};
 use crate::langs::*;
 use crate::macros::implement_metric_trait;
 use crate::metrics::npa::{accessibility_ratio, python_is_block, ts_member_is_public};
@@ -356,13 +356,7 @@ fn csharp_count_member(member: &Node) -> usize {
         | DestructorDeclaration
         | OperatorDeclaration
         | ConversionOperatorDeclaration => 1,
-        PropertyDeclaration | IndexerDeclaration => member
-            .children()
-            .filter(|c| matches!(c.kind_id().into(), AccessorList))
-            .flat_map(|c| c.children())
-            .filter(|c| matches!(c.kind_id().into(), AccessorDeclaration))
-            .count()
-            .max(1),
+        PropertyDeclaration | IndexerDeclaration => csharp_accessor_count(member).max(1),
         _ => 0,
     }
 }

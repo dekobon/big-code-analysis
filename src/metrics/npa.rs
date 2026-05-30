@@ -1173,7 +1173,7 @@ fn rust_count_tuple_struct_fields(list: &Node) -> (usize, usize) {
             // as public (issue #460): the modifier has a direct `Zelf`
             // child for exactly those forms.
             VisibilityModifier => {
-                pending_pub = !child.children().any(|c| c.kind_id() == Zelf);
+                pending_pub = rust_visibility_modifier_is_public(&child);
             }
             // `attribute_item` decorates the next field but does not
             // contribute to visibility. Skip without resetting the
@@ -1259,6 +1259,17 @@ pub(crate) fn python_case_clause_counts(node: &Node, underscore_id: u16) -> bool
     !bare_underscore
 }
 
+// A `visibility_modifier` node counts as public unless it has a direct
+// `Zelf` child — the structural signature of `pub(self)` / `pub(in self)`,
+// which restrict visibility to the current module (semantically private,
+// issue #460). `pub(in self::inner)` nests `self` inside a
+// `scoped_identifier` (not a direct child) and stays public. Shared by
+// `rust_item_is_public` and the tuple-struct positional-field path so the
+// two never drift.
+fn rust_visibility_modifier_is_public(node: &Node) -> bool {
+    !node.children().any(|c| c.kind_id() == Rust::Zelf)
+}
+
 // Returns true if `node` carries a `visibility_modifier` that makes the
 // item public to its definition. Matches Rust's "public-only-when-`pub`"
 // model: bare `pub`, `pub(crate)`, `pub(super)`, and `pub(in <path>)`
@@ -1278,7 +1289,7 @@ pub(crate) fn python_case_clause_counts(node: &Node, underscore_id: u16) -> bool
 pub(crate) fn rust_item_is_public(node: &Node) -> bool {
     node.children()
         .filter(|c| c.kind_id() == Rust::VisibilityModifier)
-        .any(|vis| !vis.children().any(|inner| inner.kind_id() == Rust::Zelf))
+        .any(|vis| rust_visibility_modifier_is_public(&vis))
 }
 
 // Single normalization point for Python's aliased `block` kind_ids.
