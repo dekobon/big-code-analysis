@@ -924,7 +924,7 @@ impl Cognitive for PerlCode {
 impl Cognitive for KotlinCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         stats: &mut Stats,
         nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
     ) {
@@ -952,12 +952,23 @@ impl Cognitive for KotlinCode {
             // each add +1 for breaking structured control flow; bare
             // `break` / `continue` are +0. tree-sitter-kotlin-ng has no
             // break/continue/jump statement kind — it models a labeled
-            // jump as a `labeled_expression` wrapping the `break@`/
-            // `continue@` token, while `return@label` is a distinct
+            // jump as a `labeled_expression` whose `label` child is the
+            // *fused* jump keyword `break@` / `continue@` (the loop target
+            // identifier is a sibling), while `return@label` is a distinct
             // `return_expression` (so it is correctly excluded here). A
-            // bare `break`/`continue` parses as a plain identifier, never
-            // a `labeled_expression`, so it never matches (#450).
-            LabeledExpression => {
+            // labeled *non-jump* (`lbl@ run { … }`, `lbl@ if (…) {…}`) is
+            // ALSO a `labeled_expression`, but its `label` is an ordinary
+            // `name@` — those must not count, so gate on the label token
+            // being `break@` / `continue@` (#450). A bare `break`/`continue`
+            // parses as a plain identifier, never a `labeled_expression`,
+            // so it never reaches this arm.
+            LabeledExpression
+                if node
+                    .child(0)
+                    .filter(|c| c.kind_id() == Label as u16)
+                    .and_then(|c| c.utf8_text(code))
+                    .is_some_and(|t| t.starts_with("break@") || t.starts_with("continue@")) =>
+            {
                 increment_by_one(stats);
             }
             BinaryExpression => {
@@ -5598,6 +5609,22 @@ mod tests {
                 "#);
             },
         );
+    }
+
+    #[test]
+    fn kotlin_labeled_nonjump_expression_not_counted() {
+        // Regression (#450 follow-up): tree-sitter-kotlin-ng models ANY
+        // labeled expression as `labeled_expression`, not only labeled
+        // jumps. The original #450 arm was unconditional, so a labeled
+        // non-jump (`lbl@ run { … }`) wrongly scored +1. The arm now gates
+        // on the `label` token being the fused jump keyword `break@` /
+        // `continue@`; an ordinary `name@` label must contribute +0.
+        // Pre-fix this scored 1.0; verified via test-via-revert.
+        check_metrics::<KotlinParser>("fun f() { lbl@ run { println(1) } }", "foo.kt", |metric| {
+            // expected: labeled non-jump is not a structured-control-flow
+            // break, so it adds nothing.
+            assert_eq!(metric.cognitive.cognitive_sum(), 0.0);
+        });
     }
 
     #[test]

@@ -1846,21 +1846,21 @@ path = "src/metrics/cognitive.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 32564367.475773804
+value = 32671145.929380957
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 9164.0
+value = 9191.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 434.0
+value = 438.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
@@ -1874,14 +1874,35 @@ path = "src/metrics/cognitive.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 679.0
+value = 684.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "<file>"
 start_line = 1
 metric = "wmc"
-value = 176.0
+value = 181.0
+
+[[entry]]
+path = "src/metrics/cognitive.rs"
+qualified = "KotlinCode"
+start_line = 924
+metric = "halstead.effort"
+value = 50344.72607720926
+
+[[entry]]
+path = "src/metrics/cognitive.rs"
+qualified = "KotlinCode"
+start_line = 924
+metric = "nargs"
+value = 9.0
+
+[[entry]]
+path = "src/metrics/cognitive.rs"
+qualified = "KotlinCode::compute"
+start_line = 925
+metric = "nargs"
+value = 9.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
@@ -1907,14 +1928,14 @@ value = 108602.46237800585
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "RubyCode"
-start_line = 1431
+start_line = 1442
 metric = "halstead.effort"
 value = 58448.11973835101
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "RubyCode::compute"
-start_line = 1432
+start_line = 1443
 metric = "halstead.effort"
 value = 53494.66804869133
 

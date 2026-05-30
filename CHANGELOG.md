@@ -747,6 +747,16 @@ for historical reference.
 
 ### Fixed
 
+- Kotlin cognitive complexity no longer over-counts labeled non-jump
+  expressions ([#450](https://github.com/dekobon/big-code-analysis/issues/450)).
+  The labeled-jump arm added by #450 was unconditional, but
+  tree-sitter-kotlin-ng models *any* labeled expression as
+  `labeled_expression`, so a labeled non-jump such as `lbl@ run { … }`
+  wrongly scored `+1`. The arm now increments only when the
+  `labeled_expression`'s `label` child is the fused jump keyword
+  `break@` / `continue@`; labeled `break@outer` / `continue@outer`
+  still score `+1` (§B2) and bare `break`/`continue` remain `+0`.
+
 - Java `nargs` no longer counts an explicit receiver parameter as a
   formal parameter ([#470](https://github.com/dekobon/big-code-analysis/issues/470)).
   Java's explicit receiver (`void m(S this, int a)`, JLS 8.4.1) parses
