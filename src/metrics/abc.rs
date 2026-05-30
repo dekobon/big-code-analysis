@@ -5175,6 +5175,27 @@ mod tests {
         );
     }
 
+    // Over-exclusion guard (issue #469): a statement `switch` with two
+    // `case` arms and NO `default` must still count both cases. This
+    // pins that the fix excludes only the `Default` token, never a
+    // `Case` arm — the count is identical before and after #469 (two
+    // cases → 2), so it would catch a fix that over-eagerly dropped a
+    // real case (e.g. treating the trailing case as a fallthrough).
+    // expected: case 1 (+1) + case 2 (+1) = 2.
+    #[test]
+    fn java_switch_without_default_counts_all_cases() {
+        check_metrics::<JavaParser>(
+            "class A {
+                int m(int x) {
+                    switch (x) { case 1: return 1; case 2: return 2; }
+                    return -1;
+                }
+            }",
+            "foo.java",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2.0),
+        );
+    }
+
     #[test]
     fn csharp_switch_default_not_a_condition() {
         check_metrics::<CsharpParser>(

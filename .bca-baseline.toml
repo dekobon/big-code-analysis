@@ -1727,21 +1727,21 @@ path = "src/metrics/abc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 64439381.278967395
+value = 64501853.04466855
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 10822.0
+value = 10843.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 556.0
+value = 557.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
@@ -1755,7 +1755,7 @@ path = "src/metrics/abc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 828.0
+value = 830.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
