@@ -274,6 +274,13 @@ for historical reference.
   ci`, the `.pre-commit-config.yaml` system hook, and a defensive
   explicit `lint`-job step in `.github/workflows/ci.yml`
   ([#446](https://github.com/dekobon/big-code-analysis/issues/446)).
+  The guard is now bidirectional
+  ([#447](https://github.com/dekobon/big-code-analysis/issues/447)):
+  beyond asserting every page is listed in its owner, it also fails on
+  a page listed in the *wrong* crate's asset tables (cross-contamination)
+  and on a stale asset entry whose `bca-*.1` source no longer exists
+  under `man/`, both scoped to `bca-*.1` basenames so binaries,
+  completions, the top-level `bca.1`, and licences are not swept in.
 
 - `bca check` actionable failure output (umbrella
   [#356](https://github.com/dekobon/big-code-analysis/issues/356)
