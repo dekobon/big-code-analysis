@@ -162,6 +162,19 @@ pub trait Getter {
         HalsteadType::Unknown
     }
 
+    /// Source-aware variant of [`get_op_type`]. The default forwards
+    /// to the byte-less classifier; languages whose Halstead operand
+    /// classification depends on token text override this. Kotlin uses
+    /// it to recover the variable in a short-form string template
+    /// (`"Hi $name"`), which the grammar emits as bare `string_content`
+    /// tokens with no structured interpolation node — the distinction
+    /// between an interpolated `$name` and a literal `$5` is only
+    /// visible in the source bytes (#454).
+    #[inline]
+    fn get_op_type_with_code(node: &Node, _code: &[u8]) -> HalsteadType {
+        Self::get_op_type(node)
+    }
+
     /// Classifies a string-literal `node` as a single Halstead
     /// operand, *unless* it wraps an interpolation child drawn from
     /// `interp_kinds` — in which case the wrapper yields
@@ -836,6 +849,75 @@ impl Getter for CsharpCode {
     get_operator!(Csharp);
 }
 
+/// Returns whether `text` is a complete Kotlin identifier — a Unicode
+/// letter or `_` start followed by letters / digits / `_`. The short
+/// string template `$name` interpolates a *simple identifier*, but the
+/// kotlin-ng grammar does not tokenise at the identifier boundary: it
+/// splits the literal only at each `$`, so the token after `$` is the
+/// bare variable (`name`) only when it ends the segment. `"price: $5"`
+/// (digit start), `"$x is "` (trailing space), and `"$obj."` (trailing
+/// `.`) all yield a token that is not a clean identifier, and are
+/// treated as literal text rather than a recoverable interpolation
+/// (#454). Recovering only the clean-identifier case keeps the operand
+/// store free of partial-literal junk like `"x is "`.
+fn kotlin_is_identifier(text: &str) -> bool {
+    let mut chars = text.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if first != '_' && !first.is_alphabetic() {
+        return false;
+    }
+    chars.all(|c| c == '_' || c.is_alphanumeric())
+}
+
+/// Returns whether the `string_content` token `node` is the
+/// variable-name part of a Kotlin short string template (`$name`).
+/// The kotlin-ng grammar emits no structured node for this form — the
+/// `$` sigil and the variable name arrive as two adjacent
+/// `string_content` tokens (verified by AST dump, #454). The name token
+/// is recognised by a preceding `string_content` sibling spelled
+/// exactly `$` plus its own text being a complete identifier,
+/// distinguishing `$name` (recoverable) from the partial-literal tokens
+/// the grammar emits for `"price: $5"`, `"$x is "`, or `"$obj."`.
+fn kotlin_is_short_interp_name(node: &Node, code: &[u8]) -> bool {
+    use Kotlin::{StringContent, StringContent2, StringContent3};
+
+    // The grammar emits three aliased `string_content` kind ids
+    // (single-line uses `StringContent3`, others `StringContent` /
+    // `StringContent2`); all render as the text `"string_content"`.
+    const STRING_CONTENT_KINDS: [u16; 3] = [
+        StringContent as u16,
+        StringContent2 as u16,
+        StringContent3 as u16,
+    ];
+
+    if !STRING_CONTENT_KINDS.contains(&node.kind_id()) {
+        return false;
+    }
+    let Some(prev) = node.previous_sibling() else {
+        return false;
+    };
+    if !STRING_CONTENT_KINDS.contains(&prev.kind_id()) || prev.utf8_text(code) != Some("$") {
+        return false;
+    }
+    node.utf8_text(code).is_some_and(kotlin_is_identifier)
+}
+
+/// Returns whether a Kotlin string literal `node` carries any
+/// interpolation: the long `${expr}` form (a structured `Interpolation`
+/// child) or the short `$name` form (adjacent `$` + identifier
+/// `string_content` tokens). The wrapping literal yields Unknown in
+/// either case so the inner expression is the only counted operand
+/// (#454).
+fn kotlin_string_has_interp(node: &Node, code: &[u8]) -> bool {
+    use Kotlin::Interpolation;
+
+    node.children().any(|child| {
+        child.kind_id() == Interpolation as u16 || kotlin_is_short_interp_name(&child, code)
+    })
+}
+
 impl Getter for KotlinCode {
     fn get_space_kind(node: &Node) -> SpaceKind {
         use Kotlin::*;
@@ -901,17 +983,55 @@ impl Getter for KotlinCode {
             Identifier | NumberLiteral | FloatLiteral | CharacterLiteral | Label => {
                 HalsteadType::Operand
             }
-            // Regression #191: a Kotlin string template (`"Hi $name"` or
-            // `"${expr}"`) wraps `Interpolation` children whose inner
-            // expressions are walked and counted separately. Skip the
-            // wrapping literal to avoid double-counting (same pattern as
-            // #180 for Bash/Elixir and #184 for PHP). Both single-line and
-            // multi-line (triple-quoted) string literals support
-            // interpolation in Kotlin.
+            // Regression #191: a Kotlin string template wraps an
+            // `Interpolation` child (the long `"${expr}"` form) whose
+            // inner expressions are walked and counted separately, so
+            // the wrapping literal yields Unknown to avoid double-
+            // counting (same pattern as #180 Bash/Elixir, #184 PHP).
+            // The short `"Hi $name"` form has no `Interpolation` node —
+            // it needs the source bytes to distinguish `$name` from
+            // literal `$5`, so it is handled in `get_op_type_with_code`;
+            // this byte-less arm sees only the long form. Both single-
+            // line and multi-line (triple-quoted) literals interpolate.
             StringLiteral | MultilineStringLiteral => {
                 Self::string_operand_type(node, &[Interpolation as u16])
             }
             _ => HalsteadType::Unknown,
+        }
+    }
+
+    fn get_op_type_with_code(node: &Node, code: &[u8]) -> HalsteadType {
+        use Kotlin::*;
+
+        match node.kind_id().into() {
+            // The kotlin-ng grammar emits no structured node for the
+            // short string template `"Hi $name"` — the `$` sigil and the
+            // variable name arrive as two adjacent `string_content`
+            // tokens (issue #454). When the name token is a clean
+            // identifier, recover it as the operand the long `${name}`
+            // form would have produced, so both template forms count the
+            // inner variable and suppress the wrapping literal (the
+            // wrapper arm below). The grammar does not tokenise at the
+            // identifier boundary for mid-segment forms (`"$x is "`), so
+            // those are left as literal text rather than emitting a
+            // partial-literal operand.
+            StringContent | StringContent2 | StringContent3
+                if kotlin_is_short_interp_name(node, code) =>
+            {
+                HalsteadType::Operand
+            }
+            // The wrapping literal is Unknown when it interpolates in
+            // either form (long `${expr}` or short `$name`); the inner
+            // expression / recovered variable is the only operand. A
+            // plain literal has no interpolation and stays one operand.
+            StringLiteral | MultilineStringLiteral => {
+                if kotlin_string_has_interp(node, code) {
+                    HalsteadType::Unknown
+                } else {
+                    HalsteadType::Operand
+                }
+            }
+            _ => Self::get_op_type(node),
         }
     }
 
@@ -1853,7 +1973,25 @@ impl Getter for GroovyCode {
             | LTEQGT | EQTILDE | EQEQTILDE | EQEQGT | STARCOLON => HalsteadType::Operator,
 
             Identifier | TypeIdentifier | QualifiedName | QualifiedType | NullLiteral | True
-            | False | StringLiteral | NumberLiteral => HalsteadType::Operand,
+            | False | NumberLiteral => HalsteadType::Operand,
+
+            // A Groovy GString interpolates inner expressions whose
+            // operands are walked and counted separately, so the
+            // wrapping literal must yield Unknown to avoid double-
+            // counting (issue #454, same mechanism as Kotlin #191 /
+            // PHP #184 / Elixir #180, generalized in #420). The dekobon
+            // grammar emits two interpolation child kinds: the braced
+            // long form `${expr}` (`gstring_brace_interpolation`) and
+            // the short `$name` / `$obj.field` form
+            // (`gstring_dollar_interpolation`). A plain non-interpolated
+            // literal has neither child and stays a single operand.
+            StringLiteral => Self::string_operand_type(
+                node,
+                &[
+                    GstringBraceInterpolation as u16,
+                    GstringDollarInterpolation as u16,
+                ],
+            ),
 
             _ => HalsteadType::Unknown,
         }

@@ -371,7 +371,7 @@ fn compute_halstead<'a, T: Getter + Checker>(
     code: &'a [u8],
     halstead_maps: &mut HalsteadMaps<'a>,
 ) {
-    match T::get_op_type(node) {
+    match T::get_op_type_with_code(node, code) {
         HalsteadType::Operator => {
             if T::is_primitive(node.kind_id()) {
                 // Store primitive-type operators by text so distinct
@@ -524,9 +524,42 @@ impl Halstead for TclCode {
     clippy::too_many_lines
 )]
 mod tests {
+    use std::collections::HashSet;
+    use std::path::PathBuf;
+
     use crate::tools::check_metrics;
 
     use super::*;
+
+    // Pins the lesson-4 invariant `n2 == len(dedupe(ops.operands))` by
+    // running `operands_and_operators` (the text-keyed `--ops` store)
+    // on the same source and comparing its deduplicated operand count
+    // to the expected `n2`. The metrics store and the ops store are
+    // independent (lesson 4); this catches a classification change that
+    // moves one without the other.
+    fn assert_ops_operands<T: crate::ParserTrait>(
+        source: &str,
+        file: &str,
+        expected_n2: usize,
+        mut expected_operands: Vec<&str>,
+    ) {
+        let path = PathBuf::from(file);
+        let parser = T::new(source.as_bytes().to_vec(), &path, None);
+        let ops = crate::operands_and_operators(&parser, &path).expect("ops walk succeeds");
+
+        let unique: HashSet<&str> = ops.operands.iter().map(String::as_str).collect();
+        assert_eq!(
+            unique.len(),
+            expected_n2,
+            "dedupe(ops.operands) must equal n2; operands were {:?}",
+            ops.operands
+        );
+
+        let mut got: Vec<&str> = unique.into_iter().collect();
+        got.sort_unstable();
+        expected_operands.sort_unstable();
+        assert_eq!(got, expected_operands);
+    }
 
     #[test]
     fn python_operators_and_operands() {
@@ -1908,6 +1941,68 @@ mod tests {
     }
 
     #[test]
+    fn groovy_gstring_no_double_count() {
+        // Issue #454: before the fix Groovy had no interpolation guard
+        // at all — `StringLiteral` was classified as a plain operand, so
+        // a GString counted the wrapping literal AND descended into its
+        // interpolated expression, double-counting the inner identifier
+        // in N2. The fix routes `StringLiteral` through
+        // `string_operand_type` with both GString interpolation child
+        // kinds (`gstring_brace_interpolation` / `gstring_dollar_-
+        // interpolation`), so the wrapper is Unknown and only the inner
+        // expression contributes.
+        //
+        // `def greet(name) {\n  return "Hi ${name}"\n}\n`
+        //   operands by token text: `greet` × 1, `name` × 2 (param +
+        //   inside `${name}`). The wrapping `"Hi ${name}"` is suppressed
+        //   → u_operands = 2 (`greet`, `name`), N2 = 3. Without the fix
+        //   the wrapping literal would also count → u_operands = 3,
+        //   N2 = 4.
+        let src = "def greet(name) {\n  return \"Hi ${name}\"\n}\n";
+        check_metrics::<GroovyParser>(src, "foo.groovy", |metric| {
+            assert_eq!(metric.halstead.u_operands(), 2.0);
+            assert_eq!(metric.halstead.operands(), 3.0);
+        });
+        assert_ops_operands::<GroovyParser>(src, "foo.groovy", 2, vec!["greet", "name"]);
+    }
+
+    #[test]
+    fn groovy_gstring_dollar_form_no_double_count() {
+        // Issue #454: the short `$name` GString form emits a distinct
+        // `gstring_dollar_interpolation` child whose inner `identifier`
+        // text is `$name` (the grammar's identifier node spans the
+        // leading `$`). The wrapper is suppressed; the inner `$name`
+        // operand is distinct from the bare `name` param.
+        //
+        // `def greet(name) {\n  return "Hi $name"\n}\n`
+        //   operands: `greet`, `name` (param), `$name` (interp) →
+        //   u_operands = 3, N2 = 3. Without the fix the wrapping
+        //   `"Hi $name"` would also count → u_operands = 4, N2 = 4.
+        let src = "def greet(name) {\n  return \"Hi $name\"\n}\n";
+        check_metrics::<GroovyParser>(src, "foo.groovy", |metric| {
+            assert_eq!(metric.halstead.u_operands(), 3.0);
+            assert_eq!(metric.halstead.operands(), 3.0);
+        });
+        assert_ops_operands::<GroovyParser>(src, "foo.groovy", 3, vec!["greet", "name", "$name"]);
+    }
+
+    #[test]
+    fn groovy_plain_string_still_operand() {
+        // Counterpart to `groovy_gstring_no_double_count`: a plain
+        // non-interpolated literal has neither GString interpolation
+        // child and must still contribute exactly one operand.
+        //
+        // `def f() {\n  return "plain"\n}\n`
+        //   operands: `f`, `"plain"` → u_operands = 2, N2 = 2.
+        let src = "def f() {\n  return \"plain\"\n}\n";
+        check_metrics::<GroovyParser>(src, "foo.groovy", |metric| {
+            assert_eq!(metric.halstead.u_operands(), 2.0);
+            assert_eq!(metric.halstead.operands(), 2.0);
+        });
+        assert_ops_operands::<GroovyParser>(src, "foo.groovy", 2, vec!["f", "\"plain\""]);
+    }
+
+    #[test]
     fn csharp_operators_and_operands() {
         // After issue #286, `void`, `string`, and `int` count as three
         // distinct Halstead operators rather than collapsing into one
@@ -2322,33 +2417,89 @@ end",
 
     #[test]
     fn kotlin_string_template_no_double_count() {
-        // Regression: issue #191. A Kotlin string template (`"Hi $name!"`)
-        // wraps an `Interpolation` child whose inner expression is
-        // walked and counted separately. Without the
-        // `is_child(Interpolation)` guard the wrapping `StringLiteral`
-        // would also count as an operand, inflating N2. Same pattern as
-        // #180 (Bash/Elixir) and #184 (PHP).
+        // Re-anchored for issue #454. The pre-#454 comment claimed
+        // kotlin-ng emits an `identifier` node for the short `$name`
+        // form whose bytes include the leading `$`. That is factually
+        // false: AST dump shows the short form produces bare
+        // `string_content` tokens (`$`, then `name`) with **no**
+        // structured node. The old assertion (u_operands = 4, N2 = 5)
+        // passed for the wrong reason (lesson 6): the wrapping literal
+        // was counted (+1) and the inner `name` was dropped (-1), and
+        // the two errors cancelled. The `$name!` it used also defeats
+        // recovery because the grammar glues the trailing `!` onto the
+        // name token.
         //
-        // Source: `fun greet(name: String): String {\n    return "Hi $name!"\n}\n`
-        // Operands (by source-byte key):
-        //   Function signature (no body): `greet` × 1, `name` × 1,
-        //   `String` × 2 (param type + return type) = 3 unique, 4 total.
-        //   Body adds the short-form interpolation `$name`: tree-sitter
-        //   kotlin-ng 1.1.0 produces an `identifier` node whose source
-        //   range includes the leading `$`, so its bytes are `$name` —
-        //   distinct from the bare `name` operand in the signature.
-        //   The wrapping `StringLiteral` is skipped (fix working) →
-        //   u_operands = 4 (`greet`, `name`, `String`, `$name`), N2 = 5.
-        //   Without the fix the `StringLiteral` text (`"Hi $name!"`)
-        //   would also be counted → N2 = 6, u_operands = 5.
+        // Correct mechanism (clean end-of-segment short form):
+        // `fun greet(name: String): String {\n    return "Hi $name"\n}\n`
+        //   operators: fun, (, ), :, {}, return → as classified.
+        //   operands by token text:
+        //     `greet` × 1, `name` × 2 (param + recovered short-interp),
+        //     `String` × 2 (param type + return type).
+        //   The wrapping `"Hi $name"` literal is suppressed and the
+        //   inner `name` recovered → u_operands = 3 (`greet`, `name`,
+        //   `String`), N2 = 5. Pre-#454: wrapper counted, inner dropped
+        //   → u_operands = 4, N2 = 6.
         check_metrics::<KotlinParser>(
-            "fun greet(name: String): String {\n    return \"Hi $name!\"\n}\n",
+            "fun greet(name: String): String {\n    return \"Hi $name\"\n}\n",
             "foo.kt",
             |metric| {
-                assert_eq!(metric.halstead.u_operands(), 4.0);
+                assert_eq!(metric.halstead.u_operands(), 3.0);
                 assert_eq!(metric.halstead.operands(), 5.0);
             },
         );
+        // Lesson 4: the ops store agrees on n2 and the exact operand set
+        // (inner `name` present, wrapper absent).
+        assert_ops_operands::<KotlinParser>(
+            "fun greet(name: String): String {\n    return \"Hi $name\"\n}\n",
+            "foo.kt",
+            3,
+            vec!["greet", "name", "String"],
+        );
+    }
+
+    #[test]
+    fn kotlin_short_interpolation_counts_inner_not_wrapper() {
+        // Issue #454: the short `$name` template — distinct from the
+        // long `${expr}` form, which the kotlin-ng grammar gives a
+        // structured `interpolation` node (see
+        // `kotlin_string_template_long_form_no_double_count`). The short
+        // form has no such node; the variable arrives as a bare
+        // `string_content` token preceded by a `$` `string_content`.
+        // The fix recovers the clean-identifier variable as an operand
+        // and suppresses the opaque wrapper.
+        //
+        // `fun f() { val x = 1; println("v=$x") }\n`
+        //   operands by token text: `f`, `x` × 2 (decl + recovered),
+        //   `println`, `1`. The wrapping `"v=$x"` is suppressed →
+        //   u_operands = 4 (`f`, `x`, `println`, `1`), N2 = 5.
+        // Pre-#454 the wrapper `"v=$x"` counted and the inner `x` was
+        // dropped → u_operands = 4 but the wrapper, not `x`, was the
+        // fourth operand, and N2 = 5 with the wrong member — the ops
+        // assertion below pins the exact set so the cancellation cannot
+        // hide it.
+        let src = "fun f() { val x = 1; println(\"v=$x\") }\n";
+        check_metrics::<KotlinParser>(src, "foo.kt", |metric| {
+            assert_eq!(metric.halstead.u_operands(), 4.0);
+            assert_eq!(metric.halstead.operands(), 5.0);
+        });
+        assert_ops_operands::<KotlinParser>(src, "foo.kt", 4, vec!["f", "x", "println", "1"]);
+    }
+
+    #[test]
+    fn kotlin_dollar_non_identifier_stays_literal() {
+        // Issue #454 boundary: a `$` not followed by a clean identifier
+        // is literal text, not an interpolation. `"price: $5"` (digit
+        // after `$`) must keep the wrapping literal as a single operand
+        // and recover nothing.
+        //
+        // `fun f() { val a = "price: $5" }\n`
+        //   operands: `f`, `a`, `"price: $5"` → u_operands = 3, N2 = 3.
+        let src = "fun f() { val a = \"price: $5\" }\n";
+        check_metrics::<KotlinParser>(src, "foo.kt", |metric| {
+            assert_eq!(metric.halstead.u_operands(), 3.0);
+            assert_eq!(metric.halstead.operands(), 3.0);
+        });
+        assert_ops_operands::<KotlinParser>(src, "foo.kt", 3, vec!["f", "a", "\"price: $5\""]);
     }
 
     #[test]

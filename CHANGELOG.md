@@ -740,6 +740,25 @@ for historical reference.
 
 ### Fixed
 
+- Halstead now classifies interpolated-string operands correctly for
+  Groovy GStrings and the Kotlin short `$name` template form
+  ([#454](https://github.com/dekobon/big-code-analysis/issues/454)).
+  Groovy had no interpolation guard at all, so a GString counted both
+  the wrapping literal and its inner expression, double-counting the
+  inner identifier in `n2`/`N2`; `StringLiteral` now routes through the
+  shared interpolation skip with the `gstring_brace_interpolation` and
+  `gstring_dollar_interpolation` child kinds. Kotlin's guard only fired
+  for the long `${expr}` form (a structured `interpolation` node); the
+  short `"Hi $name"` form has no such node — the kotlin-ng grammar emits
+  the variable as bare `string_content` tokens — so the opaque wrapper
+  was counted and the inner variable dropped. A new source-aware
+  classification hook (`Getter::get_op_type_with_code`) recovers the
+  clean-identifier short-form variable as the operand and suppresses the
+  wrapper, matching the long form. Mid-segment short forms the grammar
+  does not tokenise cleanly (`"$x is "`, `"$obj."`) and a `$` not
+  followed by an identifier (`"price: $5"`) stay literal text.
+  Metric-value change for affected Groovy/Kotlin sources; derived MI
+  shifts accordingly.
 - Halstead no longer double-counts a TypeScript/TSX `void` return (or
   parameter) type as two operators
   ([#453](https://github.com/dekobon/big-code-analysis/issues/453)).
