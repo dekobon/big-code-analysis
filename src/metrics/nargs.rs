@@ -1880,6 +1880,31 @@ mod tests {
         );
     }
 
+    /// Java's explicit receiver parameter (`void m(S this, int a)`, JLS
+    /// 8.4.1) parses as a `receiver_parameter` node — distinct from a real
+    /// `formal_parameter` — and binds `this`, not a value. Like Rust's
+    /// `self_parameter` (#457), Go's `receiver` field, and C++'s implicit
+    /// `this`, it must not be counted as a formal parameter (#470).
+    #[test]
+    fn java_method_excludes_explicit_receiver() {
+        check_metrics::<JavaParser>(
+            "class S {
+                 void m(S this, int a) {}   // receiver + 1 -> 1 arg
+                 void n(int a, int b) {}     // control: 2 real params
+                 void r(S this) {}           // receiver only  -> 0 args
+             }",
+            "foo.java",
+            |metric| {
+                // m:1 + n:2 + r:0. The two receiver parameters contribute
+                // nothing. Pre-fix, the receivers inflated this to sum = 5
+                // (m:2 + n:2 + r:1), max = 2. After #470: sum = 3, max = 2.
+                let s = &metric.nargs;
+                assert_eq!(s.fn_args_sum(), 3.0);
+                assert_eq!(s.fn_args_max(), 2.0);
+            },
+        );
+    }
+
     #[test]
     fn java_lambda_args() {
         check_metrics::<JavaParser>(

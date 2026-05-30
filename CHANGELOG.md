@@ -740,6 +740,19 @@ for historical reference.
 
 ### Fixed
 
+- Java `nargs` no longer counts an explicit receiver parameter as a
+  formal parameter ([#470](https://github.com/dekobon/big-code-analysis/issues/470)).
+  Java's explicit receiver (`void m(S this, int a)`, JLS 8.4.1) parses
+  as a `receiver_parameter` node — distinct from a real
+  `formal_parameter` — and binds `this`, not a value, so it is not an
+  argument. `JavaCode::is_non_arg` now excludes `Java::ReceiverParameter`,
+  matching the Rust `self` receiver fix ([#457](https://github.com/dekobon/big-code-analysis/issues/457)),
+  Go's `receiver` field, and C++'s implicit `this`. A method written
+  `void m(S this, int a)` now reports `nargs = 1` instead of `2`; a
+  receiver-only `void m(S this)` reports `0`. Methods without an
+  explicit receiver are unchanged. Kotlin is unaffected (its extension
+  receiver sits outside `function_value_parameters`).
+
 - The `default` arm of a C-family `switch` no longer over-counts ABC
   conditions ([#469](https://github.com/dekobon/big-code-analysis/issues/469)).
   Java, C#, Groovy, JavaScript, TypeScript, TSX, and Mozjs counted the

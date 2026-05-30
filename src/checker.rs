@@ -545,9 +545,15 @@ impl Checker for JavaCode {
     }
 
     fn is_non_arg(node: &Node) -> bool {
+        // Java's explicit receiver parameter (`void m(S this, int a)`, JLS
+        // 8.4.1) parses as a `receiver_parameter` child of
+        // `formal_parameters`, distinct from a real `formal_parameter`. It
+        // binds `this`, not a value, so it is not a formal parameter and
+        // must be excluded — matching Rust's `SelfParameter` (#457), Go's
+        // `receiver` field, and C++'s implicit `this` (#470).
         matches!(
             node.kind_id().into(),
-            Java::LPAREN | Java::COMMA | Java::RPAREN
+            Java::LPAREN | Java::COMMA | Java::RPAREN | Java::ReceiverParameter
         )
     }
 
