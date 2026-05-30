@@ -1982,4 +1982,53 @@ outer() {
             },
         );
     }
+
+    #[test]
+    fn ruby_stabby_lambda_single_closure() {
+        // A stabby lambda `->(z) { … }` parses as a `Lambda` node that
+        // contains a `Block` for its body. `is_closure` must count the
+        // pair as ONE closure, not two (#465). Revert-verified: counting
+        // the inner `Block` again yields closures_sum == 2.0.
+        check_metrics::<RubyParser>("f = ->(z) { z + 1 }\n", "stabby.rb", |metric| {
+            assert_eq!(metric.nom.functions_sum(), 0.0);
+            assert_eq!(metric.nom.closures_sum(), 1.0);
+        });
+    }
+
+    #[test]
+    fn ruby_stabby_lambda_multi_statement_single_closure() {
+        // A multi-statement body does not change the structure: still one
+        // `Lambda` wrapping one `Block`, so still one closure.
+        check_metrics::<RubyParser>(
+            "f = ->(z) {\n  y = z + 1\n  y * 2\n}\n",
+            "stabby_multi.rb",
+            |metric| {
+                assert_eq!(metric.nom.closures_sum(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_stabby_lambda_do_block_single_closure() {
+        // The `do … end` body form of a stabby lambda parses as a `Lambda`
+        // wrapping a `DoBlock`; both must collapse to one closure.
+        check_metrics::<RubyParser>("f = ->(z) do\n  z + 1\nend\n", "stabby_do.rb", |metric| {
+            assert_eq!(metric.nom.closures_sum(), 1.0);
+        });
+    }
+
+    #[test]
+    fn ruby_keyword_lambda_single_closure() {
+        // The keyword forms `lambda { }` / `proc { }` parse as a `Call`
+        // carrying a `Block` argument (the parent is a `Call`, not a
+        // `Lambda`), so they must still count exactly one closure. Guards
+        // against the #465 fix regressing the keyword form to zero.
+        check_metrics::<RubyParser>(
+            "g = lambda { |z| z + 1 }\nh = proc { |z| z + 1 }\n",
+            "keyword.rb",
+            |metric| {
+                assert_eq!(metric.nom.closures_sum(), 2.0);
+            },
+        );
+    }
 }

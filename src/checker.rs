@@ -1714,10 +1714,20 @@ impl Checker for RubyCode {
     }
 
     fn is_closure(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Ruby::Lambda | Ruby::Block | Ruby::DoBlock
-        )
+        match node.kind_id().into() {
+            Ruby::Lambda => true,
+            // A stabby lambda `->(z) { … }` parses as a `Lambda` node that
+            // CONTAINS the `Block`/`DoBlock` for its body, so the `Lambda`
+            // arm above already counts it. Counting the inner block again
+            // would double-count one closure as two (#465). The keyword
+            // forms `lambda { }` / `proc { }` parse as a `Call` carrying a
+            // `Block`/`DoBlock` argument (parent is not a `Lambda`), so they
+            // still count exactly once.
+            Ruby::Block | Ruby::DoBlock => !node
+                .parent()
+                .is_some_and(|parent| Ruby::Lambda == parent.kind_id()),
+            _ => false,
+        }
     }
 
     // tree-sitter-ruby 0.23.1 emits four aliased visible variants of the
