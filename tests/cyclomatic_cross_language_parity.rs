@@ -986,10 +986,6 @@ fn range_for_loop_parity() {
 
 #[test]
 fn safe_navigation_chain_parity() {
-    // Hand-derived spec value for a two-link safe-navigation chain:
-    // unit(1) + fn(1) + 2 ops = 4 (after the C# class-FuncSpace offset).
-    const EXPECTED_NORMALISED_CCN: f64 = 4.0;
-
     let mut sums = BTreeMap::new();
     sums.insert(
         "kotlin",
@@ -1035,12 +1031,5 @@ fn safe_navigation_chain_parity() {
     // itself is guarded (lessons #6 / #23): unit(1) + fn(1) + 2 ops = 4
     // for the five flat fixtures; C#'s extra class FuncSpace is removed by
     // JAVA_CLASS_OFFSET, normalising it to 4 as well.
-    for (lang, sum) in &sums {
-        let normalised = sum - offsets.get(lang).copied().unwrap_or(0.0);
-        assert_eq!(
-            normalised, EXPECTED_NORMALISED_CCN,
-            "{lang}: normalised CCN {normalised} != expected {EXPECTED_NORMALISED_CCN} \
-             (safe-navigation chain should be unit 1 + fn 1 + 2 ops)",
-        );
-    }
+    assert_normalised(&sums, &offsets, 4.0, "safe_navigation_chain");
 }
