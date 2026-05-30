@@ -2750,6 +2750,26 @@ below applied deliberately: state established on the ancestor that
 pre-order reaches first, read by all descendants — never written back
 from a later sibling to an earlier one.
 
+**A state-machine reset keyed on a delimiter the grammar never emits is
+dead the same way a too-late reset is** (#455, `f633300f`). Kotlin's ABC
+assignment counter pushed a `Const` sentinel on a `val` declaration and
+cleared the declaration stack only on an explicit `SEMI` token — but
+tree-sitter-kotlin emits *no* `SEMI`, even for an explicit semicolon, and
+newline-terminated statements carry no terminator node at all. The
+clearing arm therefore never fired: the sentinel leaked past the
+declaration and suppressed every later standalone `=`, so
+`val x = …; a = 1; b = 2` reported zero assignments instead of two, and
+the comment calling the implicit-terminator case "benign" actively
+misled. A `var` declaration accidentally masked the bug by leaving a
+permissive `Var` on the stack — which is why the existing tests passed.
+The fix abandons the running stack and classifies the `=`
+*structurally* from its parent node
+(`kotlin_eq_initializes_immutable_binding`: an `=` is a declaration
+initializer only when its parent is `property_declaration` /
+`class_parameter`), so no sentinel can leak — the same "establish the
+fact on the node that owns it, don't thread it through walker state"
+move as the comprehension-nesting fix above.
+
 **Lesson:** Any AST-walking metric written in pre-order treats the
 parent's combinator as a *completed* value before any child node has
 been visited. Arms keyed on a child node that try to influence the
@@ -2765,7 +2785,12 @@ current implementation, the arm was probably already dead. If the
 test fails, the fix has to live at the token level — dispatch on the
 `AMPAMP` / `PIPEPIPE` token (visited after its `UnaryExpression`
 siblings in pre-order, not its `BinaryExpression` parent) — not at
-the expression level. The dead-code arm should not stay in the
+the expression level. A reset can also be dead because its *trigger*
+never occurs: a sentinel cleared on a delimiter the grammar does not
+emit (Kotlin has no `SEMI`, even for an explicit `;`) leaks forever —
+there, classify from a structural parent node instead of threading
+state through a terminator the grammar may never produce. The
+dead-code arm should not stay in the
 codebase as documentation of intent; it misleads every subsequent
 maintainer about what the algorithm actually does.
 
@@ -3222,5 +3247,138 @@ panic, or a bare-`into_inner()` regression slips through. Recovery is only
 justified when the guarded data tolerates a partial peer update — here, two
 monotonically-incremented counters where the worst case is a slight undercount,
 never an unsafe state.
+
+---
+
+## 63. Opening a FuncSpace for a method-nested node double-counts the ancestor's WMC
+
+WMC sums each method's cyclomatic complexity into its enclosing class, and
+a method's contribution is read as a *cumulative* `cyclomatic_sum()` over
+its whole subtree. The moment you teach the space-builder to open a new
+FuncSpace for something nested *inside* a method body — an anonymous class,
+an object literal, a local class — that nested construct's complexity is
+both still inside the method's cumulative sum *and* now counted as its own
+WMC scope. The enclosing class double-counts it. The breakage is silent and
+appears only when the new space type is introduced: the class-level WMC
+inflates by exactly the nested construct's complexity, and no per-language
+test that predates the new space exercises the combination.
+
+**Adding anonymous-class spaces exposed a latent WMC double-count** (#463,
+`49ed0b20`). Making Kotlin `object_literal` and Java anonymous-class bodies
+open their own `Class` space (mirroring the companion-object fix `efc97e3`)
+was correct in isolation, but a `Function` space's WMC contribution reads
+`cyclomatic_sum()`, which still folds in the complexity of any class nested
+in the method body — so a method containing an anonymous class counted that
+class twice, once in the method's own class WMC and once in the nested
+class's. `Wmc::merge` now carries a `nested_class_cyclomatic` field and
+subtracts it from a `Function`'s contribution
+(`own_cyclomatic = other.cyclomatic - other.nested_class_cyclomatic`); a
+nested `Class` / `Interface` records only its *own* cyclomatic, never its
+own nested total (which would re-double the deeper anonymous classes). The
+recording lives in the shared `class_interface_compute`, so every OO
+language inherited the subtraction. Verified across five scenarios
+(class-in-method, no-nested-class baseline, deeply-nested anonymous,
+interface-in-method, multiple-nested) and three integration snapshots.
+
+**Lesson:** Whenever you make the space-builder open a FuncSpace for a node
+that can be lexically nested inside a method, audit WMC in the same change.
+WMC's per-method contribution is a cumulative subtree sum; a newly-opened
+child space does not subtract itself from that sum automatically, so the
+ancestor class silently double-counts the nested construct. Fix it once in
+the shared merge (track and subtract the nested class/interface cyclomatic),
+not per-language, and pin a regression test that a method-with-nested-class
+scores the same class WMC as the nested construct hoisted out to top level.
+Distinct from lesson #50 (two parallel paths summing one field) and
+lesson #24 (finalize-helper gating): here a *single* path's cumulative
+accessor over-counts because the tree shape changed under it.
+
+---
+
+## 64. A default/fallback-arm exclusion is per-construct — verify the node pays nesting before mirroring it
+
+The `default` / `else` / `_` arm of a switch-like construct should not add
+to cognitive nesting or ABC conditions — it is the fallback, not a decision.
+But "switch-like" is a per-construct, per-grammar property, not a token you
+can blanket-suppress. The same `else` / `default` node kind is routinely
+shared between a genuinely switch-like construct (where the arm is +0) and a
+chain construct (where the arm is a real +1). Propagating a default-arm
+exclusion from one language or metric to another without checking *which*
+construct the arm belongs to — and whether that construct's own node already
+paid the nesting increment — either over-suppresses a real decision or
+leaves a real fallback counted.
+
+**Ruby `case`-else is +0 but `begin`/`rescue`-else is +1** (#451,
+`30a435ae`). The shared `R::Else` node appears under three Ruby constructs.
+A `case` / `case_match` parent already pays a nesting increment, so its
+`else` is the switch default (+0, matching Kotlin `when`-else and Java
+switch-default). But `begin` pays *no* nesting (only `R::Rescue` does), so
+`begin` / `rescue` / `else` is the no-exception branch — the analogue of
+Python `try` / `except` / `else`, which is +1. The issue's own fix plan
+proposed suppressing rescue-else too; doing so would have introduced a
+*fresh* divergence from Python. The fix gates only on
+`parent ∈ {Case, CaseMatch}`.
+
+**ABC switch/when arms were fixed by reusing the cyclomatic gate, then
+extended across the C-family** (#456, `7021f209`; #469, `51725a9f`).
+Kotlin's ABC `when`-else over-counted and C#'s switch-*expression* arms
+under-counted to zero; both were fixed by reusing cyclomatic's existing
+`kotlin_when_entry_is_else` / `csharp_switch_expression_arm_is_bare_discard`
+gates rather than re-deriving them (#456). The statement/arrow-switch
+`default` arm then had to be excluded across Java / C# / Groovy / JS / TS /
+TSX / Mozjs in ABC (C and C++ were already correct) — the same `Default`
+token, seven languages, one fix — to bring every language's ABC condition
+count into agreement with its own cyclomatic decision count (#469). PHP's
+`DefaultStatement` / `MatchDefaultExpression` shares the divergence and was
+filed separately (#473).
+
+**Lesson:** When a metric must skip a default/fallback arm, the exclusion is
+anchored to the *construct*, not the node kind: confirm the construct's own
+node pays the nesting/decision increment (so its default really is
+redundant) before suppressing, and confirm the shared node kind is not also
+doing duty for a chain construct where the arm is a legitimate +1. Where ABC
+and cyclomatic must agree on the same construct, reuse cyclomatic's
+already-correct gate rather than re-deriving the discard/else/default
+predicate, and pin the per-space invariant `abc.conditions == cyclomatic() -
+1` (not `cyclomatic_sum()`, which carries a per-space base of 1). This
+extends lesson #11 (the same metric must agree across languages) to the
+cross-*metric* case, and warns against the over-application a blanket
+"suppress the default everywhere" fix invites.
+
+---
+
+## 65. Removing a node kind from `is_func` / `is_func_space` zeroes its childless variant
+
+When a construct is counted as too many functions because its node sits in
+both `is_func` and `is_func_space` while its children are *also* functions,
+the tempting fix is to drop the construct's kind from the dispatch sets and
+let the children carry the count. But that silently regresses the
+construct's *childless* variant — the form with no qualifying children,
+which relied on its own membership to be counted at all. The over-count fix
+becomes an under-count (a zero) for the sub-case, and no test that only
+exercises the many-children form will notice.
+
+**The C# expression-bodied indexer would have dropped to zero** (#464,
+`8db1a3e8`). `Csharp::IndexerDeclaration` sat in both `is_func` and
+`is_func_space` while `AccessorDeclaration` was in `is_func`, so a bodied
+indexer (`this[i] { get => …; set => …; }`) counted as three functions
+(indexer + get + set) in nom and folded an extra entry into wmc. A blanket
+removal of `IndexerDeclaration` would have fixed that — but the
+expression-bodied form (`this[i] => …;`) has *no* `AccessorDeclaration`
+child, so it would have counted zero. The fix gates the `IndexerDeclaration`
+arm on `!csharp_indexer_has_accessors(node)`: it opens a space only when
+there are no accessors to defer to, mirroring the npm reference
+(`csharp_count_member`, which uses `.max(1)`). All three sites — `is_func`,
+`is_func_space`, and `get_space_kind` — share the predicate so the space
+tree never disagrees with itself.
+
+**Lesson:** Before removing a node kind from a function/space dispatch set
+to fix an over-count, enumerate the construct's variants and find the one
+with no qualifying children — it is relying on the membership you are about
+to delete. Gate the arm on child-presence (`!has_qualifying_children`)
+rather than removing it outright, and keep `is_func`, `is_func_space`, and
+`get_space_kind` gated by the *same* predicate so the space tree stays
+self-consistent. This is the inverse of lesson #19 (a *missing* arm scores a
+valid construct as zero): here the arm exists and the fix is to *narrow* it,
+and narrowing too far re-creates #19's zero for the childless sub-case.
 
 ---
