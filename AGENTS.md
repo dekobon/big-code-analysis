@@ -172,13 +172,30 @@ tiers (`make self-scan` mirroring the `Threshold gate` step in
 `.github/workflows/pages.yml`, plus `make self-scan-headroom`
 which scales every limit by `BCA_HEADROOM` — default `0.95` — so
 functions encroaching into the 95-100% band fail before the hard
-gate trips; `make self-scan-write-baseline` refreshes
-`.bca-baseline.toml`), and the Python `ruff` lint /
+gate trips; `make self-scan-write-baseline-headroom` refreshes
+`.bca-baseline.toml` — prefer the headroom variant over the bare
+`make self-scan-write-baseline`, otherwise the soft-tier
+`self-scan-headroom` gate re-fires on untouched files), and the
+Python `ruff` lint /
 `ruff format` / `mypy --strict` + `pyright` / `maturin develop` +
 `pytest` stages for `big-code-analysis-py` (each Python stage is
 skipped with a clear "X not found" message when the corresponding
 tool is absent). `make ci` runs the same checks without auto-fix,
 mirroring CI behaviour.
+
+**Baseline-refresh discipline.** Any change that moves a *baselined*
+metric past its recorded `.bca-baseline.toml` value must refresh the
+baseline in the **same PR**. The baseline filter only suppresses a
+violation while the live measurement stays at or below the recorded
+value; once a file grows past it (e.g., #445 grew `src/count.rs`'s
+`halstead.effort` from ~103k to ~191k), the filter no longer covers
+the offender and `make self-scan` goes red on a clean checkout — for
+everyone, not just the author (#449). The existing `bca-self-scan`
+pre-commit hook and the `Threshold gate` step in
+`.github/workflows/pages.yml` already catch this, so the safeguard is
+purely procedural: do not bypass pre-commit, and refresh the baseline
+with `make self-scan-write-baseline-headroom` in the commit that moved
+the metric. A red gate on `main` traces directly to skipping this step.
 
 If GNU Make 4 or any of the optional tools (`taplo`, `rumdl`,
 `shellcheck`, `shfmt`, `checkmake`, `actionlint`, `ruff`, `mypy`, `pyright`,
