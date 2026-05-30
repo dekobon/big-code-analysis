@@ -20,9 +20,13 @@ pub mod cli {
     #[derive(Parser, Debug)]
     #[clap(name = "bca-web", version, author, about = "Run a web server.")]
     pub struct Opts {
-        /// Number of jobs.
-        #[clap(long, short = 'j')]
-        pub num_jobs: Option<usize>,
+        /// Number of jobs (worker threads); must be at least 1.
+        // A value of 0 would create a zero-permit semaphore (blocking every
+        // parse forever) and trip actix-server's `assert_ne!(num, 0)` in
+        // `ServerBuilder::workers`, panicking at startup. Reject it at parse
+        // time with a clap range validator instead.
+        #[clap(long, short = 'j', value_parser = clap::value_parser!(u32).range(1..))]
+        pub num_jobs: Option<u32>,
         /// Host for the web server.
         #[clap(long, default_value = "127.0.0.1")]
         pub host: String,
@@ -104,6 +108,22 @@ pub mod cli {
             let err = Opts::try_parse_from(["bca-web", "--num-jobs", "many"])
                 .expect_err("non-numeric num_jobs must be rejected");
             assert_eq!(err.kind(), ErrorKind::ValueValidation);
+        }
+
+        #[test]
+        fn opts_rejects_zero_num_jobs() {
+            // 0 would create a zero-permit semaphore and panic actix-server's
+            // worker assertion; clap must reject it at parse time (issue #427).
+            let err = Opts::try_parse_from(["bca-web", "--num-jobs", "0"])
+                .expect_err("zero num_jobs must be rejected");
+            assert_eq!(err.kind(), ErrorKind::ValueValidation);
+        }
+
+        #[test]
+        fn opts_accepts_one_num_job() {
+            let opts =
+                Opts::try_parse_from(["bca-web", "--num-jobs", "1"]).expect("one job must parse");
+            assert_eq!(opts.num_jobs, Some(1));
         }
 
         #[test]

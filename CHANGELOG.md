@@ -661,6 +661,15 @@ for historical reference.
 
 ### Fixed
 
+- `bca-web --num-jobs 0` no longer panics the server at startup
+  ([#427](https://github.com/dekobon/big-code-analysis/issues/427)).
+  The flag was an unconstrained `Option<usize>`, so `0` flowed through
+  to a zero-permit `Semaphore` (blocking every parse forever) and to
+  actix-server's `ServerBuilder::workers`, which asserts the worker
+  count is non-zero and aborted the process. `--num-jobs` is now a
+  `clap` range-validated `Option<u32>` (`range(1..)`) that rejects `0`
+  at parse time with a clear validation error; the flag-omitted path
+  still defaults to `available_parallelism()` (always >= 1).
 - **Security (DoS):** the web server's `application/octet-stream`
   endpoints (`/comment`, `/metrics`, `/function`) no longer accept an
   unbounded request body
