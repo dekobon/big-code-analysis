@@ -23,6 +23,23 @@ for historical reference.
 
 ### Added
 
+- `bca diff-baseline old.toml new.toml` emits a structured diff
+  between two `.bca-baseline.toml` files — `added`, `removed`,
+  `worsened`, `improved` — replacing the in-the-head TOML diff
+  parsing the baselines recipe used to walk reviewers through
+  ([#382](https://github.com/dekobon/big-code-analysis/issues/382)).
+  Entries pair on their `(path, qualified, metric)` identity (line
+  drift is tolerated, mirroring the on-disk matcher), so only genuine
+  value changes surface. `--format tty|markdown|json` selects the
+  output style (`markdown` fences each section for a sticky PR
+  comment; `json` emits the full structured diff). The combinable
+  `--added-only` / `--removed-only` / `--worsened-only` /
+  `--improved-only` flags narrow the rendered sections for PR-bot use.
+  Both files are read through the same loader `bca check` uses, so any
+  supported legacy version (v2/v3) is migrated on read and an
+  unsupported version is a clear error rather than a silent
+  no-match. The command always exits 0 on success — the diff is
+  informational, not a gate.
 - `bca check` gains a glob-level gate exemption via a `[check]
   exclude` list in `bca.toml` and the `--check-exclude` /
   `--check-exclude-from` flags

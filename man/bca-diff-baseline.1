@@ -1,0 +1,46 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH BCA-DIFF-BASELINE 1  "big-code-analysis 1.1.0" "big-code-analysis Manual"
+.SH NAME
+bca\-diff\-baseline \- Diff two `.bca\-baseline.toml` files and report what was added, removed, worsened, or improved. Replaces the in\-the\-head TOML diff parsing the book\*(Aqs PR\-review recipe used to walk through. Always exits 0 on success — the diff is informational, not a gate
+.SH SYNOPSIS
+\fBbca\-diff\-baseline\fR [\fB\-\-format\fR] [\fB\-\-added\-only\fR] [\fB\-\-removed\-only\fR] [\fB\-\-worsened\-only\fR] [\fB\-\-improved\-only\fR] [\fB\-h\fR|\fB\-\-help\fR] <\fIOLD\fR> <\fINEW\fR> 
+.SH DESCRIPTION
+Diff two `.bca\-baseline.toml` files and report what was added, removed, worsened, or improved. Replaces the in\-the\-head TOML diff parsing the book\*(Aqs PR\-review recipe used to walk through. Always exits 0 on success — the diff is informational, not a gate
+.SH OPTIONS
+.TP
+\fB\-\-format\fR \fI<FORMAT>\fR [default: tty]
+Output style: `tty` (default), `markdown`, or `json`
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+tty
+.IP \(bu 2
+markdown
+.IP \(bu 2
+json
+.RE
+.TP
+\fB\-\-added\-only\fR
+Render only the "Added" section (combinable with the other `\-\-*\-only` flags). Ignored by `\-\-format json`
+.TP
+\fB\-\-removed\-only\fR
+Render only the "Removed" section. Ignored by `\-\-format json`
+.TP
+\fB\-\-worsened\-only\fR
+Render only the "Worsened" section. Ignored by `\-\-format json`
+.TP
+\fB\-\-improved\-only\fR
+Render only the "Improved" section. Ignored by `\-\-format json`
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help
+.TP
+<\fIOLD\fR>
+Old (base) baseline file — the "before" side of the diff
+.TP
+<\fINEW\fR>
+New (updated) baseline file — the "after" side of the diff

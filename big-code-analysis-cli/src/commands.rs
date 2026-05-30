@@ -23,6 +23,7 @@ use big_code_analysis::{Count, PreprocResults, SuppressionPolicy};
 use big_code_analysis::{fix_includes, write_file};
 
 use crate::baseline::{self, Coverage};
+use crate::baseline_diff::{BaselineDiff, SectionFilter};
 use crate::check_format::{self, violation_to_offender};
 use crate::diff;
 use crate::format_util::MetricScalar;
@@ -35,10 +36,10 @@ use crate::thresholds::{
     ParsedThresholds, SoftLimit, ThresholdSet, Violation, render_violation_line, scale_threshold,
 };
 use crate::{
-    Action, CheckArgs, Cli, Command, Config, GlobalOpts, InitArgs, ListMetricsArgs, NodesArgs,
-    PreprocArgs, PrintConfigFormat, ReportArgs, StripCommentsArgs, StructuredArgs, Tier, die,
-    die_io, legacy_hint, load_baseline, load_preproc_data, load_threshold_config, run_walk,
-    write_atomic, write_stdout_or_die,
+    Action, CheckArgs, Cli, Command, Config, DiffBaselineArgs, DiffFormat, GlobalOpts, InitArgs,
+    ListMetricsArgs, NodesArgs, PreprocArgs, PrintConfigFormat, ReportArgs, StripCommentsArgs,
+    StructuredArgs, Tier, die, die_io, legacy_hint, load_baseline, load_preproc_data,
+    load_threshold_config, run_walk, write_atomic, write_stdout_or_die,
 };
 
 fn run_check(
@@ -1096,7 +1097,13 @@ pub fn run() {
     // `bca init` is deliberately excluded: it *scaffolds* configuration,
     // so consuming an existing manifest would merge repo-level `paths`
     // into init's baseline-generation walk and pin the wrong tree.
-    let manifest = if cli.globals.no_config || matches!(cli.command, Command::Init(_)) {
+    //
+    // `bca diff-baseline` is excluded for the same reason from the
+    // other direction: it walks no source and reads no global config,
+    // so manifest discovery would be pure overhead.
+    let manifest = if cli.globals.no_config
+        || matches!(cli.command, Command::Init(_) | Command::DiffBaseline(_))
+    {
         None
     } else {
         manifest::discover_and_load()
@@ -1124,6 +1131,7 @@ pub fn run() {
         Command::Check(args) => run_check(cli.globals, *args, manifest.as_ref(), preproc),
         Command::Preproc(args) => run_command_preproc(cli.globals, args),
         Command::Init(args) => run_command_init(cli.globals, args, preproc),
+        Command::DiffBaseline(args) => run_command_diff_baseline(args),
     }
 }
 
@@ -1557,6 +1565,40 @@ fn run_command_init(globals: GlobalOpts, args: InitArgs, preproc: Option<Arc<Pre
         thresholds_path.display(),
         baseline_path.display(),
     );
+}
+
+/// Diff two baseline files and print the structured result (issue #382).
+///
+/// Both files are loaded through [`load_baseline`] — the same reader
+/// `bca check` uses — so a supported legacy version is migrated on read
+/// and an unsupported version dies with a clear message (exit 1) rather
+/// than silently no-matching every entry. The matcher's `tolerance` and
+/// `fuzzy` parameters do not influence the flattened entry set, so the
+/// defaults are passed: the diff keys on `(path, qualified, metric)`
+/// regardless.
+///
+/// Always exits 0 on success; the diff is informational, not a gate.
+fn run_command_diff_baseline(args: DiffBaselineArgs) {
+    let old = load_baseline(&args.old, baseline::DEFAULT_LINE_TOLERANCE, false);
+    let new = load_baseline(&args.new, baseline::DEFAULT_LINE_TOLERANCE, false);
+    let diff = BaselineDiff::compute(&old.diff_entries(), &new.diff_entries());
+    let filter = SectionFilter::from_flags([
+        args.added_only,
+        args.removed_only,
+        args.worsened_only,
+        args.improved_only,
+    ]);
+    let rendered = match args.format {
+        DiffFormat::Tty => diff.render_tty(filter),
+        DiffFormat::Markdown => diff.render_markdown(filter),
+        // Serialization of a fixed-shape struct of owned scalars cannot
+        // fail in practice; surface any future error as a tool error
+        // rather than panicking.
+        DiffFormat::Json => diff
+            .render_json()
+            .unwrap_or_else(|e| die(format_args!("failed to serialize diff to JSON: {e}"))),
+    };
+    write_stdout_or_die(rendered.as_bytes());
 }
 
 #[cfg(test)]

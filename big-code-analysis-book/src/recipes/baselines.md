@@ -92,10 +92,11 @@ See [CI integration](ci.md) for the broader matrix of CI surfaces.
 Every few weeks, or after a focused refactor:
 
 ```bash
+cp .bca-baseline.toml .bca-baseline.old.toml
 bca --paths src/ check \
     --config bca-thresholds.toml \
     --write-baseline .bca-baseline.toml
-git diff .bca-baseline.toml
+bca diff-baseline .bca-baseline.old.toml .bca-baseline.toml
 ```
 
 A shrinking diff is the goal. Two `--write-baseline` runs over an
@@ -104,14 +105,46 @@ appear when actual offenders changed.
 
 ### 5. PR-review heuristics
 
-- **Baseline shrank.** Debt paid down. No further action.
-- **Baseline grew.** Someone added a new offender to the file
-  intentionally. Review the values — was this a deliberate stopgap, or
-  did the author bypass the gate? Either is fine if conscious; the
-  point of the file being committed is to make the choice reviewable.
-- **A single entry got a higher `value`.** The author re-ran
+Run `bca diff-baseline <old> <new>` and read the summary instead of
+parsing a raw `git diff .bca-baseline.toml` in your head. It pairs
+entries on their `(path, qualified, metric)` identity — so a function
+that merely drifted up or down the file is *not* reported as a
+remove + add — and buckets every real change:
+
+```text
+1 added, 1 removed, 2 worsened, 0 improved
+
+## Added
+  src/new.rs::shiny        cognitive  = 30
+
+## Removed
+  src/gone.rs::old_fn      nargs      = 9
+
+## Worsened
+  src/bar.rs::act_on_file  cognitive  60 → 63
+  src/foo.rs::do_thing     cognitive  25 → 27
+```
+
+Map the buckets back to the old heuristics:
+
+- **`removed` (baseline shrank).** Debt paid down. No further action.
+- **`added` (baseline grew).** Someone added a new offender to the
+  file intentionally. Review the values — was this a deliberate
+  stopgap, or did the author bypass the gate? Either is fine if
+  conscious; the point of the file being committed is to make the
+  choice reviewable.
+- **`worsened` (an entry got a higher `value`).** The author re-ran
   `--write-baseline` after the function got worse. Treat the same as
-  "baseline grew" — surface the change in review.
+  `added` — surface the change in review.
+- **`improved`.** A recorded offender got better without dropping out
+  of the baseline; harmless, and a good sign the refactor is working.
+
+For a PR bot, `bca diff-baseline <old> <new> --format markdown` emits
+a fenced block ready to drop into a sticky comment, and the
+`--worsened-only` / `--added-only` filters narrow it to just the
+regressions reviewers must look at. `--format json` feeds the same
+diff to other tooling. The command always exits 0 — it informs review,
+it does not gate; the gate is `bca check` itself.
 
 ### Reading the gate output
 

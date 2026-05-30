@@ -102,6 +102,9 @@ Check per\-function metrics against thresholds. Exits 2 when any threshold is ex
 bca\-init(1)
 Scaffold the canonical adoption files (`bca\-thresholds.toml`, `.bcaignore`, `.bca\-baseline.toml`) in the current directory. Replaces the six\-step copy\-paste flow from the book\*(Aqs adoption recipe. Refuses to overwrite existing files without `\-\-force`
 .TP
+bca\-diff\-baseline(1)
+Diff two `.bca\-baseline.toml` files and report what was added, removed, worsened, or improved. Replaces the in\-the\-head TOML diff parsing the book\*(Aqs PR\-review recipe used to walk through. Always exits 0 on success — the diff is informational, not a gate
+.TP
 bca\-help(1)
 Print this message or the help of the given subcommand(s)
 .SH EXTRA

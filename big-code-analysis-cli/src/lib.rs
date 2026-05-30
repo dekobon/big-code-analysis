@@ -30,6 +30,7 @@
     clippy::missing_panics_doc
 )]
 mod baseline;
+mod baseline_diff;
 mod check_format;
 mod commands;
 mod diff;
@@ -309,6 +310,12 @@ enum Command {
     /// Replaces the six-step copy-paste flow from the book's adoption
     /// recipe. Refuses to overwrite existing files without `--force`.
     Init(InitArgs),
+    /// Diff two `.bca-baseline.toml` files and report what was added,
+    /// removed, worsened, or improved. Replaces the in-the-head TOML
+    /// diff parsing the book's PR-review recipe used to walk through.
+    /// Always exits 0 on success — the diff is informational, not a
+    /// gate.
+    DiffBaseline(DiffBaselineArgs),
 }
 
 /// Shared shape for `metrics` and `ops`: same format set, same output
@@ -596,6 +603,64 @@ struct InitArgs {
     /// Default: walk the target directory and pin today's offenders.
     #[clap(long = "no-baseline")]
     no_baseline: bool,
+}
+
+/// Output style for `bca diff-baseline`.
+///
+/// `Tty` (default) is the human, column-aligned form. `Markdown` wraps
+/// each section's rows in a fenced block so the output drops cleanly
+/// into a sticky PR comment. `Json` emits the complete structured diff
+/// for tooling — and deliberately ignores the `--*-only` filters, since
+/// a machine consumer reads the bucket it wants from a stable schema.
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq, Default)]
+enum DiffFormat {
+    #[default]
+    Tty,
+    Markdown,
+    Json,
+}
+
+/// Arguments for the `diff-baseline` subcommand (issue #382). Takes two
+/// baseline files and reports the structured difference between them.
+///
+/// Both files are read through the same loader `bca check` uses, so any
+/// supported legacy version (v2/v3) is accepted and migrated on read; an
+/// unsupported version is a hard error rather than a silent no-match.
+///
+/// The `--*-only` flags are combinable section filters for the TTY and
+/// Markdown forms; `--format json` always emits every bucket.
+///
+/// Entries pair on the path key as stored — each baseline's paths are
+/// canonicalised relative to that file's own directory (its anchor), so
+/// the diff is apples-to-apples only when both files share an anchor.
+/// The documented refresh flow keeps them in the same directory
+/// (`cp .bca-baseline.toml .bca-baseline.old.toml`); diffing two
+/// baselines that sit at different depths relative to the source tree
+/// can show a moved function as a remove + add.
+#[derive(Args, Debug)]
+struct DiffBaselineArgs {
+    /// Old (base) baseline file — the "before" side of the diff.
+    #[clap(value_parser)]
+    old: PathBuf,
+    /// New (updated) baseline file — the "after" side of the diff.
+    #[clap(value_parser)]
+    new: PathBuf,
+    /// Output style: `tty` (default), `markdown`, or `json`.
+    #[clap(long, value_enum, default_value_t = DiffFormat::Tty)]
+    format: DiffFormat,
+    /// Render only the "Added" section (combinable with the other
+    /// `--*-only` flags). Ignored by `--format json`.
+    #[clap(long = "added-only")]
+    added_only: bool,
+    /// Render only the "Removed" section. Ignored by `--format json`.
+    #[clap(long = "removed-only")]
+    removed_only: bool,
+    /// Render only the "Worsened" section. Ignored by `--format json`.
+    #[clap(long = "worsened-only")]
+    worsened_only: bool,
+    /// Render only the "Improved" section. Ignored by `--format json`.
+    #[clap(long = "improved-only")]
+    improved_only: bool,
 }
 
 /// Serialization format for `--print-effective-config`. TOML is the
@@ -1083,6 +1148,7 @@ const SUBCOMMANDS: &[&str] = &[
     "list-metrics",
     "check",
     "init",
+    "diff-baseline",
 ];
 
 /// Decode the value of `-O <v>` / `--output-format <v>` /

@@ -110,6 +110,21 @@ struct Record {
     body_hash: Option<u64>,
 }
 
+/// One baseline entry flattened for cross-file diffing
+/// (`bca diff-baseline`): the `(path, qualified, metric)` identity plus
+/// the recorded `value` and the human-review `start_line`. Produced by
+/// [`Baseline::diff_entries`] *after* version validation, legacy path
+/// re-canonicalisation, and the non-finite/negative filter have run, so
+/// a diff observes exactly the records the matcher would.
+#[derive(Debug, Clone)]
+pub(crate) struct DiffEntry {
+    pub(crate) path: String,
+    pub(crate) qualified: String,
+    pub(crate) metric: String,
+    pub(crate) start_line: usize,
+    pub(crate) value: f64,
+}
+
 /// One serialized entry. `path` is held as `String` (forward-slash
 /// normalized) so the TOML is platform-neutral. Fields are
 /// module-private; serde reaches them through the derived impls.
@@ -307,6 +322,31 @@ impl Baseline {
             fuzzy,
             legacy_symbol_match,
         })
+    }
+
+    /// Flatten the loaded records into [`DiffEntry`] values for
+    /// `bca diff-baseline`. Iteration order is unspecified (it walks a
+    /// `HashMap`); the diff layer re-sorts deterministically.
+    ///
+    /// Legacy (v2/v3) baselines surface their bare `function` name in
+    /// `qualified`, so a legacy-vs-v4 diff pairs only on identical
+    /// bare/qualified strings — the inherent limit of comparing across
+    /// the issue-#377 key migration without re-analysing source. Paths
+    /// are already re-canonicalised by [`Baseline::from_str`], so a v2
+    /// baseline diffs against a v4 one on equal path keys.
+    pub(crate) fn diff_entries(&self) -> Vec<DiffEntry> {
+        self.by_symbol
+            .iter()
+            .flat_map(|(key, records)| {
+                records.iter().map(|r| DiffEntry {
+                    path: key.path.clone(),
+                    qualified: key.qualified.clone(),
+                    metric: key.metric.clone(),
+                    start_line: r.start_line,
+                    value: r.value,
+                })
+            })
+            .collect()
     }
 
     /// Classify a violation against the baseline. The three states
