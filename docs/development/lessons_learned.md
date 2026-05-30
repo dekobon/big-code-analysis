@@ -3185,3 +3185,42 @@ unlabeled inputs proves nothing. This is the cousin of lesson #53 (a positional
 actual shape is not the shape you assumed from a sibling."
 
 ---
+
+## 62. Recovering a poisoned `Mutex` with `into_inner()` alone leaves it poisoned — `clear_poison()` is what stops the cascade
+
+`Mutex` poisoning is sticky. When a thread panics while holding the guard, the
+lock is flagged poisoned and *stays* poisoned: every later `.lock()` returns
+`Err(PoisonError)`. The idiomatic recovery, `lock().unwrap_or_else(|e|
+e.into_inner())`, hands back the inner data for *this* acquisition but does not
+clear the flag. So if more than one site acquires the same lock — a worker pool
+plus a final aggregation read, say — recovering in one place fixes only that
+place; every other acquirer still sees `Err` and, if it does `.unwrap()` /
+`.expect()`, re-panics. The cascade you set out to stop continues one frame
+later, often in a *different crate* from the one you patched, so a green
+library-crate test hides it.
+
+**Degrading `Count::call` on a poisoned `stats` mutex needed `clear_poison()`,
+not just `into_inner()`** (#445, `995c6fbb`). The library worker
+`Count::call` aggregates into a shared `Arc<Mutex<Count>>`; a panicked peer
+poisons it and the old `.lock().unwrap()` cascaded a pool-wide abort — the same
+hazard #425 fixed in `dispatch_preproc`. A bare `into_inner()` recovery would
+have let `Count::call` return `Ok(())`, but the CLI's final
+`run_command_count` reads the same lock with `into_inner().expect(...)` and
+would have re-panicked on the still-poisoned flag. The fix was
+`lock().unwrap_or_else(|poisoned| { cfg.stats.clear_poison(); poisoned.into_inner() })`;
+`clear_poison()` is the load-bearing call, and the regression test asserts
+`!stats.is_poisoned()` after the call — not just no-panic — so reverting to a
+bare `into_inner()` fails the test on that exact line.
+
+**Lesson:** When you degrade rather than propagate on a poisoned shared lock,
+enumerate *every* site that acquires that lock — across crates — before
+deciding the recovery is complete. If any downstream acquirer would re-panic,
+the local `into_inner()` is a half-fix; call `clear_poison()` so peers and
+downstream readers see a usable lock. Anchor the regression test on the
+poison-cleared invariant (`!is_poisoned()`), not merely on the absence of a
+panic, or a bare-`into_inner()` regression slips through. Recovery is only
+justified when the guarded data tolerates a partial peer update — here, two
+monotonically-incremented counters where the worst case is a slight undercount,
+never an unsafe state.
+
+---
