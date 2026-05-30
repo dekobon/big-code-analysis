@@ -444,7 +444,15 @@ fn dispatch_preproc(source: Vec<u8>, path: PathBuf, cfg: &Config) -> std::io::Re
         && let Some(language) = guess_language(&source, &path).0
         && language == LANG::Cpp
     {
-        let mut results = preproc_lock.lock().expect("mutex not poisoned");
+        let Ok(mut results) = preproc_lock.lock() else {
+            if cfg.warning {
+                eprintln!(
+                    "warning: skipping {}: preproc results lock poisoned",
+                    path.display()
+                );
+            }
+            return Ok(());
+        };
         preprocess(
             &PreprocParser::new(source, &path, None),
             &path,
@@ -452,4 +460,72 @@ fn dispatch_preproc(source: Vec<u8>, path: PathBuf, cfg: &Config) -> std::io::Re
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use big_code_analysis::SuppressionPolicy;
+    use std::sync::Mutex;
+
+    // Minimal `Config` for exercising `dispatch_preproc` in isolation.
+    // Only `preproc_lock` and `warning` are load-bearing here; every
+    // other field is defaulted to the inert value used elsewhere.
+    fn preproc_test_config(preproc_lock: Option<Arc<Mutex<PreprocResults>>>) -> Config {
+        Config {
+            action: Action::PreprocProduce,
+            output: None,
+            language: None,
+            line_start: None,
+            line_end: None,
+            preproc_lock,
+            preproc: None,
+            count_lock: None,
+            markdown_tx: None,
+            strip_prefix: String::new(),
+            threshold_set: None,
+            check_tx: None,
+            exemptions_tx: None,
+            files_dispatched: None,
+            suppression_policy: SuppressionPolicy::Honor,
+            warning: false,
+            skip_generated: true,
+            report_skipped: false,
+            exclude_tests: false,
+            fuzzy_baseline: false,
+        }
+    }
+
+    // Regression test for issue #425: a poisoned `preproc_lock` must
+    // degrade like the sibling worker dispatchers (warn + `Ok(())`)
+    // rather than panic and cascade across the pool. Verified by
+    // revert: replacing the `let-else` with `.expect("...")` makes
+    // this test panic instead of returning `Ok`, so it pins the
+    // changed line rather than an unrelated path.
+    #[test]
+    fn dispatch_preproc_degrades_on_poisoned_lock() {
+        let lock = Arc::new(Mutex::new(PreprocResults::default()));
+
+        // Poison the mutex: a thread that panics while holding the
+        // guard leaves the lock in the poisoned state, exactly the
+        // hazard a faulting preproc worker creates for its peers.
+        let poisoner = lock.clone();
+        let _ = std::thread::spawn(move || {
+            let _guard = poisoner.lock().expect("fresh mutex is unpoisoned");
+            panic!("intentional panic to poison the preproc lock");
+        })
+        .join();
+        assert!(lock.is_poisoned(), "test setup failed to poison the lock");
+
+        let cfg = preproc_test_config(Some(lock));
+        // C++ source so `guess_language` resolves to `LANG::Cpp` and the
+        // dispatcher reaches the lock acquisition under test.
+        let source = b"#define FOO 1\nint main() { return FOO; }\n".to_vec();
+        let result = dispatch_preproc(source, PathBuf::from("poisoned.cpp"), &cfg);
+
+        assert!(
+            result.is_ok(),
+            "poisoned preproc lock should degrade to Ok(()), not panic"
+        );
+    }
 }

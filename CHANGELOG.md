@@ -661,6 +661,15 @@ for historical reference.
 
 ### Fixed
 
+- The C/C++ preprocessor worker dispatcher no longer panics on a
+  poisoned results mutex
+  ([#425](https://github.com/dekobon/big-code-analysis/issues/425)).
+  `dispatch_preproc` acquired the shared `preproc_lock` with
+  `.expect("mutex not poisoned")`, so a single panicking preproc
+  worker cascaded a panic across every remaining worker and aborted
+  the pool. It now degrades like the `check` and `report` worker
+  dispatchers — logging a warning and returning `Ok(())` for that
+  file — so one worker fault no longer escalates to a full-pool abort.
 - `bca check --github-annotations` overflow rollup no longer re-breaches
   the GitHub Actions 10-error/step quota. The emitter wrote one
   uncapped `::error::` rollup line per overflowing metric, so a run that
