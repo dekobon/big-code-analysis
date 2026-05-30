@@ -720,6 +720,36 @@ mod tests {
         );
     }
 
+    // Issue #453: a `void` return type (a `predefined_type` wrapper over a
+    // `void` token) and an expression `void` (`void 0`) must collapse to a
+    // single distinct `"void"` operator. `check_ops` asserts the exact
+    // operator list, so a duplicate `"void"` — the pre-fix symptom, where
+    // the wrapper keyed `primitive_operators["void"]` and the inner token
+    // keyed `operators[Void]` — trips the assertion. This pins the lesson-4
+    // `n1 == dedupe(ops.operators)` invariant for the two `void` forms in
+    // one file.
+    #[test]
+    fn typescript_void_return_and_expression_single_operator_453() {
+        check_ops(
+            LANG::Typescript,
+            "function f(): void { return void 0; }",
+            "foo.ts",
+            &mut ["function", "()", "{}", ":", "void", "return", ";"],
+            &mut ["f", "0"],
+        );
+    }
+
+    #[test]
+    fn tsx_void_return_and_expression_single_operator_453() {
+        check_ops(
+            LANG::Tsx,
+            "function f(): void { return void 0; }",
+            "foo.tsx",
+            &mut ["function", "()", "{}", ":", "void", "return", ";"],
+            &mut ["f", "0"],
+        );
+    }
+
     #[test]
     fn java_ops() {
         check_ops(

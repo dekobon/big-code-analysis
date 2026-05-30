@@ -740,6 +740,21 @@ for historical reference.
 
 ### Fixed
 
+- Halstead no longer double-counts a TypeScript/TSX `void` return (or
+  parameter) type as two operators
+  ([#453](https://github.com/dekobon/big-code-analysis/issues/453)).
+  The TS/TSX grammars parse `: void` as a `predefined_type` wrapper
+  around an inner `void` token; `is_primitive` routed the wrapper into
+  the lexeme-keyed `primitive_operators` map as `"void"`, while the
+  inner token was independently classified as the standalone `void`
+  expression operator (`void 0`), so one source `void` counted as two
+  distinct operators (`n1`/`N1` inflated by one). The wrapper is now
+  suppressed when its sole child is a `void` token, letting the inner
+  token carry the single operator and keeping the count consistent with
+  expression-`void`. Other predefined types (`: string`, `: number`,
+  `: boolean`) and C#'s `void` (a `PredefinedType` with no inner token)
+  are unaffected. Metric-value change for affected TS/TSX sources;
+  derived MI shifts accordingly.
 - Cognitive complexity now applies the SonarSource §B2 jump rule
   correctly for Perl and Kotlin
   ([#450](https://github.com/dekobon/big-code-analysis/issues/450)).

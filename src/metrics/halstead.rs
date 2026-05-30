@@ -1450,9 +1450,11 @@ mod tests {
     // JS/MozJS, or `QMARKDOT` from TS/TSX, trips the test
     // (u_operators 6→5). This input does NOT exercise every operand
     // alias in the per-language `operand_extras` (`Identifier2`,
-    // `String2`, `NestedIdentifier`, `MemberExpression4`) or the TS
-    // `PredefinedType` operator; drift in those is out of scope for
-    // this regression guard and would need a separate fixture.
+    // `String2`, `NestedIdentifier`, `MemberExpression4`); drift in
+    // those is out of scope for this regression guard and would need a
+    // separate fixture. The `PredefinedType` operator path (`: void`
+    // double-count) is now covered by `ts_void_return_type_single_operator_453`
+    // below.
     #[test]
     fn js_family_get_op_type_parity_optional_chain_member_299() {
         // Non-capturing closure (coerced to the `fn` pointer that
@@ -1509,6 +1511,65 @@ mod tests {
             assert_eq!(m.halstead.operators(), 5.0);
             assert_eq!(m.halstead.u_operands(), 3.0);
             assert_eq!(m.halstead.operands(), 3.0);
+        };
+
+        check_metrics::<TypescriptParser>(SRC, "foo.ts", check);
+        check_metrics::<TsxParser>(SRC, "foo.tsx", check);
+    }
+
+    // Issue #453: a `void` return type must contribute exactly one
+    // Halstead operator. The TS / TSX grammars parse `: void` as a
+    // `predefined_type` wrapper around an inner `void` token. `is_primitive`
+    // routes the wrapper into the text-keyed `primitive_operators` map as
+    // `"void"`, while the inner `Void` token is independently a standalone
+    // expression operator (`void 0`). Pre-fix both classified as operators
+    // and one source `void` counted as TWO distinct Halstead operators.
+    // The fix suppresses the wrapper when its child is a `Void` token, so
+    // only the inner token carries the operator — matching expression
+    // `void 0` and keeping the kind_id-keyed count consistent.
+    //
+    // For `function f(): void { return; }`:
+    //
+    // * Operators (n1 = 7, N1 = 7): `function`, `()`, `{}`, `:`, `return`,
+    //   `;`, and a single `void`. (The untyped form is n1 = 5; the `: void`
+    //   annotation adds the `:` operator and one `void`, NOT two — the
+    //   issue's "n1 = 6" target overlooked the annotation colon.)
+    //
+    // Verified by test-via-revert: removing the `predefined_void` guard
+    // restores the pre-fix `u_operators` 7 -> 8 with a duplicate `"void"`
+    // (one kind_id-keyed, one in `primitive_operators`). Both `metrics()`
+    // and the `ops`-list dedup invariant (`ts_void_return_and_expression_*`
+    // in `ops.rs`) are pinned per lesson 4.
+    #[test]
+    fn ts_void_return_type_single_operator_453() {
+        const SRC: &str = "function f(): void { return; }";
+        let check = |m: crate::CodeMetrics| {
+            assert_eq!(m.halstead.u_operators(), 7.0);
+            assert_eq!(m.halstead.operators(), 7.0);
+        };
+
+        check_metrics::<TypescriptParser>(SRC, "foo.ts", check);
+        check_metrics::<TsxParser>(SRC, "foo.tsx", check);
+    }
+
+    // Issue #453 over-suppression guard: expression `void 0` (a
+    // `unary_expression`, NOT a `predefined_type` wrapper) must still
+    // count `void` as exactly one operator. The fix keys only on a
+    // `predefined_type` whose child is a `Void` token, so the bare
+    // expression operator is untouched.
+    //
+    // For `const x = void 0;`:
+    //
+    // * Operators (n1 = 4, N1 = 4): `const`, `=`, `void`, `;`.
+    // * Operands (n2 = 2, N2 = 2): `x`, `0`.
+    #[test]
+    fn ts_void_expression_still_single_operator_453() {
+        const SRC: &str = "const x = void 0;";
+        let check = |m: crate::CodeMetrics| {
+            assert_eq!(m.halstead.u_operators(), 4.0);
+            assert_eq!(m.halstead.operators(), 4.0);
+            assert_eq!(m.halstead.u_operands(), 2.0);
+            assert_eq!(m.halstead.operands(), 2.0);
         };
 
         check_metrics::<TypescriptParser>(SRC, "foo.ts", check);

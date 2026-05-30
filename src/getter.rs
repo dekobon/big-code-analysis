@@ -68,10 +68,33 @@ macro_rules! impl_js_family_get_op_type {
     (
         $lang:ident,
         op_extras: [$($op_extra:ident),* $(,)?],
-        operand_extras: [$($operand_extra:ident),* $(,)?] $(,)?
+        operand_extras: [$($operand_extra:ident),* $(,)?]
+        $(, predefined_void: $predefined_type:ident)? $(,)?
     ) => {
         fn get_op_type(node: &Node) -> HalsteadType {
             use $lang::*;
+
+            // TS/TSX only: a `void` return / parameter type is parsed as a
+            // `predefined_type` wrapper around an inner `void` token. Both
+            // the wrapper (routed through `is_primitive` into the text-keyed
+            // `primitive_operators` map as `"void"`) and the inner `Void`
+            // token (a standalone expression operator, e.g. `void 0`) would
+            // otherwise classify as operators, double-counting one source
+            // `void` as two Halstead operators (issue #453). Other predefined
+            // types (`: string`, `: number`, …) do not have an operator-kind
+            // child, so only `void` collides. Suppress the wrapper here and
+            // let the inner `Void` token carry the single operator, keeping
+            // the kind_id-keyed count consistent with expression `void 0`
+            // (the lesson-4 `n1 == dedupe(ops.operators)` invariant).
+            $(
+                if node.kind_id() == $predefined_type as u16
+                    && node
+                        .child(0)
+                        .is_some_and(|child| child.kind_id() == Void as u16)
+                {
+                    return HalsteadType::Unknown;
+                }
+            )?
 
             match node.kind_id().into() {
                 Export | Import | Import2 | Extends | DOT | From | LPAREN | COMMA | As | STAR
@@ -406,6 +429,7 @@ impl Getter for TypescriptCode {
         Typescript,
         op_extras: [QMARKDOT, PredefinedType],
         operand_extras: [String2, NestedIdentifier, MemberExpression4],
+        predefined_void: PredefinedType,
     );
 
     get_operator!(Typescript);
@@ -467,6 +491,7 @@ impl Getter for TsxCode {
         Tsx,
         op_extras: [QMARKDOT, PredefinedType],
         operand_extras: [Identifier2, String2, String3, NestedIdentifier, MemberExpression4],
+        predefined_void: PredefinedType,
     );
 
     get_operator!(Tsx);
