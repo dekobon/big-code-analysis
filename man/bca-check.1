@@ -4,7 +4,7 @@
 .SH NAME
 bca\-check \- Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed"
 .SH SYNOPSIS
-\fBbca\-check\fR [\fB\-\-threshold\fR] [\fB\-\-config\fR] [\fB\-\-no\-fail\fR] [\fB\-\-no\-suppress\fR] [\fB\-O\fR|\fB\-\-output\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-baseline\fR] [\fB\-\-write\-baseline\fR] [\fB\-\-no\-summary\fR] [\fB\-\-since\fR] [\fB\-\-changed\-only\fR] [\fB\-\-github\-annotations\fR] [\fB\-\-summary\-file\fR] [\fB\-\-no\-remediation\fR] [\fB\-\-print\-effective\-config\fR] [\fB\-\-headroom\fR] [\fB\-\-tier\fR] [\fB\-\-baseline\-line\-tolerance\fR] [\fB\-\-baseline\-fuzzy\-match\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+\fBbca\-check\fR [\fB\-\-threshold\fR] [\fB\-\-config\fR] [\fB\-\-no\-fail\fR] [\fB\-\-no\-suppress\fR] [\fB\-O\fR|\fB\-\-output\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-baseline\fR] [\fB\-\-write\-baseline\fR] [\fB\-\-no\-summary\fR] [\fB\-\-since\fR] [\fB\-\-changed\-only\fR] [\fB\-\-github\-annotations\fR] [\fB\-\-summary\-file\fR] [\fB\-\-no\-remediation\fR] [\fB\-\-print\-effective\-config\fR] [\fB\-\-headroom\fR] [\fB\-\-tier\fR] [\fB\-\-baseline\-line\-tolerance\fR] [\fB\-\-baseline\-fuzzy\-match\fR] [\fB\-\-check\-exclude\fR] [\fB\-\-check\-exclude\-from\fR] [\fB\-h\fR|\fB\-\-help\fR] 
 .SH DESCRIPTION
 Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed"
 .SH OPTIONS
@@ -107,6 +107,12 @@ Tolerance, in lines, for matching a `\-\-baseline` entry whose qualified symbol 
 .TP
 \fB\-\-baseline\-fuzzy\-match\fR
 Enable rename\-tolerant baseline matching: when a `\-\-baseline` entry\*(Aqs qualified symbol no longer matches but the function body is unchanged (a rename that kept the shape), match on a normalised body hash instead. Off by default. The hash is also written into the baseline by `\-\-write\-baseline` when this flag is set, so populate it once with a fuzzy write to enable fuzzy reads. Mirrored by the `baseline_fuzzy_match` key in `bca.toml`
+.TP
+\fB\-\-check\-exclude\fR \fI<GLOB>\fR
+Glob for files to analyse and report but exempt from the threshold gate. Repeatable. Matching files are still walked, parsed, metric\*(Aqd, and shown by `bca report`; `bca check` simply drops their violations before emitting offenders and before `\-\-write\-baseline` records anything — so structural exemptions (test fixtures, generated code, macro\-dispatch modules) stay out of `.bca\-baseline.toml`. Precedence: in\-source `bca: suppress` markers win first, then these globs, then the baseline. Unioned with `\-\-check\-exclude\-from`; an explicit `\-\-check\-exclude` *replaces* the `bca.toml` `[check] exclude` list (CLI\-wins, like every other manifest key). Globs match the path as walked, exactly like `\-\-exclude`
+.TP
+\fB\-\-check\-exclude\-from\fR \fI<CHECK_EXCLUDE_FROM>\fR
+Read newline\-separated `\-\-check\-exclude` globs from a file (one per line, `.gitignore`\-style: blank lines and `#`\-comments are skipped). Use `\-` for stdin; to pass a file literally named `\-`, use `./\-`. Unioned with any `\-\-check\-exclude` values. Convention is a `.bcacheckignore` at the repo root, mirroring `.bcaignore` for the walker. Mirrored by the `[check] exclude_from` key in `bca.toml`
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help (see a summary with \*(Aq\-h\*(Aq)

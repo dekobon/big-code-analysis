@@ -196,13 +196,18 @@ self-scan-write-baseline-headroom:  # absorb soft-tier offenders
   rather than consuming it.
 - The top-level `include` / `exclude` keys are the global file-filter
   globs (the `--include` / `--exclude` flags) that decide which files
-  are *analysed at all*. They are distinct from the forthcoming
-  `[check] exclude` table (analysed-but-ungated paths, tracked under a
-  separate issue).
+  are *analysed at all*. They are distinct from the `[check] exclude`
+  table (analysed-and-reported but ungated paths; see
+  [Exempting whole file categories](../commands/check.md#exempting-whole-file-categories-checkexclude)).
+- A `[check]` table sets gate-only options. `exclude` is a glob list
+  whose matching files are analysed and reported but exempt from the
+  threshold gate (and from `--write-baseline`); `exclude_from` points
+  at a `.gitignore`-style file of the same globs. Both mirror the
+  `--check-exclude` / `--check-exclude-from` flags.
 - A `[thresholds.soft]` table sets per-metric soft-tier limits
   (consumed by `--tier=soft`; see [Two-tier thresholds](#two-tier-thresholds)).
-  Other unrecognized keys (forthcoming options such as `[check]`) are
-  ignored with a one-line warning, so you can pre-adopt schema
+  Other unrecognized keys (forthcoming options such as `[exit_codes]`)
+  are ignored with a one-line warning, so you can pre-adopt schema
   additions without breaking older `bca` builds.
 - `bca check --print-effective-config` prints the resolved view,
   including a `manifest` provenance line, so you can see exactly what

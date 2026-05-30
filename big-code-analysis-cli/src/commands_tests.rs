@@ -316,31 +316,46 @@ fn write_summary_footer_in_range_uses_source_label() {
 
 // --- Remediation footer tests ---
 
-fn check_args_for_remediation(
-    config: Option<&str>,
-    baseline: Option<&str>,
-    no_remediation: bool,
-) -> CheckArgs {
+/// All-inert `CheckArgs` for tests: every field takes the value clap
+/// would produce for an unset flag. Tests adjust only the fields they
+/// exercise via `..base_check_args()`, so a new `CheckArgs` field needs
+/// updating in exactly one place.
+fn base_check_args() -> CheckArgs {
     CheckArgs {
         thresholds: Vec::new(),
-        config: config.map(PathBuf::from),
+        config: None,
         no_fail: false,
         no_suppress: false,
         output_format: None,
         output: None,
-        baseline: baseline.map(PathBuf::from),
+        baseline: None,
         write_baseline: None,
         no_summary: false,
         since: None,
         changed_only: false,
         github_annotations: false,
         summary_file: None,
-        no_remediation,
+        no_remediation: false,
         print_effective_config: None,
         headroom: None,
         tier: crate::Tier::Hard,
         baseline_line_tolerance: None,
         baseline_fuzzy_match: false,
+        check_exclude: Vec::new(),
+        check_exclude_from: None,
+    }
+}
+
+fn check_args_for_remediation(
+    config: Option<&str>,
+    baseline: Option<&str>,
+    no_remediation: bool,
+) -> CheckArgs {
+    CheckArgs {
+        config: config.map(PathBuf::from),
+        baseline: baseline.map(PathBuf::from),
+        no_remediation,
+        ..base_check_args()
     }
 }
 
@@ -534,6 +549,8 @@ fn effective_config_toml_roundtrips_through_threshold_config_schema() {
             include: vec!["*.rs".to_owned()],
             exclude: vec!["target/".to_owned()],
             exclude_from: None,
+            check_exclude: Vec::new(),
+            check_exclude_from: None,
             paths_from: None,
             baseline: None,
             config: None,
@@ -581,6 +598,8 @@ fn effective_config_json_serializes_threshold_overrides() {
             include: Vec::new(),
             exclude: Vec::new(),
             exclude_from: None,
+            check_exclude: Vec::new(),
+            check_exclude_from: None,
             paths_from: None,
             baseline: None,
             config: None,
@@ -694,4 +713,84 @@ fn scale_threshold_zero_limit_stays_zero() {
 fn scale_threshold_subnormal_limit_stays_finite() {
     let scaled = scale_threshold(1e-320, 0.5);
     assert!(scaled.is_finite(), "expected finite, got {scaled}");
+}
+
+/// Minimal `CheckArgs` carrying only the `[check.exclude]` inputs under
+/// test (#378); every other field takes its inert default so the helper
+/// stays focused on what `apply_check_exclude` reads.
+fn check_args_excluding(exclude: &[&str], exclude_from: Option<&str>) -> CheckArgs {
+    CheckArgs {
+        check_exclude: exclude.iter().map(|s| (*s).to_owned()).collect(),
+        check_exclude_from: exclude_from.map(PathBuf::from),
+        ..base_check_args()
+    }
+}
+
+#[test]
+fn apply_check_exclude_drops_matching_paths_only() {
+    let violations = vec![
+        violation("src/languages/language_rust.rs", "dispatch", 30.0, 10.0),
+        violation("tests/fixtures/big.rs", "fixture", 25.0, 10.0),
+        violation("src/metrics/cognitive.rs", "compute", 20.0, 10.0),
+    ];
+    let args = check_args_excluding(&["src/languages/language_*.rs", "tests/**"], None);
+    let kept = apply_check_exclude(violations, &args);
+
+    // The two structural-exemption files are dropped; the genuine
+    // offender in `src/metrics` survives.
+    assert_eq!(kept.len(), 1, "kept: {kept:?}");
+    assert_eq!(kept[0].path, PathBuf::from("src/metrics/cognitive.rs"));
+}
+
+#[test]
+fn apply_check_exclude_no_patterns_is_identity() {
+    // The fast path must not perturb the input when nothing is excluded
+    // — same length, same order.
+    let violations = vec![
+        violation("a.rs", "f", 20.0, 10.0),
+        violation("b.rs", "g", 30.0, 10.0),
+    ];
+    let args = check_args_excluding(&[], None);
+    let kept = apply_check_exclude(violations, &args);
+    assert_eq!(kept.len(), 2);
+    assert_eq!(kept[0].path, PathBuf::from("a.rs"));
+    assert_eq!(kept[1].path, PathBuf::from("b.rs"));
+}
+
+#[test]
+fn apply_check_exclude_reads_patterns_from_file() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let ignore = dir.path().join(".bcacheckignore");
+    // `.gitignore`-style: a comment, a blank line, and one real glob.
+    std::fs::write(&ignore, "# structural exemptions\n\ntests/**\n").unwrap();
+
+    let violations = vec![
+        violation("tests/fixtures/big.rs", "fixture", 25.0, 10.0),
+        violation("src/lib.rs", "f", 20.0, 10.0),
+    ];
+    let args = check_args_excluding(&[], ignore.to_str());
+    let kept = apply_check_exclude(violations, &args);
+
+    assert_eq!(kept.len(), 1);
+    assert_eq!(kept[0].path, PathBuf::from("src/lib.rs"));
+}
+
+#[test]
+fn apply_check_exclude_unions_flag_and_file() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let ignore = dir.path().join(".bcacheckignore");
+    std::fs::write(&ignore, "tests/**\n").unwrap();
+
+    let violations = vec![
+        violation("tests/fixtures/big.rs", "fixture", 25.0, 10.0),
+        violation("xtask/src/main.rs", "render", 30.0, 10.0),
+        violation("src/lib.rs", "f", 20.0, 10.0),
+    ];
+    // Flag contributes `xtask/**`; the file contributes `tests/**`; the
+    // two deny-sets union, so only `src/lib.rs` survives.
+    let args = check_args_excluding(&["xtask/**"], ignore.to_str());
+    let kept = apply_check_exclude(violations, &args);
+
+    assert_eq!(kept.len(), 1);
+    assert_eq!(kept[0].path, PathBuf::from("src/lib.rs"));
 }

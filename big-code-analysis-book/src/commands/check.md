@@ -146,6 +146,62 @@ excluding it from the walk. The native dialect is `bca: suppress` /
 compatibility shim. See [Suppression markers](suppression.md) for
 the full reference and the `--no-suppress` CI-audit flag.
 
+## Exempting whole file categories (`[check.exclude]`)
+
+Some files should be **analysed and reported but never gated**: test
+fixtures that intentionally trip cognitive/cyclomatic, generated
+bindings, macro-dispatch modules whose complexity is structural and
+will never be "fixed". Putting these in `.bcaignore` is too blunt — it
+removes them from the walk entirely, so `bca report` loses them too.
+Baselining them is also wrong — they are not debt being paid down, and
+they churn the baseline diff forever.
+
+`[check.exclude]` is the glob-level middle ground: matching files are
+walked, parsed, metric'd, and shown by `bca report`, but `bca check`
+drops their violations before emitting offenders **and before
+`--write-baseline` records anything**, so the structural exemptions
+stay out of `.bca-baseline.toml`.
+
+In `bca.toml`:
+
+```toml
+[check]
+exclude = [
+    "tests/**",
+    "src/languages/language_*.rs",
+    "xtask/**",
+]
+```
+
+Or on the command line (`--check-exclude` is repeatable and unions with
+`--check-exclude-from`):
+
+```bash
+bca check --check-exclude "tests/**" --check-exclude "xtask/**"
+bca check --check-exclude-from .bcacheckignore
+```
+
+`--check-exclude-from` reads a `.gitignore`-style file (blank lines and
+`#`-comments skipped); the conventional name is `.bcacheckignore`,
+mirroring `.bcaignore` for the walker. Globs match the path exactly as
+the walker matched it for `--exclude`. An explicit `--check-exclude`
+list replaces (does not append to) the manifest `[check] exclude` list,
+matching the CLI-wins precedence used for every other manifest key.
+
+### Precedence with the other suppression mechanisms
+
+Most-specific to least, `bca check` resolves exemptions in this order:
+
+1. **In-source markers** (`bca: suppress` / `bca: suppress-file`) —
+   always win; applied during the walk so the function never becomes a
+   violation.
+2. **`[check.exclude]` globs** — exempt *categories* of files (tests,
+   generated code).
+3. **`.bca-baseline.toml`** — known offenders being paid down.
+
+`--print-effective-config` reports the resolved `check_exclude` globs
+alongside the other gate inputs.
+
 ## Baselines
 
 When you adopt thresholds on an existing codebase you typically face a

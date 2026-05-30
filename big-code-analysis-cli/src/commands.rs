@@ -85,6 +85,13 @@ fn run_check(
         die("bca check: no input files matched; check --paths, --include, --exclude");
     }
 
+    // Drop offenders from `[check.exclude]` files (#378) before *any*
+    // downstream consumer sees them — so `--write-baseline` never
+    // records the structural exemptions and the gate never fails on
+    // them. Applied after the empty-input guard above: exempt files are
+    // still walked and counted, only their violations are dropped.
+    let violations = apply_check_exclude(violations, &args);
+
     if let Some(path) = args.write_baseline.as_deref() {
         write_check_baseline(violations, path);
         return;
@@ -176,6 +183,14 @@ struct EffectiveCheck {
     exclude: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     exclude_from: Option<String>,
+    /// Resolved `[check.exclude]` globs (#378): files analysed and
+    /// reported but exempt from the gate. Empty when unset.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    check_exclude: Vec<String>,
+    /// Source file for additional `check_exclude` globs
+    /// (`--check-exclude-from` / `[check] exclude_from`), if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    check_exclude_from: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     paths_from: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -243,6 +258,11 @@ impl EffectiveConfig {
             exclude: globals.exclude.clone(),
             exclude_from: globals
                 .exclude_from
+                .as_ref()
+                .map(|p| p.display().to_string()),
+            check_exclude: args.check_exclude.clone(),
+            check_exclude_from: args
+                .check_exclude_from
                 .as_ref()
                 .map(|p| p.display().to_string()),
             paths_from: globals.paths_from.as_ref().map(|p| p.display().to_string()),
@@ -466,6 +486,28 @@ fn write_check_baseline(violations: Vec<Violation>, path: &Path) {
         "bca: wrote {entry_count} baseline entries to {}",
         path.display()
     );
+}
+
+fn apply_check_exclude(violations: Vec<Violation>, args: &CheckArgs) -> Vec<Violation> {
+    // Fast path: nothing configured (the common case) skips the
+    // glob-set build and the file read entirely.
+    if args.check_exclude.is_empty() && args.check_exclude_from.is_none() {
+        return violations;
+    }
+    let globset = crate::build_exclude_globset(
+        args.check_exclude.clone(),
+        args.check_exclude_from.as_deref(),
+    );
+    let before = violations.len();
+    let kept: Vec<Violation> = violations
+        .into_iter()
+        .filter(|v| !globset.is_match(&v.path))
+        .collect();
+    let skipped = before - kept.len();
+    if skipped > 0 {
+        eprintln!("bca: skipped {skipped} violations via [check.exclude]");
+    }
+    kept
 }
 
 /// Classify each violation against the optional `--baseline` file.
@@ -1079,7 +1121,7 @@ pub fn run() {
         Command::Find(args) => run_command_find(cli.globals, args, preproc),
         Command::Count(args) => run_command_count(cli.globals, args, preproc),
         Command::StripComments(args) => run_command_strip_comments(cli.globals, args, preproc),
-        Command::Check(args) => run_check(cli.globals, args, manifest.as_ref(), preproc),
+        Command::Check(args) => run_check(cli.globals, *args, manifest.as_ref(), preproc),
         Command::Preproc(args) => run_command_preproc(cli.globals, args),
         Command::Init(args) => run_command_init(cli.globals, args, preproc),
     }
@@ -1489,6 +1531,8 @@ fn run_command_init(globals: GlobalOpts, args: InitArgs, preproc: Option<Arc<Pre
             tier: Tier::Hard,
             baseline_line_tolerance: None,
             baseline_fuzzy_match: false,
+            check_exclude: Vec::new(),
+            check_exclude_from: None,
         };
         // `run_check` early-exits after `write_check_baseline` runs,
         // so it returns normally on success here.

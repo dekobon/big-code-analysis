@@ -36,10 +36,11 @@ const MANIFEST_FILE: &str = "bca.toml";
 
 /// Top-level manifest keys understood today. Any other top-level key
 /// triggers a one-line "ignored" warning (forward-compat for the
-/// `[check]` and `exit_codes` fragments tracked under #378 / #385).
-/// The `[thresholds.soft]` sub-table (#375) is *not* a top-level key —
-/// it lives under the known `thresholds` key and is split out by
-/// [`split_thresholds_table`].
+/// `exit_codes` fragment tracked under #385). The `[thresholds.soft]`
+/// sub-table (#375) is *not* a top-level key — it lives under the known
+/// `thresholds` key and is split out by [`split_thresholds_table`]. The
+/// `[check]` table (#378) carries gate-only options (`exclude`,
+/// `exclude_from`) and is consumed as the typed [`RawCheck`].
 const KNOWN_KEYS: &[&str] = &[
     "paths",
     "exclude_from",
@@ -51,6 +52,7 @@ const KNOWN_KEYS: &[&str] = &[
     "baseline_fuzzy_match",
     "headroom",
     "thresholds",
+    "check",
 ];
 
 /// A parsed `bca.toml` plus the directory it was found in.
@@ -85,6 +87,23 @@ struct RawManifest {
     /// [`split_thresholds_table`] separates the two layers.
     #[serde(default)]
     thresholds: BTreeMap<String, toml::Value>,
+    /// The `[check]` table (#378): gate-only options that affect which
+    /// offenders `bca check` emits, without changing what is walked /
+    /// reported.
+    #[serde(default)]
+    check: RawCheck,
+}
+
+/// Typed view of the `[check]` table (#378). Both keys mirror a CLI
+/// flag (`--check-exclude`, `--check-exclude-from`); the CLI value wins
+/// when both are present.
+#[derive(Debug, Default, Deserialize)]
+struct RawCheck {
+    /// Glob patterns whose matching files are exempt from the threshold
+    /// gate (analysed and reported, but their violations are dropped).
+    exclude: Option<Vec<String>>,
+    /// Path to a `.gitignore`-style file of additional exclude globs.
+    exclude_from: Option<PathBuf>,
 }
 
 /// Discover and load `bca.toml`. Returns `None` when no manifest exists
@@ -216,6 +235,20 @@ impl Manifest {
         }
         if args.headroom.is_none() {
             args.headroom = self.headroom();
+        }
+        // `[check] exclude` / `exclude_from` (#378). CLI wins: apply the
+        // manifest list only when the CLI provided nothing. The
+        // exclude-from path resolves against the manifest directory like
+        // every other manifest path.
+        if args.check_exclude.is_empty()
+            && let Some(exclude) = &self.raw.check.exclude
+        {
+            args.check_exclude.clone_from(exclude);
+        }
+        if args.check_exclude_from.is_none()
+            && let Some(exclude_from) = &self.raw.check.exclude_from
+        {
+            args.check_exclude_from = Some(self.resolve(exclude_from));
         }
     }
 

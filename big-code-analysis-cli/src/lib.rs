@@ -300,7 +300,10 @@ enum Command {
     /// Check per-function metrics against thresholds. Exits 2 when any
     /// threshold is exceeded; reserve exit 1 for tool errors so CI can
     /// distinguish "metric regression" from "tool crashed".
-    Check(CheckArgs),
+    // Boxed because `CheckArgs` is by far the largest variant payload
+    // (its many gate-tuning flags dwarf the other subcommands' args);
+    // boxing keeps `Command` small and silences `large_enum_variant`.
+    Check(Box<CheckArgs>),
     /// Scaffold the canonical adoption files (`bca-thresholds.toml`,
     /// `.bcaignore`, `.bca-baseline.toml`) in the current directory.
     /// Replaces the six-step copy-paste flow from the book's adoption
@@ -543,6 +546,29 @@ struct CheckArgs {
     /// Mirrored by the `baseline_fuzzy_match` key in `bca.toml`.
     #[clap(long = "baseline-fuzzy-match")]
     baseline_fuzzy_match: bool,
+    /// Glob for files to analyse and report but exempt from the
+    /// threshold gate. Repeatable. Matching files are still walked,
+    /// parsed, metric'd, and shown by `bca report`; `bca check` simply
+    /// drops their violations before emitting offenders and before
+    /// `--write-baseline` records anything — so structural exemptions
+    /// (test fixtures, generated code, macro-dispatch modules) stay out
+    /// of `.bca-baseline.toml`. Precedence: in-source `bca: suppress`
+    /// markers win first, then these globs, then the baseline. Unioned
+    /// with `--check-exclude-from`; an explicit `--check-exclude`
+    /// *replaces* the `bca.toml` `[check] exclude` list (CLI-wins, like
+    /// every other manifest key). Globs match the path as walked,
+    /// exactly like `--exclude`.
+    #[clap(long = "check-exclude", value_name = "GLOB")]
+    check_exclude: Vec<String>,
+    /// Read newline-separated `--check-exclude` globs from a file (one
+    /// per line, `.gitignore`-style: blank lines and `#`-comments are
+    /// skipped). Use `-` for stdin; to pass a file literally named `-`,
+    /// use `./-`. Unioned with any `--check-exclude` values. Convention
+    /// is a `.bcacheckignore` at the repo root, mirroring `.bcaignore`
+    /// for the walker. Mirrored by the `[check] exclude_from` key in
+    /// `bca.toml`.
+    #[clap(long = "check-exclude-from", value_parser)]
+    check_exclude_from: Option<PathBuf>,
 }
 
 /// Arguments for the `init` subcommand. Pre-#374 form: scaffolds
@@ -762,6 +788,19 @@ fn mk_globset(elems: Vec<String>) -> Result<GlobSet, String> {
         .map_err(|err| format!("failed to build glob set: {err}"))
 }
 
+/// Build an exclude [`GlobSet`] from inline `patterns` unioned with any
+/// read from the `from` file (`.gitignore`-style, `-` for stdin). Dies
+/// (exit 1) on a file-read or glob-compile error. Shared by the walker's
+/// `--exclude` / `--exclude-from` deny-set and `bca check`'s
+/// `--check-exclude` / `--check-exclude-from` gate-exemption set (#378)
+/// so the two surfaces union and compile globs identically.
+fn build_exclude_globset(mut patterns: Vec<String>, from: Option<&Path>) -> GlobSet {
+    if let Some(src) = from {
+        patterns.extend(read_exclude_patterns_from(src).unwrap_or_else(|e| die(e)));
+    }
+    mk_globset(patterns).unwrap_or_else(|e| die(e))
+}
+
 fn process_dir_path(all_files: &mut HashMap<String, Vec<PathBuf>>, path: &Path, cfg: &Config) {
     if !matches!(cfg.action, Action::PreprocProduce) {
         return;
@@ -953,11 +992,7 @@ fn expand_seed_paths(
 
 fn run_walk(globals: GlobalOpts, cfg: Config) -> HashMap<String, Vec<PathBuf>> {
     let include = mk_globset(globals.include).unwrap_or_else(|e| die(e));
-    let mut exclude_patterns = globals.exclude;
-    if let Some(src) = globals.exclude_from {
-        exclude_patterns.extend(read_exclude_patterns_from(&src).unwrap_or_else(|e| die(e)));
-    }
-    let exclude = mk_globset(exclude_patterns).unwrap_or_else(|e| die(e));
+    let exclude = build_exclude_globset(globals.exclude, globals.exclude_from.as_deref());
     let num_jobs = globals.num_jobs.resolve();
     let paths = expand_seed_paths(globals.paths, globals.paths_from, globals.no_ignore);
     let files_data = FilesData {

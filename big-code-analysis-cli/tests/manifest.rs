@@ -289,15 +289,15 @@ fn discovery_climbs_from_subdirectory() {
         .stderr(predicate::str::contains("classify"));
 }
 
-/// Unrecognized top-level keys (forthcoming features such as `[check]`,
-/// `exit_codes`) are ignored with a one-line warning rather than
+/// Unrecognized top-level keys (forthcoming features such as
+/// `exit_codes`, #385) are ignored with a one-line warning rather than
 /// rejected, so projects can pre-adopt the schema.
 #[test]
 fn unknown_top_level_key_warns_but_runs() {
     let dir = fixture(
         "paths = [\".\"]\n\n\
          [thresholds]\ncyclomatic = 100\n\n\
-         [check]\nexclude = [\"x\"]\n",
+         [exit_codes]\nviolations = 3\n",
     );
 
     cli()
@@ -306,7 +306,7 @@ fn unknown_top_level_key_warns_but_runs() {
         .assert()
         .success()
         .stderr(predicate::str::contains(
-            "ignoring unrecognized key `check`",
+            "ignoring unrecognized key `exit_codes`",
         ));
 }
 

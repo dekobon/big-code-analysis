@@ -23,6 +23,24 @@ for historical reference.
 
 ### Added
 
+- `bca check` gains a glob-level gate exemption via a `[check]
+  exclude` list in `bca.toml` and the `--check-exclude` /
+  `--check-exclude-from` flags
+  ([#378](https://github.com/dekobon/big-code-analysis/issues/378)).
+  Matching files are still walked, parsed, metric'd, and shown by
+  `bca report` — only `bca check` drops their violations before
+  emitting offenders and before `--write-baseline` records anything,
+  so structural exemptions (test fixtures, generated code,
+  macro-dispatch modules) stay out of `.bca-baseline.toml`.
+  `--check-exclude` is repeatable; `--check-exclude-from` reads a
+  `.gitignore`-style file (convention `.bcacheckignore`); the two
+  union with each other, while an explicit `--check-exclude` replaces
+  the manifest `[check] exclude` list (CLI-wins, like every other
+  manifest key). Globs match the walked path exactly like `--exclude`.
+  Precedence, most-specific first: in-source
+  `bca: suppress` markers, then `[check.exclude]` globs, then the
+  baseline. `--print-effective-config` reports the resolved
+  `check_exclude` globs.
 - `bca check` gains a native two-tier threshold model via a
   `[thresholds.soft]` table and a `--tier <hard|soft>` flag
   ([#375](https://github.com/dekobon/big-code-analysis/issues/375)).
