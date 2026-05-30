@@ -3,8 +3,8 @@ source: src/metrics/cognitive.rs
 expression: metric.cognitive
 ---
 {
-  "sum": 1.0,
-  "average": 1.0,
+  "sum": 2.0,
+  "average": 2.0,
   "min": 0.0,
-  "max": 1.0
+  "max": 2.0
 }

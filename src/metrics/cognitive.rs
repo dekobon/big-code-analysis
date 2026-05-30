@@ -612,6 +612,15 @@ macro_rules! js_cognitive {
                 Else /* else-if also */ => {
                     increment_by_one(stats);
                 }
+                // Per SonarSource Cognitive Complexity §B2, a labeled
+                // `break LABEL` / `continue LABEL` is an unstructured jump
+                // and adds +1. The JS-family grammar exposes the label as a
+                // `StatementIdentifier` child (not the plain `Identifier`
+                // Java uses), so gate on that kind; plain `break;` /
+                // `continue;` have no such child and add +0.
+                BreakStatement | ContinueStatement if node.is_child(StatementIdentifier as u16) => {
+                    increment_by_one(stats);
+                }
                 ExpressionStatement => {
                     // Reset the boolean sequence
                     stats.boolean_seq.reset();
@@ -1116,9 +1125,13 @@ impl Cognitive for LuaCode {
             ForStatement | WhileStatement | RepeatStatement => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
-            // `else` increments without nesting; `break`/`goto` are unconditional
-            // jumps that add cognitive load. Lua has no `continue`.
-            ElseStatement | BreakStatement | GotoStatement => {
+            // `else` increments without nesting. Lua's `break` is always
+            // unlabeled (the grammar has no labeled break, and no
+            // `continue`), so per SonarSource Cognitive Complexity §B2 it
+            // adds +0 — the enclosing loop's nesting already accounts for
+            // it. Only `goto label` is a genuinely unstructured jump and
+            // adds +1.
+            ElseStatement | GotoStatement => {
                 increment_by_one(stats);
             }
             BinaryExpression => {
@@ -1170,6 +1183,17 @@ impl Cognitive for PhpCode {
             }
             ElseClause | ElseClause2 | ElseIfClause | ElseIfClause2 => {
                 increment_branch_extension(stats);
+            }
+            // Per SonarSource Cognitive Complexity §B2, `goto label;` is an
+            // unstructured jump and adds +1 (matching C++/C#/Go/Perl/Lua
+            // goto). PHP has no *labeled* `break`/`continue`; its only
+            // non-default jump argument is the numeric level form
+            // `break N;` / `continue N;`, which breaks out of N enclosing
+            // loops. Those enclosing loops are already counted via nesting,
+            // so the numeric form is a structured loop-level exit and adds
+            // +0 — only `goto` is genuinely unstructured here.
+            GotoStatement => {
+                increment_by_one(stats);
             }
             BinaryExpression => {
                 // PHP's null-coalescing `??` short-circuits like `&&` /
@@ -1428,9 +1452,16 @@ impl Cognitive for RubyCode {
             R::Elsif | R::Else => {
                 increment_branch_extension(stats);
             }
-            // `break`/`next`/`redo`/`retry` are unconditional jumps that
-            // each add cognitive load.
-            R::Break | R::Break2 | R::Next | R::Next2 | R::Redo | R::Retry => {
+            // Ruby has no labeled loops: `break`/`next` are always
+            // unlabeled (the token's only optional child is a return-value
+            // expression, never a label). Per SonarSource Cognitive
+            // Complexity §B2, an unlabeled break/continue adds +0 — the
+            // enclosing loop's nesting already accounts for it — so they are
+            // intentionally excluded here. `redo` (restart the current loop
+            // iteration) and `retry` (re-run a rescued `begin` block) are
+            // genuinely unstructured jumps with no structured equivalent and
+            // each add +1.
+            R::Redo | R::Retry => {
                 increment_by_one(stats);
             }
             R::Binary | R::Binary2 | R::Binary3 => {
@@ -6369,8 +6400,9 @@ end",
 
     #[test]
     fn lua_cognitive_break_continue() {
-        // Lua has no `continue` keyword; `break` is the only structural jump
-        // (other than `goto`). for(+1) + if at depth 1 (+2) + break(+1) = 4.
+        // Lua's `break` is always unlabeled (the grammar has no labeled
+        // break and no `continue`), so per SonarSource Cognitive Complexity
+        // §B2 it adds +0 — issue #435. for(+1) + if at depth 1 (+2) = 3.
         check_metrics::<LuaParser>(
             "local function f(t)
     for i = 1, #t do
@@ -6381,14 +6413,42 @@ end",
 end",
             "foo.lua",
             |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
                 insta::assert_json_snapshot!(
                     metric.cognitive,
                     @r###"
                     {
-                      "sum": 4.0,
-                      "average": 4.0,
+                      "sum": 3.0,
+                      "average": 3.0,
                       "min": 0.0,
-                      "max": 4.0
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn lua_cognitive_goto_counted() {
+        // `goto label` is a genuinely unstructured jump and adds +1 per
+        // SonarSource §B2, even though Lua's unlabeled `break` does not
+        // (issue #435). Only the `goto` contributes: +1.
+        check_metrics::<LuaParser>(
+            "local function f()
+    ::top::
+    goto top
+end",
+            "foo.lua",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 1.0,
+                      "average": 1.0,
+                      "min": 0.0,
+                      "max": 1.0
                     }"###
                 );
             },
@@ -8206,6 +8266,59 @@ end",
         );
     }
 
+    #[test]
+    fn php_goto_counted() {
+        // `goto label;` is a genuinely unstructured jump and adds +1 per
+        // SonarSource Cognitive Complexity §B2 (issue #435), matching
+        // C++/C#/Go/Perl/Lua goto handling.
+        check_metrics::<PhpParser>(
+            "<?php
+            function f(int $n): int {
+                if ($n < 0) {
+                    goto done;
+                }
+                done:
+                return 0;
+            }",
+            "foo.php",
+            |metric| {
+                // if(+1) + goto(+1) = 2.
+                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 2.0);
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn php_numeric_break_not_counted() {
+        // PHP has no labeled break/continue; only the numeric level form
+        // `break N;` / `continue N;`, which exits N enclosing loops already
+        // accounted for by nesting. Per issue #435 the numeric form is a
+        // structured loop-level exit and adds +0.
+        check_metrics::<PhpParser>(
+            "<?php
+            function f(int $n): int {
+                for ($i = 0; $i < $n; $i++) {
+                    while (true) {
+                        if ($i > 100) {
+                            break 2;
+                        }
+                    }
+                }
+                return 0;
+            }",
+            "foo.php",
+            |metric| {
+                // for(+1) + while at depth 1 (+2) + if at depth 2 (+3) = 6;
+                // `break 2` adds +0.
+                assert_eq!(metric.cognitive.cognitive_sum(), 6.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 6.0);
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
     // ----- Elixir -----
 
     // No control flow → cognitive complexity is 0.
@@ -8480,13 +8593,32 @@ end",
 
     #[test]
     fn ruby_break_next() {
-        // `break`/`next` are unconditional jumps inside a loop, each +1.
-        // Plus the enclosing `while` (+1) → 3.
+        // Ruby has no labeled loops, so `break`/`next` are always
+        // unlabeled. Per SonarSource Cognitive Complexity §B2 an unlabeled
+        // break/continue adds +0 (issue #435) — only the enclosing `while`
+        // (+1) counts → 1.
         check_metrics::<RubyParser>(
             "def foo\n  while a\n    break\n    next\n  end\nend\n",
             "foo.rb",
             |metric| {
-                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_redo_retry_counted() {
+        // `redo` (restart the current loop iteration) and `retry` (re-run a
+        // rescued `begin` block) are genuinely unstructured jumps with no
+        // structured equivalent, so each adds +1 per SonarSource §B2
+        // (issue #435) even though `break`/`next` do not.
+        check_metrics::<RubyParser>(
+            "def foo\n  while a\n    redo\n  end\n  begin\n    work\n  rescue\n    retry\n  end\nend\n",
+            "foo.rb",
+            |metric| {
+                // while(+1) + redo(+1) + rescue(+1) + retry(+1) = 4.
+                assert_eq!(metric.cognitive.cognitive_sum(), 4.0);
                 insta::assert_json_snapshot!(metric.cognitive);
             },
         );
@@ -8518,6 +8650,105 @@ end",
             "foo.rb",
             |metric| {
                 assert_eq!(metric.cognitive.cognitive_sum(), 6.0);
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_labeled_break_continue() {
+        // Per SonarSource Cognitive Complexity §B2 (issue #435), a labeled
+        // `break LABEL` / `continue LABEL` is an unstructured jump and adds
+        // +1. The JS-family grammar exposes the label as a
+        // `statement_identifier` child of the break/continue node.
+        check_metrics::<JavascriptParser>(
+            "function scan(m) {
+                outer:
+                for (let i = 0; i < m.length; i++) {      // +1
+                    for (let j = 0; j < m[i].length; j++) { // +2
+                        if (m[i][j] < 0) continue outer;    // +3, +1
+                        if (m[i][j] > 100) break outer;     // +3, +1
+                    }
+                }
+            }",
+            "foo.js",
+            |metric| {
+                // outer for(+1) + inner for(+2) + if(+3) + continue outer(+1)
+                // + if(+3) + break outer(+1) = 11.
+                assert_eq!(metric.cognitive.cognitive_sum(), 11.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 11.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 11.0,
+                      "average": 11.0,
+                      "min": 0.0,
+                      "max": 11.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn javascript_unlabeled_break_continue_not_counted() {
+        // Negative test for issue #435: plain `break;` / `continue;` are
+        // not unstructured jumps under SonarSource §B2 and add +0. Only the
+        // surrounding `for` + two `if`s contribute.
+        check_metrics::<JavascriptParser>(
+            "function scan(m) {
+                for (let i = 0; i < m.length; i++) { // +1
+                    if (m[i] < 0) continue;           // +2, +0
+                    if (m[i] > 100) break;            // +2, +0
+                }
+            }",
+            "foo.js",
+            |metric| {
+                // for(+1) + if(+2) + if(+2) = 5.
+                assert_eq!(metric.cognitive.cognitive_sum(), 5.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 5.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 5.0,
+                      "average": 5.0,
+                      "min": 0.0,
+                      "max": 5.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn typescript_labeled_break_continue() {
+        // TS parity with JS for labeled jumps (issue #435): labeled
+        // break/continue each add +1 via the `statement_identifier` child.
+        check_metrics::<TypescriptParser>(
+            "function scan(m: number[][]) {
+                outer:
+                for (let i = 0; i < m.length; i++) {      // +1
+                    for (let j = 0; j < m[i].length; j++) { // +2
+                        if (m[i][j] < 0) continue outer;    // +3, +1
+                        if (m[i][j] > 100) break outer;     // +3, +1
+                    }
+                }
+            }",
+            "foo.ts",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 11.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 11.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 11.0,
+                      "average": 11.0,
+                      "min": 0.0,
+                      "max": 11.0
+                    }"###
+                );
             },
         );
     }

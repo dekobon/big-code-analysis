@@ -323,6 +323,24 @@ for historical reference.
 
 ### Changed
 
+- Cognitive complexity now applies the SonarSource §B2 jump-statement
+  rule uniformly across languages: an *unstructured* jump (labeled
+  `break`/`continue`, `goto`) adds +1 while a plain unlabeled
+  `break`/`continue` adds +0. Previously this was inconsistent in both
+  directions. The JS family (JavaScript/TypeScript/TSX/mozjs) now
+  counts labeled `break LABEL` / `continue LABEL` (+1, gated on the
+  `statement_identifier` label child); PHP now counts `goto label;`
+  (+1). Conversely, Ruby no longer counts plain `break`/`next` (Ruby
+  has no labeled loops, so these are always unlabeled → +0; `redo` and
+  `retry` remain +1 as genuinely unstructured jumps), and Lua no longer
+  counts plain `break` (Lua has no labeled break → +0; `goto label`
+  remains +1). PHP's numeric `break N;` / `continue N;` stays +0 — it
+  is a structured loop-level exit whose enclosing loops are already
+  counted via nesting. This raises published cognitive (and the derived
+  MI) values for JS/TS/PHP code using labeled jumps or `goto`, and
+  lowers them for Ruby/Lua code using plain `break`/`next`, so cognitive
+  scores are now comparable across languages.
+  Fixes [#435](https://github.com/dekobon/big-code-analysis/issues/435).
 - Cyclomatic complexity now counts the safe-navigation operator as a
   decision point for Kotlin (`?.`, `QMARKDOT`) and PHP (`?->`,
   `QMARKDASHGT`), matching the existing JS/TS/C# treatment of `?.`
