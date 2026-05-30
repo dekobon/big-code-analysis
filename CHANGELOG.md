@@ -740,6 +740,17 @@ for historical reference.
 
 ### Fixed
 
+- Rust `nargs` no longer counts the `self` receiver as a formal
+  parameter ([#457](https://github.com/dekobon/big-code-analysis/issues/457)).
+  `RustCode::is_non_arg` now excludes the `self_parameter` node, so
+  `self`, `&self`, and `&mut self` contribute nothing to the argument
+  count — matching how Go excludes its `receiver` field and C++
+  excludes the implicit `this`. A method `fn m(&mut self, x: i32)`
+  now reports `nargs = 1` instead of `2`. A typed receiver written
+  `self: Box<Self>` parses as an ordinary `parameter` node (it carries
+  a type annotation), not `self_parameter`, so it is still counted —
+  matching the tree-sitter grammar's own modeling. This lowers `nargs`
+  sum / average / min / max for Rust fixtures with methods.
 - ABC condition counting for switch/`when`-expression arms now tracks
   the cyclomatic decision count in Kotlin and C#
   ([#456](https://github.com/dekobon/big-code-analysis/issues/456)).

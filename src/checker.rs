@@ -963,9 +963,20 @@ impl Checker for RustCode {
     }
 
     fn is_non_arg(node: &Node) -> bool {
+        // `SelfParameter` is Rust's method receiver (`self`, `&self`,
+        // `&mut self`). Like Go's `receiver` field and C++'s implicit
+        // `this`, it is not a formal parameter and must not be counted
+        // (see #457). A typed receiver written `self: Box<Self>` parses
+        // as an ordinary `parameter` node, not `SelfParameter`, so it is
+        // still counted — matching the grammar's own modeling.
         matches!(
             node.kind_id().into(),
-            Rust::LPAREN | Rust::COMMA | Rust::RPAREN | Rust::PIPE | Rust::AttributeItem
+            Rust::LPAREN
+                | Rust::COMMA
+                | Rust::RPAREN
+                | Rust::PIPE
+                | Rust::AttributeItem
+                | Rust::SelfParameter
         )
     }
 

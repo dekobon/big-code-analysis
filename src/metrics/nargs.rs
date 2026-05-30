@@ -912,6 +912,48 @@ mod tests {
         );
     }
 
+    /// The `self` receiver (`self`, `&self`, `&mut self`) parses as a
+    /// `self_parameter` node and, like Go's `receiver` field and C++'s
+    /// implicit `this`, must not be counted as a formal parameter (#457).
+    #[test]
+    fn rust_method_excludes_self_receiver() {
+        check_metrics::<RustParser>(
+            "struct S;
+             impl S {
+                 fn a(self) {}                  // self          -> 0 args
+                 fn b(&self, x: i32) {}         // &self     + 1 -> 1 arg
+                 fn c(&mut self, x: i32, y: i32) {} // &mut self + 2 -> 2 args
+             }",
+            "foo.rs",
+            |metric| {
+                // 3 methods: 0 + 1 + 2 explicit params. The three receiver
+                // forms contribute nothing. sum = 3, max = 2.
+                let s = &metric.nargs;
+                assert_eq!(s.fn_args_sum(), 3.0);
+                assert_eq!(s.fn_args_max(), 2.0);
+            },
+        );
+
+        // A typed receiver written `self: Box<Self>` is grammatically an
+        // ordinary `parameter` node (it carries a type annotation), not a
+        // `self_parameter`, so it is still counted — matching the
+        // tree-sitter grammar's own modeling. Pinning this keeps the
+        // SelfParameter exclusion from being widened to typed receivers.
+        check_metrics::<RustParser>(
+            "struct S;
+             impl S {
+                 fn c(self: Box<Self>, x: i32, y: i32) {}
+             }",
+            "foo.rs",
+            |metric| {
+                // self: Box<Self> + x + y -> 3 args (typed receiver counted).
+                let s = &metric.nargs;
+                assert_eq!(s.fn_args_sum(), 3.0);
+                assert_eq!(s.fn_args_max(), 3.0);
+            },
+        );
+    }
+
     #[test]
     fn c_functions() {
         check_metrics::<CppParser>(
