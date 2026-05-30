@@ -883,14 +883,22 @@ impl Cognitive for PerlCode {
             P::Else | P::ElsifClause => {
                 increment_by_one(stats);
             }
-            // `goto` is a non-local control transfer.
-            P::Goto | P::GotoExpression => {
+            // SonarSource §B2: `goto` is a non-local jump and adds +1.
+            // `goto LABEL;` parses as `goto_expression` wrapping the
+            // anonymous `goto` keyword token; the walker visits both, so
+            // matching only the `GotoExpression` statement node counts the
+            // jump once (matching `P::Goto` too would double-count — #450).
+            P::GotoExpression => {
                 increment_by_one(stats);
             }
-            // `last LABEL` / `next LABEL` / `redo LABEL` — only the
-            // labeled forms count, since the bare forms are subsumed by
-            // the surrounding loop's nesting.
-            P::LoopControlStatement if node.is_child(P::Label as u16) => {
+            // SonarSource §B2: labeled `last LABEL` / `next LABEL` /
+            // `redo LABEL` each add +1 for breaking structured control
+            // flow; bare `last;` / `next;` / `redo;` are +0. The jump
+            // target is carried as an `Identifier` child of
+            // `loop_control_statement` (`Label` is the loop-*definition*
+            // node `OUTER:`, never the target — gating on it was a dead
+            // arm, #450).
+            P::LoopControlStatement if node.is_child(P::Identifier as u16) => {
                 increment_by_one(stats);
             }
             P::BinaryExpression => {
@@ -940,6 +948,27 @@ impl Cognitive for KotlinCode {
                     increment_by_one(stats);
                 }
             }
+            // SonarSource §B2: labeled `break@outer` / `continue@outer`
+            // each add +1 for breaking structured control flow; bare
+            // `break` / `continue` are +0. tree-sitter-kotlin-ng has no
+            // break/continue/jump statement kind — it models a labeled
+            // jump as a `labeled_expression` wrapping the `break@`/
+            // `continue@` token, while `return@label` is a distinct
+            // `return_expression` (so it is correctly excluded here). A
+            // bare `break`/`continue` parses as a plain identifier, never
+            // a `labeled_expression`, so it never matches (#450).
+            LabeledExpression => {
+                increment_by_one(stats);
+            }
+            // SonarSource §B2: labeled `break@outer` / `continue@outer`
+            // each add +1 for breaking structured control flow; bare
+            // `break` / `continue` are +0. tree-sitter-kotlin-ng has no
+            // break/continue/jump statement kind — it models a labeled
+            // jump as a `labeled_expression` wrapping the `break@`/
+            // `continue@` token, while `return@label` is a distinct
+            // `return_expression` (so it is correctly excluded here). A
+            // bare `break`/`continue` parses as a plain identifier, never
+            // a `labeled_expression`, so it never matches (#450).
             BinaryExpression => {
                 // Kotlin's Elvis operator `?:` (token `QMARKCOLON`) is a
                 // short-circuit nullish operator analogous to JS `??` and
@@ -5218,6 +5247,82 @@ mod tests {
     }
 
     #[test]
+    fn perl_goto_single_increment() {
+        // Regression (#450): `goto LABEL;` parses as `goto_expression`
+        // wrapping the anonymous `goto` keyword token. The walker visits
+        // both, so matching `Goto | GotoExpression` counted the jump twice
+        // (cognitive 2). Matching only `GotoExpression` scores the correct
+        // +1.
+        check_metrics::<PerlParser>("sub f { goto LABEL; LABEL: return; }", "foo.pl", |metric| {
+            // expected: one `goto` jump (§B2) = +1
+            assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+            insta::assert_json_snapshot!(metric.cognitive, @r#"
+                {
+                  "sum": 1.0,
+                  "average": 1.0,
+                  "min": 0.0,
+                  "max": 1.0
+                }
+                "#);
+        });
+    }
+
+    #[test]
+    fn perl_labeled_loop_control() {
+        // Regression (#450): the jump target of `last/next/redo LABEL` is
+        // carried as an `Identifier` child of `loop_control_statement`
+        // (`Label` is the loop-*definition* node `OUTER:`). Gating on
+        // `Label` was a dead arm — labeled jumps scored +0. Each labeled
+        // form is now +1 (§B2). The bare forms below stay +0.
+        check_metrics::<PerlParser>(
+            "OUTER: for my $i (@a) { # +1 for
+                 last OUTER;  # +1 labeled
+                 next OUTER;  # +1 labeled
+                 redo OUTER;  # +1 labeled
+             }",
+            "foo.pl",
+            |metric| {
+                // expected: +1 for-loop, +1 each labeled last/next/redo = 4
+                assert_eq!(metric.cognitive.cognitive_sum(), 4.0);
+                insta::assert_json_snapshot!(metric.cognitive, @r#"
+                {
+                  "sum": 4.0,
+                  "average": 4.0,
+                  "min": 4.0,
+                  "max": 4.0
+                }
+                "#);
+            },
+        );
+    }
+
+    #[test]
+    fn perl_bare_loop_control_zero() {
+        // Bare `last;` / `next;` / `redo;` have no `Identifier` jump-target
+        // child and must stay +0 — only the surrounding loop counts (§B2).
+        check_metrics::<PerlParser>(
+            "for my $i (@a) { # +1 for
+                 last;  # +0
+                 next;  # +0
+                 redo;  # +0
+             }",
+            "foo.pl",
+            |metric| {
+                // expected: only the +1 for-loop; bare jumps add nothing
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.cognitive, @r#"
+                {
+                  "sum": 1.0,
+                  "average": 1.0,
+                  "min": 1.0,
+                  "max": 1.0
+                }
+                "#);
+            },
+        );
+    }
+
+    #[test]
     fn tsx_nested_if_for_with_booleans() {
         check_metrics::<TsxParser>(
             "function process(items: number[]) {
@@ -5438,6 +5543,37 @@ mod tests {
                   "average": 1.0,
                   "min": 0.0,
                   "max": 1.0
+                }
+                "#);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_labeled_break_continue() {
+        // Regression (#450): tree-sitter-kotlin-ng has no break/continue
+        // jump-statement kind — `break@outer` / `continue@outer` are
+        // `labeled_expression` nodes. The Kotlin impl had no arm for them,
+        // so labeled jumps scored +0. Each labeled jump is now +1 (§B2);
+        // the bare `break` below (a plain identifier) stays +0.
+        check_metrics::<KotlinParser>(
+            "fun f() {
+                 outer@ for (i in 1..10) { // +1 for
+                     break@outer     // +1 labeled
+                     continue@outer  // +1 labeled
+                     break           // +0 bare
+                 }
+             }",
+            "foo.kt",
+            |metric| {
+                // expected: +1 for-loop, +1 each labeled break/continue = 3
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                insta::assert_json_snapshot!(metric.cognitive, @r#"
+                {
+                  "sum": 3.0,
+                  "average": 3.0,
+                  "min": 0.0,
+                  "max": 3.0
                 }
                 "#);
             },

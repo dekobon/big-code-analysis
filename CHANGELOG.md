@@ -740,6 +740,21 @@ for historical reference.
 
 ### Fixed
 
+- Cognitive complexity now applies the SonarSource §B2 jump rule
+  correctly for Perl and Kotlin
+  ([#450](https://github.com/dekobon/big-code-analysis/issues/450)).
+  Perl `goto LABEL;` no longer double-counts (`goto_expression` wraps
+  the anonymous `goto` keyword token, which the walker also visits, so
+  matching both scored `+2`); it is now `+1`. Perl labeled
+  `last`/`next`/`redo LABEL` now add `+1` each — the prior guard
+  gated on the loop-*definition* `label` node instead of the
+  `identifier` jump target, so labeled jumps silently scored `+0`.
+  Kotlin labeled `break@outer`/`continue@outer` (modelled as
+  `labeled_expression`, with no dedicated jump kind in
+  tree-sitter-kotlin-ng) now add `+1`; bare `break`/`continue` and
+  `return@label` stay `+0`. Brings Perl and Kotlin to Java/JS/Go
+  parity. Metric-value change for affected sources; derived MI shifts
+  accordingly.
 - `bca count` no longer aborts the whole worker pool when one worker
   panics: `Count::call` now recovers the poisoned shared `stats`
   mutex (via `into_inner()` + `clear_poison()`) instead of cascading
