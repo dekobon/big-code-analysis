@@ -232,6 +232,30 @@ pub fn fix_includes<S: ::std::hash::BuildHasher>(
     }
 }
 
+/// Strips the surrounding double quotes from an `#include` `string_literal`
+/// spanning `code[start..end]` and trims leading/trailing whitespace from the
+/// enclosed path.
+///
+/// Returns `None` for any malformed span that cannot hold both quote bytes.
+/// Tree-sitter's error recovery can emit a `string_literal` shorter than the
+/// two surrounding quotes (e.g. a truncated `#include "` with no closing
+/// quote), so the byte span is validated *before* slicing — `end < start + 2`
+/// would otherwise produce a reversed `start + 1..end - 1` range and panic
+/// (issue #432). An empty (`""`), whitespace-only, or non-UTF-8 payload also
+/// yields `None`.
+fn strip_include_quotes(code: &[u8], start: usize, end: usize) -> Option<&str> {
+    // A valid quoted literal needs at least the opening and closing quote.
+    const MIN_QUOTED_LEN: usize = 2;
+    if end < start + MIN_QUOTED_LEN {
+        return None;
+    }
+
+    let inner = &code[start + 1..end - 1];
+    let first = inner.iter().position(|&c| c != b' ' && c != b'\t')?;
+    let last = inner.iter().rposition(|&c| c != b' ' && c != b'\t')?;
+    std::str::from_utf8(&inner[first..=last]).ok()
+}
+
 /// Extracts preprocessor data from a `C/C++` file
 /// and inserts these data in a [`PreprocResults`] object.
 ///
@@ -278,20 +302,11 @@ pub fn preprocess(parser: &PreprocParser, path: &Path, results: &mut PreprocResu
                 cursor.goto_first_child();
                 let file = cursor.node();
 
-                if file.kind_id() == Preproc::StringLiteral {
-                    // remove the starting/ending double quote
-                    let file = &code[file.start_byte() + 1..file.end_byte() - 1];
-                    let Some(start) = file.iter().position(|&c| c != b' ' && c != b'\t') else {
-                        continue;
-                    };
-                    let Some(end) = file.iter().rposition(|&c| c != b' ' && c != b'\t') else {
-                        continue;
-                    };
-                    let file = &file[start..=end];
-                    let Ok(file) = std::str::from_utf8(file) else {
-                        continue;
-                    };
-                    file_result.direct_includes.insert(file.to_string());
+                if file.kind_id() == Preproc::StringLiteral
+                    && let Some(include) =
+                        strip_include_quotes(code, file.start_byte(), file.end_byte())
+                {
+                    file_result.direct_includes.insert(include.to_string());
                 }
             }
             _ => {}
@@ -409,5 +424,55 @@ mod tests {
             .expect("b.h must be retained");
         assert!(b.indirect_includes.contains("a.h"));
         assert!(b.indirect_includes.contains("b.h"));
+    }
+
+    /// Regression for #432: a `string_literal` span shorter than the two
+    /// surrounding quote bytes must not panic. Tree-sitter error recovery on a
+    /// truncated `#include "` (no closing quote) can yield such a node; the
+    /// pre-fix code sliced `code[start + 1..end - 1]` unconditionally, which
+    /// builds a reversed range and panics for `end < start + 2`.
+    ///
+    /// Exercised directly against the byte-span helper so the reversed-range
+    /// path is genuinely hit regardless of what the current pinned grammar
+    /// emits — reverting the `end < start + 2` guard makes the len-0 and len-1
+    /// cases panic with `slice index starts at .. but ends at ..`.
+    #[test]
+    fn strip_include_quotes_rejects_too_short_spans() {
+        let code = b"#include \"\"";
+        // Length 0 (empty span) and length 1 (just an opening quote) cannot
+        // hold both quotes and must be rejected before slicing.
+        assert_eq!(strip_include_quotes(code, 9, 9), None);
+        assert_eq!(strip_include_quotes(code, 9, 10), None);
+    }
+
+    /// The helper still trims and accepts well-formed spans, and rejects
+    /// empty/whitespace-only payloads via the existing `position`/`rposition`
+    /// guards rather than panicking.
+    #[test]
+    fn strip_include_quotes_handles_valid_and_empty_payloads() {
+        // `"  foo.h  "` -> trimmed to `foo.h`.
+        let code = b"#include \"  foo.h  \"";
+        assert_eq!(strip_include_quotes(code, 9, code.len()), Some("foo.h"));
+        // `""` (length 2) -> empty payload -> None.
+        let code = b"#include \"\"";
+        assert_eq!(strip_include_quotes(code, 9, 11), None);
+        // `"   "` -> whitespace-only -> None.
+        let code = b"#include \"   \"";
+        assert_eq!(strip_include_quotes(code, 9, 14), None);
+    }
+
+    /// End-to-end: a truncated `#include "` with no closing quote must not
+    /// panic the preprocessor pass (issue #432). The file entry is still
+    /// inserted with no recorded include.
+    #[test]
+    fn preprocess_truncated_include_does_not_panic() {
+        let parser = parse("#include \"\n");
+        let mut results = PreprocResults::default();
+        preprocess(&parser, &PathBuf::from("test.h"), &mut results);
+        let pf = results
+            .files
+            .get(&PathBuf::from("test.h"))
+            .expect("file entry must be inserted");
+        assert!(pf.direct_includes.is_empty());
     }
 }

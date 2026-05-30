@@ -675,6 +675,16 @@ for historical reference.
 
 ### Fixed
 
+- The preprocessor no longer panics when an `#include` `string_literal`
+  is shorter than its two surrounding quotes
+  ([#432](https://github.com/dekobon/big-code-analysis/issues/432)).
+  `preprocess` stripped the quotes by slicing `code[start + 1..end - 1]`
+  before validating the node length, so a malformed/error-recovered span
+  (e.g. a truncated `#include "` with no closing quote) built a reversed
+  range and panicked. The quote-stripping is now isolated in a
+  `strip_include_quotes` helper that rejects any span unable to hold both
+  quote bytes (returning `None` and skipping the include) before slicing.
+
 - Python `to_sarif` no longer emits a file-scope `abc` finding the CLI
   never produces
   ([#441](https://github.com/dekobon/big-code-analysis/issues/441)).
