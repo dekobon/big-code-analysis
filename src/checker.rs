@@ -1066,7 +1066,10 @@ impl Checker for KotlinCode {
     fn is_func_space(node: &Node) -> bool {
         matches!(
             node.kind_id().into(),
-            Kotlin::SourceFile | Kotlin::ClassDeclaration | Kotlin::ObjectDeclaration
+            Kotlin::SourceFile
+                | Kotlin::ClassDeclaration
+                | Kotlin::ObjectDeclaration
+                | Kotlin::CompanionObject
         )
     }
 

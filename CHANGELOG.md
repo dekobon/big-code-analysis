@@ -675,6 +675,21 @@ for historical reference.
 
 ### Fixed
 
+- Kotlin `companion object { ... }` now opens its own `Class`
+  func-space, consistent with named `object` declarations
+  ([#431](https://github.com/dekobon/big-code-analysis/issues/431)).
+  `companion_object` is a distinct grammar node that was absent from
+  both `KotlinCode::is_func_space` and the Kotlin `get_space_kind`
+  arm, so companion members were silently attributed to the enclosing
+  class — inconsistent with a named `object Foo { ... }`, which opens
+  its own space. The grammar models a companion's body as a
+  `class_body` of methods and properties exactly like a named object,
+  so it is now mapped to `SpaceKind::Class`. Its space name comes from
+  the optional `name` field (the declared name for `companion object
+  Named`, `<anonymous>` for the nameless form). Per-space metric
+  attribution (cognitive, Halstead, `wmc`, `nom`, `npa`, `npm`) for
+  Kotlin code using companion objects is now correct; file-level
+  aggregates are unchanged (no member is lost or double-counted).
 - Groovy `Checker::is_call` no longer counts constructor invocations
   (`new Foo()`, `object_creation_expression`) as call sites, aligning
   it with the Java-family convention

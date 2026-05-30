@@ -1900,9 +1900,11 @@ mod tests {
 
     #[test]
     fn kotlin_companion_object() {
-        // Companion-object members are not a separate func_space; they fold
-        // into the enclosing class's WMC (Kotlin's "static members"
-        // semantics).
+        // A `companion object` opens its own Class space, exactly like a
+        // named `object` declaration (#431). The companion's `mk` and the
+        // enclosing class's `get` are each attributed to their own Class
+        // space; the file-level `class_wmc_sum` aggregates both (1 + 1 = 2)
+        // with no member lost or double-counted.
         check_metrics::<KotlinParser>(
             "class Holder {
                 val instance: Int = 1
@@ -1917,6 +1919,44 @@ mod tests {
                 assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
                 assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_companion_object_opens_class_space() {
+        // Structural guard for #431: a named `companion object` must open
+        // its own Class space, mirroring the named-object handling, rather
+        // than folding its members into the enclosing class. Reverting the
+        // `CompanionObject` arm in `get_space_kind` / `is_func_space` drops
+        // the `Companion` child space, failing this assertion.
+        check_func_space::<KotlinParser, _>(
+            "class Holder {
+                fun get(): Int = 1
+                companion object Companion {
+                    fun mk(): Holder = Holder()
+                }
+            }",
+            "foo.kt",
+            |func_space| {
+                let holder = func_space
+                    .spaces
+                    .iter()
+                    .find(|s| s.name.as_deref() == Some("Holder"))
+                    .expect("expected a child FuncSpace named \"Holder\"");
+                // The companion is a Class space nested inside Holder, not a
+                // sibling at the file level and not absorbed into Holder.
+                assert_child_space_kind(holder, "Companion", crate::SpaceKind::Class);
+                let companion = holder
+                    .spaces
+                    .iter()
+                    .find(|s| s.name.as_deref() == Some("Companion"))
+                    .expect("expected a child FuncSpace named \"Companion\"");
+                // `mk` is attributed to the companion space (wmc = 1), and
+                // Holder's roll-up totals get + mk = 2 with no double-count
+                // (the file-level aggregate stays 2, not 3).
+                assert_eq!(companion.metrics.wmc.class_wmc_sum(), 1.0);
+                assert_eq!(holder.metrics.wmc.class_wmc_sum(), 2.0);
             },
         );
     }

@@ -832,7 +832,16 @@ impl Getter for KotlinCode {
             // `object MyObject { ... }` is a singleton; treat it as a class
             // for OOP metric purposes (it has properties, methods, init
             // blocks, exactly like a class).
-            ObjectDeclaration => SpaceKind::Class,
+            //
+            // `companion object { ... }` is the anonymous (or named)
+            // singleton nested in a class. Its body is a `class_body`
+            // holding methods and properties, exactly like a named
+            // object, so it opens its own Class space rather than
+            // folding its members into the enclosing class (#431). The
+            // default `get_func_space_name` reads the optional `name`
+            // field, yielding the declared name for `companion object
+            // Named` and `<anonymous>` for the nameless form.
+            ObjectDeclaration | CompanionObject => SpaceKind::Class,
             FunctionDeclaration | SecondaryConstructor | LambdaLiteral | AnonymousFunction => {
                 SpaceKind::Function
             }
