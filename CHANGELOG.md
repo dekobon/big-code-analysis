@@ -740,6 +740,19 @@ for historical reference.
 
 ### Fixed
 
+- Python `lloc` now counts `match` statements (PEP 634) and `type`
+  alias statements (PEP 695)
+  ([#462](https://github.com/dekobon/big-code-analysis/issues/462)).
+  Both parse cleanly and exist in the language enum, but
+  `match_statement` and `type_alias_statement` were absent from the
+  `Loc` logical-lines arm, so they fell through to the default branch
+  and contributed zero — inconsistent with `if`/`for`/`while`/`try`
+  and with C/C++ `switch`. A `match` now adds one logical line like
+  `if`/`try` (its `case_clause` children stay uncounted, mirroring
+  how `elif_clause`/`else_clause`/`except_clause` are omitted — the
+  statements inside each case still count via their own arms), and a
+  `type` alias counts like an assignment. Any Python `lloc` snapshot
+  whose fixture uses these constructs shifts accordingly.
 - `cloc` no longer over-counts multiple block comments sharing a
   single code line
   ([#461](https://github.com/dekobon/big-code-analysis/issues/461)).

@@ -2154,21 +2154,21 @@ path = "src/metrics/loc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 61136808.65977756
+value = 61437041.12106931
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 10040.0
+value = 10103.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 451.0
+value = 455.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
@@ -2182,7 +2182,7 @@ path = "src/metrics/loc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 756.0
+value = 763.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
@@ -2194,35 +2194,35 @@ value = 204.0
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "CppCode"
-start_line = 942
+start_line = 954
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "CppCode::compute"
-start_line = 943
+start_line = 955
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "GroovyCode"
-start_line = 1030
+start_line = 1042
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "GroovyCode::compute"
-start_line = 1031
+start_line = 1043
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "PerlCode"
-start_line = 1185
+start_line = 1197
 metric = "halstead.effort"
 value = 49965.90777079715
 

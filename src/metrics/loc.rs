@@ -770,6 +770,18 @@ impl Loc for PythonCode {
             | ForStatement
             | WhileStatement
             | TryStatement
+            // `match` (PEP 634) and `type` aliases (PEP 695) are real
+            // statements that parse cleanly and previously fell through
+            // to the `_` arm, contributing 0 logical lines (#462). Count
+            // `MatchStatement` like `IfStatement`/`TryStatement` — the
+            // construct itself adds one lloc; its `case_clause` children
+            // are deliberately omitted, mirroring how `elif_clause`,
+            // `else_clause`, `except_clause`, and `finally_clause` are
+            // absent here (clauses do not add lloc; the statements they
+            // contain do via their own arms). `TypeAliasStatement` is a
+            // leaf statement, counted like an assignment expression.
+            | MatchStatement
+            | TypeAliasStatement
             | WithStatement
             | GlobalStatement
             | NonlocalStatement
@@ -9115,6 +9127,57 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
                 insta::assert_json_snapshot!(metric.loc);
             },
         );
+    }
+
+    #[test]
+    fn python_match_statement_lloc() {
+        // `match` (PEP 634) is a control-flow statement that must add one
+        // LLOC like `if`/`try`, plus each `return` in a case body (#462).
+        // Its `case_clause` children add nothing, mirroring how
+        // `elif_clause`/`else_clause` are absent from the LLOC arm: the
+        // construct counts once and the statements inside count via their
+        // own arms. Here: match(1) + two `return`s = 3.
+        check_metrics::<PythonParser>(
+            "def f(x):\n    match x:\n        case 1: return 1\n        case _: return 0\n",
+            "foo.py",
+            |metric| {
+                assert_eq!(metric.loc.lloc(), 3.0);
+                insta::assert_json_snapshot!(metric.loc);
+            },
+        );
+    }
+
+    #[test]
+    fn python_match_lloc_matches_if_else() {
+        // Parity with the equivalent two-branch `if`/`else`: both have the
+        // construct keyword (1) plus two `return` bodies (2), so each must
+        // report an identical LLOC of 3. The match form previously
+        // undercounted (2) because `match_statement` was absent from the
+        // LLOC arm (#462). `check_metrics` takes a non-capturing `fn`, so
+        // the shared expectation is pinned to the same literal in both
+        // closures rather than threaded through a captured variable.
+        check_metrics::<PythonParser>(
+            "def f(x):\n    if x == 1: return 1\n    else: return 0\n",
+            "foo.py",
+            |metric| assert_eq!(metric.loc.lloc(), 3.0),
+        );
+        check_metrics::<PythonParser>(
+            "def f(x):\n    match x:\n        case 1: return 1\n        case _: return 0\n",
+            "foo.py",
+            |metric| assert_eq!(metric.loc.lloc(), 3.0),
+        );
+    }
+
+    #[test]
+    fn python_type_alias_lloc() {
+        // A `type` alias (PEP 695) is a leaf statement, counted like an
+        // assignment. `type Alias = int` followed by `x = 1` is two LLOC;
+        // before #462 the alias fell through to the `_` arm and the file
+        // reported only 1.
+        check_metrics::<PythonParser>("type Alias = int\nx = 1\n", "foo.py", |metric| {
+            assert_eq!(metric.loc.lloc(), 2.0);
+            insta::assert_json_snapshot!(metric.loc);
+        });
     }
 
     #[test]
