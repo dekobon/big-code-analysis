@@ -2189,21 +2189,21 @@ path = "src/metrics/loc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 61437041.12106931
+value = 61964799.383229956
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 10103.0
+value = 10203.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 455.0
+value = 461.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
@@ -2217,7 +2217,7 @@ path = "src/metrics/loc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 763.0
+value = 770.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
@@ -2229,70 +2229,70 @@ value = 204.0
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "CppCode"
-start_line = 954
+start_line = 989
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "CppCode::compute"
-start_line = 955
+start_line = 990
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "GroovyCode"
-start_line = 1042
+start_line = 1077
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "GroovyCode::compute"
-start_line = 1043
+start_line = 1078
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "PerlCode"
-start_line = 1197
+start_line = 1232
 metric = "halstead.effort"
 value = 49965.90777079715
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "Stats"
-start_line = 353
+start_line = 367
 metric = "nexits"
 value = 21.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "Stats"
-start_line = 412
+start_line = 426
 metric = "halstead.effort"
-value = 239881.75541767868
+value = 255703.3887277409
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "Stats::serialize"
-start_line = 354
+start_line = 368
 metric = "abc"
 value = 63.00793600809346
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "Stats::serialize"
-start_line = 354
+start_line = 368
 metric = "cyclomatic"
 value = 22.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
 qualified = "Stats::serialize"
-start_line = 354
+start_line = 368
 metric = "nexits"
 value = 21.0
 

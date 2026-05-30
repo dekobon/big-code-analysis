@@ -185,14 +185,21 @@ impl Ploc {
 /// The `CLoc` metric suite.
 #[derive(Debug, Clone)]
 pub struct Cloc {
-    only_comment_lines: usize,
-    code_comment_lines: usize,
-    // Physical lines already counted toward `code_comment_lines`. A
-    // line carrying several inline block comments (`f(int /*a*/, int
+    // Physical lines that are comment-only (no code). Feeds both
+    // `cloc()` and the `blank` metric (`sloc - ploc - only.len()`).
+    // A set rather than a counter so two standalone block comments on
+    // one physical line (`/*a*/ /*b*/`) contribute a single comment
+    // line, not one per node (issue #461 follow-up). Each spanned row
+    // of a genuine multi-line block comment is a distinct key, so it
+    // still counts once per line.
+    only_comment_line_starts: HashSet<usize>,
+    // Physical lines carrying both code and comment (`int x; /*c*/`).
+    // A line with several inline block comments (`f(int /*a*/, int
     // /*b*/)`) must contribute a single comment line, not one per
     // node, otherwise cloc can exceed sloc/ploc and push the MI
     // comments_percentage above 100% (issue #461). Mirrors `Ploc`'s
-    // per-line de-dup via `Ploc::lines`.
+    // per-line de-dup via `Ploc::lines`; disjoint from
+    // `only_comment_line_starts` by construction.
     code_comment_line_starts: HashSet<usize>,
     comment_line_end: Option<usize>,
     cloc_min: usize,
@@ -202,8 +209,7 @@ pub struct Cloc {
 impl Default for Cloc {
     fn default() -> Self {
         Self {
-            only_comment_lines: 0,
-            code_comment_lines: 0,
+            only_comment_line_starts: HashSet::default(),
             code_comment_line_starts: HashSet::default(),
             comment_line_end: Option::default(),
             cloc_min: usize::MAX,
@@ -219,7 +225,16 @@ impl Cloc {
     pub fn cloc(&self) -> f64 {
         // Comments are counted regardless of their placement
         // https://en.wikipedia.org/wiki/Source_lines_of_code
-        (self.only_comment_lines + self.code_comment_lines) as f64
+        //
+        // Derive from the per-physical-line sets rather than summed
+        // counters so co-located comments (standalone or inline) count
+        // their shared line once and a comment line shared across
+        // merged spaces is not double-counted (issue #461). The two
+        // sets are disjoint by construction, but a union is used
+        // defensively so a stray overlap cannot inflate the count.
+        self.only_comment_line_starts
+            .union(&self.code_comment_line_starts)
+            .count() as f64
     }
 
     /// The `Cloc` metric minimum value. See `min_or_zero` for the
@@ -240,11 +255,10 @@ impl Cloc {
     /// Folds `other` into `self`, summing comment counts and updating min/max.
     #[inline]
     pub fn merge(&mut self, other: &Cloc) {
-        // Merge cloc lines
-        self.only_comment_lines += other.only_comment_lines;
-        self.code_comment_lines += other.code_comment_lines;
-        // Carry the counted-line set so a code-comment line shared
-        // across merged spaces is not re-counted (mirrors `Ploc`).
+        // Union both per-line sets so a comment line shared across
+        // merged spaces is counted once (mirrors `Ploc`'s line union).
+        self.only_comment_line_starts
+            .extend(&other.only_comment_line_starts);
         self.code_comment_line_starts
             .extend(&other.code_comment_line_starts);
 
@@ -421,7 +435,15 @@ impl Stats {
         stats.sloc.unit = false;
         stats.sloc.start = 0;
         stats.sloc.end = sloc_end_row;
-        stats.cloc.code_comment_lines = code_comment_lines;
+        // Inject `code_comment_lines` distinct synthetic code-comment
+        // rows. An offset past `sloc_end_row` keeps them disjoint from
+        // any real span row, so `cloc()` (the set's cardinality) equals
+        // the requested count without colliding with sloc attribution.
+        let synthetic_base = sloc_end_row + 1;
+        stats
+            .cloc
+            .code_comment_line_starts
+            .extend(synthetic_base..synthetic_base + code_comment_lines);
         stats
     }
 
@@ -487,7 +509,7 @@ impl Stats {
         // (e.g. single-line bodies). Clamp at 0 so the serialized value is
         // never negative and `blank_min` is not corrupted toward 0 by an
         // `as usize` saturation at the merge site (#437).
-        (self.sloc() - self.ploc() - self.cloc.only_comment_lines as f64).max(0.0)
+        (self.sloc() - self.ploc() - self.cloc.only_comment_line_starts.len() as f64).max(0.0)
     }
 
     /// The `Sloc` metric average value.
@@ -667,12 +689,18 @@ fn add_cloc_lines(stats: &mut Stats, start: usize, end: usize) {
         // A block comment that starts next to a code line and ends on
         // independent lines.
         add_code_comment_line(stats, start);
-        stats.cloc.only_comment_lines += comment_diff;
+        add_only_comment_lines(stats, start + 1, end);
     } else {
         // A comment on an independent line AND
         // a block comment on independent lines OR
-        // a comment *before* a code line
-        stats.cloc.only_comment_lines += (end - start) + 1;
+        // a comment *before* a code line.
+        //
+        // Insert each spanned row into the comment-only set rather than
+        // bumping a counter: a multi-line block still contributes one
+        // line per distinct row, but two standalone comments on a
+        // single physical line (`/*a*/ /*b*/`) share the row and count
+        // once (issue #461 follow-up).
+        add_only_comment_lines(stats, start, end);
         // Save line end of a comment to check whether
         // a comment *before* a code line is considered
         stats.cloc.comment_line_end = Some(end);
@@ -689,24 +717,31 @@ fn check_comment_ends_on_code_line(stats: &mut Stats, start_code_line: usize) {
         && !stats.ploc.lines.contains(&start_code_line)
     {
         // Comment entirely *before* a code line: reclassify the line
-        // from standalone to code-comment. Decrement unconditionally
-        // (the line was counted as standalone), but only credit
-        // `code_comment_lines` when this physical line has not already
-        // been counted there (issue #461 per-line de-dup).
-        stats.cloc.only_comment_lines -= 1;
+        // from comment-only to code-comment. Remove it from the
+        // comment-only set (so `blank` no longer credits it) and add it
+        // to the code-comment set. Both operations are idempotent, so a
+        // line already reclassified stays correct (issue #461).
+        stats.cloc.only_comment_line_starts.remove(&start_code_line);
         add_code_comment_line(stats, start_code_line);
     }
 }
 
 #[inline]
-// Counts a physical line toward `code_comment_lines` at most once,
-// mirroring `Ploc`'s per-line de-duplication. Several inline block
-// comments on one code line (`f(int /*a*/, int /*b*/)`) must yield a
-// single comment line, not one per comment node (issue #461).
+// Records a physical line carrying both code and comment. Backed by a
+// per-line set so several inline block comments on one code line
+// (`f(int /*a*/, int /*b*/)`) yield a single comment line, not one per
+// comment node (issue #461). Mirrors `Ploc`'s per-line de-duplication.
 fn add_code_comment_line(stats: &mut Stats, line: usize) {
-    if stats.cloc.code_comment_line_starts.insert(line) {
-        stats.cloc.code_comment_lines += 1;
-    }
+    stats.cloc.code_comment_line_starts.insert(line);
+}
+
+#[inline]
+// Records the inclusive row range `start..=end` as comment-only lines.
+// Backed by a per-line set so two standalone block comments on one
+// physical line (`/*a*/ /*b*/`) count once, while each distinct row of
+// a genuine multi-line block comment still counts (issue #461).
+fn add_only_comment_lines(stats: &mut Stats, start: usize, end: usize) {
+    stats.cloc.only_comment_line_starts.extend(start..=end);
 }
 
 impl Loc for PythonCode {
@@ -10026,7 +10061,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
         // ploc() is the cardinality of the physical-line set => 1.
         stats.ploc.lines.insert(0);
         // One comment-only line on the same single row.
-        stats.cloc.only_comment_lines = 1;
+        stats.cloc.only_comment_line_starts.insert(0);
 
         // Pre-clamp this is 1 - 1 - 1 = -1.
         assert_eq!(stats.sloc(), 1.0);
@@ -10099,5 +10134,70 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
                 );
             },
         );
+    }
+
+    /// Two *standalone* block comments on a single physical line (no
+    /// code) must count as one comment line, not one per node. #461
+    /// deduped only inline co-located comments via the code-comment
+    /// path; the standalone path bumped `only_comment_lines` per node,
+    /// so `/*a*/ /*b*/` reported `cloc = 2` for a single line —
+    /// violating `cloc <= sloc`. Reverting the per-line set in
+    /// `add_only_comment_lines` makes the `cloc == 1` assertion fail
+    /// with `2` (verified by reverting to `only_comment_lines += …`).
+    #[test]
+    fn cloc_multiple_standalone_block_comments_one_line_cpp() {
+        check_metrics::<CppParser>("/*a*/ /*b*/", "foo.cpp", |metric| {
+            assert_eq!(
+                metric.loc.cloc(),
+                1.0,
+                "two standalone comments on one line => 1 cloc"
+            );
+            assert_eq!(metric.loc.sloc(), 1.0);
+            assert!(
+                metric.loc.cloc() <= metric.loc.sloc(),
+                "cloc must not exceed sloc"
+            );
+        });
+    }
+
+    /// Sibling-language coverage: the standalone de-dup lives in the
+    /// shared `add_only_comment_lines` helper, so Rust must match C++
+    /// (issue #461 follow-up).
+    #[test]
+    fn cloc_multiple_standalone_block_comments_one_line_rust() {
+        check_metrics::<RustParser>("/*a*/ /*b*/", "foo.rs", |metric| {
+            assert_eq!(
+                metric.loc.cloc(),
+                1.0,
+                "two standalone comments on one line => 1 cloc"
+            );
+            assert_eq!(metric.loc.sloc(), 1.0);
+            assert!(
+                metric.loc.cloc() <= metric.loc.sloc(),
+                "cloc must not exceed sloc"
+            );
+        });
+    }
+
+    /// File-level guard: a comment-only physical line followed by a
+    /// real code line still counts the comment line once and never
+    /// exceeds sloc, even after the per-space merge that previously
+    /// summed `code_comment_lines` (and double-counted a boundary line)
+    /// rather than reading the per-line set. Three standalone comments
+    /// share line 1, so the whole file has exactly one comment line.
+    #[test]
+    fn cloc_standalone_comments_then_code_no_double_count() {
+        check_metrics::<CppParser>("/*a*/ /*b*/ /*c*/\nint x = 1;\n", "foo.cpp", |metric| {
+            assert_eq!(metric.loc.sloc(), 2.0);
+            assert_eq!(
+                metric.loc.cloc(),
+                1.0,
+                "only line 1 carries comments => 1 cloc"
+            );
+            assert!(
+                metric.loc.cloc() <= metric.loc.sloc(),
+                "cloc must not exceed sloc"
+            );
+        });
     }
 }
