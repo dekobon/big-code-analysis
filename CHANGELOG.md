@@ -755,6 +755,19 @@ for historical reference.
   `return@label` stay `+0`. Brings Perl and Kotlin to Java/JS/Go
   parity. Metric-value change for affected sources; derived MI shifts
   accordingly.
+- Cognitive complexity no longer double-counts the `else` arm of a
+  Ruby `case`/`when`
+  ([#451](https://github.com/dekobon/big-code-analysis/issues/451)).
+  The `case` node already pays nesting (`+1`), but the shared
+  `else` arm added another `+1`, scoring `2` for
+  `case x; when 1 then 1; else 0; end` versus `1` without the
+  `else`. The `else` of a `case`/`when` is the default arm of a
+  switch-like construct and now adds `+0`, matching Kotlin
+  `when`-`else`, Java/C#/PHP switch-`default`, and the SonarSource
+  spec. The `else` of an `if`/`elsif` chain and the no-exception
+  `else` of `begin`/`rescue` (mirroring Python `try`/`except`/`else`)
+  still add `+1`. Metric-value change for affected Ruby sources;
+  derived MI shifts accordingly.
 - `bca count` no longer aborts the whole worker pool when one worker
   panics: `Count::call` now recovers the poisoned shared `stats`
   mutex (via `into_inner()` + `clear_poison()`) instead of cascading

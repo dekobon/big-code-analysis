@@ -1475,10 +1475,39 @@ impl Cognitive for RubyCode {
             | R::RescueModifier3 => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
-            // `elsif`/`else` extend the parent branch at the same nesting
-            // level. The `Else` clause node also appears for `case/when`
-            // and `begin/rescue` else branches and is treated uniformly.
-            R::Elsif | R::Else => {
+            // `elsif` and the `else` of an `if`/`elsif` chain extend the
+            // parent branch at the same nesting level (+1).
+            R::Elsif => {
+                increment_branch_extension(stats);
+            }
+            // The `Else` clause node is shared across three Ruby
+            // constructs, distinguished here by parent kind:
+            //
+            //   * `case/when` — the `else` is the default arm of a
+            //     switch-like construct. The `case`/`case_match` parent
+            //     already paid nesting (+1) above, so the default arm adds
+            //     +0; counting it would double-count the construct (#451).
+            //     This matches Kotlin's `when`-`else` (gated on `WhenEntry`
+            //     above), Java/C# switch-`default`, and the SonarSource
+            //     Cognitive Complexity spec, in which the catch-all arm of a
+            //     switch carries no extra cost. See lesson #11 — the same
+            //     logical construct must score identically across languages.
+            //
+            //   * `if`/`elsif` chain — the `else` is the alternative branch
+            //     of a conditional and adds +1, mirroring `R::Elsif`.
+            //
+            //   * `begin/rescue` — the `else` runs when no exception was
+            //     raised. Unlike `case`, the `begin` parent pays no nesting
+            //     here (only `R::Rescue` does), so this `else` is *not*
+            //     switch-like; it is the no-exception branch and adds +1,
+            //     matching Python's `try`/`except`/`else` (the `ElseClause`
+            //     arm in the Python impl). Suppressing it would re-introduce
+            //     a cross-language divergence in the opposite direction.
+            R::Else
+                if node
+                    .parent()
+                    .is_some_and(|p| matches!(p.kind_id().into(), R::Case | R::CaseMatch)) => {}
+            R::Else => {
                 increment_branch_extension(stats);
             }
             // Ruby has no labeled loops: `break`/`next` are always
@@ -8786,6 +8815,79 @@ end",
             "foo.rb",
             |metric| {
                 assert_eq!(metric.cognitive.cognitive_sum(), 6.0);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_case_else_no_extra_increment() {
+        // #451: the `else` arm of a `case/when` is the default arm of a
+        // switch-like construct. The `case` node already pays nesting
+        // (+1), so the default arm must add +0 — adding `else` to a
+        // `case` must not change the cognitive score.
+        //
+        // Pre-fix, the shared `R::Elsif | R::Else` arm added +1 to the
+        // case-`else`, scoring 2 (revert-verified). Now both forms score 1.
+        let case_with_else = "case x\nwhen 1 then 1\nelse 0\nend\n";
+        let case_without_else = "case x\nwhen 1 then 1\nwhen 2 then 2\nend\n";
+        check_metrics::<RubyParser>(case_with_else, "foo.rb", |metric| {
+            assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+            insta::assert_json_snapshot!(metric.cognitive, @r#"
+            {
+              "sum": 1.0,
+              "average": 1.0,
+              "min": 1.0,
+              "max": 1.0
+            }
+            "#);
+        });
+        check_metrics::<RubyParser>(case_without_else, "foo.rb", |metric| {
+            assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+        });
+    }
+
+    #[test]
+    fn ruby_case_else_matches_kotlin_when_and_java_switch() {
+        // #451 cross-language parity (lesson #11): the catch-all arm of a
+        // switch-like construct scores identically across languages. Ruby
+        // `case`/`else`, Kotlin `when`/`else`, and Java `switch`/`default`
+        // must all report cognitive == 1 on the equivalent two-branch
+        // construct (one match arm + the default arm).
+        check_metrics::<RubyParser>("case x\nwhen 1 then 1\nelse 0\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+        });
+        check_metrics::<KotlinParser>(
+            "fun f(x: Int): Int {\n    return when (x) {\n        1 -> 1\n        else -> 0\n    }\n}\n",
+            "foo.kt",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+            },
+        );
+        check_metrics::<JavaParser>(
+            "class C {\n  int f(int x) {\n    switch (x) {\n      case 1: return 1;\n      default: return 0;\n    }\n  }\n}\n",
+            "foo.java",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn ruby_if_else_still_counts() {
+        // #451 over-suppression guard: the `else` of an `if`/`elsif` chain
+        // is *not* switch-like (its parent is the `if`/`elsif` clause, not a
+        // `case`), so it must still add +1. `if`(+1) + `else`(+1) = 2.
+        check_metrics::<RubyParser>("if a\n  1\nelse\n  2\nend\n", "foo.rb", |metric| {
+            assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+        });
+        // `begin`/`rescue`/`else` is the no-exception branch, mirroring
+        // Python `try`/`except`/`else` (+1), not a switch default. The
+        // `rescue`(+1) and `else`(+1) both count: total 2.
+        check_metrics::<RubyParser>(
+            "begin\n  foo\nrescue\n  bar\nelse\n  baz\nend\n",
+            "foo.rb",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
             },
         );
     }
