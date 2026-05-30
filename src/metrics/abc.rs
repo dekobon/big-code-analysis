@@ -1048,9 +1048,7 @@ fn kotlin_eq_initializes_immutable_binding(eq_node: &Node) -> bool {
     ) {
         return false;
     }
-    parent
-        .children()
-        .any(|child| matches!(child.kind_id().into(), Val))
+    parent.children().any(|child| child.kind_id() == Val)
 }
 
 impl Abc for KotlinCode {
