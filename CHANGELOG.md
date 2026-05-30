@@ -661,6 +661,13 @@ for historical reference.
 
 ### Fixed
 
+- `bca` per-file `--output` writers no longer collapse a `..`
+  (`ParentDir`) input segment to a no-op `.`, which let distinct inputs
+  (`../sibling/x.rs` vs `sibling/x.rs`) clobber the same output file.
+  `..` now maps to a collision-free `%2E%2E` marker and any literal `%`
+  in a component is escaped to `%25`, so the input → output filename
+  mapping is injective. Fixes
+  [#423](https://github.com/dekobon/big-code-analysis/issues/423).
 - Python NArgs no longer counts the PEP 570 positional-only `/` and
   PEP 3102 keyword-only `*` parameter separators as arguments. The
   grammar emits them as `positional_separator` / `keyword_separator`

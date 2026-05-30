@@ -177,24 +177,96 @@ trait WritePrettyOnStdout: WriteOnStdout {
     fn format_pretty<T: Serialize>(content: T) -> std::io::Result<String>;
 }
 
+/// Escaped marker substituted for a `..` (`ParentDir`) component. A bare
+/// `.` (as the previous implementation used) is a no-op in path joining,
+/// so `../sibling/x.rs` collapsed onto `sibling/x.rs` and one output
+/// silently clobbered the other (issue #423). `%2E%2E` is the
+/// percent-encoding of `..`; pairing it with `%`-escaping of `Normal`
+/// components (see [`push_escaped_component`]) keeps the mapping
+/// injective — distinct input paths always yield distinct output paths.
+const PARENT_DIR_MARKER: &str = "%2E%2E";
+
+/// Append a `Normal` `component` to `out`, escaping every literal `%` to
+/// `%25`.
+///
+/// This is what makes [`PARENT_DIR_MARKER`] collision-free: the only `%`
+/// characters in a `handle_path` result are ones emitted here or by the
+/// marker, so a literal directory named `%2E%2E` escapes to `%252E%252E`
+/// and can never alias a genuine `..` component. The escape is done at the
+/// byte (Unix) / WTF-16 code-unit (Windows) level, so non-UTF-8
+/// components survive verbatim without any lossy `to_str` conversion.
+#[cfg(unix)]
+fn push_escaped_component(out: &mut PathBuf, component: &std::ffi::OsStr) {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    let bytes = component.as_bytes();
+    if !bytes.contains(&b'%') {
+        out.push(component);
+        return;
+    }
+    let mut escaped = Vec::with_capacity(bytes.len() + 2);
+    for &b in bytes {
+        if b == b'%' {
+            escaped.extend_from_slice(b"%25");
+        } else {
+            escaped.push(b);
+        }
+    }
+    out.push(std::ffi::OsString::from_vec(escaped));
+}
+
+#[cfg(windows)]
+fn push_escaped_component(out: &mut PathBuf, component: &std::ffi::OsStr) {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    // `%` is U+0025 (BMP); operating on code units is lossless and never
+    // touches `to_string_lossy` on a path used as an output identifier.
+    const PERCENT_UNIT: u16 = b'%' as u16;
+    const ESCAPED: [u16; 3] = [b'%' as u16, b'2' as u16, b'5' as u16];
+    let mut units = Vec::new();
+    let mut saw_percent = false;
+    for unit in component.encode_wide() {
+        if unit == PERCENT_UNIT {
+            saw_percent = true;
+            units.extend_from_slice(&ESCAPED);
+        } else {
+            units.push(unit);
+        }
+    }
+    if saw_percent {
+        out.push(std::ffi::OsString::from_wide(&units));
+    } else {
+        out.push(component);
+    }
+}
+
+// Non-Unix, non-Windows targets (e.g. wasm) have no stable lossless
+// `OsStr` byte view; `handle_path` is only exercised by the native CLI on
+// Unix and Windows, so this `%`-free fallback keeps those builds compiling
+// without claiming an injectivity guarantee the platform cannot back.
+#[cfg(not(any(unix, windows)))]
+fn push_escaped_component(out: &mut PathBuf, component: &std::ffi::OsStr) {
+    out.push(component);
+}
+
 fn handle_path(path: &Path, output_path: &Path, extension: &str) -> PathBuf {
     // Walk components rather than iterating raw OsStr fragments: this
     // strips Windows path prefixes (`C:`, `\\?\…`) and root separators
     // alongside Unix `/` and `./`, so `output_path.join(filename)` does
     // not get overridden by an absolute input filename.
     //
-    // Components are pushed as `OsStr` (not `&str`), so non-UTF-8 byte
-    // sequences are preserved end-to-end and two distinct input paths
-    // never collapse onto the same output filename. The filesystem
-    // accepts the raw bytes on Unix; on Windows, `OsString` carries the
-    // WTF-8 representation that `File::create` resolves natively.
+    // Components are escaped through `push_escaped_component` (which keeps
+    // non-UTF-8 bytes intact), so two distinct input paths never collapse
+    // onto the same output filename. `..` becomes `PARENT_DIR_MARKER`
+    // rather than the no-op `.` it used to (issue #423), and any literal
+    // `%` is doubled to `%25` so the marker can never alias a real
+    // directory name.
     let mut cleaned = PathBuf::new();
     for component in path.components() {
         match component {
             Component::Prefix(_) | Component::RootDir | Component::CurDir => {}
-            // Keep files inside the output folder.
-            Component::ParentDir => cleaned.push("."),
-            Component::Normal(s) => cleaned.push(s),
+            // Keep files inside the output folder while remaining
+            // collision-free: a no-op `.` would let `../x` clobber `x`.
+            Component::ParentDir => cleaned.push(PARENT_DIR_MARKER),
+            Component::Normal(s) => push_escaped_component(&mut cleaned, s),
         }
     }
 
@@ -374,9 +446,38 @@ mod tests {
     }
 
     #[test]
-    fn handle_path_replaces_dotdot_with_dot() {
+    fn handle_path_escapes_dotdot_with_marker() {
+        // `..` becomes the collision-free `%2E%2E` marker rather than the
+        // no-op `.` the old implementation used (issue #423).
         let result = handle_path(Path::new("a/../b.rs"), Path::new("out"), ".json");
-        assert_eq!(result, PathBuf::from("out/a/./b.rs.json"));
+        assert_eq!(result, PathBuf::from("out/a/%2E%2E/b.rs.json"));
+    }
+
+    #[test]
+    fn handle_path_leading_dotdot_distinct_from_sibling() {
+        // The exact collision from the issue: `../sibling/x.rs` must not
+        // map onto the same output file as `sibling/x.rs`.
+        let parent = handle_path(Path::new("../sibling/x.rs"), Path::new("out"), ".json");
+        let sibling = handle_path(Path::new("sibling/x.rs"), Path::new("out"), ".json");
+        assert_eq!(parent, PathBuf::from("out/%2E%2E/sibling/x.rs.json"));
+        assert_eq!(sibling, PathBuf::from("out/sibling/x.rs.json"));
+        assert_ne!(parent, sibling);
+    }
+
+    #[test]
+    fn handle_path_multiple_dotdot_preserved() {
+        let result = handle_path(Path::new("../../x.rs"), Path::new("out"), ".json");
+        assert_eq!(result, PathBuf::from("out/%2E%2E/%2E%2E/x.rs.json"));
+    }
+
+    #[test]
+    fn handle_path_literal_marker_dir_escapes() {
+        // A real directory literally named `%2E%2E` must not collide with
+        // an escaped `..` component: its `%` doubles to `%25`.
+        let literal = handle_path(Path::new("%2E%2E/x.rs"), Path::new("out"), ".json");
+        let dotdot = handle_path(Path::new("../x.rs"), Path::new("out"), ".json");
+        assert_eq!(literal, PathBuf::from("out/%252E%252E/x.rs.json"));
+        assert_ne!(literal, dotdot);
     }
 
     #[test]
