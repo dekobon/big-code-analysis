@@ -740,6 +740,21 @@ for historical reference.
 
 ### Fixed
 
+- ABC condition counting for switch/`when`-expression arms now tracks
+  the cyclomatic decision count in Kotlin and C#
+  ([#456](https://github.com/dekobon/big-code-analysis/issues/456)).
+  Kotlin counted a `when`'s `else ->` fallback arm as a condition
+  (`when (x) { 1 -> …; 2 -> …; else -> … }` reported `conditions = 3`
+  instead of `2`); the `else` arm is now excluded via the same
+  `kotlin_when_entry_is_else` gate cyclomatic already uses. C# scored
+  zero conditions for `switch` *expression* arms
+  (`x switch { 1 => …, _ => … }` reported `conditions = 0`) because
+  such arms carry no `case` / `default` token; each non-discard arm now
+  contributes one condition via the shared
+  `csharp_switch_expression_arm_is_bare_discard` gate, while the bare
+  `_ =>` discard arm is excluded as the `default:` analogue. C#
+  switch-expression and Java arrow-`switch` ABC condition counts now
+  agree on equivalent code.
 - ABC assignment counting for Kotlin no longer drops standalone
   assignments that follow a `val` declaration
   ([#455](https://github.com/dekobon/big-code-analysis/issues/455)).

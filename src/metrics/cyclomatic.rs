@@ -907,7 +907,7 @@ impl Cyclomatic for ElixirCode {
 /// treatment (lesson 11 / parity family 5). A guarded discard
 /// (`_ when g => …`) still counts because the guard introduces a
 /// non-trivial decision, matching Rust's `_ if g` rule.
-fn csharp_switch_expression_arm_is_bare_discard(node: &Node) -> bool {
+pub(crate) fn csharp_switch_expression_arm_is_bare_discard(node: &Node) -> bool {
     use Csharp::*;
 
     /// Classification of a `switch_expression_arm`'s pattern child.
@@ -971,7 +971,7 @@ fn csharp_switch_expression_arm_is_bare_discard(node: &Node) -> bool {
 /// attaches a `condition` field to every case-style entry; the `else`
 /// arm has no `condition` field (only an anonymous `else` keyword
 /// child). Such arms must NOT contribute to standard CCN.
-fn kotlin_when_entry_is_else(node: &Node) -> bool {
+pub(crate) fn kotlin_when_entry_is_else(node: &Node) -> bool {
     node.child_by_field_name("condition").is_none()
 }
 

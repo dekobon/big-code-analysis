@@ -1097,8 +1097,15 @@ impl Abc for KotlinCode {
             // *conditions*, and the unary condition is already implicit
             // in the boolean operand. We add the `if` arm via the `Else`
             // keyword for else-branches and via `WhenEntry` for `when`.
-            LTEQ | GTEQ | EQEQ | EQEQEQ | BANGEQ | BANGEQEQ | WhenEntry | CatchBlock
-            | QMARKCOLON | AsQMARK => {
+            LTEQ | GTEQ | EQEQ | EQEQEQ | BANGEQ | BANGEQEQ | CatchBlock | QMARKCOLON | AsQMARK => {
+                stats.conditions += 1.;
+            }
+            // A `when` entry is a decision point except for the `else ->`
+            // fallback arm, which is the analogue of C-family `default:`
+            // and Rust's wildcard `_ =>`. Cyclomatic already excludes it
+            // (`WhenEntry if !kotlin_when_entry_is_else`); ABC must track
+            // the same decision count (issue #456, lesson 11).
+            WhenEntry if !crate::metrics::cyclomatic::kotlin_when_entry_is_else(node) => {
                 stats.conditions += 1.;
             }
             // `else` is a keyword token used in both `if_expression`'s
@@ -2712,6 +2719,18 @@ fn csharp_count_token_condition(node: &Node, stats: &mut Stats) -> bool {
     use Csharp::*;
     match node.kind_id().into() {
         GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | Default | QMARK | Try | Catch => {
+            stats.conditions += 1.;
+        }
+        // A `switch` *expression* arm (`x switch { 1 => …, _ => … }`) is a
+        // decision point. The statement `switch` counts via its `Case` /
+        // `Default` tokens above; an expression arm carries neither, so it
+        // scored zero conditions before #456 even though C# cyclomatic
+        // counts it. The bare-discard arm (`_ =>` / `var _ =>`, no `when`
+        // guard) is the `default:` analogue and is excluded — mirroring
+        // the cyclomatic gate (lesson 11).
+        SwitchExpressionArm
+            if !crate::metrics::cyclomatic::csharp_switch_expression_arm_is_bare_discard(node) =>
+        {
             stats.conditions += 1.;
         }
         // Excludes `<` and `>` used as type-syntax delimiters: generic
@@ -5040,6 +5059,62 @@ mod tests {
         );
     }
 
+    // C# `switch` *expression* arms scored zero ABC conditions before
+    // #456 — they carry no `case` / `default` token, so the token-driven
+    // `csharp_count_token_condition` never saw them, even though C#
+    // cyclomatic counts each non-discard arm. Revert-verified: adding the
+    // gated `SwitchExpressionArm` arm is what lifts this from 0 to 2. The
+    // bare `_ =>` discard arm is excluded (the `default:` analogue),
+    // mirroring the cyclomatic gate (lesson 11).
+    #[test]
+    fn csharp_switch_expression_arm_counts_condition() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                int M(int x) {
+                    return x switch { 1 => 10, 2 => 20, _ => 0 };
+                }
+            }",
+            "foo.cs",
+            |metric| {
+                // arm `1 =>` (+1) + arm `2 =>` (+1) + `_ =>` discard (+0).
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
+            },
+        );
+    }
+
+    // Cross-language parity (lesson 11): a C# `switch` expression and the
+    // equivalent Java arrow-`switch` must report the same ABC condition
+    // count on equivalent code. Both have two concrete case arms and no
+    // fallback arm, so both must count exactly 2. `check_metrics` takes a
+    // non-capturing `fn` pointer, so the shared expected value (2) is
+    // asserted in each callback rather than compared across closures; the
+    // matching constant is what enforces parity. This guards against the
+    // C# fix drifting away from the Java arrow-case treatment.
+    #[test]
+    fn csharp_java_switch_arm_abc_parity() {
+        // C# switch expression: two arms, no fallback → 2 conditions.
+        check_metrics::<CsharpParser>(
+            "class A {
+                int M(int x) {
+                    return x switch { 1 => 10, 2 => 20 };
+                }
+            }",
+            "foo.cs",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2.0),
+        );
+
+        // Equivalent Java arrow-`switch`: two case arms, no default → 2.
+        check_metrics::<JavaParser>(
+            "class A {
+                int m(int x) {
+                    return switch (x) { case 1 -> 10; case 2 -> 20; };
+                }
+            }",
+            "foo.java",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2.0),
+        );
+    }
+
     #[test]
     fn csharp_if_bare_identifier_condition() {
         check_metrics::<CsharpParser>(
@@ -6166,9 +6241,29 @@ function f(int $a, int $b): int {
             }",
             "foo.kt",
             |metric| {
-                // Each WhenEntry counts once (including `else`).
-                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                // Non-`else` WhenEntry arms count; the `else ->` fallback
+                // arm does not (issue #456). Two case arms + zero for the
+                // `else` arm = 2.
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.abc);
+            },
+        );
+    }
+
+    // Pins the `else ->` exclusion directly: a `when` whose only fallback
+    // is `else ->` must not count that arm. Revert-verified — gating the
+    // `WhenEntry` arm on `!kotlin_when_entry_is_else` is what drops this
+    // from 3 to 2 (issue #456, lesson 11). Mirrors the cyclomatic gate.
+    #[test]
+    fn kotlin_when_else_not_a_condition() {
+        check_metrics::<KotlinParser>(
+            "fun m(x: Int): Int {
+                return when (x) { 1 -> 10; 2 -> 20; else -> 0 }
+            }",
+            "foo.kt",
+            |metric| {
+                // case `1 ->` (+1) + case `2 ->` (+1) + `else ->` (+0) = 2.
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
             },
         );
     }

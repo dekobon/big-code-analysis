@@ -1762,21 +1762,21 @@ path = "src/metrics/abc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 62001115.26000792
+value = 62236084.2164132
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 10519.0
+value = 10615.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 560.0
+value = 564.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
@@ -1790,54 +1790,54 @@ path = "src/metrics/abc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 799.0
+value = 806.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "wmc"
-value = 183.0
+value = 185.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "CppCode::compute"
-start_line = 2102
+start_line = 2110
 metric = "cyclomatic"
 value = 15.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "GoCode"
-start_line = 1899
+start_line = 1907
 metric = "halstead.effort"
 value = 51348.53958809567
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "GoCode::compute"
-start_line = 1900
+start_line = 1908
 metric = "cyclomatic"
 value = 15.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "PerlCode"
-start_line = 3135
+start_line = 3155
 metric = "halstead.effort"
 value = 74315.72438997906
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "PerlCode::compute"
-start_line = 3136
+start_line = 3156
 metric = "halstead.effort"
 value = 67862.8313802447
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "RustCode::compute"
-start_line = 1699
+start_line = 1707
 metric = "cyclomatic"
 value = 16.0
 
@@ -1879,7 +1879,7 @@ value = 14.0
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "perl_inspect_container"
-start_line = 2991
+start_line = 3011
 metric = "halstead.effort"
 value = 53345.08959628053
 
@@ -1993,7 +1993,7 @@ path = "src/metrics/cyclomatic.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 16449796.460939538
+value = 16455447.370063871
 
 [[entry]]
 path = "src/metrics/cyclomatic.rs"
