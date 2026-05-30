@@ -24,6 +24,14 @@ use crate::*;
 #[derive(Debug, Clone, Default)]
 pub struct Stats {
     cyclomatic: f64,
+    // Cumulative cyclomatic carried by descendant Class / Interface
+    // spaces (anonymous classes, nested object literals, …). A method
+    // that *contains* a nested class must not fold that class's
+    // complexity into its enclosing class's WMC — the nested class is
+    // its own WMC scope and already counts those methods. Tracking the
+    // nested-class cyclomatic lets `merge` subtract it from a Function's
+    // contribution, preventing double-attribution (#463).
+    nested_class_cyclomatic: f64,
     class_wmc: f64,
     interface_wmc: f64,
     class_wmc_sum: f64,
@@ -61,14 +69,38 @@ impl Stats {
     pub fn merge(&mut self, other: &Stats) {
         use SpaceKind::*;
 
-        // Merges the cyclomatic complexity of a method
-        // into the `Wmc` metric value of a class or interface
-        if let Function = other.space_kind {
-            match self.space_kind {
-                Class => self.class_wmc += other.cyclomatic,
-                Interface => self.interface_wmc += other.cyclomatic,
-                _ => {}
+        // Merges the cyclomatic complexity of a method into the `Wmc`
+        // value of the enclosing class or interface. A method's own
+        // contribution is its cumulative cyclomatic minus the cyclomatic
+        // already claimed by any nested class / interface spaces it
+        // contains: those nested classes form their own WMC scope (their
+        // members roll up via `class_wmc_sum` below), so re-adding their
+        // complexity here would double-count it (#463).
+        match other.space_kind {
+            // A method contributes its own cyclomatic minus the
+            // complexity already claimed by nested class / interface
+            // spaces it contains. Those nested classes form their own WMC
+            // scope (their members roll up via `class_wmc_sum`), so the
+            // method must not re-add them. Its nested-class total also
+            // bubbles up so an *ancestor* method can exclude this whole
+            // subtree in turn.
+            Function => {
+                let own_cyclomatic = other.cyclomatic - other.nested_class_cyclomatic;
+                match self.space_kind {
+                    Class => self.class_wmc += own_cyclomatic,
+                    Interface => self.interface_wmc += own_cyclomatic,
+                    _ => {}
+                }
+                self.nested_class_cyclomatic += other.nested_class_cyclomatic;
             }
+            // A nested Class / Interface space (e.g. an anonymous class)
+            // contributes its *cumulative* cyclomatic — which already
+            // subsumes any classes nested inside it — so we record only
+            // `other.cyclomatic` here, never also its
+            // `nested_class_cyclomatic` (that would double-count the
+            // inner classes, see #463 nested-anonymous case).
+            Class | Interface => self.nested_class_cyclomatic += other.cyclomatic,
+            _ => {}
         }
 
         self.class_wmc_sum += other.class_wmc_sum;
@@ -151,7 +183,11 @@ fn class_interface_compute(
         if stats.space_kind == Unknown {
             stats.space_kind = space_kind;
         }
-        if space_kind == Function {
+        // Record the cumulative cyclomatic for Function spaces (the
+        // method's WMC contribution) and for Class / Interface spaces
+        // (so an ancestor method can subtract a nested class's
+        // complexity from its own contribution — see `merge`, #463).
+        if let Function | Class | Interface = space_kind {
             stats.cyclomatic = cyclomatic.cyclomatic_sum();
         }
     }
@@ -198,7 +234,12 @@ impl Wmc for PhpCode {
             if stats.space_kind == Unknown {
                 stats.space_kind = space_kind;
             }
-            if space_kind == Function {
+            // Record cyclomatic for Function spaces (the method's WMC
+            // contribution) and for Class / Interface spaces (so an
+            // ancestor method can exclude a nested class's complexity —
+            // see `merge`, #463; matters for PHP `AnonymousClass` nested
+            // inside a method).
+            if let Function | Class | Interface = space_kind {
                 stats.cyclomatic = cyclomatic.cyclomatic_sum();
             }
         }
@@ -600,11 +641,14 @@ mod tests {
 
     #[test]
     fn groovy_local_inner_class() {
-        // A class declared inside a method body. WMC counts its
-        // method like any other class. amaanq's grammar parses
-        // Outer.m's body as a `closure`, so Outer.m is counted
-        // twice (function space + closure space), each with
-        // entry=1. Local.l adds entry(1)+if(1)=2 → total 6.
+        // A class declared inside a method body. WMC counts its method
+        // like any other class, and the local class is its own WMC scope:
+        // `Local.l` (entry 1 + if 1 = 2) must not also fold into
+        // `Outer.m`'s contribution to `Outer`. `Outer.m` itself = 1, so
+        // total = 1 + 2 = 3 with no double-attribution (#463; the prior
+        // value of 6 double-counted the local class's complexity into both
+        // scopes, compounded by the Groovy grammar wrapping `m`'s body in a
+        // `closure`).
         check_metrics::<GroovyParser>(
             "class Outer {
                 void m() {
@@ -617,7 +661,7 @@ mod tests {
             }",
             "foo.groovy",
             |metric| {
-                assert_eq!(metric.wmc.class_wmc_sum(), 6.0);
+                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
             },
         );
     }
@@ -903,13 +947,13 @@ mod tests {
             "import java.util.LinkedList;
             import java.util.List;
 
-            public final class FinalClass { // wmc = 5
+            public final class FinalClass { // wmc = 1 (test only)
                 private int a = 1;
                 public void test() { // +1
                     final List<String> localList = new LinkedList<String>();
 
-                    class LocalInnerClass { // +1, wmc = 2
-                        private int b = (a == 1) ? 1 : 0; // +1
+                    class LocalInnerClass { // wmc = 2 (print only)
+                        private int b = (a == 1) ? 1 : 0; // field init, not a method
                         public void print() { // +1
                             for ( String s : localList ) { // +1
                                 System.out.println(s);
@@ -920,14 +964,24 @@ mod tests {
             }",
             "foo.java",
             |metric| {
-                // 2 classes (5 + 2)
+                // Two classes: `FinalClass` (its only method `test` = 1)
+                // and the local `LocalInnerClass` (its only method `print`
+                // = base 1 + for 1 = 2). The ternary in `b`'s initializer
+                // is class-body cyclomatic, not a method, so it does not
+                // count toward WMC. `LocalInnerClass` is its own WMC scope,
+                // so its complexity must NOT also fold into `test`'s
+                // contribution to `FinalClass` — total = 1 + 2 = 3, with no
+                // double-attribution (#463; previously the local class's
+                // complexity was double-counted into both scopes, giving an
+                // inflated 7).
+                assert_eq!(metric.wmc.class_wmc_sum(), 3.0);
                 insta::assert_json_snapshot!(
                     metric.wmc,
                     @r###"
                     {
-                      "classes": 7.0,
+                      "classes": 3.0,
                       "interfaces": 0.0,
-                      "total": 7.0
+                      "total": 3.0
                     }"###
                 );
             },
@@ -1957,6 +2011,214 @@ mod tests {
                 // (the file-level aggregate stays 2, not 3).
                 assert_eq!(companion.metrics.wmc.class_wmc_sum(), 1.0);
                 assert_eq!(holder.metrics.wmc.class_wmc_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn kotlin_object_literal_opens_class_space() {
+        // Structural guard for #463: an anonymous `object : T { ... }`
+        // (`object_literal`) must open its own Class space, exactly like a
+        // named `object` or `companion object`, rather than folding its
+        // members into the enclosing function. Reverting the
+        // `ObjectLiteral` arm in `get_space_kind` / `is_func_space`
+        // attributes `run` and `helper` to `Holder.get`, failing the
+        // structural assertions below (verified by revert).
+        check_func_space::<KotlinParser, _>(
+            "class Holder {
+                fun get(): Int {
+                    val r = object : Runnable {
+                        override fun run() {}
+                        fun helper(): Int = 42
+                    }
+                    return 1
+                }
+            }",
+            "foo.kt",
+            |func_space| {
+                let holder = func_space
+                    .spaces
+                    .iter()
+                    .find(|s| s.name.as_deref() == Some("Holder"))
+                    .expect("expected a child FuncSpace named \"Holder\"");
+                let get = holder
+                    .spaces
+                    .iter()
+                    .find(|s| s.name.as_deref() == Some("get"))
+                    .expect("expected a child FuncSpace named \"get\"");
+                // The anonymous object opens a Class space nested inside
+                // `get`, named `<anonymous>` (default `get_func_space_name`).
+                assert_child_space_kind(get, "<anonymous>", crate::SpaceKind::Class);
+                let anon = get
+                    .spaces
+                    .iter()
+                    .find(|s| s.name.as_deref() == Some("<anonymous>"))
+                    .expect("expected a child FuncSpace named \"<anonymous>\"");
+                // `run` and `helper` are attributed to the anonymous space
+                // (its two child Function spaces), NOT to `get`. `get`'s
+                // only direct child is the anonymous space — there are no
+                // stray `run` / `helper` siblings folded into `get`.
+                assert_eq!(
+                    get.spaces.len(),
+                    1,
+                    "get's only child is the anonymous class"
+                );
+                let anon_methods = anon
+                    .spaces
+                    .iter()
+                    .filter(|s| s.kind == crate::SpaceKind::Function)
+                    .count();
+                assert_eq!(
+                    anon_methods, 2,
+                    "run + helper attributed to the anonymous class"
+                );
+                // The anonymous class rolls up both methods' WMC (run +
+                // helper = 2). These two methods are accounted for in the
+                // anonymous space, not double-counted into `get`.
+                assert_eq!(anon.metrics.wmc.class_wmc_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn java_anonymous_class_opens_space() {
+        // #463: a Java anonymous class (`new Runnable() { ... }`) opens its
+        // own Class space so its members are attributed to it, not the
+        // enclosing method. A plain `new Object()` (no `class_body` child)
+        // and a lambda (`() -> {}`, a distinct `lambda_expression`) must
+        // NOT open a Class space — the gate is on the `class_body` child.
+        // Reverting the `ObjectCreationExpression` gate drops the anonymous
+        // Class space and re-attributes `run` to `m`, failing this test.
+        check_func_space::<JavaParser, _>(
+            "class C {
+                void m() {
+                    Runnable r = new Runnable() {
+                        public void run() {}
+                    };
+                    Object o = new Object();
+                    Runnable l = () -> {};
+                }
+            }",
+            "C.java",
+            |func_space| {
+                let c = func_space
+                    .spaces
+                    .iter()
+                    .find(|s| s.name.as_deref() == Some("C"))
+                    .expect("expected a child FuncSpace named \"C\"");
+                let m = c
+                    .spaces
+                    .iter()
+                    .find(|s| s.name.as_deref() == Some("m"))
+                    .expect("expected a child FuncSpace named \"m\"");
+                // Exactly one Class child under `m`: the anonymous class.
+                // Plain `new Object()` and the lambda must not over-open;
+                // the lambda is a Function space (Java tags
+                // `LambdaExpression` as Function), so count Class children.
+                let anon_classes: Vec<_> = m
+                    .spaces
+                    .iter()
+                    .filter(|s| s.kind == crate::SpaceKind::Class)
+                    .collect();
+                assert_eq!(anon_classes.len(), 1, "exactly one anonymous Class space");
+                assert_eq!(anon_classes[0].name.as_deref(), Some("<anonymous>"));
+                // `run` is attributed to the anonymous class (its single
+                // child Function space), not to `m`.
+                let anon_methods = anon_classes[0]
+                    .spaces
+                    .iter()
+                    .filter(|s| s.kind == crate::SpaceKind::Function)
+                    .count();
+                assert_eq!(anon_methods, 1, "run attributed to the anonymous class");
+                assert_eq!(anon_classes[0].metrics.wmc.class_wmc_sum(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn java_lambda_opens_no_class_space() {
+        // Guard against mis-detection (#463): a Java lambda is a
+        // `lambda_expression`, NOT an `object_creation_expression`, so it
+        // must never trip the anonymous-class gate. It opens a Function
+        // space (existing behaviour), never a Class space.
+        check_func_space::<JavaParser, _>(
+            "class C {
+                void m() {
+                    Runnable l = () -> { int x = 1; };
+                }
+            }",
+            "C.java",
+            |func_space| {
+                let c = func_space
+                    .spaces
+                    .iter()
+                    .find(|s| s.name.as_deref() == Some("C"))
+                    .expect("expected a child FuncSpace named \"C\"");
+                let m = c
+                    .spaces
+                    .iter()
+                    .find(|s| s.name.as_deref() == Some("m"))
+                    .expect("expected a child FuncSpace named \"m\"");
+                let class_children = m
+                    .spaces
+                    .iter()
+                    .filter(|s| s.kind == crate::SpaceKind::Class)
+                    .count();
+                assert_eq!(class_children, 0, "a lambda must not open a Class space");
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_anonymous_class_models_body_as_closure() {
+        // #463 upstream-grammar note: the pinned dekobon Groovy grammar
+        // does NOT attach an anonymous-class body to its
+        // `object_creation_expression`. It parses `new Runnable()` as a
+        // bare constructor call and the trailing `{ ... }` as a separate
+        // `closure`, which already opens a Function space. So Groovy gets
+        // no Class space for an anonymous class (unlike Java), but its
+        // members are still NOT mis-attributed to the enclosing method —
+        // they land in the closure's Function space. This pins that
+        // behaviour so a future grammar bump that starts modelling
+        // `class_body` here is caught and the Groovy `get_space_kind` arm
+        // can be revisited.
+        check_func_space::<GroovyParser, _>(
+            "class C {
+                void m() {
+                    def r = new Runnable() {
+                        void run() {}
+                    }
+                }
+            }",
+            "C.groovy",
+            |func_space| {
+                let c = func_space
+                    .spaces
+                    .iter()
+                    .find(|s| s.name.as_deref() == Some("C"))
+                    .expect("expected a child FuncSpace named \"C\"");
+                let m = c
+                    .spaces
+                    .iter()
+                    .find(|s| s.name.as_deref() == Some("m"))
+                    .expect("expected a child FuncSpace named \"m\"");
+                // No Class space (grammar limitation), but `run` lands in a
+                // nested Function space (the closure), not in `m` itself.
+                let class_children = m
+                    .spaces
+                    .iter()
+                    .filter(|s| s.kind == crate::SpaceKind::Class)
+                    .count();
+                assert_eq!(
+                    class_children, 0,
+                    "Groovy grammar models the body as a closure, not a class"
+                );
+                assert_eq!(m.metrics.nom.functions(), 1.0, "`m` itself, not `run`");
+                let nested_funcs: f64 = m.spaces.iter().map(|s| s.metrics.nom.functions()).sum();
+                assert_eq!(
+                    nested_funcs, 1.0,
+                    "`run` is attributed to the nested closure space"
+                );
             },
         );
     }

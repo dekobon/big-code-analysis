@@ -481,6 +481,17 @@ impl Checker for PythonCode {
     }
 }
 
+/// Returns the `class_body` child of a Java `object_creation_expression`
+/// when the node is an anonymous class (`new Runnable() { ... }`), or
+/// `None` for a plain constructor call (`new Foo()`). Shared by
+/// `JavaCode::is_func_space` and `JavaCode::get_space_kind` so both agree
+/// on exactly which `object_creation_expression` nodes open a Class space
+/// (#463); a lambda is a distinct `lambda_expression` node and never
+/// reaches this path.
+pub(crate) fn java_anonymous_class_body<'a>(node: &Node<'a>) -> Option<Node<'a>> {
+    node.first_child(|id| id == Java::ClassBody as u16)
+}
+
 impl Checker for JavaCode {
     fn is_comment(node: &Node) -> bool {
         node.kind_id() == Java::LineComment || node.kind_id() == Java::BlockComment
@@ -498,7 +509,18 @@ impl Checker for JavaCode {
     // counts. Annotation types map to `Interface` in `get_space_kind`
     // (their elements are abstract methods at the bytecode level);
     // enums and records map to `Class`.
+    //
+    // An `object_creation_expression` carrying a `class_body` child is
+    // an anonymous class (`new Runnable() { ... }`); it opens its own
+    // Class space so its members are attributed to it, not the
+    // enclosing method (#463). A plain `new Foo()` has no `class_body`
+    // child and must not open a space, so the arm is gated on the
+    // body's presence. This mirrors PHP's `AnonymousClass` handling and
+    // brings Java to parity with PHP/C# anonymous forms.
     fn is_func_space(node: &Node) -> bool {
+        if node.kind_id() == Java::ObjectCreationExpression as u16 {
+            return java_anonymous_class_body(node).is_some();
+        }
         matches!(
             node.kind_id().into(),
             Java::Program
@@ -1118,6 +1140,7 @@ impl Checker for KotlinCode {
                 | Kotlin::ClassDeclaration
                 | Kotlin::ObjectDeclaration
                 | Kotlin::CompanionObject
+                | Kotlin::ObjectLiteral
         )
     }
 

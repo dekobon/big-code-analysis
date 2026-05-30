@@ -717,6 +717,18 @@ impl Getter for JavaCode {
             ClassDeclaration | EnumDeclaration | RecordDeclaration => SpaceKind::Class,
             MethodDeclaration | ConstructorDeclaration | LambdaExpression => SpaceKind::Function,
             InterfaceDeclaration | AnnotationTypeDeclaration => SpaceKind::Interface,
+            // An anonymous class (`new Runnable() { ... }`) is an
+            // `object_creation_expression` carrying a `class_body` child;
+            // it opens a Class space, matching PHP's `AnonymousClass` and
+            // C#'s anonymous forms (#463). A plain `new Foo()` has no
+            // `class_body`, so it falls through to `Unknown` (no space).
+            // The shared helper keeps this gate identical to the one in
+            // `JavaCode::is_func_space`.
+            ObjectCreationExpression
+                if crate::checker::java_anonymous_class_body(node).is_some() =>
+            {
+                SpaceKind::Class
+            }
             Program => SpaceKind::Unit,
             _ => SpaceKind::Unknown,
         }
@@ -948,7 +960,16 @@ impl Getter for KotlinCode {
             // default `get_func_space_name` reads the optional `name`
             // field, yielding the declared name for `companion object
             // Named` and `<anonymous>` for the nameless form.
-            ObjectDeclaration | CompanionObject => SpaceKind::Class,
+            //
+            // `object : T { ... }` (`object_literal`) is the anonymous
+            // object expression — Kotlin's analogue of a Java anonymous
+            // class. The grammar models its body as a `class_body` of
+            // methods and properties, identical in shape to a named
+            // object, so it opens its own Class space rather than folding
+            // its members into the enclosing function (#463). It is always
+            // nameless, so the default `get_func_space_name` yields
+            // `<anonymous>`.
+            ObjectDeclaration | CompanionObject | ObjectLiteral => SpaceKind::Class,
             FunctionDeclaration | SecondaryConstructor | LambdaLiteral | AnonymousFunction => {
                 SpaceKind::Function
             }
@@ -1918,6 +1939,18 @@ impl Getter for GroovyCode {
         // as `juxt_function_call` + `closure` — see #247); it gets
         // `Interface` because Groovy traits are interfaces with default
         // method bodies.
+        // Groovy anonymous classes (`new Runnable() { ... }`) get no
+        // Class space here, unlike Java (#463): the pinned dekobon
+        // grammar does not attach the body to the
+        // `object_creation_expression`. It parses `new Runnable()` as a
+        // bare `object_creation_expression` and the following `{ ... }`
+        // as a separate `closure`, so the members already land in that
+        // closure's `Function` space rather than being mis-attributed to
+        // the enclosing method. This is an upstream-grammar limitation,
+        // not a wrapper bug; adding an `ObjectCreationExpression` +
+        // `class_body` arm here (as Java does) would be permanently
+        // inert under this grammar. Revisit if/when the grammar is
+        // bumped to model anonymous-class bodies as `class_body`.
         match node.kind_id().into() {
             ClassDeclaration | EnumDeclaration | RecordDeclaration => SpaceKind::Class,
             InterfaceDeclaration | TraitDeclaration | AnnotationTypeDeclaration => {

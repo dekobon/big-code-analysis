@@ -740,6 +740,41 @@ for historical reference.
 
 ### Fixed
 
+- Anonymous class/object bodies now open their own `Class` func-space,
+  so their members are attributed to the anonymous type rather than the
+  enclosing function
+  ([#463](https://github.com/dekobon/big-code-analysis/issues/463)).
+  Kotlin `object : T { ... }` (`object_literal`) was absent from
+  `KotlinCode::is_func_space` and the Kotlin `get_space_kind` arm — the
+  direct sibling of the companion-object fix (#431) — so its methods and
+  properties folded into the enclosing function. Java anonymous classes
+  (`new Runnable() { ... }`) had the same gap: the fix opens a `Class`
+  space for an `object_creation_expression` that carries a `class_body`
+  child (a plain `new Foo()` and a lambda — a distinct
+  `lambda_expression` — correctly open no class space), bringing Java to
+  parity with PHP `AnonymousClass` and C# anonymous forms. Both forms now
+  resolve to `<anonymous>` via the default `get_func_space_name`. Groovy
+  shares the `object_creation_expression` shape but the pinned grammar
+  models an anonymous body as a separate `closure`, not a `class_body`,
+  so Groovy gets no `Class` space (its members already land in the
+  closure's `Function` space rather than the enclosing method) — an
+  upstream-grammar limitation documented in `get_space_kind`.
+- `wmc` (Weighted Methods per Class) no longer double-counts the
+  complexity of a class nested inside a method (anonymous classes,
+  Kotlin object literals, Java/Groovy local inner classes, Rust local
+  items)
+  ([#463](https://github.com/dekobon/big-code-analysis/issues/463)).
+  A method's contribution to its enclosing class's WMC previously used
+  its cumulative cyclomatic, which folded in the complexity of any class
+  nested inside it — complexity those nested classes already count as
+  their own WMC scope. The aggregator now subtracts each nested
+  class/interface's cyclomatic from the method's contribution, so every
+  method's complexity is counted exactly once, in its own class. This
+  corrects per-class and file-level `wmc` for code with class-in-method
+  nesting across all object-oriented languages (the fix lives in the
+  shared `Wmc::merge`); `nom`, `npm`, `npa`, and `cyclomatic` totals are
+  unaffected (the new anonymous class space adds a base `+1` to the
+  cyclomatic sum, exactly like a named class).
 - Python `lloc` now counts `match` statements (PEP 634) and `type`
   alias statements (PEP 695)
   ([#462](https://github.com/dekobon/big-code-analysis/issues/462)).

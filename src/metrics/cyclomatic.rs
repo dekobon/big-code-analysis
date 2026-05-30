@@ -2840,18 +2840,25 @@ mod tests {
             }",
             "foo.java",
             |metric| {
-                // nspace = 8 (unit, 2 classes and 5 methods)
+                // nspace = 9: unit, the two named classes (A, B), the
+                // anonymous class (`new A() { ... }`, now its own Class
+                // space — #463), and 5 methods. The anonymous class adds a
+                // base +1 to the cyclomatic sum exactly like a named class,
+                // so the file-level sum is 11 (was 10 before the anonymous
+                // body opened its own space). Each method's complexity is
+                // counted once — the +1 is the new class space, not a
+                // re-count of any method.
                 insta::assert_json_snapshot!(
                     metric.cyclomatic,
                     @r###"
                     {
-                      "sum": 10.0,
-                      "average": 1.25,
+                      "sum": 11.0,
+                      "average": 1.2222222222222223,
                       "min": 1.0,
                       "max": 2.0,
                       "modified": {
-                        "sum": 10.0,
-                        "average": 1.25,
+                        "sum": 11.0,
+                        "average": 1.2222222222222223,
                         "min": 1.0,
                         "max": 2.0
                       }
