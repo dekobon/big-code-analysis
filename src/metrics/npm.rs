@@ -3282,6 +3282,34 @@ class C {
     }
 
     #[test]
+    fn rust_pub_self_is_private() {
+        // Regression for #460. `pub(self)` / `pub(in self)` restrict to
+        // the current module — semantically private, like no modifier.
+        // Only the forms that widen visibility beyond the module count
+        // as public: `pub`, `pub(crate)`, `pub(super)`, `pub(in <path>)`.
+        // → 6 methods, 4 public (b, d, e, f); a, a2, c excluded.
+        // Pre-fix the `pub(self)`/`pub(in self)` pair over-counted, so
+        // class_npm_sum was 6 (revert-verified).
+        check_metrics::<RustParser>(
+            "struct S;\n\
+             impl S {\n\
+             \x20   pub(self) fn a(&self) {}\n\
+             \x20   pub(in self) fn a2(&self) {}\n\
+             \x20   pub(crate) fn b(&self) {}\n\
+             \x20   pub(super) fn d(&self) {}\n\
+             \x20   pub(in crate::x) fn e(&self) {}\n\
+             \x20   pub fn f(&self) {}\n\
+             \x20   fn c(&self) {}\n\
+             }\n",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.npm.class_nm_sum(), 7.0);
+                assert_eq!(metric.npm.class_npm_sum(), 4.0);
+            },
+        );
+    }
+
+    #[test]
     fn rust_trait_methods_count() {
         // `fn draw(&self);` (signature only) + `fn area(&self) -> f64
         // { 0.0 }` (default body) → both are interface methods.

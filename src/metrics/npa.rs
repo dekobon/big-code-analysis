@@ -1167,10 +1167,13 @@ fn rust_count_tuple_struct_fields(list: &Node) -> (usize, usize) {
             LPAREN | RPAREN | COMMA => {
                 pending_pub = false;
             }
-            // `pub` / `pub(crate)` / `pub(super)` / ... — applies to
-            // the next type child.
+            // `pub` / `pub(crate)` / `pub(super)` / `pub(in <path>)` —
+            // applies to the next type child. `pub(self)` / `pub(in self)`
+            // restrict to the current module (private) and must not count
+            // as public (issue #460): the modifier has a direct `Zelf`
+            // child for exactly those forms.
             VisibilityModifier => {
-                pending_pub = true;
+                pending_pub = !child.children().any(|c| c.kind_id() == Zelf);
             }
             // `attribute_item` decorates the next field but does not
             // contribute to visibility. Skip without resetting the
@@ -1256,15 +1259,26 @@ pub(crate) fn python_case_clause_counts(node: &Node, underscore_id: u16) -> bool
     !bare_underscore
 }
 
-// Returns true if `node`'s first child is a `visibility_modifier`
-// containing the `pub` keyword. Matches Rust's "public-only-when-`pub`"
-// model — `pub(crate)` / `pub(super)` / `pub(in path)` are also
-// `visibility_modifier` and count as public for ABC purposes
-// (`pub(crate)` is still "public to its crate"); only the absence of
-// `pub` means private.
+// Returns true if `node` carries a `visibility_modifier` that makes the
+// item public to its definition. Matches Rust's "public-only-when-`pub`"
+// model: bare `pub`, `pub(crate)`, `pub(super)`, and `pub(in <path>)`
+// widen visibility beyond the current module and count as public.
+//
+// The exceptions are `pub(self)` and `pub(in self)`, which restrict
+// visibility to the current module — semantically identical to no
+// modifier (private), so they must NOT count toward npm/npa (issue
+// #460). The grammar emits the restriction keyword as a dedicated
+// child of the `visibility_modifier`: `self` is a `Zelf` node, `crate`
+// a `Crate` node, `super` a `Super` node. `pub(self)` and `pub(in self)`
+// are exactly the forms whose `visibility_modifier` has a direct `Zelf`
+// child; `pub(in self::inner)` nests `self` inside a `scoped_identifier`
+// (not a direct child) and is treated as public, matching the issue's
+// "only `self` / `in self` is private" scope. No source-text inspection
+// is needed — the structural check is precise.
 pub(crate) fn rust_item_is_public(node: &Node) -> bool {
     node.children()
-        .any(|c| c.kind_id() == Rust::VisibilityModifier)
+        .filter(|c| c.kind_id() == Rust::VisibilityModifier)
+        .any(|vis| !vis.children().any(|inner| inner.kind_id() == Rust::Zelf))
 }
 
 // Single normalization point for Python's aliased `block` kind_ids.
@@ -4593,6 +4607,74 @@ mod tests {
                 assert_eq!(metric.npa.class_na_sum(), 3.0);
                 assert_eq!(metric.npa.class_npa_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_pub_self_field_is_private() {
+        // Regression for #460. A `pub(self)` / `pub(in self)` field
+        // restricts to the current module and is private, like no
+        // modifier. The widening forms (`pub(crate)`, `pub(super)`,
+        // `pub`, `pub(in <path>)`) stay public. → 7 fields, 4 public
+        // (b, d, e, f). Pre-fix `a`/`a2` over-counted (class_npa_sum=6,
+        // revert-verified). Asserts `pub(super)`/`pub(crate)` are NOT
+        // over-suppressed.
+        check_metrics::<RustParser>(
+            "struct S {\n\
+             \x20   pub(self) a: i32,\n\
+             \x20   pub(in self) a2: i32,\n\
+             \x20   pub(crate) b: i32,\n\
+             \x20   pub(super) d: i32,\n\
+             \x20   pub(in crate::x) e: i32,\n\
+             \x20   pub f: i32,\n\
+             \x20   c: i32,\n\
+             }",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 7.0);
+                assert_eq!(metric.npa.class_npa_sum(), 4.0);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_pub_self_assoc_const_is_private() {
+        // Regression for #460 on the associated-const path. `pub(self)`
+        // and `pub(in self)` associated consts are private; `pub(crate)`
+        // and `pub` are public. → 4 consts, 2 public (B, D). Pre-fix
+        // `A`/`A2` over-counted (class_npa_sum=4, revert-verified).
+        check_metrics::<RustParser>(
+            "struct Foo;\n\
+             impl Foo {\n\
+             \x20   pub(self) const A: i32 = 1;\n\
+             \x20   pub(in self) const A2: i32 = 2;\n\
+             \x20   pub(crate) const B: i32 = 3;\n\
+             \x20   pub const D: i32 = 4;\n\
+             }\n",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 4.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn rust_pub_self_tuple_field_is_private() {
+        // Regression for #460 on the tuple-struct positional path.
+        // `pub(self)` / `pub(in self)` fields are private; `pub(crate)`
+        // and bare `pub` stay public. 5 positional fields; only the
+        // `pub(crate) i32` and `pub u8` are public → 2 public (the
+        // trailing `String` carries no modifier). Pre-fix the two
+        // `self`-restricted fields over-counted (class_npa_sum=4,
+        // revert-verified).
+        check_metrics::<RustParser>(
+            "struct Bar(pub(self) i32, pub(in self) i32, pub(crate) i32, pub u8, String);",
+            "foo.rs",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 5.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
             },
         );
     }

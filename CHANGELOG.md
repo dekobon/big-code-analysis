@@ -740,6 +740,18 @@ for historical reference.
 
 ### Fixed
 
+- Rust `npm` / `npa` no longer count `pub(self)` / `pub(in self)`
+  items as public
+  ([#460](https://github.com/dekobon/big-code-analysis/issues/460)).
+  Both forms restrict visibility to the current module — semantically
+  private, like no modifier — but `rust_item_is_public` returned true
+  for any `visibility_modifier`, so `pub(self)` methods, struct fields,
+  and associated consts were over-counted. The helper now treats a
+  `visibility_modifier` whose restriction keyword is `self` (a direct
+  `Zelf` child, distinguishing `pub(self)` / `pub(in self)` from
+  `pub(crate)` / `pub(super)` / `pub(in <other path>)`) as private.
+  The same check is applied to the tuple-struct positional-field path.
+
 - TypeScript / TSX `npa` now counts `readonly`-only constructor
   parameter properties as attributes
   ([#459](https://github.com/dekobon/big-code-analysis/issues/459)).
