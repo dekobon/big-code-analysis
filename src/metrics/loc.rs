@@ -9887,21 +9887,36 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
     }
 
     /// `blank()` is `sloc - ploc - only_comment_lines`, an f64 subtraction
-    /// that can go negative for single-line bodies where physical-line and
-    /// span attribution overlap. It must clamp at 0 so the serialized value
-    /// is never negative and `blank_min` is not corrupted by an `as usize`
-    /// saturation at the merge site (#437).
+    /// that can go negative when a space's physical and comment line
+    /// attribution overlaps its span row count. It must clamp at 0 so the
+    /// serialized value is never negative (#437).
+    ///
+    /// Built from a synthetic [`Stats`] rather than a parsed fixture: the
+    /// current grammars do not emit a parsed space whose root `sloc` is
+    /// smaller than `ploc + only_comment_lines`, so a source fixture cannot
+    /// drive the subtraction negative and would pass against the pre-clamp
+    /// code (proving nothing). Setting `sloc = ploc = only_comment_lines = 1`
+    /// yields a pre-clamp `blank` of `1 - 1 - 1 = -1`; reverting the
+    /// `.max(0.0)` makes this assertion fail with `-1`.
     #[test]
-    fn rust_blank_never_negative() {
-        check_metrics::<RustParser>(
-            "struct C;\nimpl C {\n    fn small(&self) { let _ = 1; }\n    fn other(&self) { let _ = 2; }\n}\n",
-            "c.rs",
-            |metric| {
-                let loc = &metric.loc;
-                assert!(loc.blank() >= 0.0, "blank() must not be negative");
-                assert!(loc.blank_min() >= 0.0, "blank_min must not be negative");
-                assert!(loc.blank_max() >= 0.0, "blank_max must not be negative");
-            },
+    fn blank_clamps_negative_to_zero() {
+        let mut stats = Stats::default();
+        // sloc() for a non-unit span is `end - start + 1` => 1 row.
+        stats.sloc.unit = false;
+        stats.sloc.start = 0;
+        stats.sloc.end = 0;
+        // ploc() is the cardinality of the physical-line set => 1.
+        stats.ploc.lines.insert(0);
+        // One comment-only line on the same single row.
+        stats.cloc.only_comment_lines = 1;
+
+        // Pre-clamp this is 1 - 1 - 1 = -1.
+        assert_eq!(stats.sloc(), 1.0);
+        assert_eq!(stats.ploc(), 1.0);
+        assert_eq!(
+            stats.blank(),
+            0.0,
+            "blank() must clamp the negative subtraction to 0"
         );
     }
 }
