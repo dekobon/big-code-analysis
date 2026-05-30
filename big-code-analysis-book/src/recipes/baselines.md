@@ -265,6 +265,41 @@ bca --paths src/ check \
 Combined with `--write-baseline`, `--no-suppress` records every
 violation including the ones that suppression markers normally hide.
 
+## Auditing every exemption at once
+
+A baseline is one of three ways code escapes the gate; the other two
+are in-source `bca: suppress` markers and `[check.exclude]` globs.
+`bca exemptions` lists all three tiers in a single report so a reviewer
+can see everything `bca check` is skipping without running three
+commands:
+
+```bash
+bca --paths src/ exemptions
+```
+
+```text
+# In-source markers (2)
+  src/parser.rs:120  bca: suppress       metrics=all  parse_long
+  ...
+
+# [check.exclude] globs (1)
+  tests/**
+
+# Baseline (.bca-baseline.toml, 417 entries)
+  src/markdown_report.rs:88 write_language_section cognitive 29
+  ...
+```
+
+The baseline section reads the same `--baseline` / `bca.toml` top-level
+`baseline` source `bca check` does (or `.bca-baseline.toml` by default).
+Use `--only-baseline` to list just the baselined offenders, `--format
+markdown` for a PR comment, or `--format json` for dashboards. During
+PR review, pair it with `bca diff-baseline <old> <new>` (above): the
+diff shows what *changed* in the baseline, `bca exemptions` shows the
+full current exemption surface. See the
+[Suppression markers](../commands/suppression.md#auditing-exemptions-bca-exemptions)
+page for the complete flag reference.
+
 ## Limitations
 
 - **Ambiguous symbols.** When two functions share a qualified symbol

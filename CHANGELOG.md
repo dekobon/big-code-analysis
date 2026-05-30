@@ -23,6 +23,25 @@ for historical reference.
 
 ### Added
 
+- `bca exemptions` audits everything the `bca check` gate skips in one
+  report ([#386](https://github.com/dekobon/big-code-analysis/issues/386)):
+  in-source suppression markers (`bca: suppress`, `#lizard forgives`,
+  …), `[check.exclude]` globs, and `.bca-baseline.toml` entries. Each
+  marker is listed with its file, line, target (function/file), metric
+  scope, dialect, and surrounding function, so reviewers can see every
+  silencer in the tree — not just the offenders they happen to hide.
+  `--format tty|markdown|json` selects the output style (`json` nests
+  the three tiers under a single `suppressions` envelope; an omitted
+  section is `null`, a requested-but-empty one is `[]`); the combinable
+  `--only-markers` / `--only-excludes` / `--only-baseline` flags narrow
+  the report for PR-bot use. The walk honours `[walker.exclude]`, and
+  the baseline (`bca.toml` top-level `baseline`) and `[check.exclude]`
+  inputs default to the same sources `bca check` reads. Read-only and
+  informational: it
+  always exits 0 on success (1 on a tool error such as a missing
+  `--baseline`), never gating. The new `big-code-analysis` library
+  re-exports `SuppressionMarker`, `SuppressionTarget`,
+  `SuppressionDialect`, and the `SuppressionScan` callback that back it.
 - `bca check --strict-exit-codes` opts into tiered exit codes that
   split the violation case (previously a single exit `2`) by severity
   ([#385](https://github.com/dekobon/big-code-analysis/issues/385)):

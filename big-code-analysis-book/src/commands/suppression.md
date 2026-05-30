@@ -183,6 +183,72 @@ The flag has no effect on metric values themselves: raw
 `bca metrics` / `bca report` output already ignores markers, since
 suppression is a threshold-check concern only.
 
+## Auditing exemptions (`bca exemptions`)
+
+`--no-suppress` shows you the offenders a marker *silences*, but not
+the markers themselves — to find every silencer you previously had to
+diff a `--no-suppress` run against a normal one. `bca exemptions`
+replaces that workaround with a direct listing of everything the
+`bca check` gate skips, across all three exemption tiers, in one
+report:
+
+| Tier | Granularity | Source |
+| --- | --- | --- |
+| In-source markers | per-function / per-file | `bca: suppress`, `#lizard forgives`, … |
+| `[check.exclude]` globs | per-glob (categories of files) | `bca.toml` `[check] exclude` / `--check-exclude` |
+| Baseline entries | per-`(path, symbol, metric)` | `.bca-baseline.toml` |
+
+```bash
+# List every exemption in the tree (in-source markers honour
+# [walker.exclude] just like every other walking command).
+bca --paths src/ exemptions
+```
+
+```text
+# In-source markers (2)
+  src/parser.rs:120  bca: suppress       metrics=all  parse_long
+  src/lib.rs:1       bca: suppress-file  metrics=halstead  (whole file)
+
+# [check.exclude] globs (1)
+  tests/**
+
+# Baseline (.bca-baseline.toml, 1 entry)
+  src/markdown_report.rs:88 write_language_section cognitive 29
+```
+
+The surrounding function (for function-scoped markers) gives scope
+context; file-scoped markers read `(whole file)`, and a function-scoped
+marker written outside any function — which silences nothing — reads
+`(no enclosing fn)` so dead markers are visible.
+
+### Formats and section filters
+
+`--format markdown` emits tables for PR comments; `--format json`
+nests all three tiers under a single `suppressions` envelope for
+dashboards and `jq` filtering:
+
+```bash
+bca --paths src/ exemptions --format json | jq '.suppressions.markers[] | select(.dialect == "lizard")'
+```
+
+In the JSON form an omitted section is `null` (not requested via a
+`--only-*` flag) while a requested-but-empty section is `[]`, so
+filters can tell the two apart.
+
+The combinable-free `--only-markers` / `--only-excludes` /
+`--only-baseline` flags narrow the report to a single tier for PR-bot
+specialisation (e.g. a bot that only comments on newly-added in-source
+markers). The baseline (`bca.toml` top-level `baseline`) and
+`[check.exclude]` (`[check] exclude`) inputs default to the same
+sources `bca check` reads, so the audit reflects exactly what the gate
+would skip; override the baseline with `--baseline <path>`.
+
+Unlike `bca check`, `bca exemptions` is informational and always exits
+0 on success — it is a review surface, not a gate.
+
+See also the [Baselines recipe](../recipes/baselines.md) for using
+`bca exemptions` alongside `bca diff-baseline` during PR review.
+
 ## JSON output
 
 `FuncSpace` exposes the merged suppression scope as the optional

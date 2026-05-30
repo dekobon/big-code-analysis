@@ -29,7 +29,7 @@ use std::str::FromStr;
 use serde::Deserialize;
 
 use crate::thresholds::{ParsedThresholds, split_thresholds_table};
-use crate::{CheckArgs, GlobalOpts, NumJobs, die, die_io, read_utf8_file};
+use crate::{CheckArgs, ExemptionsArgs, GlobalOpts, NumJobs, die, die_io, read_utf8_file};
 
 /// Filename discovered by convention at (or above) the working directory.
 const MANIFEST_FILE: &str = "bca.toml";
@@ -269,6 +269,30 @@ impl Manifest {
             Some(other) => die(format_args!(
                 "bca.toml: [check] exit_codes must be \"default\" or \"tiered\"; got {other:?}"
             )),
+        }
+    }
+
+    /// Merge the gate-skipping defaults `bca exemptions` audits
+    /// (`baseline`, `[check] exclude` / `exclude_from`) into `args`. CLI
+    /// values win, mirroring [`Self::merge_check`]'s CLI-replaces-manifest
+    /// semantics so the audit reflects exactly what `bca check` would
+    /// skip. Threshold / headroom / exit-code keys are irrelevant to a
+    /// read-only listing and are deliberately not merged here.
+    pub(crate) fn merge_exemptions(&self, args: &mut ExemptionsArgs) {
+        if args.baseline.is_none()
+            && let Some(baseline) = &self.raw.baseline
+        {
+            args.baseline = Some(self.resolve(baseline));
+        }
+        if args.check_exclude.is_empty()
+            && let Some(exclude) = &self.raw.check.exclude
+        {
+            args.check_exclude.clone_from(exclude);
+        }
+        if args.check_exclude_from.is_none()
+            && let Some(exclude_from) = &self.raw.check.exclude_from
+        {
+            args.check_exclude_from = Some(self.resolve(exclude_from));
         }
     }
 

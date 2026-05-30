@@ -26,6 +26,7 @@ use crate::baseline::{self, Coverage};
 use crate::baseline_diff::{BaselineDiff, SectionFilter};
 use crate::check_format::{self, violation_to_offender};
 use crate::diff;
+use crate::exemptions::{BaselineRow, BaselineSection, ExemptionsReport, FileMarkers, MarkerRow};
 use crate::format_util::MetricScalar;
 use crate::formats::{CBOR_STDOUT_ERROR, MetricsDispatch, MetricsFormat, ReportFormat};
 use crate::html_report::generate_html_report;
@@ -36,10 +37,11 @@ use crate::thresholds::{
     ParsedThresholds, SoftLimit, ThresholdSet, Violation, render_violation_line, scale_threshold,
 };
 use crate::{
-    Action, CheckArgs, Cli, Command, Config, DiffBaselineArgs, DiffFormat, GlobalOpts, InitArgs,
-    ListMetricsArgs, NodesArgs, PreprocArgs, PrintConfigFormat, ReportArgs, StripCommentsArgs,
-    StructuredArgs, Tier, die, die_io, legacy_hint, load_baseline, load_preproc_data,
-    load_threshold_config, run_walk, write_atomic, write_stdout_or_die,
+    Action, CheckArgs, Cli, Command, Config, DiffBaselineArgs, ExemptionsArgs, GlobalOpts,
+    InitArgs, ListMetricsArgs, NodesArgs, OutputFormat, PreprocArgs, PrintConfigFormat, ReportArgs,
+    StripCommentsArgs, StructuredArgs, Tier, die, die_io, legacy_hint, load_baseline,
+    load_preproc_data, load_threshold_config, read_exclude_patterns_from, run_walk, write_atomic,
+    write_stdout_or_die,
 };
 
 fn run_check(
@@ -1264,6 +1266,9 @@ pub fn run() {
         Command::Preproc(args) => run_command_preproc(cli.globals, args),
         Command::Init(args) => run_command_init(cli.globals, args, preproc),
         Command::DiffBaseline(args) => run_command_diff_baseline(args),
+        Command::Exemptions(args) => {
+            run_command_exemptions(cli.globals, args, manifest.as_ref(), preproc);
+        }
     }
 }
 
@@ -1722,16 +1727,177 @@ fn run_command_diff_baseline(args: DiffBaselineArgs) {
         args.improved_only,
     ]);
     let rendered = match args.format {
-        DiffFormat::Tty => diff.render_tty(filter),
-        DiffFormat::Markdown => diff.render_markdown(filter),
+        OutputFormat::Tty => diff.render_tty(filter),
+        OutputFormat::Markdown => diff.render_markdown(filter),
         // Serialization of a fixed-shape struct of owned scalars cannot
         // fail in practice; surface any future error as a tool error
         // rather than panicking.
-        DiffFormat::Json => diff
+        OutputFormat::Json => diff
             .render_json()
             .unwrap_or_else(|e| die(format_args!("failed to serialize diff to JSON: {e}"))),
     };
     write_stdout_or_die(rendered.as_bytes());
+}
+
+/// Default baseline file audited by `bca exemptions` when neither
+/// `--baseline` nor `bca.toml`'s `[check] baseline` is set. Matches the
+/// filename `bca init` scaffolds and `bca check --write-baseline`
+/// defaults to.
+const DEFAULT_BASELINE_FILE: &str = ".bca-baseline.toml";
+
+/// Audit everything the `bca check` gate skips in one report (issue
+/// #386): in-source suppression markers, `[check.exclude]` globs, and
+/// `.bca-baseline.toml` entries.
+///
+/// Read-only and always exits 0 on success — the report is a review
+/// surface, not a gate. Each section is opt-out via the mutually
+/// exclusive `--only-*` flags (none set = all three). The baseline
+/// (`bca.toml` top-level `baseline`) and exclude (`[check] exclude`)
+/// inputs default to the same sources `bca check` reads, so the audit
+/// reflects what the gate would skip.
+fn run_command_exemptions(
+    globals: GlobalOpts,
+    mut args: ExemptionsArgs,
+    manifest: Option<&Manifest>,
+    preproc: Option<Arc<PreprocResults>>,
+) {
+    // Merge `bca.toml` `[check]` defaults (baseline path, exclude globs)
+    // under the CLI flags — CLI wins, mirroring `bca check`.
+    if let Some(m) = manifest {
+        m.merge_exemptions(&mut args);
+    }
+
+    // Validate `--output` before the (slower) walk so a bad path fails
+    // fast, mirroring `run_command_report`.
+    if let Some(ref output) = args.output {
+        if output.exists() && output.is_dir() {
+            die("--output must be a file path for `exemptions`");
+        }
+        if let Some(parent) = output.parent()
+            && !parent.as_os_str().is_empty()
+            && !parent.exists()
+        {
+            die(format_args!(
+                "parent directory of --output does not exist: {}",
+                parent.display()
+            ));
+        }
+    }
+
+    // No `--only-*` flag selects every section; one selects just that
+    // one (clap enforces mutual exclusivity).
+    let only_any = args.only_markers || args.only_excludes || args.only_baseline;
+    let want_markers = !only_any || args.only_markers;
+    let want_excludes = !only_any || args.only_excludes;
+    let want_baseline = !only_any || args.only_baseline;
+
+    // Resolve the config-driven sections before the walk: it consumes
+    // `globals`, and a missing exclude-from file or unparseable baseline
+    // should error ahead of the slower tree traversal.
+    let excludes = want_excludes.then(|| resolve_exclude_globs(&args));
+    let baseline = want_baseline.then(|| resolve_baseline_section(&args));
+    let markers = want_markers.then(|| collect_marker_rows(globals, preproc));
+
+    let report = ExemptionsReport {
+        markers,
+        excludes,
+        baseline,
+    };
+    let rendered = report
+        .render(args.format, &args.strip_prefix)
+        .unwrap_or_else(|e| die(format_args!("failed to serialize exemptions to JSON: {e}")));
+    if let Some(ref output_path) = args.output {
+        std::fs::write(output_path, rendered.as_bytes())
+            .unwrap_or_else(|e| die_io("write exemptions report to", output_path, e));
+    } else {
+        write_stdout_or_die(rendered.as_bytes());
+    }
+}
+
+/// Run the suppression-marker walk and return the flattened rows sorted
+/// by `(path, line)` for deterministic output. Files arrive in
+/// worker-completion order, so the sort cannot be skipped even though
+/// each file's markers are already line-sorted by the collector.
+fn collect_marker_rows(
+    globals: GlobalOpts,
+    preproc: Option<Arc<PreprocResults>>,
+) -> Vec<MarkerRow> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let cfg = Config {
+        exemptions_tx: Some(Mutex::new(tx)),
+        ..Config::new(Action::Exemptions, &globals, preproc)
+    };
+    run_walk(globals, cfg);
+    // ConcurrentRunner::run() consumed Config (and thus the Sender).
+    // All worker threads have joined, so `rx.into_iter()` terminates.
+    let mut rows: Vec<MarkerRow> = rx
+        .into_iter()
+        .flat_map(|FileMarkers { path, markers }| {
+            markers.into_iter().map(move |marker| MarkerRow {
+                path: path.clone(),
+                marker,
+            })
+        })
+        .collect();
+    rows.sort_by(|a, b| {
+        a.path
+            .cmp(&b.path)
+            .then_with(|| a.marker.line.cmp(&b.marker.line))
+    });
+    rows
+}
+
+/// Resolve the `[check.exclude]` glob list for display: the
+/// CLI/manifest `check_exclude` values unioned with the lines of
+/// `--check-exclude-from`, in that order.
+fn resolve_exclude_globs(args: &ExemptionsArgs) -> Vec<String> {
+    let mut globs = args.check_exclude.clone();
+    if let Some(from) = args.check_exclude_from.as_deref() {
+        match read_exclude_patterns_from(from, "--check-exclude-from") {
+            Ok(patterns) => globs.extend(patterns),
+            Err(e) => die(e),
+        }
+    }
+    globs
+}
+
+/// Resolve and load the baseline section. An explicit/manifest
+/// `--baseline` path is loaded through the same reader `bca check` uses
+/// (dying on a missing or unparseable file). With no path configured,
+/// the default `.bca-baseline.toml` is audited when present and reported
+/// as empty otherwise — so a zero-config invocation never errors.
+fn resolve_baseline_section(args: &ExemptionsArgs) -> BaselineSection {
+    let path = if let Some(p) = args.baseline.as_deref() {
+        p.to_path_buf()
+    } else {
+        let default = PathBuf::from(DEFAULT_BASELINE_FILE);
+        if !default.exists() {
+            // Zero-config: no baseline present, report an empty section
+            // rather than erroring.
+            return BaselineSection {
+                path: DEFAULT_BASELINE_FILE.to_owned(),
+                entries: Vec::new(),
+            };
+        }
+        default
+    };
+    let loaded = load_baseline(&path, baseline::DEFAULT_LINE_TOLERANCE, false);
+    let mut entries: Vec<BaselineRow> = loaded
+        .diff_entries()
+        .into_iter()
+        .map(BaselineRow::from)
+        .collect();
+    entries.sort_by(|a, b| {
+        (a.path.as_str(), a.start_line, a.metric.as_str()).cmp(&(
+            b.path.as_str(),
+            b.start_line,
+            b.metric.as_str(),
+        ))
+    });
+    BaselineSection {
+        path: path.display().to_string(),
+        entries,
+    }
 }
 
 #[cfg(test)]

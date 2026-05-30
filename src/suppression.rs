@@ -29,6 +29,11 @@ use std::str::FromStr;
 
 use serde::Serialize;
 
+use crate::checker::Checker;
+use crate::getter::Getter;
+use crate::node::Node;
+use crate::traits::{Callback, ParserTrait};
+
 /// Stable metric identifier set that suppression markers can name.
 ///
 /// Names match the JSON field names emitted on [`crate::CodeMetrics`]
@@ -516,6 +521,162 @@ fn parse_metric_list(inside: &str) -> Result<SuppressionScope, SuppressionError>
     Ok(SuppressionScope::Some(set))
 }
 
+/// Whether an audited suppression marker applies to its enclosing
+/// function or to the whole file.
+///
+/// The public mirror of the crate-internal `SuppressionKind`; exposed
+/// on [`SuppressionMarker`] so the `bca exemptions` audit (issue #386)
+/// can report marker scope without leaking the internal type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SuppressionTarget {
+    /// Marker silences thresholds for its enclosing function only.
+    Function,
+    /// Marker silences thresholds for the whole file.
+    File,
+}
+
+impl From<SuppressionKind> for SuppressionTarget {
+    fn from(kind: SuppressionKind) -> Self {
+        match kind {
+            SuppressionKind::Function => Self::Function,
+            SuppressionKind::File => Self::File,
+        }
+    }
+}
+
+/// Which marker dialect produced a suppression.
+///
+/// The public mirror of the crate-internal `SuppressionSource`;
+/// exposed on [`SuppressionMarker`] so an audit can flag Lizard-style
+/// markers that projects may want to migrate to the native `bca:`
+/// dialect over time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SuppressionDialect {
+    /// Native `bca:` marker.
+    Native,
+    /// Lizard compatibility marker (`#lizard forgives`).
+    Lizard,
+}
+
+impl From<SuppressionSource> for SuppressionDialect {
+    fn from(source: SuppressionSource) -> Self {
+        match source {
+            SuppressionSource::Native => Self::Native,
+            SuppressionSource::Lizard => Self::Lizard,
+        }
+    }
+}
+
+/// A single in-source suppression marker located within a file, carrying
+/// the context needed to audit it.
+///
+/// Produced by [`suppression_markers`] (and the [`SuppressionScan`]
+/// callback) for the `bca exemptions` report (issue #386). Unlike the
+/// merged [`crate::FuncSpace::suppressed`] scope — which records only
+/// *what* a function ends up suppressing — this records each marker's
+/// own location, dialect, and the enclosing function it was written in,
+/// so reviewers can see every silencer in the tree, not just its net
+/// effect.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SuppressionMarker {
+    /// 1-based line of the comment that carries the marker.
+    pub line: usize,
+    /// Whether the marker is function- or file-scoped.
+    pub target: SuppressionTarget,
+    /// Which metrics the marker covers (`all` or a named set).
+    pub scope: SuppressionScope,
+    /// Native vs Lizard dialect.
+    pub dialect: SuppressionDialect,
+    /// Enclosing function name for a function-scoped marker, if the
+    /// marker sits inside a function body. `None` for file-scoped
+    /// markers (whole-file by definition) and for function-scoped
+    /// markers written outside any function (which silence nothing — a
+    /// dead marker worth surfacing in an audit).
+    pub function: Option<String>,
+}
+
+/// Collect every in-source suppression marker in a parsed file, with the
+/// location and enclosing-function context the `bca exemptions` audit
+/// reports (issue #386).
+///
+/// The walk mirrors the comment-scanning step in
+/// [`crate::spaces::metrics_with_options`]: it visits comment nodes,
+/// parses each through [`parse_marker`], and records the successes.
+/// Malformed native markers are skipped silently here — the audit is a
+/// read-only listing of what *is* a marker, and the threshold walk is
+/// the surface that already warns on malformed bodies.
+///
+/// Enclosing-function attribution tracks the syntactically nearest
+/// function ancestor during a depth-first walk, matching the body-
+/// containment rule the real suppression logic uses (issue #289) rather
+/// than line-range guessing. Markers are returned sorted by line.
+// Hidden from rustdoc because the signature exposes `ParserTrait`,
+// which is `#[doc(hidden)]` per issue #256 — the `SuppressionScan`
+// callback and `SuppressionMarker` type are the documented surface.
+#[doc(hidden)]
+#[must_use]
+pub fn suppression_markers<T: ParserTrait>(parser: &T) -> Vec<SuppressionMarker> {
+    let code = parser.get_code();
+    let mut markers = Vec::new();
+    // Explicit-stack DFS (not recursion) so a pathologically deep AST
+    // cannot overflow the call stack. Each frame carries the nearest
+    // enclosing function name, borrowed from `code`, so child nodes
+    // inherit it without re-deriving.
+    let mut stack: Vec<(Node<'_>, Option<&str>)> = vec![(parser.get_root(), None)];
+    while let Some((node, enclosing)) = stack.pop() {
+        if T::Checker::is_comment(&node)
+            && let Some(text) = node.utf8_text(code)
+            && let Ok(Some(suppression)) = parse_marker(text)
+        {
+            // File-scoped markers are whole-file by definition, so the
+            // enclosing function is irrelevant; report `None` to avoid a
+            // misleading "inside fn X" attribution.
+            let function = match suppression.kind {
+                SuppressionKind::Function => enclosing.map(str::to_owned),
+                SuppressionKind::File => None,
+            };
+            markers.push(SuppressionMarker {
+                line: node.start_row() + 1,
+                target: suppression.kind.into(),
+                scope: suppression.scope,
+                dialect: suppression.source.into(),
+                function,
+            });
+        }
+        // `is_func_with_code` rather than `is_func`: C/C++ identify
+        // functions only via the code-aware predicate, and the default
+        // impl delegates to `is_func` for every other language.
+        let child_enclosing = if T::Checker::is_func_with_code(&node, code) {
+            T::Getter::get_func_name(&node, code).or(enclosing)
+        } else {
+            enclosing
+        };
+        for child in node.children() {
+            stack.push((child, child_enclosing));
+        }
+    }
+    markers.sort_by_key(|m| m.line);
+    markers
+}
+
+/// Type tag selecting the suppression-marker scan in the language
+/// dispatch (`big_code_analysis::action::<SuppressionScan>`); carries no
+/// data. Returns the [`SuppressionMarker`] list for the parsed file.
+pub struct SuppressionScan {
+    _guard: (),
+}
+
+impl Callback for SuppressionScan {
+    type Res = Vec<SuppressionMarker>;
+    type Cfg = ();
+
+    fn call<T: ParserTrait>(_cfg: Self::Cfg, parser: &T) -> Self::Res {
+        suppression_markers(parser)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -838,5 +999,141 @@ mod tests {
         let block = parse_marker("/*! bca: suppress */").unwrap().unwrap();
         assert_eq!(block.kind, SuppressionKind::Function);
         assert!(matches!(block.scope, SuppressionScope::All));
+    }
+
+    use crate::{CppParser, ElixirParser, PythonParser, RustParser};
+    use std::path::PathBuf;
+
+    /// Collect markers from a Rust snippet via the public collector.
+    fn rust_markers(src: &str) -> Vec<SuppressionMarker> {
+        let parser = RustParser::new(src.as_bytes().to_vec(), &PathBuf::from("t.rs"), None);
+        suppression_markers(&parser)
+    }
+
+    #[test]
+    fn collector_function_scoped_native_marker_attributes_enclosing_fn() {
+        // The marker sits inside `do_thing`'s body, so the audit must
+        // attribute it to that function — the body-containment rule, not
+        // a line-range guess.
+        let src = "fn do_thing() {\n    // bca: suppress\n    let x = 1;\n}\n";
+        let markers = rust_markers(src);
+        assert_eq!(markers.len(), 1);
+        let m = &markers[0];
+        assert_eq!(m.line, 2);
+        assert_eq!(m.target, SuppressionTarget::Function);
+        assert_eq!(m.dialect, SuppressionDialect::Native);
+        assert!(matches!(m.scope, SuppressionScope::All));
+        assert_eq!(m.function.as_deref(), Some("do_thing"));
+    }
+
+    #[test]
+    fn collector_metric_list_scope_is_preserved() {
+        let src = "fn f() {\n    // bca: suppress(cyclomatic, cognitive)\n}\n";
+        let markers = rust_markers(src);
+        assert_eq!(markers.len(), 1);
+        let SuppressionScope::Some(metrics) = &markers[0].scope else {
+            panic!("expected an explicit metric set");
+        };
+        assert!(metrics.contains(&MetricKind::Cyclomatic));
+        assert!(metrics.contains(&MetricKind::Cognitive));
+        assert_eq!(metrics.len(), 2);
+    }
+
+    #[test]
+    fn collector_file_scoped_marker_has_no_enclosing_fn() {
+        // A `suppress-file` marker is whole-file by definition; the
+        // enclosing function must be elided even though it is written
+        // inside a function body.
+        let src = "fn f() {\n    // bca: suppress-file\n}\n";
+        let markers = rust_markers(src);
+        assert_eq!(markers.len(), 1);
+        assert_eq!(markers[0].target, SuppressionTarget::File);
+        assert_eq!(markers[0].function, None);
+    }
+
+    #[test]
+    fn collector_nested_fn_attributes_innermost() {
+        // The marker is inside the inner function; attribution must pick
+        // the syntactically nearest enclosing function, not the outer.
+        let src = "fn outer() {\n    fn inner() {\n        // bca: suppress\n    }\n}\n";
+        let markers = rust_markers(src);
+        assert_eq!(markers.len(), 1);
+        assert_eq!(markers[0].function.as_deref(), Some("inner"));
+    }
+
+    #[test]
+    fn collector_marker_outside_any_fn_has_no_enclosing_fn() {
+        // A function-scoped marker with no enclosing function silences
+        // nothing; the audit still lists it (a dead marker) with no
+        // function attribution.
+        let src = "// bca: suppress\nfn f() {}\n";
+        let markers = rust_markers(src);
+        assert_eq!(markers.len(), 1);
+        assert_eq!(markers[0].target, SuppressionTarget::Function);
+        assert_eq!(markers[0].function, None);
+    }
+
+    #[test]
+    fn collector_recognizes_lizard_dialect() {
+        let src = "fn f() {\n    // #lizard forgives\n}\n";
+        let markers = rust_markers(src);
+        assert_eq!(markers.len(), 1);
+        assert_eq!(markers[0].dialect, SuppressionDialect::Lizard);
+        assert_eq!(markers[0].function.as_deref(), Some("f"));
+    }
+
+    #[test]
+    fn collector_markers_sorted_by_line() {
+        let src = "fn a() {\n    // bca: suppress\n}\nfn b() {\n    // bca: suppress\n}\n";
+        let markers = rust_markers(src);
+        assert_eq!(markers.len(), 2);
+        assert!(markers[0].line < markers[1].line);
+        assert_eq!(markers[0].function.as_deref(), Some("a"));
+        assert_eq!(markers[1].function.as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn collector_python_hash_marker() {
+        let src = "def helper():\n    # bca: suppress\n    pass\n";
+        let parser = PythonParser::new(src.as_bytes().to_vec(), &PathBuf::from("t.py"), None);
+        let markers = suppression_markers(&parser);
+        assert_eq!(markers.len(), 1);
+        assert_eq!(markers[0].target, SuppressionTarget::Function);
+        assert_eq!(markers[0].function.as_deref(), Some("helper"));
+    }
+
+    #[test]
+    fn collector_cpp_attributes_enclosing_function() {
+        // Cross-language coverage: C++ functions are detected and the
+        // marker is attributed to the enclosing function.
+        let src = "int compute(int a) {\n    // bca: suppress\n    return a;\n}\n";
+        let parser = CppParser::new(src.as_bytes().to_vec(), &PathBuf::from("t.cpp"), None);
+        let markers = suppression_markers(&parser);
+        assert_eq!(markers.len(), 1);
+        assert_eq!(markers[0].target, SuppressionTarget::Function);
+        assert_eq!(markers[0].function.as_deref(), Some("compute"));
+    }
+
+    #[test]
+    fn collector_elixir_requires_code_aware_func_predicate() {
+        // Elixir is the language whose `Checker::is_func` returns `false`
+        // unconditionally — it identifies functions only through the
+        // code-aware `is_func_with_code`. This test fails if the walk
+        // reverts to plain `is_func` (the enclosing function would then
+        // resolve to `None`), so it pins the predicate choice in
+        // `suppression_markers`.
+        let src =
+            "defmodule M do\n  def parse_long do\n    # bca: suppress\n    x = 1\n  end\nend\n";
+        let parser = ElixirParser::new(src.as_bytes().to_vec(), &PathBuf::from("t.ex"), None);
+        let markers = suppression_markers(&parser);
+        assert_eq!(markers.len(), 1);
+        assert_eq!(markers[0].target, SuppressionTarget::Function);
+        assert_eq!(markers[0].function.as_deref(), Some("parse_long"));
+    }
+
+    #[test]
+    fn collector_empty_source_yields_no_markers() {
+        assert!(rust_markers("").is_empty());
+        assert!(rust_markers("fn f() {}\n").is_empty());
     }
 }

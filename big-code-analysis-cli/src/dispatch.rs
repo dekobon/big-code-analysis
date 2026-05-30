@@ -24,11 +24,12 @@ use std::sync::atomic::Ordering;
 use big_code_analysis::get_function_spaces_with_options;
 use big_code_analysis::{
     CommentRm, CommentRmCfg, Count, CountCfg, Dump, DumpCfg, Find, FindCfg, Function, FunctionCfg,
-    Metrics, MetricsCfg, OpsCfg, OpsCode, PreprocParser, PreprocResults, action, get_ops,
-    guess_language, is_generated, preprocess, read_file_with_eol,
+    Metrics, MetricsCfg, OpsCfg, OpsCode, PreprocParser, PreprocResults, SuppressionScan, action,
+    get_ops, guess_language, is_generated, preprocess, read_file_with_eol,
 };
 use big_code_analysis::{LANG, ParserTrait};
 
+use crate::exemptions::FileMarkers;
 use crate::formats::{MetricsDispatch, MetricsFormat, dump_csv};
 use crate::markdown_report::extract_summaries;
 use crate::{Action, Config, FEATURES_PINNED};
@@ -54,6 +55,7 @@ pub(crate) fn act_on_file(path: PathBuf, cfg: &Config) -> std::io::Result<()> {
         Action::Count(filters) => dispatch_count(language, source, path, pr, cfg, filters),
         Action::Report => dispatch_report(language, source, path, pr, cfg),
         Action::Check => dispatch_check_file(language, source, path, pr, cfg),
+        Action::Exemptions => dispatch_exemptions(language, source, path, pr, cfg),
         Action::PreprocProduce => dispatch_preproc(source, path, cfg),
     }
 }
@@ -371,6 +373,66 @@ fn dispatch_check_file(
             }
         }
     }
+    Ok(())
+}
+
+// Returns Result<()> for dispatch-table uniformity; never produces
+// an `Err` itself.
+#[allow(clippy::unnecessary_wraps)]
+fn dispatch_exemptions(
+    language: LANG,
+    source: Vec<u8>,
+    path: PathBuf,
+    pr: Option<Arc<PreprocResults>>,
+    cfg: &Config,
+) -> std::io::Result<()> {
+    // Auxiliary grammars (`Preproc`, `Ccomment`) carry no user-authored
+    // suppression markers and have no function spaces to attribute them
+    // to; skip them so the audit mirrors the set of files `bca check`
+    // actually gates.
+    let Some(tx) = cfg.exemptions_tx.as_ref() else {
+        return Ok(());
+    };
+    if matches!(language, LANG::Preproc | LANG::Ccomment) {
+        return Ok(());
+    }
+    // The marker report renders the path into human-readable text and a
+    // JSON `path` field, so a non-UTF-8 path cannot round-trip; skip it
+    // with a warning rather than lossily mangling the identifier.
+    let Some(file_str) = path.to_str() else {
+        if cfg.warning {
+            eprintln!(
+                "warning: skipping non-UTF-8 path in exemptions audit: {}",
+                path.display()
+            );
+        }
+        return Ok(());
+    };
+    let markers =
+        action::<SuppressionScan>(&language, source, &path, pr, ()).expect(FEATURES_PINNED);
+    // Empty files are the dominant case (most source carries no
+    // markers); skip the channel send and the per-file allocation when
+    // there is nothing to report.
+    if markers.is_empty() {
+        return Ok(());
+    }
+    let Ok(sender) = tx.lock() else {
+        if cfg.warning {
+            eprintln!(
+                "warning: skipping {}: exemptions channel lock poisoned",
+                path.display()
+            );
+        }
+        return Ok(());
+    };
+    // Receiver lives until the post-walk aggregator drains `rx`, which
+    // happens only after all worker threads join — so `send` cannot
+    // fail. Use `let _` rather than `expect` to avoid panicking the
+    // worker pool on the unreachable drop path.
+    let _ = sender.send(FileMarkers {
+        path: file_str.to_owned(),
+        markers,
+    });
     Ok(())
 }
 

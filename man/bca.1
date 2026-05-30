@@ -105,6 +105,9 @@ Scaffold the canonical adoption files (`bca\-thresholds.toml`, `.bcaignore`, `.b
 bca\-diff\-baseline(1)
 Diff two `.bca\-baseline.toml` files and report what was added, removed, worsened, or improved. Replaces the in\-the\-head TOML diff parsing the book\*(Aqs PR\-review recipe used to walk through. Always exits 0 on success — the diff is informational, not a gate
 .TP
+bca\-exemptions(1)
+Audit everything the `bca check` gate skips in one view: in\-source suppression markers (`bca: suppress`, `#lizard forgives`, …), `[check.exclude]` globs, and `.bca\-baseline.toml` entries. Read\-only; always exits 0 on success
+.TP
 bca\-help(1)
 Print this message or the help of the given subcommand(s)
 .SH EXTRA

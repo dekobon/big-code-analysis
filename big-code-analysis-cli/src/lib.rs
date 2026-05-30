@@ -35,6 +35,7 @@ mod check_format;
 mod commands;
 mod diff;
 mod dispatch;
+mod exemptions;
 mod format_util;
 mod formats;
 mod html_report;
@@ -318,6 +319,12 @@ enum Command {
     /// Always exits 0 on success — the diff is informational, not a
     /// gate.
     DiffBaseline(DiffBaselineArgs),
+    /// Audit everything the `bca check` gate skips in one view:
+    /// in-source suppression markers (`bca: suppress`,
+    /// `#lizard forgives`, …), `[check.exclude]` globs, and
+    /// `.bca-baseline.toml` entries. Read-only; always exits 0 on
+    /// success.
+    Exemptions(ExemptionsArgs),
 }
 
 /// Shared shape for `metrics` and `ops`: same format set, same output
@@ -632,15 +639,16 @@ struct InitArgs {
     no_baseline: bool,
 }
 
-/// Output style for `bca diff-baseline`.
+/// Shared `tty`/`markdown`/`json` output style for the read-only
+/// reporting commands (`bca diff-baseline`, `bca exemptions`).
 ///
 /// `Tty` (default) is the human, column-aligned form. `Markdown` wraps
-/// each section's rows in a fenced block so the output drops cleanly
-/// into a sticky PR comment. `Json` emits the complete structured diff
-/// for tooling — and deliberately ignores the `--*-only` filters, since
-/// a machine consumer reads the bucket it wants from a stable schema.
+/// each section in tables / fenced blocks so the output drops cleanly
+/// into a sticky PR comment. `Json` emits the complete structured form
+/// for tooling — and deliberately ignores any `--*-only` filters, since
+/// a machine consumer reads the field it wants from a stable schema.
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq, Default)]
-enum DiffFormat {
+enum OutputFormat {
     #[default]
     Tty,
     Markdown,
@@ -673,8 +681,8 @@ struct DiffBaselineArgs {
     #[clap(value_parser)]
     new: PathBuf,
     /// Output style: `tty` (default), `markdown`, or `json`.
-    #[clap(long, value_enum, default_value_t = DiffFormat::Tty)]
-    format: DiffFormat,
+    #[clap(long, value_enum, default_value_t = OutputFormat::Tty)]
+    format: OutputFormat,
     /// Render only the "Added" section (combinable with the other
     /// `--*-only` flags). Ignored by `--format json`.
     #[clap(long = "added-only")]
@@ -688,6 +696,53 @@ struct DiffBaselineArgs {
     /// Render only the "Improved" section. Ignored by `--format json`.
     #[clap(long = "improved-only")]
     improved_only: bool,
+}
+
+/// Arguments for the `exemptions` subcommand (issue #386). Audits the
+/// three gate-skipping tiers — in-source markers, `[check.exclude]`
+/// globs, and `.bca-baseline.toml` entries — in one report.
+///
+/// The `--only-*` flags are mutually exclusive section selectors for
+/// PR-bot specialisation; omitting them reports all three. The baseline
+/// and `[check.exclude]` inputs default to the same sources `bca check`
+/// reads (`bca.toml` `[check]` table), so the audit reflects exactly
+/// what the gate would skip.
+#[derive(Args, Debug)]
+struct ExemptionsArgs {
+    /// Output style: `tty` (default), `markdown`, or `json`. JSON nests
+    /// all three sections under a single `suppressions` envelope.
+    #[clap(long, value_enum, default_value_t = OutputFormat::Tty)]
+    format: OutputFormat,
+    /// Output file. Stdout if omitted.
+    #[clap(long, short, value_parser)]
+    output: Option<PathBuf>,
+    /// Path prefix to strip from displayed file paths.
+    #[clap(long, default_value = "")]
+    strip_prefix: String,
+    /// Report only the in-source markers section.
+    #[clap(long = "only-markers", conflicts_with_all = ["only_excludes", "only_baseline"])]
+    only_markers: bool,
+    /// Report only the `[check.exclude]` globs section.
+    #[clap(long = "only-excludes", conflicts_with_all = ["only_markers", "only_baseline"])]
+    only_excludes: bool,
+    /// Report only the `.bca-baseline.toml` entries section.
+    #[clap(long = "only-baseline", conflicts_with_all = ["only_markers", "only_excludes"])]
+    only_baseline: bool,
+    /// Baseline file to audit. Defaults to `bca.toml`'s top-level
+    /// `baseline` key, then `.bca-baseline.toml` in the working
+    /// directory when present. A path given here must exist.
+    #[clap(long = "baseline", value_parser)]
+    baseline: Option<PathBuf>,
+    /// Glob exempting files from the check gate, mirroring
+    /// `bca check --check-exclude`. Repeatable. An explicit value
+    /// *replaces* the `bca.toml` `[check] exclude` list (CLI-wins).
+    #[clap(long = "check-exclude", value_name = "GLOB")]
+    check_exclude: Vec<String>,
+    /// Read newline-separated `--check-exclude` globs from a file
+    /// (`.gitignore`-style), mirroring `bca check --check-exclude-from`.
+    /// Use `-` for stdin. Unioned with any `--check-exclude` values.
+    #[clap(long = "check-exclude-from", value_parser)]
+    check_exclude_from: Option<PathBuf>,
 }
 
 /// Serialization format for `--print-effective-config`. TOML is the
@@ -760,6 +815,10 @@ enum Action {
     PreprocProduce,
     /// Walks source and streams threshold violations to a channel.
     Check,
+    /// Walks source and streams in-source suppression markers (with
+    /// their enclosing-function context) to a channel for the
+    /// `bca exemptions` audit.
+    Exemptions,
 }
 
 #[derive(Debug)]
@@ -783,6 +842,10 @@ struct Config {
     /// Sender for streaming [`Violation`] records when running `check`.
     /// Wrapped in `Mutex` for the same reason as `markdown_tx`.
     check_tx: Option<Mutex<std::sync::mpsc::Sender<Violation>>>,
+    /// Sender for streaming per-file suppression-marker batches when
+    /// running `exemptions`. Wrapped in `Mutex` for the same reason as
+    /// `markdown_tx`.
+    exemptions_tx: Option<Mutex<std::sync::mpsc::Sender<exemptions::FileMarkers>>>,
     /// Counts how many files survived expansion and glob filtering and
     /// were actually dispatched to `act_on_file`. `Action::Check` reads
     /// this after the walk to distinguish "all clean" (counter > 0,
@@ -841,6 +904,7 @@ impl Config {
             strip_prefix: String::new(),
             threshold_set: None,
             check_tx: None,
+            exemptions_tx: None,
             files_dispatched: None,
             suppression_policy: SuppressionPolicy::Honor,
             warning: globals.warning,
@@ -1185,6 +1249,7 @@ const SUBCOMMANDS: &[&str] = &[
     "check",
     "init",
     "diff-baseline",
+    "exemptions",
 ];
 
 /// Decode the value of `-O <v>` / `--output-format <v>` /

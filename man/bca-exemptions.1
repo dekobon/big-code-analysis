@@ -1,0 +1,52 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH BCA-EXEMPTIONS 1  "big-code-analysis 1.1.0" "big-code-analysis Manual"
+.SH NAME
+bca\-exemptions \- Audit everything the `bca check` gate skips in one view: in\-source suppression markers (`bca: suppress`, `#lizard forgives`, …), `[check.exclude]` globs, and `.bca\-baseline.toml` entries. Read\-only; always exits 0 on success
+.SH SYNOPSIS
+\fBbca\-exemptions\fR [\fB\-\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-strip\-prefix\fR] [\fB\-\-only\-markers\fR] [\fB\-\-only\-excludes\fR] [\fB\-\-only\-baseline\fR] [\fB\-\-baseline\fR] [\fB\-\-check\-exclude\fR] [\fB\-\-check\-exclude\-from\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+.SH DESCRIPTION
+Audit everything the `bca check` gate skips in one view: in\-source suppression markers (`bca: suppress`, `#lizard forgives`, …), `[check.exclude]` globs, and `.bca\-baseline.toml` entries. Read\-only; always exits 0 on success
+.SH OPTIONS
+.TP
+\fB\-\-format\fR \fI<FORMAT>\fR [default: tty]
+Output style: `tty` (default), `markdown`, or `json`. JSON nests all three sections under a single `suppressions` envelope
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+tty
+.IP \(bu 2
+markdown
+.IP \(bu 2
+json
+.RE
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fI<OUTPUT>\fR
+Output file. Stdout if omitted
+.TP
+\fB\-\-strip\-prefix\fR \fI<STRIP_PREFIX>\fR [default: ]
+Path prefix to strip from displayed file paths
+.TP
+\fB\-\-only\-markers\fR
+Report only the in\-source markers section
+.TP
+\fB\-\-only\-excludes\fR
+Report only the `[check.exclude]` globs section
+.TP
+\fB\-\-only\-baseline\fR
+Report only the `.bca\-baseline.toml` entries section
+.TP
+\fB\-\-baseline\fR \fI<BASELINE>\fR
+Baseline file to audit. Defaults to `bca.toml`\*(Aqs top\-level `baseline` key, then `.bca\-baseline.toml` in the working directory when present. A path given here must exist
+.TP
+\fB\-\-check\-exclude\fR \fI<GLOB>\fR
+Glob exempting files from the check gate, mirroring `bca check \-\-check\-exclude`. Repeatable. An explicit value *replaces* the `bca.toml` `[check] exclude` list (CLI\-wins)
+.TP
+\fB\-\-check\-exclude\-from\fR \fI<CHECK_EXCLUDE_FROM>\fR
+Read newline\-separated `\-\-check\-exclude` globs from a file (`.gitignore`\-style), mirroring `bca check \-\-check\-exclude\-from`. Use `\-` for stdin. Unioned with any `\-\-check\-exclude` values
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help

@@ -20,6 +20,7 @@ fn test_config(action: Action) -> Config {
         strip_prefix: String::new(),
         threshold_set: None,
         check_tx: None,
+        exemptions_tx: None,
         files_dispatched: None,
         suppression_policy: SuppressionPolicy::Honor,
         warning: false,

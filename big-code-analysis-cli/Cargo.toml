@@ -113,6 +113,11 @@ assets = [
     "644",
   ],
   [
+    "../man/bca-exemptions.1",
+    "usr/share/man/man1/",
+    "644",
+  ],
+  [
     "../man/bca-find.1",
     "usr/share/man/man1/",
     "644",
@@ -182,6 +187,7 @@ assets = [
   { source = "../man/bca-check.1", dest = "/usr/share/man/man1/bca-check.1", mode = "644" },
   { source = "../man/bca-count.1", dest = "/usr/share/man/man1/bca-count.1", mode = "644" },
   { source = "../man/bca-dump.1", dest = "/usr/share/man/man1/bca-dump.1", mode = "644" },
+  { source = "../man/bca-exemptions.1", dest = "/usr/share/man/man1/bca-exemptions.1", mode = "644" },
   { source = "../man/bca-find.1", dest = "/usr/share/man/man1/bca-find.1", mode = "644" },
   { source = "../man/bca-init.1", dest = "/usr/share/man/man1/bca-init.1", mode = "644" },
   { source = "../man/bca-functions.1", dest = "/usr/share/man/man1/bca-functions.1", mode = "644" },
