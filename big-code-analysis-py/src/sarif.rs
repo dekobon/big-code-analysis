@@ -252,6 +252,20 @@ struct Threshold {
     limit: f64,
 }
 
+/// Builds the "unknown threshold metric" error for `name`, listing the
+/// known metric names. The known-metrics list is joined lazily here so
+/// it is only allocated on the error path, never for valid lookups.
+fn unknown_threshold_metric_err(name: &str) -> PyErr {
+    let known = METRIC_FIELDS
+        .iter()
+        .map(|m| m.name)
+        .collect::<Vec<_>>()
+        .join(", ");
+    PyValueError::new_err(format!(
+        "unknown threshold metric {name:?}; known metrics: {known}"
+    ))
+}
+
 fn resolve_thresholds(thresholds: Option<&Bound<'_, PyDict>>) -> PyResult<Vec<Threshold>> {
     let Some(dict) = thresholds else {
         return Ok(Vec::new());
@@ -281,16 +295,7 @@ fn resolve_thresholds(thresholds: Option<&Bound<'_, PyDict>>) -> PyResult<Vec<Th
             .iter()
             .copied()
             .find(|m| m.name == name)
-            .ok_or_else(|| {
-                let known = METRIC_FIELDS
-                    .iter()
-                    .map(|m| m.name)
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                PyValueError::new_err(format!(
-                    "unknown threshold metric {name:?}; known metrics: {known}"
-                ))
-            })?;
+            .ok_or_else(|| unknown_threshold_metric_err(&name))?;
         out.push(Threshold {
             name: entry.name,
             path: entry.path,
@@ -364,6 +369,78 @@ fn extract_line_number(
     Ok(Some(u32::try_from(raw).unwrap_or(u32::MAX)))
 }
 
+/// The per-space fields [`collect_offenders`] needs once per space,
+/// independent of how many thresholds are checked against it. Computed
+/// in [`extract_space_fields`] so the threshold loop stays a thin
+/// compare-and-push.
+struct SpaceFields {
+    /// Whether the space is the file-level `unit` space (drives the
+    /// `skip_at_unit` and `<file>` function-name rules).
+    is_unit: bool,
+    /// The SARIF `logicalLocations` function name for the space.
+    function: Option<String>,
+    /// 1-based start line (0 when absent), clamped to `u32::MAX`.
+    start_line: u32,
+    /// 1-based end line (falls back to `start_line` when absent).
+    end_line: u32,
+}
+
+/// Extracts the per-space fields used to build an [`OffenderRecord`].
+///
+/// Mixed error semantics, replicated from the original inline code:
+/// `kind` and `name` swallow extraction errors to `None` (a missing or
+/// malformed kind/name must not abort the walk), while `start_line` /
+/// `end_line` propagate via `?` (a hard `PyO3` error there is a real
+/// failure, not a tolerable absence — [`extract_line_number`] already
+/// maps tolerable cases to `Ok(None)`).
+fn extract_space_fields(space: &Bound<'_, PyDict>) -> PyResult<SpaceFields> {
+    let py = space.py();
+
+    let kind: Option<String> = space
+        .get_item(intern!(py, "kind"))?
+        .and_then(|k| k.extract::<String>().ok())
+        // Normalise case so an upstream rename or a hand-crafted
+        // dict using "Unit" instead of "unit" still hits the
+        // skip-at-unit logic. Upstream serialises with
+        // `#[serde(rename_all = "lowercase")]` today; this is a
+        // defensive lowercase guard against future drift.
+        .map(|s| s.to_ascii_lowercase());
+    let is_unit = kind.as_deref() == Some("unit");
+
+    let space_name: Option<String> = space
+        .get_item(intern!(py, "name"))?
+        .and_then(|n| n.extract().ok());
+    let start_line: u32 = extract_line_number(space, intern!(py, "start_line"))?.unwrap_or(0);
+    let end_line: u32 = extract_line_number(space, intern!(py, "end_line"))?.unwrap_or(start_line);
+
+    // `function` field for SARIF `logicalLocations`. Mirrors the
+    // CLI's `function_token` in
+    // `big-code-analysis-cli/src/thresholds.rs`: unit spaces emit
+    // `<file>` (the path itself is on `artifactLocation.uri`, so
+    // duplicating it in the function slot would be redundant);
+    // non-unit spaces emit the space's `name`, falling back to
+    // `<unnamed>` for the rare parse-failure case where the name
+    // couldn't be recovered.
+    let function: Option<String> = Some(if is_unit {
+        "<file>".to_string()
+    } else {
+        // `as_deref()` avoids cloning when `space_name` is `Some` —
+        // `to_string()` allocates exactly once for the placeholder
+        // branch and exactly once for the named branch.
+        space_name
+            .as_deref()
+            .unwrap_or(UNNAMED_FUNCTION_PLACEHOLDER)
+            .to_string()
+    });
+
+    Ok(SpaceFields {
+        is_unit,
+        function,
+        start_line,
+        end_line,
+    })
+}
+
 fn collect_offenders(
     result: &Bound<'_, PyDict>,
     thresholds: &[Threshold],
@@ -384,46 +461,10 @@ fn collect_offenders(
             continue;
         };
 
-        let kind: Option<String> = space
-            .get_item(intern!(py, "kind"))?
-            .and_then(|k| k.extract::<String>().ok())
-            // Normalise case so an upstream rename or a hand-crafted
-            // dict using "Unit" instead of "unit" still hits the
-            // skip-at-unit logic. Upstream serialises with
-            // `#[serde(rename_all = "lowercase")]` today; this is a
-            // defensive lowercase guard against future drift.
-            .map(|s| s.to_ascii_lowercase());
-        let is_unit = kind.as_deref() == Some("unit");
-
-        let space_name: Option<String> = space
-            .get_item(intern!(py, "name"))?
-            .and_then(|n| n.extract().ok());
-        let start_line: u32 = extract_line_number(&space, intern!(py, "start_line"))?.unwrap_or(0);
-        let end_line: u32 =
-            extract_line_number(&space, intern!(py, "end_line"))?.unwrap_or(start_line);
-
-        // `function` field for SARIF `logicalLocations`. Mirrors the
-        // CLI's `function_token` in
-        // `big-code-analysis-cli/src/thresholds.rs`: unit spaces emit
-        // `<file>` (the path itself is on `artifactLocation.uri`, so
-        // duplicating it in the function slot would be redundant);
-        // non-unit spaces emit the space's `name`, falling back to
-        // `<unnamed>` for the rare parse-failure case where the name
-        // couldn't be recovered.
-        let function: Option<String> = Some(if is_unit {
-            "<file>".to_string()
-        } else {
-            // `as_deref()` avoids cloning when `space_name` is `Some` —
-            // `to_string()` allocates exactly once for the placeholder
-            // branch and exactly once for the named branch.
-            space_name
-                .as_deref()
-                .unwrap_or(UNNAMED_FUNCTION_PLACEHOLDER)
-                .to_string()
-        });
+        let fields = extract_space_fields(&space)?;
 
         for threshold in thresholds {
-            if is_unit && threshold.skip_at_unit {
+            if fields.is_unit && threshold.skip_at_unit {
                 continue;
             }
             let Some(value) = extract_metric(&metrics, threshold.path) else {
@@ -434,9 +475,9 @@ fn collect_offenders(
             }
             out.push(OffenderRecord {
                 path: path.clone(),
-                function: function.clone(),
-                start_line,
-                end_line,
+                function: fields.function.clone(),
+                start_line: fields.start_line,
+                end_line: fields.end_line,
                 start_col: None,
                 metric: threshold.name.to_string(),
                 value,

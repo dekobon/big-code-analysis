@@ -78,47 +78,46 @@ pub fn get_macros<S: ::std::hash::BuildHasher>(
     macros
 }
 
-/// Constructs a dependency graph of the include directives
-/// in a `C/C++` file.
-///
-/// The dependency graph is built using both preprocessor data and not
-/// extracted from the considered `C/C++` files.
-///
-/// # Panics
-///
-/// Panics if any of the lockstep invariants between the include graph
-/// `g`, the `nodes` map, and the `scc_map` is violated at runtime —
-/// specifically: an SCC component node missing from the graph, a graph
-/// node weight without a `nodes` map entry, a DFS-visited node without
-/// a stored weight, or an empty-path replacement node without a
-/// `scc_map` entry. These data structures are built in lockstep by
-/// this function, so all four conditions represent unrecoverable
-/// programmer errors rather than reachable input failures.
-pub fn fix_includes<S: ::std::hash::BuildHasher>(
-    files: &mut HashMap<PathBuf, PreprocFile, S>,
+/// The include dependency graph: nodes are file paths, edges point from a
+/// file to each file it directly includes. SCC replacement nodes carry an
+/// empty [`PathBuf`] as their weight.
+type IncludeGraph = StableGraph<PathBuf, i32>;
+
+/// Returns the graph node for `file`, inserting one (and recording it in
+/// `nodes`) on first lookup so that repeat lookups of the same path return a
+/// stable [`NodeIndex`]. The owned-path call site pays one extra clone here,
+/// which is allocation only and never affects output.
+fn ensure_node(
+    g: &mut IncludeGraph,
+    nodes: &mut HashMap<PathBuf, NodeIndex>,
+    file: &Path,
+) -> NodeIndex {
+    match nodes.entry(file.to_path_buf()) {
+        hash_map::Entry::Occupied(l) => *l.get(),
+        hash_map::Entry::Vacant(p) => *p.insert(g.add_node(file.to_path_buf())),
+    }
+}
+
+/// Builds the include dependency graph from the preprocessor data: one node
+/// per file, one edge per resolved direct include. Self-inclusions are warned
+/// about and skipped rather than added as self-edges.
+fn build_include_graph<S: ::std::hash::BuildHasher>(
+    files: &HashMap<PathBuf, PreprocFile, S>,
     all_files: &HashMap<String, Vec<PathBuf>, S>,
-) {
+) -> (IncludeGraph, HashMap<PathBuf, NodeIndex>) {
     let mut nodes: HashMap<PathBuf, NodeIndex> = HashMap::new();
     // Since we'll remove strong connected components we need to have a stable graph
     // in order to use the nodes we've in the nodes HashMap.
     let mut g = StableGraph::new();
 
-    // First we build a graph of include dependencies
-    for (file, pf) in files.iter() {
-        let node = match nodes.entry(file.clone()) {
-            hash_map::Entry::Occupied(l) => *l.get(),
-            hash_map::Entry::Vacant(p) => *p.insert(g.add_node(file.clone())),
-        };
-        let direct_includes = &pf.direct_includes;
-        for i in direct_includes {
+    for (file, pf) in files {
+        let node = ensure_node(&mut g, &mut nodes, file);
+        for i in &pf.direct_includes {
             let possibilities = guess_file(file, i, all_files);
-            for i in possibilities {
-                if &i != file {
-                    let i = match nodes.entry(i.clone()) {
-                        hash_map::Entry::Occupied(l) => *l.get(),
-                        hash_map::Entry::Vacant(p) => *p.insert(g.add_node(i)),
-                    };
-                    g.add_edge(node, i, 0);
+            for included in possibilities {
+                if &included != file {
+                    let included = ensure_node(&mut g, &mut nodes, &included);
+                    g.add_edge(node, included, 0);
                 } else {
                     // TODO: add an option to display warning
                     eprintln!("Warning: possible self inclusion {}", file.display());
@@ -127,39 +126,59 @@ pub fn fix_includes<S: ::std::hash::BuildHasher>(
         }
     }
 
+    (g, nodes)
+}
+
+/// Collects the neighbors of `component` in the given `direction` that lie
+/// outside the component, de-duplicated and in first-seen order. Intra-
+/// component edges are excluded so the replacement node only re-wires the
+/// SCC's external boundary. A `Vec` (not a `HashSet`) suffices: SCCs in real
+/// codebases are few and small, so linear `contains` checks stay cheap.
+fn scc_external_neighbors(
+    g: &IncludeGraph,
+    component: &[NodeIndex],
+    direction: Direction,
+) -> Vec<NodeIndex> {
+    let mut neighbors = Vec::new();
+    for c in component {
+        for n in g.neighbors_directed(*c, direction) {
+            if !component.contains(&n) && !neighbors.contains(&n) {
+                neighbors.push(n);
+            }
+        }
+    }
+    neighbors
+}
+
+/// Replaces every strongly connected component (an include cycle) with a
+/// single replacement node carrying an empty path, re-wiring the component's
+/// external incoming/outgoing edges onto it and rewriting the `nodes` map so
+/// each member path now resolves to the replacement. Returns a map from each
+/// replacement node to the set of member paths it stands in for.
+fn collapse_scc(
+    g: &mut IncludeGraph,
+    nodes: &mut HashMap<PathBuf, NodeIndex>,
+) -> HashMap<NodeIndex, HashSet<String>> {
     // In order to walk in the graph without issues due to cycles
     // we replace strong connected components by a unique node
     // All the paths in a scc finally represents a kind of unique file containing
     // all the files in the scc.
-    let mut scc = kosaraju_scc(&g);
+    let mut scc = kosaraju_scc(&*g);
     let mut scc_map: HashMap<NodeIndex, HashSet<String>> = HashMap::new();
     for component in &mut scc {
         if component.len() > 1 {
-            // For Firefox, there are only few scc and all of them are pretty small
-            // So no need to take a hammer here (for 'contains' stuff).
-            // TODO: in some case a hammer can be useful: check perf Vec vs HashSet
-            let mut incoming = Vec::new();
-            let mut outgoing = Vec::new();
+            // External boundaries must be captured before the replacement node
+            // is added, so the new node is never mistaken for an external
+            // neighbor.
+            let incoming = scc_external_neighbors(g, component, Direction::Incoming);
+            let outgoing = scc_external_neighbors(g, component, Direction::Outgoing);
             let mut paths = HashSet::new();
 
-            for c in component.iter() {
-                for i in g.neighbors_directed(*c, Direction::Incoming) {
-                    if !component.contains(&i) && !incoming.contains(&i) {
-                        incoming.push(i);
-                    }
-                }
-                for o in g.neighbors_directed(*c, Direction::Outgoing) {
-                    if !component.contains(&o) && !outgoing.contains(&o) {
-                        outgoing.push(o);
-                    }
-                }
-            }
-
             let replacement = g.add_node(PathBuf::from(""));
-            for i in incoming.drain(..) {
+            for i in incoming {
                 g.add_edge(i, replacement, 0);
             }
-            for o in outgoing.drain(..) {
+            for o in outgoing {
                 g.add_edge(replacement, o, 0);
             }
             for c in component.drain(..) {
@@ -192,18 +211,30 @@ pub fn fix_includes<S: ::std::hash::BuildHasher>(
             scc_map.insert(replacement, paths);
         }
     }
+    scc_map
+}
 
-    for (path, node) in nodes {
-        let mut dfs = Dfs::new(&g, node);
-        if let Some(pf) = files.get_mut(&path) {
+/// Walks the include graph from every file's node and records the transitive
+/// closure of reachable includes into that file's `indirect_includes`. An
+/// SCC replacement node (empty path) contributes every member path it stands
+/// in for. Files reachable only through the graph but never preprocessed are
+/// warned about.
+fn record_indirect_includes<S: ::std::hash::BuildHasher>(
+    files: &mut HashMap<PathBuf, PreprocFile, S>,
+    g: &IncludeGraph,
+    nodes: &HashMap<PathBuf, NodeIndex>,
+    scc_map: &HashMap<NodeIndex, HashSet<String>>,
+) {
+    for (path, start) in nodes {
+        let mut dfs = Dfs::new(g, *start);
+        if let Some(pf) = files.get_mut(path) {
             let x_inc = &mut pf.indirect_includes;
-            while let Some(node) = dfs.next(&g) {
+            while let Some(node) = dfs.next(g) {
                 let w = g
                     .node_weight(node)
                     .expect("invariant: DFS-visited node must have weight in graph");
                 if w == &PathBuf::from("") {
-                    let paths = scc_map.get(&node);
-                    if let Some(paths) = paths {
+                    if let Some(paths) = scc_map.get(&node) {
                         for p in paths {
                             x_inc.insert(p.clone());
                         }
@@ -230,6 +261,31 @@ pub fn fix_includes<S: ::std::hash::BuildHasher>(
             );
         }
     }
+}
+
+/// Constructs a dependency graph of the include directives
+/// in a `C/C++` file.
+///
+/// The dependency graph is built using both preprocessor data and not
+/// extracted from the considered `C/C++` files.
+///
+/// # Panics
+///
+/// Panics if any of the lockstep invariants between the include graph
+/// `g`, the `nodes` map, and the `scc_map` is violated at runtime —
+/// specifically: an SCC component node missing from the graph, a graph
+/// node weight without a `nodes` map entry, a DFS-visited node without
+/// a stored weight, or an empty-path replacement node without a
+/// `scc_map` entry. These data structures are built in lockstep by
+/// this function, so all four conditions represent unrecoverable
+/// programmer errors rather than reachable input failures.
+pub fn fix_includes<S: ::std::hash::BuildHasher>(
+    files: &mut HashMap<PathBuf, PreprocFile, S>,
+    all_files: &HashMap<String, Vec<PathBuf>, S>,
+) {
+    let (mut g, mut nodes) = build_include_graph(files, all_files);
+    let scc_map = collapse_scc(&mut g, &mut nodes);
+    record_indirect_includes(files, &g, &nodes, &scc_map);
 }
 
 /// Strips the surrounding double quotes from an `#include` `string_literal`
@@ -424,6 +480,54 @@ mod tests {
             .expect("b.h must be retained");
         assert!(b.indirect_includes.contains("a.h"));
         assert!(b.indirect_includes.contains("b.h"));
+    }
+
+    /// `ensure_node` must return the same `NodeIndex` for a repeated path
+    /// lookup and must not add a second graph node — the include-graph build
+    /// relies on this to coalesce a file referenced from multiple includes.
+    #[test]
+    fn ensure_node_returns_stable_index_on_repeat() {
+        let mut g: IncludeGraph = StableGraph::new();
+        let mut nodes: HashMap<PathBuf, NodeIndex> = HashMap::new();
+        let p = PathBuf::from("a.h");
+
+        let first = ensure_node(&mut g, &mut nodes, &p);
+        let second = ensure_node(&mut g, &mut nodes, &p);
+
+        assert_eq!(first, second);
+        assert_eq!(g.node_count(), 1);
+        assert_eq!(nodes.len(), 1);
+    }
+
+    /// `scc_external_neighbors` must (a) exclude intra-component nodes so the
+    /// replacement node only re-wires the cycle's external boundary, and (b)
+    /// de-duplicate a node reachable from multiple component members. Here the
+    /// component `{a, b}` has one external predecessor `x` (pointing into both)
+    /// and one external successor `y` (pointed to by both); each must appear
+    /// exactly once and neither `a` nor `b` may leak in.
+    #[test]
+    fn scc_external_neighbors_dedups_and_excludes_intra_component() {
+        let mut graph: IncludeGraph = StableGraph::new();
+        let member_a = graph.add_node(PathBuf::from("a.h"));
+        let member_b = graph.add_node(PathBuf::from("b.h"));
+        let pred = graph.add_node(PathBuf::from("x.h"));
+        let succ = graph.add_node(PathBuf::from("y.h"));
+        // Intra-component cycle member_a <-> member_b.
+        graph.add_edge(member_a, member_b, 0);
+        graph.add_edge(member_b, member_a, 0);
+        // `pred` points into both members (dedup on the incoming side).
+        graph.add_edge(pred, member_a, 0);
+        graph.add_edge(pred, member_b, 0);
+        // Both members point out to `succ` (dedup on the outgoing side).
+        graph.add_edge(member_a, succ, 0);
+        graph.add_edge(member_b, succ, 0);
+
+        let component = vec![member_a, member_b];
+        let incoming = scc_external_neighbors(&graph, &component, Direction::Incoming);
+        let outgoing = scc_external_neighbors(&graph, &component, Direction::Outgoing);
+
+        assert_eq!(incoming, vec![pred]);
+        assert_eq!(outgoing, vec![succ]);
     }
 
     /// Regression for #432: a `string_literal` span shorter than the two

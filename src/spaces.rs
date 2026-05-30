@@ -31,7 +31,7 @@ use crate::preproc::PreprocResults;
 
 use crate::checker::Checker;
 use crate::error::MetricsError;
-use crate::node::Node;
+use crate::node::{Cursor, Node};
 use crate::suppression::{
     Suppression, SuppressionKind, SuppressionScope, parse_marker as parse_suppression_marker,
 };
@@ -476,6 +476,19 @@ fn compute_sum(state: &mut State, selected: MetricSet) {
     }
 }
 
+/// Runs the four per-space finalization passes (min/max, sum, Halstead +
+/// MI + WMC, averages) on a single [`State`]. Shared by both the
+/// single-element and pop arms of [`finalize`] so the call sequence stays
+/// identical in both. The pop arm performs an *additional* Halstead
+/// recompute on the parent after merging the child's maps — that extra
+/// pass is intentionally left in [`finalize`], not folded in here.
+fn finalize_state<T: ParserTrait>(state: &mut State, selected: MetricSet) {
+    compute_minmax(state, selected);
+    compute_sum(state, selected);
+    compute_halstead_mi_and_wmc::<T>(state, selected);
+    compute_averages(state, selected);
+}
+
 fn finalize<T: ParserTrait>(state_stack: &mut Vec<State>, diff_level: usize, selected: MetricSet) {
     if state_stack.is_empty() {
         return;
@@ -485,19 +498,13 @@ fn finalize<T: ParserTrait>(state_stack: &mut Vec<State>, diff_level: usize, sel
             let last_state = state_stack
                 .last_mut()
                 .expect("invariant: state_stack has exactly one element");
-            compute_minmax(last_state, selected);
-            compute_sum(last_state, selected);
-            compute_halstead_mi_and_wmc::<T>(last_state, selected);
-            compute_averages(last_state, selected);
+            finalize_state::<T>(last_state, selected);
             break;
         }
         let mut state = state_stack
             .pop()
             .expect("invariant: state_stack has more than one element");
-        compute_minmax(&mut state, selected);
-        compute_sum(&mut state, selected);
-        compute_halstead_mi_and_wmc::<T>(&mut state, selected);
-        compute_averages(&mut state, selected);
+        finalize_state::<T>(&mut state, selected);
 
         let last_state = state_stack
             .last_mut()
@@ -1004,6 +1011,99 @@ fn compute_per_node<'a, T: ParserTrait>(
     }
 }
 
+/// Pushes a synthetic `Unit` root onto the state stack when the grammar
+/// hands us a non-`Unit` root.
+///
+/// Some grammars (e.g. tree-sitter-mozcpp on unparseable input) return a
+/// non-Unit root. Wrapping with a synthetic Unit space spanning the whole
+/// file keeps the top-level `FuncSpace` upholding the LOC invariant
+/// `blank = sloc - ploc - only_comment_lines >= 0`. A `Unit` root needs
+/// no wrapper, so nothing is pushed in that case.
+fn push_synthetic_unit_root<T: ParserTrait>(
+    state_stack: &mut Vec<State>,
+    node: &Node,
+    code: &[u8],
+    selected: MetricSet,
+) {
+    if T::Getter::get_space_kind_with_code(node, code) != SpaceKind::Unit {
+        let mut synthetic = FuncSpace::new::<T::Getter>(node, code, SpaceKind::Unit, selected);
+        synthetic
+            .metrics
+            .loc
+            .init_unit_span(node.start_row(), node.end_row());
+        state_stack.push(State {
+            space: synthetic,
+            halstead_maps: HalsteadMaps::new(),
+        });
+    }
+}
+
+/// Scans a comment node for a suppression marker and applies it against
+/// `state_stack` immediately.
+///
+/// Doing this inline during the walk (rather than queueing markers for a
+/// post-walk pass keyed on line number) pins each marker to the
+/// syntactically nearest enclosing function space — the only frame on the
+/// stack that the grammar nested the comment inside. Line-only matching
+/// was ambiguous when two sibling functions shared a source line and the
+/// first-by-source-order won regardless of which body actually contained
+/// the comment (issue #289).
+///
+/// A malformed marker is logged and dropped (no scope attached) rather
+/// than aborting the walk: a typo in one file must not derail a
+/// workspace-wide pass, and dropping is the conservative choice — a typo
+/// should not accidentally silence anything.
+fn apply_comment_suppression<T: ParserTrait>(
+    state_stack: &mut Vec<State>,
+    node: &Node,
+    code: &[u8],
+    diagnostic_path: &str,
+) {
+    if T::Checker::is_comment(node)
+        && let Some(text) = node.utf8_text(code)
+    {
+        match parse_suppression_marker(text) {
+            Ok(Some(s)) => apply_suppression(state_stack, &s),
+            Ok(None) => {}
+            Err(e) => {
+                // The `+ 1` converts tree-sitter's 0-based rows to the
+                // 1-based line numbers `FuncSpace::start_line` and the
+                // rest of this module report.
+                eprintln!("warning: {}:{}: {e}", diagnostic_path, node.start_row() + 1);
+            }
+        }
+    }
+}
+
+/// Pushes `node`'s direct children onto the traversal `stack`, each tagged
+/// with `new_level`.
+///
+/// The `children.drain(..).rev()` ordering is load-bearing: it makes the
+/// LIFO `stack` yield children in source order, which in turn governs
+/// line-shared suppression attribution (issue #289). The `children`
+/// scratch buffer is drained empty here so callers can reuse its
+/// allocation across iterations.
+fn push_children<'a>(
+    cursor: &mut Cursor<'a>,
+    node: &Node<'a>,
+    new_level: usize,
+    children: &mut Vec<(Node<'a>, usize)>,
+    stack: &mut Vec<(Node<'a>, usize)>,
+) {
+    cursor.reset(node);
+    if cursor.goto_first_child() {
+        loop {
+            children.push((cursor.node(), new_level));
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+        for child in children.drain(..).rev() {
+            stack.push(child);
+        }
+    }
+}
+
 pub(crate) fn metrics_inner<T: ParserTrait>(
     parser: &T,
     name: Option<String>,
@@ -1037,21 +1137,7 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
     // #289). The root `Unit` state — always at index 0 once the walk
     // has visited the AST root — owns file-scoped markers.
 
-    // Some grammars (e.g. tree-sitter-mozcpp on unparseable input) return a
-    // non-Unit root. Wrap with a synthetic Unit space spanning the whole
-    // file so the top-level FuncSpace upholds the LOC invariant
-    // `blank = sloc - ploc - only_comment_lines >= 0`.
-    if T::Getter::get_space_kind_with_code(&node, code) != SpaceKind::Unit {
-        let mut synthetic = FuncSpace::new::<T::Getter>(&node, code, SpaceKind::Unit, selected);
-        synthetic
-            .metrics
-            .loc
-            .init_unit_span(node.start_row(), node.end_row());
-        state_stack.push(State {
-            space: synthetic,
-            halstead_maps: HalsteadMaps::new(),
-        });
-    }
+    push_synthetic_unit_root::<T>(&mut state_stack, &node, code, selected);
 
     stack.push((node, 0));
 
@@ -1086,34 +1172,9 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
             level
         };
 
-        // Scan comment nodes for suppression markers and apply them
-        // immediately against `state_stack`. Doing this inline (rather
-        // than queueing for a post-walk pass keyed on line number)
-        // pins each marker to the syntactically nearest enclosing
-        // function space — the only frame on the stack that the
-        // grammar nested the comment inside. Line-only matching was
-        // ambiguous when two sibling functions shared a source line
-        // and the first-by-source-order won regardless of which body
-        // actually contained the comment (issue #289).
-        if T::Checker::is_comment(&node)
-            && let Some(text) = node.utf8_text(code)
-        {
-            match parse_suppression_marker(text) {
-                Ok(Some(s)) => apply_suppression(&mut state_stack, &s),
-                Ok(None) => {}
-                Err(e) => {
-                    // Logged but non-fatal so a typo in one file
-                    // cannot derail a workspace-wide walk. The
-                    // malformed marker is dropped (no scope attached),
-                    // which is the conservative behaviour: a typo
-                    // should not accidentally silence anything. The
-                    // `+ 1` converts tree-sitter's 0-based rows to the
-                    // 1-based line numbers `FuncSpace::start_line` and
-                    // the rest of this module report.
-                    eprintln!("warning: {}:{}: {e}", diagnostic_path, node.start_row() + 1);
-                }
-            }
-        }
+        // Pin each suppression marker to its innermost enclosing
+        // function space (issue #289); see `apply_comment_suppression`.
+        apply_comment_suppression::<T>(&mut state_stack, &node, code, diagnostic_path);
 
         if let Some(state) = state_stack.last_mut() {
             compute_per_node::<T>(
@@ -1127,18 +1188,7 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
             );
         }
 
-        cursor.reset(&node);
-        if cursor.goto_first_child() {
-            loop {
-                children.push((cursor.node(), new_level));
-                if !cursor.goto_next_sibling() {
-                    break;
-                }
-            }
-            for child in children.drain(..).rev() {
-                stack.push(child);
-            }
-        }
+        push_children(&mut cursor, &node, new_level, &mut children, &mut stack);
     }
 
     finalize::<T>(&mut state_stack, usize::MAX, selected);

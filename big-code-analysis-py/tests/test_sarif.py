@@ -795,3 +795,75 @@ def test_to_sarif_negative_line_numbers_fall_back_to_zero() -> None:
     # Writer:  startLine = max(0, 1) = 1.
     assert region["startLine"] == 1
     assert region["endLine"] == 1
+
+
+def test_to_sarif_skip_at_unit_metric_not_emitted_at_unit_space() -> None:
+    """A ``skip_at_unit`` metric (cognitive) must not produce a finding at
+    the file-level unit space even when the unit aggregate exceeds the
+    limit; the nested function that genuinely exceeds it is still
+    reported. Exercises the ``fields.is_unit && threshold.skip_at_unit``
+    skip in the refactored ``collect_offenders`` loop.
+    """
+    unit: dict[str, Any] = {
+        "name": "mod.rs",
+        "kind": "unit",
+        "start_line": 1,
+        "end_line": 20,
+        "metrics": {"cognitive": {"sum": 99.0}},
+        "spaces": [
+            {
+                "name": "f",
+                "kind": "function",
+                "start_line": 3,
+                "end_line": 18,
+                "metrics": {"cognitive": {"sum": 42.0}},
+                "spaces": [],
+            }
+        ],
+    }
+    parsed = _parse(bca.to_sarif(unit, thresholds={"cognitive": 10}))
+    findings = parsed["runs"][0]["results"]
+    fq_names = [f["locations"][0]["logicalLocations"][0]["fullyQualifiedName"] for f in findings]
+    assert fq_names == ["f"], (
+        f"only the nested function may be reported for a skip_at_unit metric, got {fq_names!r}"
+    )
+
+
+def test_to_sarif_reports_deeply_nested_space_offender() -> None:
+    """A function nested two levels deep (unit -> class -> method) that
+    exceeds a threshold must be discovered by the stack walk and carry its
+    own name and line span. Guards the nested-space traversal feeding the
+    refactored ``extract_space_fields``.
+    """
+    unit: dict[str, Any] = {
+        "name": "mod.rs",
+        "kind": "unit",
+        "start_line": 1,
+        "end_line": 30,
+        "metrics": {"cyclomatic": {"sum": 1.0}},
+        "spaces": [
+            {
+                "name": "C",
+                "kind": "class",
+                "start_line": 2,
+                "end_line": 29,
+                "metrics": {"cyclomatic": {"sum": 1.0}},
+                "spaces": [
+                    {
+                        "name": "m",
+                        "kind": "function",
+                        "start_line": 5,
+                        "end_line": 12,
+                        "metrics": {"cyclomatic": {"sum": 7.0}},
+                        "spaces": [],
+                    }
+                ],
+            }
+        ],
+    }
+    parsed = _parse(bca.to_sarif(unit, thresholds={"cyclomatic": 3}))
+    findings = parsed["runs"][0]["results"]
+    assert len(findings) == 1
+    loc = findings[0]["locations"][0]
+    assert loc["logicalLocations"][0]["fullyQualifiedName"] == "m"
+    assert loc["physicalLocation"]["region"]["startLine"] == 5

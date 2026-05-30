@@ -18,43 +18,61 @@ use crate::*;
 static AHO_CORASICK: OnceLock<AhoCorasick> = OnceLock::new();
 static RE: OnceLock<Regex> = OnceLock::new();
 
+// Shared ancestor-walk scaffold behind `check_if_func!` /
+// `check_if_arrow_func!`. Both decide whether a JS `function_expression`
+// / `arrow_function` is a *named function* (vs. an anonymous closure) by
+// counting ancestors that bind the expression to a name (`$up` kinds:
+// `var x = …`, `x = …`, `label:`, object `pair`) while stopping the walk
+// at frames that prove the expression is used positionally (`$stop`
+// kinds: a block, return, `new`, call/arguments). A positive count, or a
+// per-call `$extra` adjacency check, marks it a named function.
+//
+// This must stay a `macro_rules!` (not a `fn`): the `$up` / `$stop`
+// variant lists are matched against each JS-family language's own
+// `kind_id` enum, brought into scope by a per-language `use $language::*`
+// glob at the call site. A function could not name variants that only
+// exist after that glob import.
+//
+// Kept token-identical to the two hand-written predicates it replaced:
+// the bracketed variant lists expand straight into the `matches!`
+// patterns and `$extra` into the trailing `|| …` disjunct.
+macro_rules! js_ancestor_walk {
+    (
+        $parser:ident,
+        $node:ident,
+        [$($up:ident)|+],
+        [$($stop:ident)|+],
+        $extra:expr $(,)?
+    ) => {
+        $node.count_specific_ancestors::<$parser>(
+            |node| matches!(node.kind_id().into(), $($up)|+),
+            |node| matches!(node.kind_id().into(), $($stop)|+),
+        ) > 0
+            || $extra
+    };
+}
+
 macro_rules! check_if_func {
     ($parser: ident, $node: ident) => {
-        $node.count_specific_ancestors::<$parser>(
-            |node| {
-                matches!(
-                    node.kind_id().into(),
-                    VariableDeclarator | AssignmentExpression | LabeledStatement | Pair
-                )
-            },
-            |node| {
-                matches!(
-                    node.kind_id().into(),
-                    StatementBlock | ReturnStatement | NewExpression | Arguments
-                )
-            },
-        ) > 0
-            || $node.is_child(Identifier as u16)
+        js_ancestor_walk!(
+            $parser,
+            $node,
+            [VariableDeclarator | AssignmentExpression | LabeledStatement | Pair],
+            [StatementBlock | ReturnStatement | NewExpression | Arguments],
+            $node.is_child(Identifier as u16),
+        )
     };
 }
 
 macro_rules! check_if_arrow_func {
     ($parser: ident, $node: ident) => {
-        $node.count_specific_ancestors::<$parser>(
-            |node| {
-                matches!(
-                    node.kind_id().into(),
-                    VariableDeclarator | AssignmentExpression | LabeledStatement
-                )
-            },
-            |node| {
-                matches!(
-                    node.kind_id().into(),
-                    StatementBlock | ReturnStatement | NewExpression | CallExpression
-                )
-            },
-        ) > 0
-            || $node.has_sibling(PropertyIdentifier as u16)
+        js_ancestor_walk!(
+            $parser,
+            $node,
+            [VariableDeclarator | AssignmentExpression | LabeledStatement],
+            [StatementBlock | ReturnStatement | NewExpression | CallExpression],
+            $node.has_sibling(PropertyIdentifier as u16),
+        )
     };
 }
 
@@ -855,10 +873,16 @@ fn rust_attribute_body<'a>(text: &'a str, marker: &str) -> Option<&'a str> {
 }
 
 fn rust_item_is_test_only(node: &Node, code: &[u8]) -> bool {
-    // The tree-sitter Rust grammar exposes outer attributes
-    // (`#[...]`) as `AttributeItem` siblings *before* the decorated
-    // item. Walk backward across consecutive attribute siblings; any
-    // match short-circuits.
+    rust_outer_attr_marks_test(node, code) || rust_inner_attr_marks_test(node, code)
+}
+
+// The tree-sitter Rust grammar exposes outer attributes (`#[...]`) as
+// `AttributeItem` siblings *before* the decorated item. Walk backward
+// across consecutive attribute siblings; any match short-circuits. This
+// scan runs for every item kind, including `mod_item`, so
+// `#[cfg(test)] mod tests` (an outer attribute on the module) is caught
+// here while `mod tests { #![cfg(test)] }` is caught by the inner scan.
+fn rust_outer_attr_marks_test(node: &Node, code: &[u8]) -> bool {
     let mut sibling = node.previous_sibling();
     while let Some(s) = sibling {
         if s.kind_id() != Rust::AttributeItem {
@@ -872,11 +896,15 @@ fn rust_item_is_test_only(node: &Node, code: &[u8]) -> bool {
         }
         sibling = s.previous_sibling();
     }
+    false
+}
 
-    // `mod_item` additionally accepts inner attributes
-    // (`#![cfg(test)]`). The grammar nests these inside the module's
-    // `declaration_list` body, not as direct `mod_item` children, so
-    // descend one level via the `body` field before scanning.
+// `mod_item` additionally accepts inner attributes (`#![cfg(test)]`).
+// The grammar nests these inside the module's `declaration_list` body,
+// not as direct `mod_item` children, so descend one level via the
+// `body` field before scanning. Non-module items have no inner-attribute
+// test form, so this returns `false` for them immediately.
+fn rust_inner_attr_marks_test(node: &Node, code: &[u8]) -> bool {
     if node.kind_id() == Rust::ModItem
         && let Some(body) = node.child_by_field_name("body")
     {
@@ -2046,6 +2074,55 @@ mod tests {
             }
         }
         None
+    }
+
+    /// `#[cfg(test)] mod tests { … }` carries the test marker as an
+    /// *outer* attribute sibling before the `mod_item`. The outer scan
+    /// must run for `mod_item` nodes too, so this case is caught by
+    /// `rust_outer_attr_marks_test` — not the inner scan. Pins the key
+    /// invariant of the helper split: a `mod_item`'s outer attributes are
+    /// never skipped in favour of only its inner attributes.
+    #[test]
+    fn rust_outer_attr_on_mod_is_test_only() {
+        let src = "#[cfg(test)]\nmod tests {\n    fn t() {}\n}\n";
+        let parser = RustParser::new(src.as_bytes().to_vec(), &PathBuf::from("test.rs"), None);
+        let code = parser.get_code();
+        let node = find_first_kind(&parser, Rust::ModItem as u16).expect("mod_item");
+
+        assert!(rust_item_is_test_only(&node, code));
+        // The marker lives on the outer scan; the inner scan sees no
+        // `#![cfg(test)]` and must report false.
+        assert!(rust_outer_attr_marks_test(&node, code));
+        assert!(!rust_inner_attr_marks_test(&node, code));
+    }
+
+    /// `mod tests { #![cfg(test)] … }` carries the marker as an *inner*
+    /// attribute nested in the module body. The outer sibling scan finds
+    /// nothing; `rust_inner_attr_marks_test` descends via the `body`
+    /// field and catches it.
+    #[test]
+    fn rust_inner_attr_in_mod_is_test_only() {
+        let src = "mod tests {\n    #![cfg(test)]\n    fn t() {}\n}\n";
+        let parser = RustParser::new(src.as_bytes().to_vec(), &PathBuf::from("test.rs"), None);
+        let code = parser.get_code();
+        let node = find_first_kind(&parser, Rust::ModItem as u16).expect("mod_item");
+
+        assert!(rust_item_is_test_only(&node, code));
+        assert!(!rust_outer_attr_marks_test(&node, code));
+        assert!(rust_inner_attr_marks_test(&node, code));
+    }
+
+    /// A plain, unattributed item is not test-only — neither scan matches.
+    #[test]
+    fn rust_plain_item_is_not_test_only() {
+        let src = "fn foo() {}\n";
+        let parser = RustParser::new(src.as_bytes().to_vec(), &PathBuf::from("test.rs"), None);
+        let code = parser.get_code();
+        let node = find_first_kind(&parser, Rust::FunctionItem as u16).expect("function_item");
+
+        assert!(!rust_item_is_test_only(&node, code));
+        assert!(!rust_outer_attr_marks_test(&node, code));
+        assert!(!rust_inner_attr_marks_test(&node, code));
     }
 
     #[test]
