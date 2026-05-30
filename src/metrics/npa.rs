@@ -1661,8 +1661,15 @@ impl Npa for KotlinCode {
 //
 // Parameter properties (`constructor(private x: number)`) are class
 // attributes: each `required_parameter` carrying an
-// `accessibility_modifier` adds one to the enclosing class's `na`
-// (and to `npa` when the modifier is `public` or absent). The
+// `accessibility_modifier` *or* a bare `readonly` keyword adds one to
+// the enclosing class's `na` (and to `npa` when the modifier is
+// `public` or absent). `readonly` is a distinct keyword child, not an
+// `accessibility_modifier`, so a `readonly`-only parameter property
+// (`constructor(readonly b: number)`) is public and must be detected
+// separately — matching `readonly` class fields, which already count
+// (see `typescript_readonly_field`). `private readonly` carries both
+// children but `first_child` matches at most one and we increment once,
+// so it is never double-counted. The
 // grammar allows accessibility modifiers on parameters of any
 // `method_definition`, not only `constructor` — TypeScript itself
 // rejects that at type-check time, but accepting any method here
@@ -1723,7 +1730,10 @@ macro_rules! ts_npa_compute {
                                     )
                                 }) {
                                     if param
-                                        .first_child(|id| id == $lang::AccessibilityModifier)
+                                        .first_child(|id| {
+                                            id == $lang::AccessibilityModifier
+                                                || id == $lang::Readonly
+                                        })
                                         .is_some()
                                     {
                                         stats.class_na += 1;
@@ -3566,6 +3576,30 @@ mod tests {
     }
 
     #[test]
+    fn typescript_readonly_constructor_param_property() {
+        // A bare `readonly` constructor parameter is a public parameter
+        // property (regression for #459): `readonly` is a distinct keyword,
+        // not an `accessibility_modifier`, yet must count like a `readonly`
+        // class field. `e` is a plain parameter and does NOT count.
+        // `private readonly d` carries both modifier children but must count
+        // exactly once (and as non-public, so it lands in na but not npa).
+        check_metrics::<TypescriptParser>(
+            "class C {
+                constructor(private a: number, readonly b: number, public c: number, e: number, private readonly d: number) {}
+            }",
+            "foo.ts",
+            |metric| {
+                // Properties: a (private), b (readonly→public), c (public),
+                // d (private readonly). e is not a property. na = 4.
+                // npa counts the public ones: b, c. npa = 2.
+                assert_eq!(metric.npa.class_na_sum(), 4.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
     fn typescript_readonly_field() {
         // `readonly` is a non-visibility modifier — the field still counts
         // and stays public unless paired with private/protected.
@@ -3788,6 +3822,25 @@ mod tests {
             |metric| {
                 assert_eq!(metric.npa.class_npa_sum(), 1.0);
                 assert_eq!(metric.npa.class_na_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.npa);
+            },
+        );
+    }
+
+    #[test]
+    fn tsx_readonly_constructor_param_property() {
+        // TSX sibling of `typescript_readonly_constructor_param_property`
+        // (#459): a bare `readonly` constructor parameter is a public
+        // parameter property; `e` is not a property; `private readonly d`
+        // counts once and is non-public.
+        check_metrics::<TsxParser>(
+            "class C {
+                constructor(private a: number, readonly b: number, public c: number, e: number, private readonly d: number) {}
+            }",
+            "foo.tsx",
+            |metric| {
+                assert_eq!(metric.npa.class_na_sum(), 4.0);
+                assert_eq!(metric.npa.class_npa_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.npa);
             },
         );

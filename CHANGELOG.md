@@ -740,6 +740,19 @@ for historical reference.
 
 ### Fixed
 
+- TypeScript / TSX `npa` now counts `readonly`-only constructor
+  parameter properties as attributes
+  ([#459](https://github.com/dekobon/big-code-analysis/issues/459)).
+  A `constructor(readonly b: number)` declares a public readonly
+  instance field, but the parameter-property arm of `ts_npa_compute!`
+  fired only when the `required_parameter` carried an
+  `accessibility_modifier`. `readonly` is a distinct keyword child, so
+  `readonly`-only parameter properties were dropped — inconsistent with
+  `readonly` class fields, which already count. The arm now also fires
+  on a `readonly` child; such a property is public (it has no
+  visibility modifier) so it counts toward both `na` and `npa`.
+  `private readonly` carries both children but is counted exactly once
+  and stays non-public.
 - Go `npm` / `npa` now respect Go's lexical export rule instead of
   marking every method and field public
   ([#458](https://github.com/dekobon/big-code-analysis/issues/458)).

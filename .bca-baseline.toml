@@ -2406,28 +2406,28 @@ path = "src/metrics/npa.rs"
 qualified = "<file>"
 start_line = 1
 metric = "cyclomatic"
-value = 24.0
+value = 25.0
 
 [[entry]]
 path = "src/metrics/npa.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 26725491.96923674
+value = 27020760.074056152
 
 [[entry]]
 path = "src/metrics/npa.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 5132.0
+value = 5185.0
 
 [[entry]]
 path = "src/metrics/npa.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 316.0
+value = 318.0
 
 [[entry]]
 path = "src/metrics/npa.rs"
@@ -2441,7 +2441,7 @@ path = "src/metrics/npa.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 461.0
+value = 465.0
 
 [[entry]]
 path = "src/metrics/npa.rs"
