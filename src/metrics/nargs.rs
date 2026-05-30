@@ -934,22 +934,28 @@ mod tests {
             },
         );
 
-        // A typed receiver written `self: Box<Self>` is grammatically an
-        // ordinary `parameter` node (it carries a type annotation), not a
-        // `self_parameter`, so it is still counted — matching the
-        // tree-sitter grammar's own modeling. Pinning this keeps the
-        // SelfParameter exclusion from being widened to typed receivers.
+        // A *typed* receiver (`self: Box<Self>`, `self: Rc<Self>`,
+        // `self: Pin<&mut Self>`) parses as an ordinary `parameter` node —
+        // not `self_parameter` — but its binding is the `self` keyword, so
+        // it is still a receiver and must be excluded too, matching the
+        // bare-receiver case and Go/C++ receiver parity (#457). A normal
+        // `parameter` like `x: i32` binds an `identifier`, never `self`.
         check_metrics::<RustParser>(
-            "struct S;
+            "use std::rc::Rc;
+             use std::pin::Pin;
+             struct S;
              impl S {
-                 fn c(self: Box<Self>, x: i32, y: i32) {}
+                 fn a(self: Box<Self>, x: i32, y: i32) {} // receiver + 2 -> 2
+                 fn b(self: Rc<Self>, x: i32) {}          // receiver + 1 -> 1
+                 fn c(self: Pin<&mut Self>) {}            // receiver     -> 0
              }",
             "foo.rs",
             |metric| {
-                // self: Box<Self> + x + y -> 3 args (typed receiver counted).
+                // Each typed receiver contributes nothing. sum = 2+1+0 = 3,
+                // max = 2 (from method `a`).
                 let s = &metric.nargs;
                 assert_eq!(s.fn_args_sum(), 3.0);
-                assert_eq!(s.fn_args_max(), 3.0);
+                assert_eq!(s.fn_args_max(), 2.0);
             },
         );
     }

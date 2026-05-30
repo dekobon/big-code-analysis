@@ -963,12 +963,21 @@ impl Checker for RustCode {
     }
 
     fn is_non_arg(node: &Node) -> bool {
-        // `SelfParameter` is Rust's method receiver (`self`, `&self`,
+        // A *typed* receiver (`self: Box<Self>`, `self: Rc<Self>`,
+        // `self: Pin<&mut Self>` — arbitrary self types) does not parse as
+        // `SelfParameter`; the grammar models it as an ordinary `parameter`
+        // node whose binding is the `self` keyword (`Rust::Zelf`). It is
+        // still a receiver, so it is excluded too, for parity with the
+        // bare-receiver case and with Go/C++ (#457). A normal `parameter`
+        // such as `x: i32` binds an `identifier`, never `self`, so this
+        // child check is unambiguous.
+        let is_typed_self_receiver = node.kind_id() == Rust::Parameter
+            && node.children().any(|child| child.kind_id() == Rust::Zelf);
+
+        // `SelfParameter` is Rust's bare method receiver (`self`, `&self`,
         // `&mut self`). Like Go's `receiver` field and C++'s implicit
         // `this`, it is not a formal parameter and must not be counted
-        // (see #457). A typed receiver written `self: Box<Self>` parses
-        // as an ordinary `parameter` node, not `SelfParameter`, so it is
-        // still counted — matching the grammar's own modeling.
+        // (see #457).
         matches!(
             node.kind_id().into(),
             Rust::LPAREN
@@ -977,7 +986,7 @@ impl Checker for RustCode {
                 | Rust::PIPE
                 | Rust::AttributeItem
                 | Rust::SelfParameter
-        )
+        ) || is_typed_self_receiver
     }
 
     impl_simple_is_string!(Rust, StringLiteral, RawStringLiteral);

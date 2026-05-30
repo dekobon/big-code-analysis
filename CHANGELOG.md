@@ -746,10 +746,12 @@ for historical reference.
   `self`, `&self`, and `&mut self` contribute nothing to the argument
   count — matching how Go excludes its `receiver` field and C++
   excludes the implicit `this`. A method `fn m(&mut self, x: i32)`
-  now reports `nargs = 1` instead of `2`. A typed receiver written
-  `self: Box<Self>` parses as an ordinary `parameter` node (it carries
-  a type annotation), not `self_parameter`, so it is still counted —
-  matching the tree-sitter grammar's own modeling. This lowers `nargs`
+  now reports `nargs = 1` instead of `2`. A *typed* receiver
+  (`self: Box<Self>`, `self: Rc<Self>`, `self: Pin<&mut Self>`)
+  parses as an ordinary `parameter` node rather than `self_parameter`,
+  but its binding is still the `self` keyword; it is now also excluded,
+  so `fn c(self: Box<Self>, x, y)` reports `nargs = 2`, matching the
+  bare-receiver case and Go/C++ receiver parity. This lowers `nargs`
   sum / average / min / max for Rust fixtures with methods.
 - ABC condition counting for switch/`when`-expression arms now tracks
   the cyclomatic decision count in Kotlin and C#
