@@ -740,6 +740,16 @@ for historical reference.
 
 ### Fixed
 
+- `bca count` no longer aborts the whole worker pool when one worker
+  panics: `Count::call` now recovers the poisoned shared `stats`
+  mutex (via `into_inner()` + `clear_poison()`) instead of cascading
+  a `.lock().unwrap()` panic across every subsequent worker and the
+  CLI's final `into_inner()`
+  ([#445](https://github.com/dekobon/big-code-analysis/issues/445)).
+  Mirrors the #425 degrade-on-poison pattern; the aggregation is two
+  monotonically-incremented counters, so a panicked peer leaves at
+  worst a slightly-low tally, never an unsafe state.
+
 - The Java Exit (`nexits`) metric now counts the switch-expression
   `yield` statement as an exit point, matching the existing Groovy and
   C# behaviour
