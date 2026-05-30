@@ -661,6 +661,15 @@ for historical reference.
 
 ### Fixed
 
+- `bca check --github-annotations` no longer undercounts violations
+  with non-UTF-8 paths in the per-metric overflow rollup. The emitter
+  incremented the cap counter *before* skipping a non-UTF-8 path, so a
+  skipped violation consumed a cap slot, emitted no annotation, and was
+  never rolled into the "N more … not shown" line — making the
+  user-visible total (shown + overflow) fall short and displacing a
+  later real annotation into overflow. The path is now resolved before
+  the counter is touched, so a skip leaves both tallies untouched.
+  Fixes [#424](https://github.com/dekobon/big-code-analysis/issues/424).
 - `bca` per-file `--output` writers no longer collapse a `..`
   (`ParentDir`) input segment to a no-op `.`, which let distinct inputs
   (`../sibling/x.rs` vs `sibling/x.rs`) clobber the same output file.

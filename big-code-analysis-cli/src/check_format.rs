@@ -127,22 +127,29 @@ where
     let mut counts: BTreeMap<&'static str, usize> = BTreeMap::new();
     let mut overflow: BTreeMap<&'static str, usize> = BTreeMap::new();
     for v in violations {
+        // Non-UTF-8 paths cannot be expressed as identifiers in
+        // GitHub Actions annotation properties (`file=...`), since the
+        // GHA UI uses the byte sequence to locate the source file on
+        // disk and the workflow-command protocol carries text only.
+        // Skip the annotation rather than emit a lossy path that would
+        // point at the wrong file; the per-violation human stderr line
+        // still names the file via `path.display()`, and the project's
+        // AGENTS.md rule ("never `to_string_lossy` on identifier
+        // paths") is satisfied.
+        //
+        // Resolve the path *before* touching the cap counter (#424):
+        // counting first let a skipped non-UTF-8 violation consume a
+        // cap slot, emitting nothing and never rolling into overflow,
+        // so the user-visible total (shown + overflow) fell short of
+        // the real count and displaced a later real annotation into
+        // overflow. A skip now leaves both counters untouched, keeping
+        // shown + overflow == count of UTF-8-path violations.
+        let Some(path_str) = v.path.to_str() else {
+            continue;
+        };
         let n = counts.entry(v.metric).or_insert(0);
         *n += 1;
         if *n <= cap {
-            // Non-UTF-8 paths cannot be expressed as identifiers in
-            // GitHub Actions annotation properties (`file=...`), since
-            // the GHA UI uses the byte sequence to locate the source
-            // file on disk and the workflow-command protocol carries
-            // text only. Skip the annotation rather than emit a lossy
-            // path that would point at the wrong file; the per-
-            // violation human stderr line still names the file via
-            // `path.display()`, and the project's AGENTS.md rule
-            // ("never `to_string_lossy` on identifier paths") is
-            // satisfied.
-            let Some(path_str) = v.path.to_str() else {
-                continue;
-            };
             writeln!(
                 w,
                 "::error file={path},line={start},endLine={end},title={title}::{msg}",
@@ -743,6 +750,61 @@ mod tests {
             buf.is_empty(),
             "expected non-UTF-8 path to be skipped, got: {}",
             String::from_utf8_lossy(&buf)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_github_annotations_non_utf8_skip_does_not_consume_cap_slot() {
+        // Regression for #424: a non-UTF-8 path falling within the
+        // first `cap` violations of a metric used to be counted
+        // *before* the skip, consuming a cap slot. That emitted no
+        // annotation and was never rolled into overflow, so the
+        // user-visible total (shown + overflow) under-counted the
+        // metric and a later real annotation was wrongly displaced
+        // into the rollup. With cap = 2 and a [non-UTF-8, UTF-8,
+        // UTF-8] sequence, all three would once have produced only 1
+        // shown annotation + 0 overflow (the non-UTF-8 entry burned
+        // slot 1, the third real entry overflowed but its count was
+        // attributed to the wrong tally). The fix yields 2 shown
+        // annotations + 1 overflow, so shown + overflow == 2 (the
+        // emittable UTF-8 violations) and the rollup is accurate.
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+        use std::path::PathBuf;
+
+        let non_utf8 = Violation {
+            path: PathBuf::from(OsString::from_vec(b"weird-\xff.rs".to_vec())),
+            ..violation_for("ignored", "f", "cyclomatic")
+        };
+        let vs = [
+            non_utf8,
+            violation_for("a.rs", "f", "cyclomatic"),
+            violation_for("b.rs", "f", "cyclomatic"),
+        ];
+        let cap = 2;
+        let mut buf = Vec::new();
+        write_github_annotations(&mut buf, vs.iter(), cap).expect("write");
+        let out = String::from_utf8(buf).expect("utf8");
+
+        let shown = out.matches("title=cyclomatic::f:").count();
+        // Overflow accounts for the one emittable violation beyond the
+        // cap; the non-UTF-8 entry never enters either tally.
+        let overflow_line = "::error::1 more cyclomatic violations not shown — see full log";
+        let overflow = usize::from(out.contains(overflow_line));
+        assert_eq!(
+            shown, 2,
+            "expected both UTF-8 paths shown under cap=2, got:\n{out}"
+        );
+        assert_eq!(
+            shown + overflow,
+            2,
+            "shown + overflow must equal the 2 emittable UTF-8 violations, got:\n{out}"
+        );
+        // The skipped non-UTF-8 path must not leak its byte sequence.
+        assert!(
+            !out.contains("weird-"),
+            "non-UTF-8 path must not be emitted, got:\n{out}"
         );
     }
 
