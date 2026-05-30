@@ -849,10 +849,15 @@ macro_rules! ts_abc_compute {
                     stats.branches += 1.;
                 }
                 // Comparison and equality operators, ternary `?`, `??`,
-                // `instanceof`, `else`, `case`, `default`, `catch`,
-                // `try`.
+                // `instanceof`, `else`, `case`, `catch`, `try`. The
+                // `default` arm of a `switch` is intentionally NOT a
+                // condition: it is the unconditional fallthrough, so
+                // cyclomatic counts only the `Case` arms (issue #469).
+                // Both the statement (`default:`) and arrow
+                // (`default ->`) forms emit the same `Default` token, so
+                // omitting it here covers both.
                 EQEQ | EQEQEQ | BANGEQ | BANGEQEQ | LTEQ | GTEQ | QMARK | QMARKQMARK
-                | Instanceof | Else | Case | Default | Try | Catch => {
+                | Instanceof | Else | Case | Try | Catch => {
                     stats.conditions += 1.;
                 }
                 // `<` and `>` may also delimit type arguments / type
@@ -968,8 +973,11 @@ macro_rules! js_abc_compute {
                 CallExpression | NewExpression => {
                     stats.branches += 1.;
                 }
+                // The `default` arm is the unconditional fallthrough and
+                // is excluded, mirroring cyclomatic's `Case`-only count
+                // (issue #469); see the TS macro above for the rationale.
                 EQEQ | EQEQEQ | BANGEQ | BANGEQEQ | LTEQ | GTEQ | LT | GT | QMARK | QMARKQMARK
-                | Instanceof | Else | Case | Default | Try | Catch => {
+                | Instanceof | Else | Case | Try | Catch => {
                     stats.conditions += 1.;
                 }
                 // Fitzpatrick Rule 9: each operand of a `&&` / `||`
@@ -2326,11 +2334,16 @@ fn java_count_token_branch(node: &Node, stats: &mut Stats) -> bool {
 }
 
 // Counts condition tokens: comparison operators, control-flow keywords,
-// and `<` / `>` outside generic-type contexts.
+// and `<` / `>` outside generic-type contexts. The `default` arm of a
+// `switch` is excluded: it is the unconditional fallthrough, so
+// cyclomatic counts only the `Case` arms (issue #469). Java's classic
+// statement switch (`default:`) and arrow switch (`default ->`) both
+// emit the same `Default` token under `switch_label`, so omitting it
+// here covers both forms.
 fn java_count_token_condition(node: &Node, stats: &mut Stats) -> bool {
     use Java::*;
     match node.kind_id().into() {
-        GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | Default | QMARK | Try | Catch => {
+        GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | QMARK | Try | Catch => {
             stats.conditions += 1.;
         }
         // Excludes `<` / `>` used for generic types (`Box<T>`).
@@ -2532,10 +2545,14 @@ fn groovy_count_token_branch(node: &Node, stats: &mut Stats) -> bool {
     false
 }
 
+// The `default` arm of a `switch` is excluded (issue #469): it is the
+// unconditional fallthrough, so cyclomatic counts only the `Case` arms
+// (Groovy shares Java's `impl_cyclomatic_java_like!`, which matches
+// `Case` and never `Default`).
 fn groovy_count_token_condition(node: &Node, stats: &mut Stats) -> bool {
     use Groovy::*;
     match node.kind_id().into() {
-        GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | Default | QMARK | Try | Catch => {
+        GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | QMARK | Try | Catch => {
             stats.conditions += 1.;
         }
         // Excludes `<` / `>` used for generic types (e.g. `List<String>`).
@@ -2716,16 +2733,21 @@ fn csharp_count_token_branch(node: &Node, stats: &mut Stats) -> bool {
 fn csharp_count_token_condition(node: &Node, stats: &mut Stats) -> bool {
     use Csharp::*;
     match node.kind_id().into() {
-        GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | Default | QMARK | Try | Catch => {
+        // The statement `switch` counts its `Case` arms; the `default:`
+        // arm (token `Default`, shared by both classic `default:` and
+        // arrow `default ->` forms) is the unconditional fallthrough and
+        // is excluded, mirroring cyclomatic's `Case`-only count and the
+        // expression-arm discard rule below (issues #456, #469).
+        GTEQ | LTEQ | EQEQ | BANGEQ | Else | Case | QMARK | Try | Catch => {
             stats.conditions += 1.;
         }
         // A `switch` *expression* arm (`x switch { 1 => …, _ => … }`) is a
-        // decision point. The statement `switch` counts via its `Case` /
-        // `Default` tokens above; an expression arm carries neither, so it
-        // scored zero conditions before #456 even though C# cyclomatic
-        // counts it. The bare-discard arm (`_ =>` / `var _ =>`, no `when`
-        // guard) is the `default:` analogue and is excluded — mirroring
-        // the cyclomatic gate (lesson 11).
+        // decision point. The statement `switch` counts via its `Case`
+        // tokens above; an expression arm carries none, so it scored zero
+        // conditions before #456 even though C# cyclomatic counts it. The
+        // bare-discard arm (`_ =>` / `var _ =>`, no `when` guard) is the
+        // `default:` analogue and is excluded — mirroring the cyclomatic
+        // gate (lesson 11).
         SwitchExpressionArm
             if !crate::metrics::cyclomatic::csharp_switch_expression_arm_is_bare_discard(node) =>
         {
@@ -3608,7 +3630,7 @@ fn csharp_count_condition(condition: &Node, conditions: &mut f64) {
     clippy::too_many_lines
 )]
 mod tests {
-    use crate::tools::check_metrics;
+    use crate::tools::{check_func_space, check_metrics};
     use crate::traits::ParserTrait;
 
     use super::*;
@@ -5113,6 +5135,191 @@ mod tests {
         );
     }
 
+    // Issue #469: the `default` arm of a C-family `switch` is the
+    // unconditional fallthrough and must NOT count as an ABC condition,
+    // mirroring cyclomatic — which counts only the `Case` arms, never
+    // the `Default` token.
+    //
+    // expected: each fixture is a single function whose switch has two
+    // concrete `case` arms plus one `default`. ABC must count exactly
+    // the two case arms (conditions = 2), matching cyclomatic's two
+    // case-arm decisions. Pre-fix, every language below scored 3 (the
+    // `Default` token leaked into the condition tally) — revert-verified
+    // against the pre-#469 condition arms. We anchor on the integer
+    // `conditions_sum()` headline (the value the public JSON serializes;
+    // float magnitude is bit-brittle and excluded by the snapshot
+    // policy). The cyclomatic side is pinned separately in
+    // `java_csharp_cpp_switch_default_cyclomatic_parity` below, where
+    // the per-space `cyclomatic()` decision count is isolated.
+    #[test]
+    fn java_switch_default_not_a_condition() {
+        // Classic statement `default:`.
+        check_metrics::<JavaParser>(
+            "class A {
+                int m(int x) {
+                    switch (x) { case 1: return 1; case 2: return 2; default: return 0; }
+                }
+            }",
+            "foo.java",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2.0),
+        );
+        // Arrow `default ->` — shares the same `Default` token.
+        check_metrics::<JavaParser>(
+            "class A {
+                int m(int x) {
+                    return switch (x) { case 1 -> 1; case 2 -> 2; default -> 0; };
+                }
+            }",
+            "foo.java",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2.0),
+        );
+    }
+
+    #[test]
+    fn csharp_switch_default_not_a_condition() {
+        check_metrics::<CsharpParser>(
+            "class A {
+                int M(int x) {
+                    switch (x) { case 1: return 1; case 2: return 2; default: return 0; }
+                }
+            }",
+            "foo.cs",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2.0),
+        );
+    }
+
+    #[test]
+    fn cpp_switch_default_not_a_condition() {
+        // C++ (and plain C, which shares this grammar) already excluded
+        // `default`; this pins the cross-language parity invariant.
+        check_metrics::<CppParser>(
+            "void f(int x) {
+                 switch (x) { case 1: return; case 2: return; default: return; }
+             }",
+            "foo.cpp",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2.0),
+        );
+    }
+
+    #[test]
+    fn groovy_switch_default_not_a_condition() {
+        check_metrics::<GroovyParser>(
+            "class A {
+                int m(int x) {
+                    switch (x) { case 1: return 1; case 2: return 2; default: return 0 }
+                }
+            }",
+            "foo.groovy",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2.0),
+        );
+    }
+
+    #[test]
+    fn js_switch_default_not_a_condition() {
+        check_metrics::<JavascriptParser>(
+            "function f(x) {
+                 switch (x) { case 1: return 1; case 2: return 2; default: return 0; }
+             }",
+            "foo.js",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2.0),
+        );
+    }
+
+    #[test]
+    fn ts_switch_default_not_a_condition() {
+        check_metrics::<TypescriptParser>(
+            "function f(x: number): number {
+                 switch (x) { case 1: return 1; case 2: return 2; default: return 0; }
+             }",
+            "foo.ts",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2.0),
+        );
+    }
+
+    // Cross-language parity (lesson 11): the equivalent statement-`switch`
+    // with a `default` arm reports the same ABC condition count across
+    // Java / C# / C++. All three have two concrete case arms plus a
+    // fallthrough `default`, so all three must count exactly 2 conditions
+    // (the `default` excluded). `check_metrics` takes a non-capturing
+    // `fn` pointer, so the shared expected value is asserted in each
+    // callback; the matching constant is what enforces parity.
+    #[test]
+    fn java_csharp_cpp_switch_default_abc_parity() {
+        check_metrics::<JavaParser>(
+            "class A {
+                int m(int x) {
+                    switch (x) { case 1: return 1; case 2: return 2; default: return 0; }
+                }
+            }",
+            "foo.java",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2.0),
+        );
+        check_metrics::<CsharpParser>(
+            "class A {
+                int M(int x) {
+                    switch (x) { case 1: return 1; case 2: return 2; default: return 0; }
+                }
+            }",
+            "foo.cs",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2.0),
+        );
+        check_metrics::<CppParser>(
+            "void f(int x) {
+                 switch (x) { case 1: return; case 2: return; default: return; }
+             }",
+            "foo.cpp",
+            |metric| assert_eq!(metric.abc.conditions_sum(), 2.0),
+        );
+    }
+
+    // Pins the ABC-vs-cyclomatic agreement the fix is about (lesson 11):
+    // on the method's own function space, the cyclomatic decision count
+    // (`cyclomatic()` minus the per-space base of 1) must equal the ABC
+    // `conditions()` for the same switch. Both must be 2 — the two case
+    // arms — with the `default` excluded from each. Revert-verified: pre-
+    // #469 ABC `conditions()` was 3 here while cyclomatic stayed at 2.
+    #[test]
+    fn java_csharp_cpp_switch_default_cyclomatic_parity() {
+        // Recurse to the deepest function space (the method holding the
+        // switch) and assert per-space cyclomatic decisions == ABC
+        // conditions.
+        fn assert_deepest(space: &crate::FuncSpace) {
+            if let Some(child) = space.spaces.last() {
+                assert_deepest(child);
+                return;
+            }
+            // Per-space cyclomatic base is 1; the two case arms add 2.
+            let decisions = space.metrics.cyclomatic.cyclomatic() - 1.0;
+            assert_eq!(decisions, 2.0);
+            assert_eq!(space.metrics.abc.conditions(), decisions);
+        }
+        check_func_space::<JavaParser, _>(
+            "class A {
+                int m(int x) {
+                    switch (x) { case 1: return 1; case 2: return 2; default: return 0; }
+                }
+            }",
+            "foo.java",
+            |space| assert_deepest(&space),
+        );
+        check_func_space::<CsharpParser, _>(
+            "class A {
+                int M(int x) {
+                    switch (x) { case 1: return 1; case 2: return 2; default: return 0; }
+                }
+            }",
+            "foo.cs",
+            |space| assert_deepest(&space),
+        );
+        check_func_space::<CppParser, _>(
+            "void f(int x) {
+                 switch (x) { case 1: return; case 2: return; default: return; }
+             }",
+            "foo.cpp",
+            |space| assert_deepest(&space),
+        );
+    }
+
     #[test]
     fn csharp_if_bare_identifier_condition() {
         check_metrics::<CsharpParser>(
@@ -6557,14 +6764,14 @@ function f(int $a, int $b): int {
                             return 1;
                         case 2:                 // +1
                             return 2;
-                        default:                // +1
+                        default:                // +0 (fallthrough, #469)
                             return 0;
                     }
                 }
             }",
             "foo.ts",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -6808,15 +7015,15 @@ function f(int $a, int $b): int {
             "class C {
                 m(x: number): number {
                     switch (x) {
-                        case 1: return 1;
-                        case 2: return 2;
-                        default: return 0;
+                        case 1: return 1;       // +1
+                        case 2: return 2;       // +1
+                        default: return 0;      // +0 (fallthrough, #469)
                     }
                 }
             }",
             "foo.tsx",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 3.0);
+                assert_eq!(metric.abc.conditions_sum(), 2.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -8775,10 +8982,10 @@ function f(int $a, int $b): int {
     #[test]
     fn cpp_switch_cases_count_default_excluded() {
         // `case 1`, `case 2` → 2 conditions. `default` is intentionally
-        // excluded (matches the C-family precedent in Rust / Go / Python
-        // and Java's omission of `Default` from this rule? — actually
-        // Java DOES count `Default`. We follow Rust / Go and exclude
-        // it). C = 2.
+        // excluded (the unconditional fallthrough, mirroring cyclomatic's
+        // `Case`-only count). Since #469 every C-family language —
+        // Java, C#, Groovy, JS, TS — agrees on this; C++ already did.
+        // C = 2.
         check_metrics::<CppParser>(
             "void f(int x) {\n\
                  switch (x) {\n\
@@ -9139,20 +9346,21 @@ function f(int $a, int $b): int {
 
     #[test]
     fn javascript_else_ternary_case_default_try_catch() {
-        // `else`, `?` (ternary), `case`, `default`, `try`, `catch`
-        // all count. With the comparisons:
+        // `else`, `?` (ternary), `case`, `try`, `catch` all count.
+        // `default` is the unconditional fallthrough → +0 (#469).
+        // With the comparisons:
         //   - `a > 0` → 1
         //   - `else` opens an else_clause → 1
         //   - `?` ternary → 1
         //   - `case 1` → 1
-        //   - `default` → 1
+        //   - `default` → 0 (fallthrough, #469)
         //   - `try` + `catch` → 2
-        // Total C = 7.
+        // Total C = 6.
         check_metrics::<JavascriptParser>(
             "function f(a) { if (a > 0) {} else {} let x = a ? 1 : 2; switch (x) { case 1: break; default: break; } try { } catch (e) { } }",
             "foo.js",
             |metric| {
-                assert_eq!(metric.abc.conditions_sum(), 7.0);
+                assert_eq!(metric.abc.conditions_sum(), 6.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9184,7 +9392,8 @@ function f(int $a, int $b): int {
         //   `?` → 2 in the ternary. `a < b` → 1 in the else-if.
         //   `!x` → 1 from the Fitzpatrick Rule 9 walker on `||`
         //   (issue #403): the wrapped Identifier counts once.
-        //   `case 1`, `default` → 2 in the switch. Total C = 9.
+        //   `case 1` → 1 in the switch; `default` → 0 (fallthrough,
+        //   #469). Total C = 8.
         check_metrics::<JavascriptParser>(
             "function f(a, b) {\n\
                  let x = 0;\n\
@@ -9207,7 +9416,7 @@ function f(int $a, int $b): int {
             |metric| {
                 assert_eq!(metric.abc.assignments_sum(), 7.0);
                 assert_eq!(metric.abc.branches_sum(), 2.0);
-                assert_eq!(metric.abc.conditions_sum(), 9.0);
+                assert_eq!(metric.abc.conditions_sum(), 8.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );
@@ -9240,7 +9449,7 @@ function f(int $a, int $b): int {
             |metric| {
                 assert_eq!(metric.abc.assignments_sum(), 7.0);
                 assert_eq!(metric.abc.branches_sum(), 2.0);
-                assert_eq!(metric.abc.conditions_sum(), 9.0);
+                assert_eq!(metric.abc.conditions_sum(), 8.0);
                 insta::assert_json_snapshot!(metric.abc);
             },
         );

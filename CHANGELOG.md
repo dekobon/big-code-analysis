@@ -740,6 +740,20 @@ for historical reference.
 
 ### Fixed
 
+- The `default` arm of a C-family `switch` no longer over-counts ABC
+  conditions ([#469](https://github.com/dekobon/big-code-analysis/issues/469)).
+  Java, C#, Groovy, JavaScript, TypeScript, TSX, and Mozjs counted the
+  `default` arm as an ABC condition while cyclomatic — which counts only
+  the `Case` arms — did not, inflating the ABC C-component (and
+  magnitude) by one for every switch carrying a `default`. Both the
+  classic statement form (`default:`) and the arrow form (`default ->`)
+  emit the same `Default` token, so both forms over-counted. The
+  `Default` token is now excluded from the condition tally in every
+  affected language, mirroring the cyclomatic gate and the Kotlin
+  `when`-else / C# switch-expression discard fixes from #456. C and C++
+  already excluded it. This is a metric-value change: ABC conditions and
+  magnitude drop by one per affected switch.
+
 - The cyclomatic cross-language parity tests now anchor each family's
   absolute normalised CCN, not just mutual cross-language agreement
   ([#468](https://github.com/dekobon/big-code-analysis/issues/468)).
