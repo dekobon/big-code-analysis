@@ -1,6 +1,6 @@
 //! Build script: bake the libpython rpath into binaries that embed
 //! Python (i.e. `cargo test` with `pyo3/auto-initialize`), so the
-//! test harness can find `libpython3.12.so` at runtime without the
+//! test harness can find `libpython3.x.so` at runtime without the
 //! caller having to set `LD_LIBRARY_PATH`.
 //!
 //! Mise / pyenv / Homebrew Python installs live outside the system
