@@ -675,6 +675,13 @@ for historical reference.
 
 ### Fixed
 
+- C# `enum` declarations now report `kind: "class"` instead of
+  `kind: "unknown"` in the per-space output, matching the existing
+  Java, PHP, and Groovy treatment of enum declarations
+  ([#429](https://github.com/dekobon/big-code-analysis/issues/429)).
+  A C# `EnumDeclaration` opens a `FuncSpace` (it is listed in
+  `is_func_space`), but `CsharpCode::get_space_kind` had no matching
+  arm, so the space fell through to `SpaceKind::Unknown`.
 - The per-function averages for `Cognitive`, `Exit`, and `NArgs` no
   longer emit `inf`/`NaN` (serialized as `null`)
   ([#428](https://github.com/dekobon/big-code-analysis/issues/428)).

@@ -732,8 +732,14 @@ impl Getter for CsharpCode {
     fn get_space_kind(node: &Node) -> SpaceKind {
         use Csharp::*;
 
+        // `EnumDeclaration` maps to `SpaceKind::Class` for cross-language
+        // parity with Java/PHP/Groovy (issue #429): a C# enum opens a
+        // FuncSpace via `is_func_space`, so it must classify here too or
+        // it falls through to `_ => SpaceKind::Unknown`.
         match node.kind_id().into() {
-            ClassDeclaration | StructDeclaration | RecordDeclaration => SpaceKind::Class,
+            ClassDeclaration | StructDeclaration | RecordDeclaration | EnumDeclaration => {
+                SpaceKind::Class
+            }
             InterfaceDeclaration => SpaceKind::Interface,
             MethodDeclaration
             | ConstructorDeclaration

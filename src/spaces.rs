@@ -1678,6 +1678,23 @@ mod tests {
         );
     }
 
+    /// Regression for #429: a C# `EnumDeclaration` opens a FuncSpace
+    /// via `is_func_space`, so `get_space_kind` must classify it as
+    /// `Class` (matching Java/PHP/Groovy) rather than letting it fall
+    /// through to `SpaceKind::Unknown`. The enum is the only declared
+    /// space, so it appears as a direct child of the top-level Unit.
+    #[test]
+    fn csharp_enum_space_kind_is_class() {
+        let src = "enum Color { Red, Green, Blue }\n";
+        let path = std::path::PathBuf::from("Color.cs");
+        let parser = crate::CsharpParser::new(src.as_bytes().to_vec(), &path, None);
+        let space = metrics(&parser, &path).expect("metrics must yield a top-level space");
+
+        let enum_space = space.spaces.first().expect("enum must open a child space");
+        assert_eq!(enum_space.kind, SpaceKind::Class);
+        assert_eq!(enum_space.name.as_deref(), Some("Color"));
+    }
+
     #[test]
     fn bash_top_level_space_is_unit_contract() {
         assert_top_level_space_is_unit_contract::<crate::BashParser>(
