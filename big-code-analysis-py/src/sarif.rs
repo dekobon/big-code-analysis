@@ -95,12 +95,17 @@ struct MetricField {
 /// sequence of dict keys to walk on the space's `metrics` sub-dict to
 /// reach the comparison scalar.
 ///
-/// **Sync requirement:** every entry must have a counterpart in the
-/// CLI's `EXTRACTORS` table (same name, same upstream accessor in
-/// shape). When the upstream library adds a new metric, both tables
-/// must be updated — there is no shared registry today. Drift here
-/// silently changes which thresholds the Python `to_sarif` accepts
-/// without affecting the CLI.
+/// **Sync requirement:** the metric-name set and the per-metric
+/// `skip_at_unit` flag are now derived from a single shared registry
+/// in the library crate — [`big_code_analysis::metric_catalog::METRICS`]
+/// — which both the CLI's `EXTRACTORS` table and this table are checked
+/// against (#442). `metric_fields_agree_with_shared_registry` below fails
+/// the build if a metric is added to one front-end but not the other, or
+/// if a `skip_at_unit` flag disagrees with the registry. The JSON `path`
+/// is the only column unique to this binding (the CLI reaches the same
+/// scalar through a typed `CodeMetrics` accessor, not a JSON walk); it is
+/// pinned by `metric_field_paths_are_pinned` so a path edit is a
+/// deliberate, reviewed change rather than silent drift.
 const METRIC_FIELDS: &[MetricField] = &[
     // Per-space accessor differs from JSON sum at the unit level.
     MetricField {
@@ -633,45 +638,93 @@ mod tests {
         }
     }
 
+    /// Cross-crate drift guard (#442). The metric-name set and every
+    /// `skip_at_unit` flag must agree with the shared library registry
+    /// [`big_code_analysis::metric_catalog::METRICS`], which the CLI's
+    /// `EXTRACTORS` table is also pinned to (parity test in
+    /// `big-code-analysis-cli/src/thresholds.rs`). A metric added to the
+    /// CLI but not here (or vice versa), or a `skip_at_unit` flag that
+    /// disagrees with the registry's aggregate-vs-per-space property,
+    /// fails this assertion with the offending name — turning what used
+    /// to be silent divergence into a build failure.
     #[test]
-    fn skip_at_unit_matches_sum_vs_per_space_divergence() {
-        // `skip_at_unit` must be true exactly for the metrics whose JSON
-        // headline is an aggregate over descendant spaces while the CLI
-        // threshold accessor (`big-code-analysis-cli/src/thresholds.rs::
-        // EXTRACTORS`) returns the unit's own per-space scalar:
-        //
-        //   - `cognitive`     JSON `cognitive.sum` vs CLI `cognitive()`.
-        //   - `cyclomatic`    JSON `cyclomatic.sum` vs CLI `cyclomatic()`.
-        //   - `cyclomatic.modified`
-        //                     JSON `cyclomatic.modified.sum` vs CLI
-        //                     `cyclomatic_modified()`.
-        //   - `abc`           JSON `abc.magnitude` is serialized from
-        //                     `magnitude_sum()` (built from the `*_sum`
-        //                     accumulators) while the CLI uses the
-        //                     per-space `m.abc.magnitude()` (#441).
-        //
-        // The property is NOT derivable from the JSON path alone: `nexits`
-        // also walks a `sum` field (`nexits.sum`), but the CLI's nexits
-        // accessor is `exit_sum()` — the same aggregate the JSON exposes —
-        // so it does NOT diverge and is correctly `skip_at_unit: false`.
-        // The divergence is between the JSON field and the *CLI accessor*,
-        // which only the EXTRACTORS table records; hence the expected set
-        // is enumerated here with a per-metric rationale rather than
-        // inferred from the path string. Until #442 shares one registry
-        // across the CLI and this binding, adding a metric whose JSON
-        // headline is an aggregate-not-matching-its-accessor requires a
-        // deliberate edit to this set.
-        let mut skip: Vec<&str> = METRIC_FIELDS
-            .iter()
-            .filter(|m| m.skip_at_unit)
-            .map(|m| m.name)
-            .collect();
-        skip.sort_unstable();
+    fn metric_fields_agree_with_shared_registry() {
+        use big_code_analysis::metric_catalog::METRICS;
+
+        // (i) name-set agreement: same metrics in both tables.
+        let mut ours: Vec<&str> = METRIC_FIELDS.iter().map(|m| m.name).collect();
+        let mut registry: Vec<&str> = METRICS.iter().map(|m| m.id).collect();
+        ours.sort_unstable();
+        registry.sort_unstable();
         assert_eq!(
-            skip,
-            ["abc", "cognitive", "cyclomatic", "cyclomatic.modified"],
-            "skip_at_unit set drifted from the JSON-aggregate-vs-CLI-accessor \
-             property; review against the CLI EXTRACTORS table before editing"
+            ours, registry,
+            "METRIC_FIELDS and library metric_catalog::METRICS disagree on \
+             metric names; a metric was added to one front-end but not the other"
+        );
+
+        // (ii) per-metric skip_at_unit agreement: the divergence flag is
+        // owned by the registry; this binding must mirror it exactly.
+        for entry in METRIC_FIELDS {
+            let registry_skip = METRICS
+                .iter()
+                .find(|m| m.id == entry.name)
+                .map(|m| m.skip_at_unit);
+            assert_eq!(
+                Some(entry.skip_at_unit),
+                registry_skip,
+                "skip_at_unit for {:?} disagrees with the shared registry; \
+                 review the JSON-aggregate-vs-CLI-accessor property",
+                entry.name,
+            );
+        }
+    }
+
+    /// (iii) JSON-path drift guard (#442). The `path` column is unique to
+    /// this binding — the CLI reaches each scalar through a typed
+    /// `CodeMetrics` accessor, not a JSON walk — so it cannot be checked
+    /// against the registry. Pin it here so a path edit (which silently
+    /// changes which JSON field `to_sarif` compares against the limit) is
+    /// a deliberate, reviewed change. The expected paths mirror the
+    /// `CodeMetrics::Serialize` shape the upstream library emits.
+    #[test]
+    fn metric_field_paths_are_pinned() {
+        let actual: Vec<(&str, Vec<&str>)> = METRIC_FIELDS
+            .iter()
+            .map(|m| (m.name, m.path.to_vec()))
+            .collect();
+        let expected: &[(&str, &[&str])] = &[
+            ("cognitive", &["cognitive", "sum"]),
+            ("cyclomatic", &["cyclomatic", "sum"]),
+            ("cyclomatic.modified", &["cyclomatic", "modified", "sum"]),
+            ("abc", &["abc", "magnitude"]),
+            ("halstead.volume", &["halstead", "volume"]),
+            ("halstead.difficulty", &["halstead", "difficulty"]),
+            ("halstead.effort", &["halstead", "effort"]),
+            ("halstead.time", &["halstead", "time"]),
+            ("halstead.bugs", &["halstead", "bugs"]),
+            ("loc.sloc", &["loc", "sloc"]),
+            ("loc.ploc", &["loc", "ploc"]),
+            ("loc.lloc", &["loc", "lloc"]),
+            ("loc.cloc", &["loc", "cloc"]),
+            ("loc.blank", &["loc", "blank"]),
+            ("nom", &["nom", "total"]),
+            ("tokens", &["tokens", "tokens"]),
+            ("nexits", &["nexits", "sum"]),
+            ("nargs", &["nargs", "total"]),
+            ("mi.original", &["mi", "mi_original"]),
+            ("mi.sei", &["mi", "mi_sei"]),
+            ("mi.visual_studio", &["mi", "mi_visual_studio"]),
+            ("wmc", &["wmc", "total"]),
+            ("npm", &["npm", "total"]),
+            ("npa", &["npa", "total"]),
+        ];
+        let expected: Vec<(&str, Vec<&str>)> =
+            expected.iter().map(|(n, p)| (*n, p.to_vec())).collect();
+        assert_eq!(
+            actual, expected,
+            "METRIC_FIELDS JSON paths drifted; if this is intentional, update \
+             the pinned list and confirm the path still reaches the scalar the \
+             CLI accessor reads"
         );
     }
 }

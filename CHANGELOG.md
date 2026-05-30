@@ -23,6 +23,20 @@ for historical reference.
 
 ### Added
 
+- `metric_catalog::MetricInfo` gains a `skip_at_unit: bool` field
+  recording whether a metric's serialized JSON headline at the
+  file-level `unit` space is an aggregate over descendant spaces that
+  does not match the CLI threshold accessor's per-space scalar (`true`
+  for `cognitive`, `cyclomatic`, `cyclomatic.modified`, and `abc`).
+  This is the single source of truth the CLI `EXTRACTORS` table and the
+  Python `to_sarif` binding's `METRIC_FIELDS` table now both derive
+  from, so a metric added to one front-end but not the other — or a
+  `skip_at_unit` flag that disagrees — is a build/test failure instead
+  of silent SARIF divergence
+  ([#442](https://github.com/dekobon/big-code-analysis/issues/442)).
+  Additive: `MetricInfo` is `#[non_exhaustive]`, so the new field does
+  not break downstream readers.
+
 - `bca exemptions` audits everything the `bca check` gate skips in one
   report ([#386](https://github.com/dekobon/big-code-analysis/issues/386)):
   in-source suppression markers (`bca: suppress`, `#lizard forgives`,
