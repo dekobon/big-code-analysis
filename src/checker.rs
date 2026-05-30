@@ -568,6 +568,25 @@ impl Checker for JavaCode {
     }
 }
 
+/// Returns `true` when a C# `indexer_declaration` carries bodied accessors —
+/// an `accessor_list` containing at least one `accessor_declaration`
+/// (`get` / `set` / `init`). Returns `false` for the expression-bodied form
+/// (`this[int i] => _d[i];`), which has no accessor list and defines a single
+/// implicit getter.
+///
+/// Shared by `CsharpCode::is_func` / `is_func_space` and
+/// `CsharpCode::get_space_kind` so all three agree on when an indexer opens
+/// its own Function space versus deferring to its accessor children. This
+/// mirrors the npm reference (`csharp_count_member`): an indexer counts as
+/// its accessor count, falling back to 1 for the accessor-less
+/// expression-bodied form (#464).
+pub(crate) fn csharp_indexer_has_accessors(node: &Node) -> bool {
+    node.children()
+        .filter(|c| c.kind_id() == Csharp::AccessorList as u16)
+        .flat_map(|list| list.children())
+        .any(|c| c.kind_id() == Csharp::AccessorDeclaration as u16)
+}
+
 impl Checker for CsharpCode {
     fn is_comment(node: &Node) -> bool {
         node.kind_id() == Csharp::Comment
@@ -577,7 +596,16 @@ impl Checker for CsharpCode {
         false
     }
 
+    // A bodied indexer (`this[int i] { get; set; }`) defers to its
+    // `accessor_declaration` children for its function spaces — counting it
+    // here too triple-counts the indexer in nom/wmc (#464). Only the
+    // accessor-less expression-bodied form (`this[int i] => _d[i];`) opens a
+    // space directly, matching the npm `.max(1)` fallback and the way
+    // expression-bodied accessors are the sole callable for that indexer.
     fn is_func_space(node: &Node) -> bool {
+        if node.kind_id() == Csharp::IndexerDeclaration as u16 {
+            return !csharp_indexer_has_accessors(node);
+        }
         matches!(
             node.kind_id().into(),
             Csharp::CompilationUnit
@@ -595,11 +623,13 @@ impl Checker for CsharpCode {
                 | Csharp::AccessorDeclaration
                 | Csharp::OperatorDeclaration
                 | Csharp::ConversionOperatorDeclaration
-                | Csharp::IndexerDeclaration
         )
     }
 
     fn is_func(node: &Node) -> bool {
+        if node.kind_id() == Csharp::IndexerDeclaration as u16 {
+            return !csharp_indexer_has_accessors(node);
+        }
         matches!(
             node.kind_id().into(),
             Csharp::MethodDeclaration
@@ -609,7 +639,6 @@ impl Checker for CsharpCode {
                 | Csharp::AccessorDeclaration
                 | Csharp::OperatorDeclaration
                 | Csharp::ConversionOperatorDeclaration
-                | Csharp::IndexerDeclaration
         )
     }
 

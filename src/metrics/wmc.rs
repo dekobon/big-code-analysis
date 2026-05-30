@@ -1505,6 +1505,52 @@ mod tests {
     }
 
     #[test]
+    fn csharp_indexer_wmc() {
+        // A bodied indexer folds its accessor complexities into the
+        // enclosing class. Before #464 the `indexer_declaration` node
+        // itself ALSO opened a method space, folding an extra entry on
+        // top of get=1 + set=1 (`class_wmc_sum == 3`). The correct sum is
+        // 2 — one unit of complexity per accessor — matching the npm path.
+        check_metrics::<CsharpParser>(
+            "class A {
+                private int[] _d;
+                public int this[int i] { get => _d[i]; set => _d[i] = value; }
+            }",
+            "foo.cs",
+            |metric| {
+                // expected: get (cyclomatic 1) + set (cyclomatic 1) = 2;
+                // no extra entry from the IndexerDeclaration node.
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_expression_bodied_indexer_wmc() {
+        // The accessor-less expression-bodied form (`this[int i] => _d[i];`)
+        // has no `accessor_declaration` child, so the #464 gate keeps the
+        // IndexerDeclaration node itself opening a single method space —
+        // it must stay at 1, not regress to 0 (mirrors npm `.max(1)`).
+        check_metrics::<CsharpParser>(
+            "class A {
+                private int[] _d;
+                public int this[int i] => _d[i];
+            }",
+            "foo.cs",
+            |metric| {
+                // expected: one implicit getter (cyclomatic 1) = 1.
+                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                insta::assert_json_snapshot!(metric.wmc);
+            },
+        );
+    }
+
+    #[test]
     fn csharp_single_interface() {
         check_metrics::<CsharpParser>(
             "public interface I {

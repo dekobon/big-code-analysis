@@ -1066,6 +1066,82 @@ mod tests {
     }
 
     #[test]
+    fn csharp_indexer_nom() {
+        // A bodied indexer defines two callable accessors (`get`, `set`).
+        // Before #464 the `indexer_declaration` node itself ALSO opened a
+        // function space, triple-counting the indexer as 3 functions. The
+        // correct count is 2 — the accessor count — matching the npm path
+        // (`csharp_count_member`) which reports `class_methods == 2`.
+        check_metrics::<CsharpParser>(
+            "class A {
+                private int[] _d;
+                public int this[int i] { get => _d[i]; set => _d[i] = value; }
+            }",
+            "foo.cs",
+            |metric| {
+                // expected: get + set accessors = 2 functions; the
+                // IndexerDeclaration node no longer opens its own space.
+                assert_eq!(metric.nom.functions_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+                insta::assert_json_snapshot!(
+                    metric.nom,
+                    @r###"
+                    {
+                      "functions": 2.0,
+                      "closures": 0.0,
+                      "functions_average": 0.5,
+                      "closures_average": 0.0,
+                      "total": 2.0,
+                      "average": 0.5,
+                      "functions_min": 0.0,
+                      "functions_max": 1.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_expression_bodied_indexer_nom() {
+        // An expression-bodied indexer (`this[int i] => _d[i];`) has NO
+        // `accessor_declaration` child — it defines a single implicit
+        // getter. Removing the IndexerDeclaration entry from is_func /
+        // is_func_space outright would drop this to 0; the #464 fix gates
+        // the entry on the absence of accessors so this form still counts
+        // as 1, matching the npm `.max(1)` fallback.
+        check_metrics::<CsharpParser>(
+            "class A {
+                private int[] _d;
+                public int this[int i] => _d[i];
+            }",
+            "foo.cs",
+            |metric| {
+                // expected: one implicit getter, no accessor nodes => 1.
+                assert_eq!(metric.nom.functions_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+                insta::assert_json_snapshot!(
+                    metric.nom,
+                    @r###"
+                    {
+                      "functions": 1.0,
+                      "closures": 0.0,
+                      "functions_average": 0.3333333333333333,
+                      "closures_average": 0.0,
+                      "total": 1.0,
+                      "average": 0.3333333333333333,
+                      "functions_min": 0.0,
+                      "functions_max": 1.0,
+                      "closures_min": 0.0,
+                      "closures_max": 0.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
     fn go_top_level_funcs() {
         check_metrics::<GoParser>(
             "package main

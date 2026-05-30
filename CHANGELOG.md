@@ -740,6 +740,18 @@ for historical reference.
 
 ### Fixed
 
+- C# indexers are no longer triple-counted in `nom` and `wmc`
+  ([#464](https://github.com/dekobon/big-code-analysis/issues/464)).
+  A bodied indexer (`this[int i] { get => …; set => …; }`) opened a
+  function space for the `indexer_declaration` node *and* for each
+  `get`/`set` accessor, counting one indexer as three functions in
+  `nom` and folding an extra entry into `wmc`. The `indexer_declaration`
+  node now opens its own space only for the accessor-less
+  expression-bodied form (`this[int i] => _d[i];`), deferring to its
+  accessor children otherwise — matching how properties are counted and
+  the `npm` reference (`csharp_count_member`), which counts an indexer
+  as its accessor count with a `.max(1)` fallback for the
+  expression-bodied form.
 - Anonymous class/object bodies now open their own `Class` func-space,
   so their members are attributed to the anonymous type rather than the
   enclosing function

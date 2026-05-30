@@ -786,6 +786,18 @@ impl Getter for CsharpCode {
         // parity with Java/PHP/Groovy (issue #429): a C# enum opens a
         // FuncSpace via `is_func_space`, so it must classify here too or
         // it falls through to `_ => SpaceKind::Unknown`.
+        // A bodied indexer defers to its `accessor_declaration` children
+        // (#464); only the accessor-less expression-bodied form opens a
+        // Function space directly. Keep this gate in lockstep with
+        // `CsharpCode::is_func` / `is_func_space` so the walker and the
+        // space-kind classifier agree on which indexer nodes promote.
+        if node.kind_id() == IndexerDeclaration as u16 {
+            return if crate::checker::csharp_indexer_has_accessors(node) {
+                SpaceKind::Unknown
+            } else {
+                SpaceKind::Function
+            };
+        }
         match node.kind_id().into() {
             ClassDeclaration | StructDeclaration | RecordDeclaration | EnumDeclaration => {
                 SpaceKind::Class
@@ -799,8 +811,7 @@ impl Getter for CsharpCode {
             | AnonymousMethodExpression
             | AccessorDeclaration
             | OperatorDeclaration
-            | ConversionOperatorDeclaration
-            | IndexerDeclaration => SpaceKind::Function,
+            | ConversionOperatorDeclaration => SpaceKind::Function,
             CompilationUnit => SpaceKind::Unit,
             _ => SpaceKind::Unknown,
         }
