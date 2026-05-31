@@ -192,9 +192,65 @@ to read a long offender list and spot which file to start with.
 
 ### 6. Retire the baseline
 
-When `.bca-baseline.toml` contains only `version = 4` and no entries,
+When `.bca-baseline.toml` contains only `version = 5` and no entries,
 drop the `--baseline` flag from CI and delete the file. The thresholds
 now stand on their own.
+
+## Tier/headroom provenance
+
+A baseline written with `--write-baseline` (v5+) records *which gate it
+was written against* in a `[provenance]` table:
+
+```toml
+version = 5
+
+[provenance]
+tier = "soft"
+headroom = 0.95
+```
+
+- `tier = "hard"` — written by the hard gate (`bca check
+  --write-baseline …`); no `headroom` key.
+- `tier = "soft"`, `headroom = <ratio>` — written by the soft gate
+  scaled by `--headroom` (`bca check --tier soft --headroom 0.95
+  --write-baseline …`).
+- `tier = "soft"` with no `headroom` — written by the soft gate driven
+  by a `[thresholds.soft]` table (per-metric limits, no single ratio).
+
+The provenance is a real TOML table, not a comment, so `bca
+diff-baseline` and external tooling can read it. Baselines written by an
+older bca (v2–v4) carry no provenance and are read without error.
+
+### The stricter-than-baseline warning
+
+`bca check` reduces the baseline's provenance and the current run's
+effective limits to a single *strictness* scalar (hard → `1.0`; soft
+scaled by `h` → `h`; smaller means stricter) and warns when the current
+run is **stricter** than the baseline was written against:
+
+```text
+warning: this check's effective limits (strictness 0.9) are stricter
+than the baseline was written against (strictness 0.95); the baseline
+may under-cover and the gate can fire on untouched files. Refresh it at
+the matching tier, …
+```
+
+This is the silent-desync the [baseline-refresh
+discipline](#4-refresh-the-baseline-as-the-team-pays-debt-down) guards
+against: a baseline written *looser* than the current gate may not list
+every offender the tighter gate produces, so the gate can suddenly fire
+on files nobody touched.
+
+The warning is **directional**. It fires only when the current run is
+stricter. It stays silent in the safe direction — a hard check
+(strictness `1.0`) reading a soft-`0.95` baseline sees a *superset* of
+its offenders, which is exactly the intended single-baseline setup
+where `make self-scan` (hard) and `make self-scan-headroom` (soft)
+ratchet through the same `.bca-baseline.toml`. It also stays silent for
+equal provenance, for pre-v5 baselines (provenance unknown), and when
+either side is a `[thresholds.soft]`-table baseline (no single ratio to
+compare). To clear a genuine warning, refresh the baseline at the
+current tier with the matching `--write-baseline` recipe.
 
 ## How matching works
 

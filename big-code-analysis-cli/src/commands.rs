@@ -62,8 +62,11 @@ fn run_check(
         }
         None => ParsedThresholds::default(),
     };
-    let ResolvedThresholds { set, hard_limits } =
-        validate_and_build_thresholds(&args, base_thresholds);
+    let ResolvedThresholds {
+        set,
+        hard_limits,
+        provenance,
+    } = validate_and_build_thresholds(&args, base_thresholds);
     // `--print-effective-config` is a read-only debug aid: print the
     // resolved configuration and exit 0 before the walk. clap already
     // rejects pairing with `--write-baseline` (conflicts_with), so by
@@ -97,7 +100,7 @@ fn run_check(
     let violations = apply_check_exclude(violations, &args);
 
     if let Some(path) = args.write_baseline.as_deref() {
-        write_check_baseline(violations, path);
+        write_check_baseline(violations, path, provenance);
         return;
     }
 
@@ -107,6 +110,7 @@ fn run_check(
         args.baseline_line_tolerance
             .unwrap_or(baseline::DEFAULT_LINE_TOLERANCE),
         args.baseline_fuzzy_match,
+        provenance,
     );
     let pairs = apply_changed_only(pairs, scope.as_ref(), args.changed_only);
     let any_violations = !pairs.is_empty();
@@ -324,6 +328,31 @@ const DEFAULT_SOFT_HEADROOM: f64 = 0.95;
 struct ResolvedThresholds {
     set: Arc<ThresholdSet>,
     hard_limits: BTreeMap<String, f64>,
+    /// Tier/headroom the gate resolved to (issue #486). Stamped into the
+    /// baseline on `--write-baseline` and compared against a loaded
+    /// baseline's recorded provenance to warn on a stricter-than-baseline
+    /// desync.
+    provenance: baseline::Provenance,
+}
+
+/// Reduce the resolved tier + soft-table presence + headroom to the
+/// [`baseline::Provenance`] stamped on a write and compared on a read
+/// (issue #486). Mirrors the tier-resolution branches in
+/// [`resolve_tier`]: hard → no scaling; soft with a `[thresholds.soft]`
+/// table → per-metric limits (no single ratio); soft without a table →
+/// scaled by `--headroom` (defaulting to [`DEFAULT_SOFT_HEADROOM`]).
+fn resolve_provenance(
+    tier: Tier,
+    soft_table_present: bool,
+    headroom: Option<f64>,
+) -> baseline::Provenance {
+    match tier {
+        Tier::Hard => baseline::Provenance::hard(),
+        Tier::Soft if soft_table_present => baseline::Provenance::soft_table(),
+        Tier::Soft => {
+            baseline::Provenance::soft_headroom(headroom.unwrap_or(DEFAULT_SOFT_HEADROOM))
+        }
+    }
 }
 
 /// Validate `--output` / `--output-format` pairing, then resolve the
@@ -377,6 +406,11 @@ fn validate_and_build_thresholds(
         die(format_args!("--headroom must be in (0, 1]; got {ratio}"));
     }
 
+    // Capture whether a soft table is configured before `resolve_tier`
+    // borrows `soft`, so provenance resolution (#486) matches the same
+    // branch the tier resolver takes.
+    let soft_table_present = !soft.is_empty();
+
     // Layer 3: tier resolution. Produces the per-metric limits the gate
     // compares against. Clone `hard` so the un-scaled hard-tier limits
     // survive for #385 hard-breach detection below.
@@ -401,6 +435,7 @@ fn validate_and_build_thresholds(
     ResolvedThresholds {
         set: Arc::new(set),
         hard_limits: hard,
+        provenance: resolve_provenance(args.tier, soft_table_present, args.headroom),
     }
 }
 
@@ -518,9 +553,9 @@ fn run_check_walk(
 /// baseline-file directory becomes the *anchor* — every entry's path
 /// is keyed relative to it, so a subsequent `--baseline` invocation
 /// from any `--paths` form (`.`, `src/`, `$PWD`) still matches.
-fn write_check_baseline(violations: Vec<Violation>, path: &Path) {
+fn write_check_baseline(violations: Vec<Violation>, path: &Path, provenance: baseline::Provenance) {
     let anchor = baseline::anchor_for(path);
-    let file = baseline::from_violations(violations, &anchor);
+    let file = baseline::from_violations(violations, &anchor, provenance);
     let entry_count = file.entries.len();
     let text =
         baseline::render(&file).unwrap_or_else(|e| die(format_args!("serialize baseline: {e}")));
@@ -559,16 +594,50 @@ fn apply_check_exclude(violations: Vec<Violation>, args: &CheckArgs) -> Vec<Viol
 /// stderr renderer can attach a `[new]` / `[regr +N%]` tag. Without
 /// `--baseline`, `Option<Coverage>` is `None` and the renderer emits
 /// the exact pre-tag line format byte-identically.
+/// Compose the stderr warning (issue #486) when the current run is
+/// stricter than the baseline was written against, or `None` when the
+/// comparison is safe (see [`baseline::check_provenance`] for the
+/// directional rule). Split out from [`filter_by_baseline`] so a test
+/// can pin the exact message and the silent cases without a baseline
+/// file on disk.
+fn provenance_warning(
+    current: baseline::Provenance,
+    baseline: Option<baseline::Provenance>,
+) -> Option<String> {
+    match baseline::check_provenance(current, baseline) {
+        baseline::ProvenanceCheck::Ok => None,
+        baseline::ProvenanceCheck::StricterThanBaseline {
+            current: cur,
+            baseline: base,
+        } => Some(format!(
+            "warning: this check's effective limits (strictness {cur}) are \
+             stricter than the baseline was written against (strictness \
+             {base}); the baseline may under-cover and the gate can fire on \
+             untouched files. Refresh it at the matching tier, e.g. \
+             `bca check --tier soft --headroom {cur} --write-baseline \
+             <file>` (or `--write-baseline <file>` for the hard tier)."
+        )),
+    }
+}
+
 fn filter_by_baseline(
     violations: Vec<Violation>,
     baseline_path: Option<&Path>,
     tolerance: usize,
     fuzzy: bool,
+    provenance: baseline::Provenance,
 ) -> Vec<(Violation, Option<Coverage>)> {
     let Some(path) = baseline_path else {
         return violations.into_iter().map(|v| (v, None)).collect();
     };
     let baseline = load_baseline(path, tolerance, fuzzy);
+    // Issue #486: warn when this run's effective limits are stricter than
+    // the baseline was written against (the baseline may under-cover and
+    // the gate can fire on untouched files). Silent in the safe
+    // directions (hard reading soft, equal, absent provenance).
+    if let Some(msg) = provenance_warning(provenance, baseline.provenance()) {
+        eprintln!("{msg}");
+    }
     let before = violations.len();
     let kept: Vec<_> = violations
         .into_iter()

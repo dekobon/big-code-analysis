@@ -1066,7 +1066,12 @@ fn check_headroom_does_not_scale_cli_threshold_override() {
     let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
     let cfg = write_fixture(&dir, "thresholds.toml", "[thresholds]\ncyclomatic = 2\n");
 
+    // Run from the temp dir so no auto-discovered repo `bca.toml`
+    // baseline leaks in: at `--headroom 0.5` this run is stricter than
+    // the repo's soft-0.95 baseline and would otherwise draw the (here
+    // irrelevant) provenance warning (#486).
     cli()
+        .current_dir(dir.path())
         .args([
             "--paths",
             &path,

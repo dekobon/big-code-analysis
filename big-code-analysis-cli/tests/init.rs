@@ -185,7 +185,7 @@ fn init_no_baseline_writes_empty_placeholder() {
     // Empty placeholder still carries the version key the loader
     // requires; without it `--baseline` would reject the file.
     assert!(
-        baseline.contains("version = 4"),
+        baseline.contains("version = 5"),
         "empty baseline placeholder missing version key: {baseline}"
     );
     // No actual entries.

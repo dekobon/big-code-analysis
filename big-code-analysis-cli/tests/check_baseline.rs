@@ -535,7 +535,8 @@ pub fn classify(n: i32) -> &'static str {
         .stderr(predicate::str::contains("wrote 0 baseline entries"));
 
     let content = fs::read_to_string(&baseline).unwrap();
-    assert!(content.contains("version = 4"));
+    assert!(content.contains("version = 5"));
+    assert!(content.contains("tier = \"hard\""));
     assert!(!content.contains("[[entry]]"));
 }
 
@@ -1002,7 +1003,10 @@ fn clean_tree_write_baseline_produces_empty_versioned_file() {
         .stderr(predicate::str::contains("wrote 0 baseline entries"));
 
     let content = fs::read_to_string(&baseline).unwrap();
-    assert!(content.contains("version = 4"));
+    assert!(content.contains("version = 5"));
+    // No `--tier soft`, so the write is stamped at the hard tier (#486).
+    assert!(content.contains("tier = \"hard\""));
+    assert!(!content.contains("headroom"));
     assert!(!content.contains("[[entry]]"));
 }
 
@@ -1262,4 +1266,120 @@ fn legacy_v2_baseline_migrates_dot_prefix() {
         .stderr(predicate::str::contains(
             "filtered 1 violations via baseline",
         ));
+}
+
+// -- Provenance directional warning (issue #486) -------------------------
+
+#[test]
+fn soft_write_baseline_stamps_tier_and_headroom() {
+    let dir = TempDir::new().unwrap();
+    let src = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let baseline = dir.path().join("baseline.toml");
+
+    cli()
+        .args([
+            "--paths",
+            &src,
+            "check",
+            "--tier",
+            "soft",
+            "--headroom",
+            "0.95",
+            "--threshold",
+            "cyclomatic=1",
+            "--write-baseline",
+            baseline.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&baseline).unwrap();
+    assert!(content.contains("[provenance]"), "content:\n{content}");
+    assert!(content.contains("tier = \"soft\""), "content:\n{content}");
+    assert!(content.contains("headroom = 0.95"), "content:\n{content}");
+}
+
+#[test]
+fn hard_check_reading_soft_baseline_is_silent() {
+    // The repo's intended setup: a soft-0.95 baseline read by the hard
+    // gate. The hard gate sees a superset of its offenders, so it must
+    // emit NO provenance warning.
+    let dir = TempDir::new().unwrap();
+    let src = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let baseline = dir.path().join("baseline.toml");
+
+    cli()
+        .args([
+            "--paths",
+            &src,
+            "check",
+            "--tier",
+            "soft",
+            "--headroom",
+            "0.95",
+            "--threshold",
+            "cyclomatic=1",
+            "--write-baseline",
+            baseline.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    cli()
+        .args([
+            "--paths",
+            &src,
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--baseline",
+            baseline.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("stricter than the baseline").not());
+}
+
+#[test]
+fn stricter_check_reading_looser_baseline_warns() {
+    // Soft check at 0.90 (stricter) reading a baseline written at 0.95
+    // (looser): the baseline may under-cover, so the gate warns.
+    let dir = TempDir::new().unwrap();
+    let src = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+    let baseline = dir.path().join("baseline.toml");
+
+    cli()
+        .args([
+            "--paths",
+            &src,
+            "check",
+            "--tier",
+            "soft",
+            "--headroom",
+            "0.95",
+            "--threshold",
+            "cyclomatic=1",
+            "--write-baseline",
+            baseline.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    cli()
+        .args([
+            "--paths",
+            &src,
+            "check",
+            "--tier",
+            "soft",
+            "--headroom",
+            "0.90",
+            "--threshold",
+            "cyclomatic=1",
+            "--baseline",
+            baseline.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("stricter than the baseline"));
 }

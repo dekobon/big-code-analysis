@@ -953,3 +953,76 @@ fn init_template_thresholds_match_repo_root() {
          the manifest's [thresholds] table together"
     );
 }
+
+// -- provenance warning (issue #486) -----------------------------------
+
+#[test]
+fn provenance_warning_fires_when_stricter_than_baseline() {
+    // Soft check at 0.90 reading a baseline written at 0.95: the current
+    // run is stricter, so the baseline may under-cover. Must warn, and
+    // the message must name both strictness scalars and a refresh recipe.
+    let msg = provenance_warning(
+        baseline::Provenance::soft_headroom(0.90),
+        Some(baseline::Provenance::soft_headroom(0.95)),
+    )
+    .expect("stricter-than-baseline must warn");
+    assert!(
+        msg.contains("0.9"),
+        "message names current strictness: {msg}"
+    );
+    assert!(
+        msg.contains("0.95"),
+        "message names baseline strictness: {msg}"
+    );
+    assert!(
+        msg.contains("--write-baseline"),
+        "message points at the refresh recipe: {msg}"
+    );
+}
+
+#[test]
+fn provenance_warning_silent_when_hard_reads_soft() {
+    // The repo's own setup: `make self-scan` (hard) reading the soft-0.95
+    // baseline must produce NO warning.
+    assert_eq!(
+        provenance_warning(
+            baseline::Provenance::hard(),
+            Some(baseline::Provenance::soft_headroom(0.95)),
+        ),
+        None
+    );
+}
+
+#[test]
+fn provenance_warning_silent_when_baseline_absent() {
+    // Pre-v5 baselines (no provenance) must never trigger the warning.
+    assert_eq!(provenance_warning(baseline::Provenance::hard(), None), None);
+    assert_eq!(
+        provenance_warning(baseline::Provenance::soft_headroom(0.5), None),
+        None
+    );
+}
+
+#[test]
+fn resolve_provenance_maps_each_tier_branch() {
+    // Hard tier: no scaling.
+    assert_eq!(
+        resolve_provenance(Tier::Hard, false, Some(0.5)),
+        baseline::Provenance::hard()
+    );
+    // Soft with a `[thresholds.soft]` table: per-metric, no single ratio.
+    assert_eq!(
+        resolve_provenance(Tier::Soft, true, Some(0.5)),
+        baseline::Provenance::soft_table()
+    );
+    // Soft without a table: scaled by --headroom.
+    assert_eq!(
+        resolve_provenance(Tier::Soft, false, Some(0.90)),
+        baseline::Provenance::soft_headroom(0.90)
+    );
+    // Soft without a table or --headroom: the default soft headroom.
+    assert_eq!(
+        resolve_provenance(Tier::Soft, false, None),
+        baseline::Provenance::soft_headroom(DEFAULT_SOFT_HEADROOM)
+    );
+}

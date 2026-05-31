@@ -261,7 +261,10 @@ capture them.
 # Listed offenders are filtered from threshold checks; a function that
 # gets worse than its recorded value still fails. Refresh with
 # `--write-baseline` when entries become stale.
-version = 4
+version = 5
+
+[provenance]
+tier = "hard"
 
 [[entry]]
 path = "src/parser.rs"

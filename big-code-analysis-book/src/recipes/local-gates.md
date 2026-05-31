@@ -70,6 +70,16 @@ The hard tier and the soft tier consume the **same**
 only difference between them is a scalar multiplier applied to
 every threshold value before `bca check` sees it.
 
+Write the shared baseline at the **soft** tier
+(`self-scan-write-baseline-headroom`). A v5 baseline records the tier
+and headroom it was written against in a `[provenance]` table, and
+`bca check` warns when the current run is *stricter* than the baseline
+was written for. A soft-`0.95` baseline is a superset of the hard
+gate's offenders, so the hard `self-scan` reads it silently; writing
+the baseline at the hard tier instead would make the soft
+`self-scan-headroom` warn that it is the stricter gate. See
+[Tier/headroom provenance](./baselines.md#tierheadroom-provenance).
+
 This matters: it means a contributor who wants the soft tier to be
 stricter (catch encroachment further out) bumps a single
 environment variable rather than maintaining a parallel

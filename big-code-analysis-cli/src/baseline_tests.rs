@@ -71,6 +71,7 @@ fn parse_round_trip_preserves_entries() {
             v("src/b.rs", "bar", 20, "cognitive", 7.0),
         ],
         test_anchor(),
+        Provenance::hard(),
     );
     let rendered = render(&original).expect("render");
     let reloaded = parse(&rendered).expect("reload");
@@ -217,6 +218,7 @@ fn from_violations_skips_negative_values() {
             v("a", "ok", 3, "cyclomatic", 5.0),
         ],
         test_anchor(),
+        Provenance::hard(),
     );
     assert_eq!(file.entries.len(), 1);
     assert_eq!(file.entries[0].qualified, "ok");
@@ -232,6 +234,7 @@ fn from_violations_skips_non_finite() {
             v("a", "i", 4, "cyclomatic", 5.0),
         ],
         test_anchor(),
+        Provenance::hard(),
     );
     assert_eq!(file.entries.len(), 1);
     assert_eq!(file.entries[0].qualified, "i");
@@ -256,7 +259,7 @@ fn from_violations_deterministic_order() {
         v("src/a.rs", "a", 10, "cyclomatic", 5.0),
         v("src/a.rs", "a", 99, "cyclomatic", 6.0),
     ];
-    let file = from_violations(unsorted, test_anchor());
+    let file = from_violations(unsorted, test_anchor(), Provenance::hard());
     assert_eq!(file.entries[0].path, "src/a.rs");
     assert_eq!(file.entries[0].qualified, "a");
     assert_eq!(file.entries[0].start_line, 10);
@@ -279,8 +282,13 @@ fn from_violations_byte_equal_across_two_calls() {
         v("src/a.rs", "foo", 10, "cyclomatic", 5.0),
         v("src/b.rs", "bar", 20, "cognitive", 7.0),
     ];
-    let a = render(&from_violations(input.clone(), test_anchor())).expect("render a");
-    let b = render(&from_violations(input, test_anchor())).expect("render b");
+    let a = render(&from_violations(
+        input.clone(),
+        test_anchor(),
+        Provenance::hard(),
+    ))
+    .expect("render a");
+    let b = render(&from_violations(input, test_anchor(), Provenance::hard())).expect("render b");
     assert_eq!(a, b);
 }
 
@@ -291,6 +299,7 @@ fn path_normalized_forward_slash_on_serialize() {
     let file = from_violations(
         vec![v("a\\b\\c.rs", "f", 1, "cyclomatic", 5.0)],
         test_anchor(),
+        Provenance::hard(),
     );
     assert_eq!(file.entries[0].path, "a/b/c.rs");
 }
@@ -300,6 +309,7 @@ fn path_normalized_forward_slash_on_serialize() {
 fn baseline_with(entries: Vec<BaselineEntry>) -> Baseline {
     let file = BaselineFile {
         version: Some(BASELINE_VERSION),
+        provenance: None,
         entries,
     };
     let text = render(&file).expect("render");
@@ -431,6 +441,7 @@ fn classify_respects_custom_tolerance() {
     // nearer record is `New`, but 2 lines away matches.
     let file = BaselineFile {
         version: Some(BASELINE_VERSION),
+        provenance: None,
         entries: vec![
             entry("a", "f", 10, "cyclomatic", 5.0),
             entry("a", "f", 100, "cyclomatic", 8.0),
@@ -486,6 +497,7 @@ fn classify_fuzzy_matches_renamed_function_by_body_hash() {
     // entry. Without fuzzy it would be New.
     let file = BaselineFile {
         version: Some(BASELINE_VERSION),
+        provenance: None,
         entries: vec![BaselineEntry {
             path: "a".to_string(),
             qualified: "old_name".to_string(),
@@ -947,7 +959,7 @@ fn baseline_covers_distinguishes_non_utf8_paths() {
     // Baseline contains only `path_a`. classify(violation_b) would
     // wrongly return Covered if both non-UTF-8 paths normalized
     // to the same lossy key.
-    let file = from_violations(vec![violation_a.clone()], test_anchor());
+    let file = from_violations(vec![violation_a.clone()], test_anchor(), Provenance::hard());
     let rendered = render(&file).expect("render");
     let b =
         Baseline::from_str(&rendered, test_anchor(), DEFAULT_LINE_TOLERANCE, false).expect("parse");
@@ -1040,5 +1052,177 @@ fn decode_body_hash_rejects_malformed() {
     assert_eq!(
         decode_body_hash("0123456789abcdef"),
         Some(0x0123_4567_89ab_cdef)
+    );
+}
+
+// -- provenance (issue #486) -------------------------------------------
+
+#[test]
+fn provenance_v5_round_trips_soft_headroom() {
+    // A soft-headroom baseline written at 0.95 must read back with the
+    // same tier and ratio, and the rendered TOML must carry a real
+    // `[provenance]` table (not a comment) so `diff-baseline` and other
+    // tooling can parse it.
+    let file = from_violations(
+        vec![v("src/a.rs", "foo", 10, "cyclomatic", 5.0)],
+        test_anchor(),
+        Provenance::soft_headroom(0.95),
+    );
+    let rendered = render(&file).expect("render");
+    assert!(
+        rendered.contains("[provenance]"),
+        "expected a [provenance] table; got:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("tier = \"soft\""),
+        "tier missing:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("headroom = 0.95"),
+        "headroom missing:\n{rendered}"
+    );
+    let reloaded = Baseline::from_str(&rendered, test_anchor(), DEFAULT_LINE_TOLERANCE, false)
+        .expect("reload");
+    assert_eq!(reloaded.provenance(), Some(Provenance::soft_headroom(0.95)));
+}
+
+#[test]
+fn provenance_v5_round_trips_hard() {
+    // A hard-tier baseline omits the headroom key but records the tier.
+    let file = from_violations(
+        vec![v("src/a.rs", "foo", 10, "cyclomatic", 5.0)],
+        test_anchor(),
+        Provenance::hard(),
+    );
+    let rendered = render(&file).expect("render");
+    assert!(
+        rendered.contains("tier = \"hard\""),
+        "tier missing:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("headroom"),
+        "hard baseline must not emit a headroom key:\n{rendered}"
+    );
+    let reloaded = Baseline::from_str(&rendered, test_anchor(), DEFAULT_LINE_TOLERANCE, false)
+        .expect("reload");
+    assert_eq!(reloaded.provenance(), Some(Provenance::hard()));
+    assert_eq!(
+        reloaded.provenance().and_then(|p| p.strictness()),
+        Some(1.0)
+    );
+}
+
+#[test]
+fn provenance_v5_soft_table_has_no_ratio() {
+    // A `[thresholds.soft]`-table baseline records soft tier with no
+    // headroom; its strictness scalar is unknown (None).
+    let file = from_violations(
+        vec![v("src/a.rs", "foo", 10, "cyclomatic", 5.0)],
+        test_anchor(),
+        Provenance::soft_table(),
+    );
+    let rendered = render(&file).expect("render");
+    assert!(
+        rendered.contains("tier = \"soft\""),
+        "tier missing:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("headroom"),
+        "soft-table baseline carries no single ratio:\n{rendered}"
+    );
+    let reloaded = Baseline::from_str(&rendered, test_anchor(), DEFAULT_LINE_TOLERANCE, false)
+        .expect("reload");
+    assert_eq!(reloaded.provenance(), Some(Provenance::soft_table()));
+    assert_eq!(reloaded.provenance().and_then(|p| p.strictness()), None);
+}
+
+#[test]
+fn provenance_absent_for_legacy_v2_v3_v4() {
+    // v2–v4 baselines predate provenance: read without error and report
+    // provenance as absent (so the directional check stays silent).
+    for v in [2u32, 3, 4] {
+        let toml = format!(
+            "version = {v}\n[[entry]]\npath=\"a\"\n{name}=\"f\"\nstart_line=1\nmetric=\"cyclomatic\"\nvalue=5.0\n",
+            name = if v < 4 { "function" } else { "qualified" },
+        );
+        let b = Baseline::from_str(&toml, test_anchor(), DEFAULT_LINE_TOLERANCE, false)
+            .unwrap_or_else(|e| panic!("v{v} parse: {e}"));
+        assert_eq!(b.provenance(), None, "v{v} must have absent provenance");
+    }
+}
+
+#[test]
+fn check_provenance_silent_when_hard_reads_soft() {
+    // The repo's intended setup: a hard self-scan (strictness 1.0)
+    // reading a soft-0.95 baseline (strictness 0.95) sees a SUPERSET of
+    // its offenders, so it must stay silent.
+    assert_eq!(
+        check_provenance(Provenance::hard(), Some(Provenance::soft_headroom(0.95))),
+        ProvenanceCheck::Ok
+    );
+}
+
+#[test]
+fn check_provenance_warns_when_stricter_than_baseline() {
+    // A soft check at headroom 0.90 (stricter) reading a baseline
+    // written at 0.95 (looser) may under-cover: warn.
+    assert_eq!(
+        check_provenance(
+            Provenance::soft_headroom(0.90),
+            Some(Provenance::soft_headroom(0.95)),
+        ),
+        ProvenanceCheck::StricterThanBaseline {
+            current: 0.90,
+            baseline: 0.95,
+        }
+    );
+}
+
+#[test]
+fn check_provenance_silent_when_equal() {
+    assert_eq!(
+        check_provenance(
+            Provenance::soft_headroom(0.95),
+            Some(Provenance::soft_headroom(0.95)),
+        ),
+        ProvenanceCheck::Ok
+    );
+    assert_eq!(
+        check_provenance(Provenance::hard(), Some(Provenance::hard())),
+        ProvenanceCheck::Ok
+    );
+}
+
+#[test]
+fn check_provenance_silent_when_baseline_absent() {
+    // Pre-v5 baseline: provenance unknown, never warn (the v<VERSION
+    // refresh hint already nudges the upgrade).
+    assert_eq!(
+        check_provenance(Provenance::hard(), None),
+        ProvenanceCheck::Ok
+    );
+    assert_eq!(
+        check_provenance(Provenance::soft_headroom(0.50), None),
+        ProvenanceCheck::Ok
+    );
+}
+
+#[test]
+fn check_provenance_silent_when_either_side_is_soft_table() {
+    // A soft-table baseline has no single ratio; skip the comparison
+    // rather than guess (conservative — never false-fires).
+    assert_eq!(
+        check_provenance(
+            Provenance::soft_headroom(0.50),
+            Some(Provenance::soft_table())
+        ),
+        ProvenanceCheck::Ok
+    );
+    assert_eq!(
+        check_provenance(
+            Provenance::soft_table(),
+            Some(Provenance::soft_headroom(0.95))
+        ),
+        ProvenanceCheck::Ok
     );
 }

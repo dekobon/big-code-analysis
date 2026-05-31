@@ -55,9 +55,17 @@ use crate::thresholds::Violation;
 ///   behaviour but now drift-tolerant. Full qualified matching kicks
 ///   in once the file is refreshed with `--write-baseline`.
 ///
+/// - v4 → v5: an optional `[provenance]` table records the tier
+///   (`hard`|`soft`) and, for a `--headroom`-scaled soft baseline, the
+///   `headroom` ratio it was written against (issue #486). This lets
+///   `bca check` warn when the current run's effective limits are
+///   *stricter* than the baseline was written for — the silent-desync
+///   the "baseline-refresh discipline" guards against (#449). The
+///   table is omitted from baselines whose provenance is unknown.
+///
 /// Either legacy version emits a one-time deprecation warning so the
 /// user knows to refresh.
-pub(crate) const BASELINE_VERSION: u32 = 4;
+pub(crate) const BASELINE_VERSION: u32 = 5;
 
 /// Lowest legacy version still accepted at read time. Below this we
 /// reject with a "regenerate" hint instead of silently mis-matching.
@@ -83,6 +91,126 @@ const HEADER: &str = "\
 # Path keys are relative to this file's directory (the anchor), so the
 # baseline survives any `--paths` form (`.`, `src/`, `$PWD`, …).
 ";
+
+/// Which gate tier a baseline was written against (issue #486). Stored
+/// as the lowercase wire strings `"hard"` / `"soft"` in the
+/// `[provenance]` table so `bca diff-baseline` and external tooling can
+/// read it without knowing the enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum BaselineTier {
+    Hard,
+    Soft,
+}
+
+/// Write-time provenance for a baseline: the effective tier and, for a
+/// `--headroom`-scaled soft baseline, the ratio (issue #486).
+///
+/// `headroom` is `Some` only for the soft tier scaled by an explicit or
+/// default `--headroom` scalar. It is `None` for the hard tier (no
+/// scaling) and for a soft tier driven by a `[thresholds.soft]` table
+/// (per-metric limits that do not reduce to a single ratio). The pair
+/// reduces to the [`Provenance::strictness`] scalar used by the
+/// directional mismatch check.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub(crate) struct Provenance {
+    pub(crate) tier: BaselineTier,
+    /// The `--headroom` ratio for a scaled soft baseline. Omitted from
+    /// the TOML when absent so hard and soft-table baselines stay
+    /// compact.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) headroom: Option<f64>,
+}
+
+impl Provenance {
+    /// Provenance for a hard-tier write (the default `bca check` gate).
+    pub(crate) fn hard() -> Self {
+        Self {
+            tier: BaselineTier::Hard,
+            headroom: None,
+        }
+    }
+
+    /// Provenance for a soft-tier write scaled by `headroom`.
+    pub(crate) fn soft_headroom(headroom: f64) -> Self {
+        Self {
+            tier: BaselineTier::Soft,
+            headroom: Some(headroom),
+        }
+    }
+
+    /// Provenance for a soft-tier write driven by a `[thresholds.soft]`
+    /// table (per-metric limits, no single ratio).
+    pub(crate) fn soft_table() -> Self {
+        Self {
+            tier: BaselineTier::Soft,
+            headroom: None,
+        }
+    }
+
+    /// Reduce the tier/headroom pair to a single *effective strictness*
+    /// scalar in `(0, 1]` where smaller means stricter (the gate trips on
+    /// lower metric values): hard → `1.0`; soft scaled by ratio `h` →
+    /// `h`.
+    ///
+    /// Returns `None` for a soft `[thresholds.soft]`-table baseline,
+    /// whose per-metric limits do not collapse to one ratio. The
+    /// directional mismatch check skips comparison when either side is
+    /// `None` rather than guess — conservative, so it never false-fires.
+    pub(crate) fn strictness(&self) -> Option<f64> {
+        match self.tier {
+            BaselineTier::Hard => Some(1.0),
+            BaselineTier::Soft => self.headroom,
+        }
+    }
+}
+
+/// Outcome of comparing the current run's provenance against the
+/// baseline's (issue #486). Only [`StricterThanBaseline`] is actionable;
+/// the others are silent.
+///
+/// [`StricterThanBaseline`]: ProvenanceCheck::StricterThanBaseline
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum ProvenanceCheck {
+    /// The current run is no stricter than the baseline (equal, or the
+    /// safe hard-reading-soft direction), or one side's strictness is
+    /// unknown (absent provenance / soft-table). No warning.
+    Ok,
+    /// The current run's effective limits are *stricter* than the
+    /// baseline was written against, so the baseline may under-cover and
+    /// the gate can fire on untouched files. Carries both strictness
+    /// scalars for the warning message.
+    StricterThanBaseline { current: f64, baseline: f64 },
+}
+
+/// Compare the current run's `current` provenance against the
+/// `baseline`'s recorded provenance (issue #486).
+///
+/// Warn *only* when the current run is strictly stricter than the
+/// baseline (`current` scalar `<` `baseline` scalar): the baseline was
+/// written looser, so it may not list every offender the current,
+/// tighter gate produces — the silent-fire-on-untouched-files bug the
+/// baseline-refresh discipline guards against. The reverse direction is
+/// safe: a hard run (scalar `1.0`) reading a soft baseline (scalar
+/// `0.95`) sees a *superset* of its offenders, so it stays silent. So
+/// does the equal case and any case where a side's strictness is
+/// unknown (absent provenance — legitimate for pre-v5 files — or a
+/// soft-table baseline).
+pub(crate) fn check_provenance(
+    current: Provenance,
+    baseline: Option<Provenance>,
+) -> ProvenanceCheck {
+    let (Some(baseline), Some(current)) =
+        (baseline.and_then(|p| p.strictness()), current.strictness())
+    else {
+        return ProvenanceCheck::Ok;
+    };
+    if current < baseline {
+        ProvenanceCheck::StricterThanBaseline { current, baseline }
+    } else {
+        ProvenanceCheck::Ok
+    }
+}
 
 /// Primary lookup key: a function's identity independent of where it
 /// sits in the file (issue #377). Owned strings because deserialized
@@ -165,6 +293,12 @@ pub(crate) struct BaselineFile {
     /// Schema version. Higher values mean the file was written by a
     /// newer bca and must be regenerated (or this bca upgraded).
     version: Option<u32>,
+    /// Write-time tier/headroom provenance (issue #486, v5+). Absent for
+    /// v2–v4 baselines, which predate the field; treated as "unknown" by
+    /// the directional mismatch check so old files draw no spurious
+    /// warning.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    provenance: Option<Provenance>,
     #[serde(default, rename = "entry")]
     pub(crate) entries: Vec<BaselineEntry>,
 }
@@ -204,6 +338,10 @@ pub(crate) struct Baseline {
     /// (the last `::` segment) so a legacy baseline keeps matching until
     /// it is refreshed to the full qualified form.
     legacy_symbol_match: bool,
+    /// Write-time provenance (issue #486), `None` for v2–v4 files that
+    /// predate the field. Read by `bca check` to warn when the current
+    /// run is stricter than the baseline was written against.
+    provenance: Option<Provenance>,
 }
 
 impl Baseline {
@@ -249,6 +387,11 @@ impl Baseline {
         // be re-encoded (that would double-escape any `%XX`).
         let legacy_symbol_match = version < BASELINE_VERSION;
         let recanonicalize_path = version < 3;
+        // Provenance (issue #486) is v5+. v2–v4 carry none; the check
+        // treats absent provenance as "unknown" and stays silent — old
+        // files legitimately predate the field, and the v<BASELINE_VERSION
+        // refresh hint below already nudges them to upgrade.
+        let provenance = file.provenance;
         if legacy_symbol_match {
             eprintln!(
                 "bca: baseline is v{version}; refresh with `--write-baseline` \
@@ -321,7 +464,15 @@ impl Baseline {
             tolerance,
             fuzzy,
             legacy_symbol_match,
+            provenance,
         })
+    }
+
+    /// The write-time provenance recorded in the baseline (issue #486),
+    /// or `None` for a v2–v4 file that predates the field. Drives the
+    /// directional mismatch warning in `bca check`.
+    pub(crate) fn provenance(&self) -> Option<Provenance> {
+        self.provenance
     }
 
     /// Flatten the loaded records into [`DiffEntry`] values for
@@ -461,7 +612,11 @@ pub(crate) enum Coverage {
     New,
 }
 
-pub(crate) fn from_violations(violations: Vec<Violation>, anchor: &Path) -> BaselineFile {
+pub(crate) fn from_violations(
+    violations: Vec<Violation>,
+    anchor: &Path,
+    provenance: Provenance,
+) -> BaselineFile {
     // Defensive anchor normalisation — mirrors `Baseline::from_str` so
     // write and read sides agree even when a caller bypasses
     // `anchor_for` and supplies an un-normalised path.
@@ -523,6 +678,7 @@ pub(crate) fn from_violations(violations: Vec<Violation>, anchor: &Path) -> Base
     });
     BaselineFile {
         version: Some(BASELINE_VERSION),
+        provenance: Some(provenance),
         entries,
     }
 }
