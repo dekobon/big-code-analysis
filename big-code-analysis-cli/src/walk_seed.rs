@@ -30,8 +30,26 @@ use std::path::PathBuf;
 /// already-relative seeds, and the CWD-unavailable case are returned
 /// unchanged — they already match the patterns or have no relative
 /// form to anchor to.
+///
+/// Only **directory** seeds are re-anchored. Excludes (`--exclude` /
+/// `--exclude-from` / `.bcaignore`, `[check] exclude`) only ever
+/// filter the entries a *tree walk* discovers; a single explicit
+/// file seed is never subject to them, so it has nothing to anchor.
+/// Re-anchoring a file seed does only harm: it rewrites the emitted
+/// `name` from the absolute path the user passed to a CWD-relative
+/// one, breaking `bca metrics --paths /abs/file.rs` parity with the
+/// single-file `bca.analyze()` API (which echoes the path verbatim).
+/// File seeds — and non-existent seeds, whose kind is unknown — are
+/// therefore returned unchanged (#488).
 pub(crate) fn reanchor_seed(seed: PathBuf) -> PathBuf {
     if seed.is_relative() {
+        return seed;
+    }
+    // Excludes apply to directory walks only; a single-file seed keeps
+    // the (absolute) form the caller spelled so its emitted `name`
+    // matches the single-file API. `is_dir()` is false for both files
+    // and non-existent paths, leaving each untouched.
+    if !seed.is_dir() {
         return seed;
     }
     let Ok(cwd) = std::env::current_dir() else {
