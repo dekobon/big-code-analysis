@@ -104,8 +104,10 @@ big-code-analysis = { version = "1.1.0", default-features = false, features = ["
 ```
 
 Supported language features: `bash`, `cpp`, `csharp`, `elixir`,
-`go`, `groovy`, `java`, `javascript`, `kotlin`, `lua`, `mozjs`,
-`perl`, `php`, `python`, `ruby`, `rust`, `tcl`, `typescript`. The
+`go`, `groovy`, `irules`, `java`, `javascript`, `kotlin`, `lua`,
+`mozjs`, `perl`, `php`, `python`, `ruby`, `rust`, `tcl`,
+`typescript`. The `irules` feature adds F5 iRules (a Tcl
+dialect; extensions `.irule` / `.irules`). The
 `cpp` feature covers the `Cpp`, `Ccomment`, and `Preproc` LANG
 variants and pulls in `bca-tree-sitter-mozcpp`,
 `bca-tree-sitter-ccomment`, and `bca-tree-sitter-preproc` together

@@ -115,7 +115,8 @@ each row attributed to the figure that introduces it.
 
 The short-circuit logical operators (`&&`, `||`, and per-language
 equivalents — Ruby `and` / `or`, Python `and` / `or`, Perl `and` /
-`or` / `xor`, Lua `and` / `or`, Tcl `&&` / `||`) do **not**
+`or` / `xor`, Lua `and` / `or`, Tcl `&&` / `||`, iRules `&&` / `||` /
+`and` / `or`) do **not**
 contribute a condition on their own. Each non-comparison operand
 contributes one instead, via the unary-conditional rule. The
 paper makes this explicit twice:
@@ -142,6 +143,7 @@ application would over-count.
 | Ruby | `Rescue` substitutes for `catch` | Ruby's exception-handling keyword is `rescue`; the AST node `Rescue` plays the role of Java's `catch`. |
 | C++, Go, Python, Rust | `default` excluded from the condition set | Falls through unconditionally to the default arm — counting it inflates `C` on every `switch` / `match` regardless of body. Aligns with the Rust `_ =>` and existing Java `default:` precedent. |
 | Tcl | Unary-conditional walker not yet wired | Phase 2 walker is deferred pending an audit of Tcl's `expr {…}` / command-substitution grammar. `if {$a && $b}` reports zero conditions today; a follow-up will close this. |
+| iRules | Chain-operand unary conditions wired (unlike its Tcl sibling); bare-truthy / argument / `return` slots are not | Each operand of a `&&` / `\|\|` / `and` / `or` chain counts as one condition (Rule 9), so `if {!$a && !$b}` reports two. iRules also recognises the word-form string-match comparators (`contains`, `starts_with`, `ends_with`, `equals`, `matches`, …) that Tcl lacks (Tcl's `eq` / `ne` / `in` / `ni` are shared). The broader Phase 2B slot routing is not wired, so a bare-truthy `if {$a}` still reports zero. |
 | All Phase 2 languages (Java, Groovy, C#, Rust, Go, JavaScript, TypeScript, TSX, Mozjs, PHP, C++, Python, Perl, Lua) | `if (true) {}`, `m(!a, !b)`, `return !x` count their operand(s) | Phase 2B routes `if` / `while` / `do-while` / argument-list / `return` / ternary slots through the same walker, so the rule applies uniformly across decision-bearing positions. A bare `return x` continues to report zero — Fitzpatrick treats an identifier in a return slot as a value, not a unary conditional. |
 
 #### Worked example
