@@ -730,6 +730,52 @@ mod tests {
         );
     }
 
+    /// A `sized_type_specifier` carries its `unsigned`/`signed`/`long`/
+    /// `short` modifiers as bare keyword tokens (distinct kind_ids), not
+    /// as `primitive_type` children. Prior to issue #466 those tokens
+    /// fell through to the `Unknown` arm and were dropped from `n1`/`N1`,
+    /// so `unsigned int` collapsed to just `int` and `signed long`
+    /// contributed nothing. They must each count as a distinct operator,
+    /// while `long long`'s two `long` tokens fold to one `n1` entry but
+    /// two `N1` hits. Regression test for issue #466.
+    #[test]
+    fn cpp_sized_type_specifier_operators() {
+        let source = "unsigned int u = 3; signed long b = 4; long long c = 5;";
+        check_metrics::<CppParser>(source, "foo.cpp", |metric| {
+            // Distinct operators (n1): unsigned, signed, long, int, =, ; = 6
+            // Total operators (N1):
+            //   unsigned(1) + int(1) + =(3) + ;(3) + signed(1) + long(3) = 12
+            //   (`long` appears once in `signed long` and twice in `long long`)
+            // Distinct/total operands: u, b, c, 3, 4, 5 = 6 / 6
+            assert_eq!(metric.halstead.u_operators() as u64, 6);
+            assert_eq!(metric.halstead.operators() as u64, 12);
+            assert_eq!(metric.halstead.u_operands() as u64, 6);
+            assert_eq!(metric.halstead.operands() as u64, 6);
+        });
+
+        // Pin the lesson-4 `n1 == dedupe(ops.operators)` invariant: the
+        // kind_id-keyed metrics store and the text-keyed `--ops` store are
+        // independent, so a modifier classified in one but not the other
+        // would diverge here.
+        let path = PathBuf::from("foo.cpp");
+        let parser = CppParser::new(source.as_bytes().to_vec(), &path, None);
+        let ops = crate::operands_and_operators(&parser, &path).expect("ops walk succeeds");
+        let unique_operators: HashSet<&str> = ops.operators.iter().map(String::as_str).collect();
+        assert_eq!(
+            unique_operators.len(),
+            6,
+            "dedupe(ops.operators) must equal n1; operators were {:?}",
+            ops.operators
+        );
+        for modifier in ["unsigned", "signed", "long"] {
+            assert!(
+                unique_operators.contains(modifier),
+                "sized_type_specifier modifier {modifier:?} missing from ops.operators: {:?}",
+                ops.operators
+            );
+        }
+    }
+
     /// C++20 spaceship operator `<=>` (`Cpp::LTEQGT`) is a comparison
     /// operator and must be counted in Halstead, like its sibling
     /// comparison operators `<`, `>`, `<=`, `>=`, `==`, `!=`. Prior to

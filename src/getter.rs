@@ -697,7 +697,18 @@ impl Getter for CppCode {
             | LTLT | TILDE | LT | LTEQ | EQEQ | BANGEQ | GTEQ | GT | GT2 | LTEQGT | PLUSEQ
             | DASHEQ | BANG | STAREQ | SLASHEQ | PERCENTEQ | GTGTEQ | LTLTEQ | AMPEQ | CARET
             | CARETEQ | PIPEEQ | LBRACK | LBRACE | QMARK | COLONCOLON | PrimitiveType
-            | TypeSpecifier | Sizeof => HalsteadType::Operator,
+            | TypeSpecifier | Sizeof
+            // A `sized_type_specifier` carries its `unsigned`/`signed`/`long`/
+            // `short` modifiers as bare keyword tokens, not as `primitive_type`
+            // children (`unsigned int` is `unsigned` + `primitive_type int`;
+            // `signed long` and `long long` have no `primitive_type` at all).
+            // Without these arms the modifiers fell into `Unknown` and were
+            // dropped, so `unsigned int` collapsed to just `int` and a standalone
+            // `signed long` contributed nothing to n1/N1 (issue #466). Each
+            // modifier has a distinct kind_id, so keying by kind_id (the default
+            // `operators` store) keeps them distinct in n1 while `long long`'s
+            // two `long` tokens correctly fold to one n1 entry but two N1 hits.
+            | Signed | Unsigned | Long | Short => HalsteadType::Operator,
             Identifier | TypeIdentifier | FieldIdentifier | RawStringLiteral | StringLiteral
             | NumberLiteral | True | False | Null | DOTDOTDOT => HalsteadType::Operand,
             NamespaceIdentifier => match node.parent() {

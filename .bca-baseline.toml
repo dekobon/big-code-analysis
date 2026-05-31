@@ -1146,21 +1146,21 @@ path = "src/checker.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 13854839.58381975
+value = 13926419.216908922
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 2873.0
+value = 2883.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 273.0
+value = 274.0
 
 [[entry]]
 path = "src/checker.rs"
@@ -1174,14 +1174,14 @@ path = "src/checker.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 258.0
+value = 259.0
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "<file>"
 start_line = 1
 metric = "wmc"
-value = 239.0
+value = 242.0
 
 [[entry]]
 path = "src/checker.rs"
@@ -1263,7 +1263,7 @@ value = 11.0
 [[entry]]
 path = "src/checker.rs"
 qualified = "GroovyCode"
-start_line = 1775
+start_line = 1785
 metric = "nargs"
 value = 11.0
 
@@ -1335,7 +1335,7 @@ path = "src/checker.rs"
 qualified = "RubyCode"
 start_line = 1688
 metric = "nargs"
-value = 10.0
+value = 11.0
 
 [[entry]]
 path = "src/checker.rs"
@@ -1375,14 +1375,14 @@ value = 8.0
 [[entry]]
 path = "src/checker.rs"
 qualified = "simple_is_string_macro_recognises_each_language"
-start_line = 2553
+start_line = 2563
 metric = "abc"
 value = 49.49747468305833
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "simple_is_string_macro_recognises_each_language"
-start_line = 2553
+start_line = 2563
 metric = "halstead.effort"
 value = 105721.44190330332
 
@@ -1482,14 +1482,14 @@ path = "src/getter.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 10622585.61611416
+value = 10620296.770207234
 
 [[entry]]
 path = "src/getter.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 2120.0
+value = 2131.0
 
 [[entry]]
 path = "src/getter.rs"
@@ -1522,7 +1522,7 @@ value = 250.0
 [[entry]]
 path = "src/getter.rs"
 qualified = "BashCode"
-start_line = 1364
+start_line = 1375
 metric = "halstead.effort"
 value = 63219.32238615343
 
@@ -1531,7 +1531,7 @@ path = "src/getter.rs"
 qualified = "CppCode"
 start_line = 616
 metric = "halstead.effort"
-value = 116213.36249585122
+value = 116961.23665000171
 
 [[entry]]
 path = "src/getter.rs"
@@ -1543,21 +1543,21 @@ value = 51935.897455499806
 [[entry]]
 path = "src/getter.rs"
 qualified = "ElixirCode"
-start_line = 1741
+start_line = 1752
 metric = "halstead.effort"
 value = 214659.06909715306
 
 [[entry]]
 path = "src/getter.rs"
 qualified = "ElixirCode"
-start_line = 1741
+start_line = 1752
 metric = "nargs"
 value = 9.0
 
 [[entry]]
 path = "src/getter.rs"
 qualified = "ElixirCode::get_op_type"
-start_line = 1828
+start_line = 1839
 metric = "halstead.effort"
 value = 49821.1482753084
 
@@ -1571,7 +1571,7 @@ value = 15.0
 [[entry]]
 path = "src/getter.rs"
 qualified = "GoCode"
-start_line = 1140
+start_line = 1151
 metric = "halstead.effort"
 value = 53701.05313315732
 
@@ -1585,14 +1585,14 @@ value = 51476.6747832617
 [[entry]]
 path = "src/getter.rs"
 qualified = "KotlinCode"
-start_line = 1000
+start_line = 1011
 metric = "halstead.effort"
 value = 59549.587949055436
 
 [[entry]]
 path = "src/getter.rs"
 qualified = "KotlinCode"
-start_line = 1000
+start_line = 1011
 metric = "nargs"
 value = 7.0
 
@@ -1606,28 +1606,28 @@ value = 51476.6747832617
 [[entry]]
 path = "src/getter.rs"
 qualified = "PerlCode"
-start_line = 1187
+start_line = 1198
 metric = "halstead.effort"
 value = 88950.3598781505
 
 [[entry]]
 path = "src/getter.rs"
 qualified = "PerlCode::get_op_type"
-start_line = 1198
+start_line = 1209
 metric = "halstead.effort"
 value = 65994.57830587434
 
 [[entry]]
 path = "src/getter.rs"
 qualified = "PhpCode"
-start_line = 1549
+start_line = 1560
 metric = "halstead.effort"
 value = 74150.06576284596
 
 [[entry]]
 path = "src/getter.rs"
 qualified = "PhpCode::get_op_type"
-start_line = 1574
+start_line = 1585
 metric = "halstead.effort"
 value = 49205.91864781969
 
@@ -1641,14 +1641,14 @@ value = 52347.13972956382
 [[entry]]
 path = "src/getter.rs"
 qualified = "RubyCode"
-start_line = 1902
+start_line = 1913
 metric = "halstead.effort"
 value = 106204.53260544034
 
 [[entry]]
 path = "src/getter.rs"
 qualified = "RubyCode::get_op_type"
-start_line = 1917
+start_line = 1928
 metric = "halstead.effort"
 value = 74867.90938383072
 
@@ -2119,21 +2119,21 @@ path = "src/metrics/halstead.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 10568120.147908855
+value = 10863618.400173506
 
 [[entry]]
 path = "src/metrics/halstead.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 3425.0
+value = 3471.0
 
 [[entry]]
 path = "src/metrics/halstead.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 175.0
+value = 176.0
 
 [[entry]]
 path = "src/metrics/halstead.rs"
@@ -2147,7 +2147,7 @@ path = "src/metrics/halstead.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 250.0
+value = 252.0
 
 [[entry]]
 path = "src/metrics/halstead.rs"
@@ -2385,21 +2385,21 @@ path = "src/metrics/nom.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 2716054.4754600204
+value = 2838400.2020489094
 
 [[entry]]
 path = "src/metrics/nom.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1985.0
+value = 2034.0
 
 [[entry]]
 path = "src/metrics/nom.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 66.0
+value = 70.0
 
 [[entry]]
 path = "src/metrics/nom.rs"
@@ -2413,7 +2413,7 @@ path = "src/metrics/nom.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 145.0
+value = 153.0
 
 [[entry]]
 path = "src/metrics/nom.rs"
