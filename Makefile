@@ -414,6 +414,11 @@ SELF_SCAN_BASE_ARGS := --paths . --exclude-from .bcaignore
 # propagation in the gate (it appends `--no-cyclomatic-try`); regenerate
 # .bca-baseline.toml in the same toggle, since cyclomatic values for
 # `?`-heavy functions drop.
+#
+# Default to empty so the `:=` expansion below does not trip
+# `--warn-undefined-variables` when the var is unset (the common case);
+# an environment override still wins, since `?=` only assigns when undefined.
+BCA_COUNT_CYCLOMATIC_TRY ?=
 SELF_SCAN_TRY_ARGS := $(if $(filter 0,$(BCA_COUNT_CYCLOMATIC_TRY)),--no-cyclomatic-try,)
 SELF_SCAN_BASE_ARGS += $(SELF_SCAN_TRY_ARGS)
 # Diff-aware footer partitioning in the self-scan gate (#356/#387). Set
@@ -432,6 +437,10 @@ SELF_SCAN_BASE_ARGS += $(SELF_SCAN_TRY_ARGS)
 # Unlike SELF_SCAN_TRY_ARGS (a global `bca` flag), `--since` is a `check`
 # *subcommand* argument, so it is spliced in after `check` in each gate
 # target below — not into SELF_SCAN_BASE_ARGS (which precedes `check`).
+#
+# Default to empty for the same `--warn-undefined-variables` reason as
+# BCA_COUNT_CYCLOMATIC_TRY above; CI's environment value still overrides.
+BCA_SINCE ?=
 SELF_SCAN_SINCE_ARGS := $(if $(BCA_SINCE),--since $(BCA_SINCE),)
 
 self-scan:
