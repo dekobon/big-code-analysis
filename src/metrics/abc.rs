@@ -1307,10 +1307,16 @@ impl Abc for PhpCode {
             | ElseClause2
             | ElseIfClause
             | ElseIfClause2
+            // `case` arms and non-default `match` arms are conditions;
+            // the `default:` (`DefaultStatement`) and `default =>`
+            // (`MatchDefaultExpression`) arms are NOT — they are the
+            // unconditional fallthrough, which PHP's cyclomatic gate also
+            // excludes (it counts `CaseStatement | MatchConditionalExpression`
+            // only). Dropping both Default kinds keeps ABC conditions equal
+            // to the cyclomatic decision count (issue #473, mirroring the
+            // #469 C-family fix and #456 Kotlin/C# fixes).
             | CaseStatement
-            | DefaultStatement
             | MatchConditionalExpression
-            | MatchDefaultExpression
             | CatchClause => {
                 stats.conditions += 1.;
             }
@@ -5338,6 +5344,73 @@ mod tests {
              }",
             "foo.cpp",
             |space| assert_deepest(&space),
+        );
+    }
+
+    // Issue #473: PHP `switch` `default:` (`DefaultStatement`) is the
+    // unconditional fallthrough, not a condition. ABC `conditions()` must
+    // equal the cyclomatic decision count (`cyclomatic() - 1`) on the
+    // function's own space — both 2 for the two `case` arms, with the
+    // `default` excluded. Revert-verified: re-adding `DefaultStatement` to
+    // the PHP ABC condition arm makes `conditions()` 3 here while cyclomatic
+    // stays at 2, failing the invariant.
+    #[test]
+    fn php_switch_default_not_a_condition() {
+        check_func_space::<PhpParser, _>(
+            "<?php
+            function f($x) {
+                switch ($x) {
+                    case 1: return 1;
+                    case 2: return 2;
+                    default: return 0;
+                }
+            }",
+            "foo.php",
+            |space| {
+                fn assert_deepest(space: &crate::FuncSpace) {
+                    if let Some(child) = space.spaces.last() {
+                        assert_deepest(child);
+                        return;
+                    }
+                    let decisions = space.metrics.cyclomatic.cyclomatic() - 1.0;
+                    assert_eq!(decisions, 2.0);
+                    assert_eq!(space.metrics.abc.conditions(), decisions);
+                }
+                assert_deepest(&space);
+            },
+        );
+    }
+
+    // Issue #473: PHP `match` `default =>` (`MatchDefaultExpression`) is the
+    // unconditional fallthrough, mirroring the switch `default:` case above.
+    // ABC `conditions()` must equal the cyclomatic decision count
+    // (`cyclomatic() - 1`) — both 2 for the two non-default match arms.
+    // Revert-verified: re-adding `MatchDefaultExpression` to the PHP ABC
+    // condition arm makes `conditions()` 3 here while cyclomatic stays at 2.
+    #[test]
+    fn php_match_default_not_a_condition() {
+        check_func_space::<PhpParser, _>(
+            "<?php
+            function g($x) {
+                return match ($x) {
+                    1 => \"a\",
+                    2 => \"b\",
+                    default => \"z\",
+                };
+            }",
+            "foo.php",
+            |space| {
+                fn assert_deepest(space: &crate::FuncSpace) {
+                    if let Some(child) = space.spaces.last() {
+                        assert_deepest(child);
+                        return;
+                    }
+                    let decisions = space.metrics.cyclomatic.cyclomatic() - 1.0;
+                    assert_eq!(decisions, 2.0);
+                    assert_eq!(space.metrics.abc.conditions(), decisions);
+                }
+                assert_deepest(&space);
+            },
         );
     }
 

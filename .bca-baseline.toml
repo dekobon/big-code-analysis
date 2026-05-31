@@ -1496,7 +1496,7 @@ path = "src/getter.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 2131.0
+value = 2134.0
 
 [[entry]]
 path = "src/getter.rs"
@@ -1529,7 +1529,7 @@ value = 250.0
 [[entry]]
 path = "src/getter.rs"
 qualified = "BashCode"
-start_line = 1375
+start_line = 1378
 metric = "halstead.effort"
 value = 63219.32238615343
 
@@ -1550,21 +1550,21 @@ value = 51935.897455499806
 [[entry]]
 path = "src/getter.rs"
 qualified = "ElixirCode"
-start_line = 1752
+start_line = 1755
 metric = "halstead.effort"
 value = 214659.06909715306
 
 [[entry]]
 path = "src/getter.rs"
 qualified = "ElixirCode"
-start_line = 1752
+start_line = 1755
 metric = "nargs"
 value = 9.0
 
 [[entry]]
 path = "src/getter.rs"
 qualified = "ElixirCode::get_op_type"
-start_line = 1839
+start_line = 1842
 metric = "halstead.effort"
 value = 49821.1482753084
 
@@ -1578,7 +1578,7 @@ value = 15.0
 [[entry]]
 path = "src/getter.rs"
 qualified = "GoCode"
-start_line = 1151
+start_line = 1154
 metric = "halstead.effort"
 value = 53701.05313315732
 
@@ -1592,14 +1592,14 @@ value = 51476.6747832617
 [[entry]]
 path = "src/getter.rs"
 qualified = "KotlinCode"
-start_line = 1011
+start_line = 1014
 metric = "halstead.effort"
 value = 59549.587949055436
 
 [[entry]]
 path = "src/getter.rs"
 qualified = "KotlinCode"
-start_line = 1011
+start_line = 1014
 metric = "nargs"
 value = 7.0
 
@@ -1613,28 +1613,28 @@ value = 51476.6747832617
 [[entry]]
 path = "src/getter.rs"
 qualified = "PerlCode"
-start_line = 1198
+start_line = 1201
 metric = "halstead.effort"
 value = 88950.3598781505
 
 [[entry]]
 path = "src/getter.rs"
 qualified = "PerlCode::get_op_type"
-start_line = 1209
+start_line = 1212
 metric = "halstead.effort"
 value = 65994.57830587434
 
 [[entry]]
 path = "src/getter.rs"
 qualified = "PhpCode"
-start_line = 1560
+start_line = 1563
 metric = "halstead.effort"
 value = 74150.06576284596
 
 [[entry]]
 path = "src/getter.rs"
 qualified = "PhpCode::get_op_type"
-start_line = 1585
+start_line = 1588
 metric = "halstead.effort"
 value = 49205.91864781969
 
@@ -1648,14 +1648,14 @@ value = 52347.13972956382
 [[entry]]
 path = "src/getter.rs"
 qualified = "RubyCode"
-start_line = 1913
+start_line = 1916
 metric = "halstead.effort"
 value = 106204.53260544034
 
 [[entry]]
 path = "src/getter.rs"
 qualified = "RubyCode::get_op_type"
-start_line = 1928
+start_line = 1931
 metric = "halstead.effort"
 value = 74867.90938383072
 
@@ -1748,35 +1748,35 @@ path = "src/metrics/abc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 64501853.04466855
+value = 65234780.69323711
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 10843.0
+value = 10916.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 557.0
+value = 561.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nexits"
-value = 54.0
+value = 56.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 830.0
+value = 836.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
@@ -1788,42 +1788,42 @@ value = 185.0
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "CppCode::compute"
-start_line = 2116
+start_line = 2122
 metric = "cyclomatic"
 value = 15.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "GoCode"
-start_line = 1913
+start_line = 1919
 metric = "halstead.effort"
 value = 51348.53958809567
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "GoCode::compute"
-start_line = 1914
+start_line = 1920
 metric = "cyclomatic"
 value = 15.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "PerlCode"
-start_line = 3175
+start_line = 3181
 metric = "halstead.effort"
 value = 74315.72438997906
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "PerlCode::compute"
-start_line = 3176
+start_line = 3182
 metric = "halstead.effort"
 value = 67862.8313802447
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "RustCode::compute"
-start_line = 1713
+start_line = 1719
 metric = "cyclomatic"
 value = 16.0
 
@@ -1858,7 +1858,7 @@ value = 14.0
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "perl_inspect_container"
-start_line = 3031
+start_line = 3037
 metric = "halstead.effort"
 value = 53345.08959628053
 
