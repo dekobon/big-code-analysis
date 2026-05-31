@@ -358,6 +358,76 @@ pub(crate) fn python_is_lambda(node: &Node) -> bool {
     matches!(node.kind_id().into(), Python::Lambda | Python::Lambda2)
 }
 
+/// Precompute the nesting of each clause in a Python comprehension or
+/// generator expression, writing each clause's nesting into its own slot
+/// in `nesting_map`, and return the extra nesting the comprehension's
+/// *element* position sits at.
+///
+/// `for_in_clause` and `if_clause` are SIBLINGS under the comprehension
+/// node, not parent/child, and each clause's nesting depends on how many
+/// `for` clauses precede it. The comprehension node — visited before any
+/// of its clauses in pre-order — runs this single pass so the result is
+/// independent of sibling traversal order; that is the #421 fix (the
+/// original #417 sibling write-back was never seen by a comprehension
+/// sitting in the *element* position, which pre-order visits before the
+/// outer clauses run, so it under-counted).
+///
+/// Each clause sits at the comprehension's inherited `nesting` plus the
+/// number of `for` clauses strictly before it. The element executes
+/// inside the body opened by the *last* clause, so it sits `for_count`
+/// levels deep (a trailing `for` has already advanced the count) plus one
+/// more when the last clause is an `if`.
+fn python_comprehension_clause_nesting(
+    node: &Node,
+    nesting: usize,
+    depth: usize,
+    lambda: usize,
+    nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
+) -> usize {
+    use Python::*;
+    let mut for_count = 0;
+    let mut last_clause_is_if = false;
+    for child in node.children() {
+        let kind = child.kind_id();
+        if kind == ForInClause as u16 {
+            nesting_map.insert(child.id(), (nesting + for_count, depth, lambda));
+            for_count += 1;
+            last_clause_is_if = false;
+        } else if kind == IfClause as u16 {
+            nesting_map.insert(child.id(), (nesting + for_count, depth, lambda));
+            last_clause_is_if = true;
+        }
+    }
+    for_count + usize::from(last_clause_is_if)
+}
+
+/// Apply the structural increment and boolean-sequence accounting a
+/// Python `boolean_operator` node contributes.
+///
+/// Only the *outermost* boolean operator in a chain pays the structural
+/// cost: if walking ancestors (stopping at a `lambda` boundary) finds
+/// another `boolean_operator` first, this node is nested inside one
+/// already counted, so the `== 0` guard skips it. The outermost operator
+/// then adds one structural unit per enclosing control construct
+/// (`expression_list`, `if`/`for`/`while`) up to the nearest lambda.
+fn python_apply_boolean_operator(node: &Node, stats: &mut Stats) {
+    use Python::*;
+    if node.count_specific_ancestors::<PythonParser>(
+        |node| node.kind_id() == BooleanOperator,
+        python_is_lambda,
+    ) == 0
+    {
+        stats.structural +=
+            node.count_specific_ancestors::<PythonParser>(python_is_lambda, |node| {
+                matches!(
+                    node.kind_id().into(),
+                    ExpressionList | IfStatement | ForStatement | WhileStatement
+                )
+            });
+    }
+    compute_booleans(node, stats, And, Or);
+}
+
 impl Cognitive for PythonCode {
     fn compute<'a>(
         node: &Node<'a>,
@@ -410,26 +480,8 @@ impl Cognitive for PythonCode {
             | DictionaryComprehension
             | SetComprehension
             | GeneratorExpression => {
-                // Each clause sits at the comprehension's inherited nesting
-                // plus the number of `for` clauses strictly before it. The
-                // element executes inside the body opened by the *last* clause,
-                // so it sits `for_count` levels deep (a trailing `for` has
-                // already advanced the count) plus one more when the last
-                // clause is an `if`.
-                let mut for_count = 0;
-                let mut last_clause_is_if = false;
-                for child in node.children() {
-                    let kind = child.kind_id();
-                    if kind == ForInClause as u16 {
-                        nesting_map.insert(child.id(), (nesting + for_count, depth, lambda));
-                        for_count += 1;
-                        last_clause_is_if = false;
-                    } else if kind == IfClause as u16 {
-                        nesting_map.insert(child.id(), (nesting + for_count, depth, lambda));
-                        last_clause_is_if = true;
-                    }
-                }
-                nesting += for_count + usize::from(last_clause_is_if);
+                nesting +=
+                    python_comprehension_clause_nesting(node, nesting, depth, lambda, nesting_map);
             }
             ForInClause | IfClause => {
                 // Nesting was precomputed on the comprehension node (visited
@@ -462,22 +514,7 @@ impl Cognitive for PythonCode {
             ExpressionList | ExpressionStatement | Tuple => {
                 stats.boolean_seq.reset();
             }
-            BooleanOperator => {
-                if node.count_specific_ancestors::<PythonParser>(
-                    |node| node.kind_id() == BooleanOperator,
-                    python_is_lambda,
-                ) == 0
-                {
-                    stats.structural +=
-                        node.count_specific_ancestors::<PythonParser>(python_is_lambda, |node| {
-                            matches!(
-                                node.kind_id().into(),
-                                ExpressionList | IfStatement | ForStatement | WhileStatement
-                            )
-                        });
-                }
-                compute_booleans(node, stats, And, Or);
-            }
+            BooleanOperator => python_apply_boolean_operator(node, stats),
             // `Lambda` (196) is the emitted lambda; `Lambda2` (197) is the
             // hidden alias `python_is_lambda` also accepts. A match arm
             // cannot route through the predicate, so the alias set is
@@ -921,6 +958,25 @@ impl Cognitive for PerlCode {
     }
 }
 
+/// Whether `node` is a labeled *jump* — `break@label` / `continue@label`.
+///
+/// tree-sitter-kotlin-ng has no break/continue/jump statement kind: it
+/// models a labeled jump as a `labeled_expression` whose first child is a
+/// `label` holding the *fused* jump keyword `break@` / `continue@` (the
+/// loop-target identifier is a sibling). A labeled *non-jump*
+/// (`lbl@ run { … }`, `lbl@ if (…) {…}`) is also a `labeled_expression`,
+/// but its label is an ordinary `name@`, so gating on the label token
+/// starting with `break@` / `continue@` excludes it (#450). `return@label`
+/// is a distinct `return_expression` and never reaches here; a bare
+/// `break` / `continue` parses as a plain identifier, never a
+/// `labeled_expression`.
+fn kotlin_is_labeled_jump(node: &Node, code: &[u8]) -> bool {
+    node.child(0)
+        .filter(|c| c.kind_id() == Kotlin::Label as u16)
+        .and_then(|c| c.utf8_text(code))
+        .is_some_and(|t| t.starts_with("break@") || t.starts_with("continue@"))
+}
+
 impl Cognitive for KotlinCode {
     fn compute<'a>(
         node: &Node<'a>,
@@ -950,25 +1006,9 @@ impl Cognitive for KotlinCode {
             }
             // SonarSource §B2: labeled `break@outer` / `continue@outer`
             // each add +1 for breaking structured control flow; bare
-            // `break` / `continue` are +0. tree-sitter-kotlin-ng has no
-            // break/continue/jump statement kind — it models a labeled
-            // jump as a `labeled_expression` whose `label` child is the
-            // *fused* jump keyword `break@` / `continue@` (the loop target
-            // identifier is a sibling), while `return@label` is a distinct
-            // `return_expression` (so it is correctly excluded here). A
-            // labeled *non-jump* (`lbl@ run { … }`, `lbl@ if (…) {…}`) is
-            // ALSO a `labeled_expression`, but its `label` is an ordinary
-            // `name@` — those must not count, so gate on the label token
-            // being `break@` / `continue@` (#450). A bare `break`/`continue`
-            // parses as a plain identifier, never a `labeled_expression`,
-            // so it never reaches this arm.
-            LabeledExpression
-                if node
-                    .child(0)
-                    .filter(|c| c.kind_id() == Label as u16)
-                    .and_then(|c| c.utf8_text(code))
-                    .is_some_and(|t| t.starts_with("break@") || t.starts_with("continue@")) =>
-            {
+            // `break` / `continue` are +0. See `kotlin_is_labeled_jump`
+            // for how the grammar models the labeled-jump shape (#450).
+            LabeledExpression if kotlin_is_labeled_jump(node, code) => {
                 increment_by_one(stats);
             }
             BinaryExpression => {
@@ -1581,12 +1621,18 @@ impl Cognitive for RubyCode {
             //     matching Python's `try`/`except`/`else` (the `ElseClause`
             //     arm in the Python impl). Suppressing it would re-introduce
             //     a cross-language divergence in the opposite direction.
-            R::Else
-                if node
-                    .parent()
-                    .is_some_and(|p| matches!(p.kind_id().into(), R::Case | R::CaseMatch)) => {}
             R::Else => {
-                increment_branch_extension(stats);
+                // The `case`/`case_match` default arm adds +0 (the parent
+                // construct already paid nesting); every other `else` — the
+                // `if`/`elsif` alternative and the `begin/rescue` no-exception
+                // branch — extends the parent branch at +1. Mirrors Kotlin's
+                // single `Else` arm gated on `WhenEntry`.
+                let is_case_default = node
+                    .parent()
+                    .is_some_and(|p| matches!(p.kind_id().into(), R::Case | R::CaseMatch));
+                if !is_case_default {
+                    increment_branch_extension(stats);
+                }
             }
             // Ruby has no labeled loops: `break`/`next` are always
             // unlabeled (the token's only optional child is a return-value

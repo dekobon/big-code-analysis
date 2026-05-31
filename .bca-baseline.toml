@@ -341,21 +341,21 @@ path = "big-code-analysis-cli/src/exemptions.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 874767.6030822633
+value = 888872.4146461707
 
 [[entry]]
 path = "big-code-analysis-cli/src/exemptions.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 23.0
+value = 27.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/exemptions.rs"
 qualified = "ExemptionsReport"
 start_line = 93
 metric = "halstead.effort"
-value = 293892.16287878196
+value = 250992.94001398626
 
 [[entry]]
 path = "big-code-analysis-cli/src/exemptions.rs"
@@ -363,13 +363,6 @@ qualified = "ExemptionsReport"
 start_line = 93
 metric = "nargs"
 value = 9.0
-
-[[entry]]
-path = "big-code-analysis-cli/src/exemptions.rs"
-qualified = "ExemptionsReport::render_markdown"
-start_line = 162
-metric = "cognitive"
-value = 25.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/formats.rs"
@@ -1867,21 +1860,21 @@ path = "src/metrics/cognitive.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 33142431.993791785
+value = 33346766.97797715
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 9315.0
+value = 9361.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 447.0
+value = 456.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
@@ -1895,70 +1888,35 @@ path = "src/metrics/cognitive.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 694.0
+value = 697.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "<file>"
 start_line = 1
 metric = "wmc"
-value = 183.0
-
-[[entry]]
-path = "src/metrics/cognitive.rs"
-qualified = "KotlinCode"
-start_line = 924
-metric = "halstead.effort"
-value = 50344.72607720926
-
-[[entry]]
-path = "src/metrics/cognitive.rs"
-qualified = "KotlinCode"
-start_line = 924
-metric = "nargs"
-value = 9.0
-
-[[entry]]
-path = "src/metrics/cognitive.rs"
-qualified = "KotlinCode::compute"
-start_line = 925
-metric = "nargs"
-value = 9.0
+value = 172.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "PythonCode"
-start_line = 361
+start_line = 431
 metric = "halstead.effort"
-value = 112273.95797902498
-
-[[entry]]
-path = "src/metrics/cognitive.rs"
-qualified = "PythonCode::compute"
-start_line = 362
-metric = "cyclomatic"
-value = 18.0
-
-[[entry]]
-path = "src/metrics/cognitive.rs"
-qualified = "PythonCode::compute"
-start_line = 362
-metric = "halstead.effort"
-value = 108602.46237800585
+value = 49270.63694374231
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "RubyCode"
-start_line = 1518
+start_line = 1558
 metric = "halstead.effort"
-value = 58448.11973835101
+value = 58034.123625048385
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "RubyCode::compute"
-start_line = 1519
+start_line = 1559
 metric = "halstead.effort"
-value = 53494.66804869133
+value = 53101.26216241871
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
@@ -1984,14 +1942,14 @@ value = 5.0
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "tcl_switch_decision_arms"
-start_line = 1315
+start_line = 1355
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
 qualified = "tcl_switch_decision_arms"
-start_line = 1315
+start_line = 1355
 metric = "nexits"
 value = 6.0
 

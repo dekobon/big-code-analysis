@@ -110,39 +110,26 @@ impl ExemptionsReport {
     fn render_tty(&self, strip_prefix: &str) -> String {
         let mut out = String::new();
         if let Some(rows) = &self.markers {
-            let _ = writeln!(out, "# In-source markers ({})", rows.len());
-            if rows.is_empty() {
-                out.push_str("  (none)\n");
-            } else {
+            let header = format!("# In-source markers ({})\n", rows.len());
+            if open_section(&mut out, &header, "  (none)\n", rows.is_empty()) {
                 render_marker_rows_tty(&mut out, rows, strip_prefix);
             }
         }
         if let Some(globs) = &self.excludes {
-            if !out.is_empty() {
-                out.push('\n');
-            }
-            let _ = writeln!(out, "# [check.exclude] globs ({})", globs.len());
-            if globs.is_empty() {
-                out.push_str("  (none)\n");
-            } else {
+            let header = format!("# [check.exclude] globs ({})\n", globs.len());
+            if open_section(&mut out, &header, "  (none)\n", globs.is_empty()) {
                 for g in globs {
                     let _ = writeln!(out, "  {g}");
                 }
             }
         }
         if let Some(section) = &self.baseline {
-            if !out.is_empty() {
-                out.push('\n');
-            }
-            let _ = writeln!(
-                out,
-                "# Baseline ({}, {})",
+            let header = format!(
+                "# Baseline ({}, {})\n",
                 section.path,
                 entry_count(section.entries.len())
             );
-            if section.entries.is_empty() {
-                out.push_str("  (none)\n");
-            } else {
+            if open_section(&mut out, &header, "  (none)\n", section.entries.is_empty()) {
                 for e in &section.entries {
                     let path = strip(&e.path, strip_prefix);
                     let _ = writeln!(
@@ -162,10 +149,8 @@ impl ExemptionsReport {
     fn render_markdown(&self, strip_prefix: &str) -> String {
         let mut out = String::new();
         if let Some(rows) = &self.markers {
-            let _ = writeln!(out, "## In-source markers ({})\n", rows.len());
-            if rows.is_empty() {
-                out.push_str("_None._\n");
-            } else {
+            let header = format!("## In-source markers ({})\n\n", rows.len());
+            if open_section(&mut out, &header, "_None._\n", rows.is_empty()) {
                 out.push_str("| File | Line | Marker | Metrics | Function |\n");
                 out.push_str("| --- | ---: | --- | --- | --- |\n");
                 for row in rows {
@@ -184,31 +169,20 @@ impl ExemptionsReport {
             }
         }
         if let Some(globs) = &self.excludes {
-            if !out.is_empty() {
-                out.push('\n');
-            }
-            let _ = writeln!(out, "## [check.exclude] globs ({})\n", globs.len());
-            if globs.is_empty() {
-                out.push_str("_None._\n");
-            } else {
+            let header = format!("## [check.exclude] globs ({})\n\n", globs.len());
+            if open_section(&mut out, &header, "_None._\n", globs.is_empty()) {
                 for g in globs {
                     let _ = writeln!(out, "- `{g}`");
                 }
             }
         }
         if let Some(section) = &self.baseline {
-            if !out.is_empty() {
-                out.push('\n');
-            }
-            let _ = writeln!(
-                out,
-                "## Baseline (`{}`, {})\n",
+            let header = format!(
+                "## Baseline (`{}`, {})\n\n",
                 section.path,
                 entry_count(section.entries.len())
             );
-            if section.entries.is_empty() {
-                out.push_str("_None._\n");
-            } else {
+            if open_section(&mut out, &header, "_None._\n", section.entries.is_empty()) {
                 out.push_str("| File | Line | Symbol | Metric | Value |\n");
                 out.push_str("| --- | ---: | --- | --- | ---: |\n");
                 for e in &section.entries {
@@ -263,6 +237,26 @@ impl ExemptionsReport {
         };
         serde_json::to_string_pretty(&envelope)
     }
+}
+
+/// Open one report section: emit the inter-section blank line and the
+/// pre-formatted `header`, then decide whether a body follows. When the
+/// section is empty, writes `empty_placeholder` and returns `false`;
+/// otherwise returns `true` so the caller renders the body. Both
+/// renderers share this frame — only the header text, placeholder, and
+/// body differ between TTY and Markdown.
+fn open_section(out: &mut String, header: &str, empty_placeholder: &str, is_empty: bool) -> bool {
+    // The first emitted section finds `out` empty and skips the
+    // separator, so this works regardless of which sections `--only-*`
+    // suppressed.
+    if !out.is_empty() {
+        out.push('\n');
+    }
+    out.push_str(header);
+    if is_empty {
+        out.push_str(empty_placeholder);
+    }
+    !is_empty
 }
 
 /// Render the in-source marker rows as an aligned plain-text block.

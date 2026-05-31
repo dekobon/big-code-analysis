@@ -199,6 +199,47 @@ fn empty_requested_sections_render_explicit_none() {
 }
 
 #[test]
+fn sections_are_separated_by_a_single_blank_line() {
+    // `open_section` centralizes inter-section spacing: the first emitted
+    // section is flush and every later section is preceded by exactly one
+    // blank line. Pin that shape so a future change to the shared frame
+    // cannot silently drop or double the separators.
+    let tty = sample_report()
+        .render(OutputFormat::Tty, "")
+        .expect("tty render");
+    assert!(
+        !tty.starts_with('\n'),
+        "first section must be flush: {tty:?}"
+    );
+    assert!(
+        tty.contains("\n\n# [check.exclude] globs ("),
+        "one blank line before excludes: {tty:?}"
+    );
+    assert!(
+        tty.contains("\n\n# Baseline ("),
+        "one blank line before baseline: {tty:?}"
+    );
+    assert!(!tty.contains("\n\n\n"), "no double blank lines: {tty:?}");
+}
+
+#[test]
+fn first_emitted_section_is_flush_when_markers_suppressed() {
+    // With markers suppressed (as under `--only-excludes`), excludes is
+    // the first emitted section and must render flush — the separator
+    // guard keys on `out` being non-empty, not on which section it is.
+    let report = ExemptionsReport {
+        markers: None,
+        excludes: Some(vec!["tests/**".to_owned()]),
+        baseline: None,
+    };
+    let tty = report.render(OutputFormat::Tty, "").expect("tty render");
+    assert!(
+        tty.starts_with("# [check.exclude] globs (1)"),
+        "got: {tty:?}"
+    );
+}
+
+#[test]
 fn strip_prefix_trims_displayed_paths_in_every_format() {
     let prefix = "src/";
     let tty = sample_report()
