@@ -1042,7 +1042,17 @@ impl Cyclomatic for BashCode {
 }
 
 impl Cyclomatic for TclCode {
-    fn compute<'a>(node: &Node<'a>, _code: &'a [u8], stats: &mut Stats) {
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+        // Tcl `switch` is a generic `command`, not a dedicated kind, so it is
+        // matched out-of-band before the kind dispatch (issue #467). Mirroring
+        // the C-family convention (see `impl_cyclomatic_c_family`): each
+        // non-`default` arm is a decision point in standard CCN, while modified
+        // CCN collapses the whole construct to a single container decision.
+        if let Some(arms) = crate::metrics::cognitive::tcl_switch_decision_arms(node, code) {
+            stats.cyclomatic += arms as f64;
+            stats.cyclomatic_modified += 1.;
+            return;
+        }
         match node.kind_id().into() {
             Tcl::If
             | Tcl::Elseif
@@ -4017,6 +4027,56 @@ f() {
                     }
                     "#
                 );
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_switch_cyclomatic() {
+        // Tcl `switch` is a generic command; each non-`default` arm is a
+        // decision point in standard CCN, while modified CCN counts the
+        // construct once (issue #467). Three arms (1, 2, default): the two
+        // non-default arms add +2 standard; `default` is free.
+        check_metrics::<TclParser>(
+            "proc f {x} {
+    switch $x {
+        1 { puts a }
+        2 { puts b }
+        default { puts c }
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                // unit(1) + proc(base 1 + arm 1 + arm 2) = standard sum 4, max 3.
+                // modified collapses arms to one container: unit(1) +
+                // proc(base 1 + switch 1) = sum 3, max 2.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_max(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_switch_cyclomatic_no_default_with_options() {
+        // No `default` arm, and leading `switch` options (`-exact --`) precede
+        // the value: the arm list is still the trailing braced word, so both
+        // arms count. Guards the option-form arm-list location (issue #467).
+        check_metrics::<TclParser>(
+            "proc f {x} {
+    switch -exact -- $x {
+        1 { puts a }
+        2 { puts b }
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                // unit(1) + proc(base 1 + arm 1 + arm 2) = standard sum 4, max 3.
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_max(), 2.0);
             },
         );
     }

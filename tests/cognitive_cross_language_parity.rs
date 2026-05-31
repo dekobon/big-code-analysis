@@ -177,6 +177,19 @@ func f(x int) string {
 ",
         "groovy",
     );
+    // Tcl spells the construct as a generic `switch` command; the structure
+    // adds one cognitive decision point, the `default` arm is free (issue #467).
+    let tcl = cognitive_max(
+        LANG::Tcl,
+        r"proc f {x} {
+    switch $x {
+        1 { return one }
+        default { return other }
+    }
+}
+",
+        "tcl",
+    );
 
     // expected: one explicit arm + wildcard/default in a single
     // switch/match contributes one cognitive decision point.
@@ -193,4 +206,5 @@ func f(x int) string {
     assert_eq!(bash, expected, "bash");
     assert_eq!(python, expected, "python");
     assert_eq!(groovy, expected, "groovy");
+    assert_eq!(tcl, expected, "tcl");
 }

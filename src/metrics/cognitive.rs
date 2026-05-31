@@ -1089,7 +1089,7 @@ impl Cognitive for BashCode {
 impl Cognitive for TclCode {
     fn compute<'a>(
         node: &Node<'a>,
-        _code: &'a [u8],
+        code: &'a [u8],
         stats: &mut Stats,
         nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
     ) {
@@ -1115,6 +1115,15 @@ impl Cognitive for TclCode {
             }
             // `catch` is a conditional error handler; only executes when the body errors.
             Catch => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
+            }
+            // Tcl `switch` is a generic `command`, not a dedicated kind, so it
+            // would otherwise fall through to `_` (issue #467). It is a
+            // switch-like structure: +1 plus current nesting, with the
+            // `default` arm free, matching C-family `SwitchStatement` cognitive
+            // handling (lesson 11). `tcl_switch_decision_arms` returns `Some`
+            // only for a leading-word `switch` command.
+            Command if tcl_switch_decision_arms(node, code).is_some() => {
                 increase_nesting(stats, &mut nesting, depth, lambda);
             }
             BinopExpr => {
@@ -1276,6 +1285,73 @@ pub(crate) fn elixir_call_keyword<'a>(node: &'a Node<'a>, code: &'a [u8]) -> Opt
         return None;
     }
     target.utf8_text(code)
+}
+
+// Tcl's `switch` is a generic `command` (no dedicated kind_id, unlike
+// `if`/`while`/`foreach`/`catch`), so the kind-dispatch in the Cognitive
+// and Cyclomatic impls never sees it (issue #467, lesson 19). This helper
+// is shared by both metrics: it detects a `switch` command and returns the
+// number of *decision* arms — every non-`default` arm.
+//
+// Grammar shape (tree-sitter-tcl 0.x), canonical brace-list form:
+//
+//   (command name: (simple_word "switch")
+//     (word_list <options…> <value> (braced_word (command (simple_word PAT) …) …)))
+//
+// The arm list is the LAST `braced_word` argument, which makes the helper
+// robust to leading options (`-exact`, `-glob`, `-regexp`, `-nocase`, `--`)
+// and the matched value, all of which precede it in the `word_list`. Each
+// arm is itself a nested `command` whose leading word is the pattern; the
+// `default` arm is excluded, matching the C-family `default:` convention
+// (lesson 11). The rarer split form (`switch $x a {b} c {d}` — arms as
+// separate `word_list` arguments rather than wrapped in one `braced_word`)
+// is intentionally NOT counted: its body braces are sibling arguments, not
+// nested commands, so there is no reliable arm node to count. Idiomatic
+// Tcl uses the brace-list form, so this scoping under-counts only the
+// uncommon style.
+//
+// Returns `None` for any command that is not a leading-word `switch`, so
+// callers can leave non-switch commands untouched.
+pub(crate) fn tcl_switch_decision_arms(node: &Node, code: &[u8]) -> Option<usize> {
+    if node.kind_id() != Tcl::Command as u16 {
+        return None;
+    }
+    let name = node.child_by_field_name("name")?;
+    if name.kind_id() != Tcl::SimpleWord as u16 || name.utf8_text(code) != Some("switch") {
+        return None;
+    }
+
+    // The arm list is the sole `braced_word` argument inside the command's
+    // `word_list`; the matched value and any leading options precede it and
+    // never parse as `braced_word`. The split form (`switch $x a {b} c {d}`)
+    // produces *several* sibling `braced_word`s — one per arm body — so
+    // requiring exactly one direct `braced_word` child distinguishes the
+    // brace-list form and excludes the unsupported split form, where the last
+    // `braced_word` is merely a body rather than the full arm list.
+    let word_list = node
+        .children()
+        .find(|child| child.kind_id() == Tcl::WordList as u16)?;
+    let mut braced_words = word_list
+        .children()
+        .filter(|child| child.kind_id() == Tcl::BracedWord as u16);
+    let arm_list = braced_words.next()?;
+    if braced_words.next().is_some() {
+        return None;
+    }
+
+    let decision_arms = arm_list
+        .children()
+        .filter(|arm| arm.kind_id() == Tcl::Command as u16)
+        .filter(|arm| {
+            // The arm pattern is the arm command's leading word; the
+            // `default` arm is the switch fallback and does not contribute a
+            // decision point.
+            arm.child_by_field_name("name")
+                .and_then(|pat| pat.utf8_text(code))
+                != Some("default")
+        })
+        .count();
+    Some(decision_arms)
 }
 
 // Method-defining macros (`def`, `defp`, `defmacro`, `defmacrop`). The set
@@ -6391,6 +6467,54 @@ mod tests {
                 assert_eq!(metric.cognitive.cognitive_sum(), 4.0);
                 assert_eq!(metric.cognitive.cognitive_max(), 4.0);
                 insta::assert_json_snapshot!(metric.cognitive);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_switch_cognitive() {
+        // Tcl `switch` is a generic command, not a dedicated kind. As a
+        // switch-like structure it adds +1 plus current nesting once; the arm
+        // count and the `default` arm do not add cognitive cost, matching
+        // C-family `SwitchStatement` and Bash `case` (issue #467, lesson 11).
+        check_metrics::<TclParser>(
+            "proc f {x} {
+    switch $x {
+        1 { puts a }
+        2 { puts b }
+        default { puts c }
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                // One switch structure at proc-body nesting 0 → +1.
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 1.0);
+            },
+        );
+    }
+
+    #[test]
+    fn tcl_switch_cognitive_nested() {
+        // A `switch` nested inside an outer `switch` arm pays the nesting
+        // penalty: outer +1 (nesting 0), inner +1+1 (nesting 1) = 3 (issue #467).
+        check_metrics::<TclParser>(
+            "proc f {x y} {
+    switch $x {
+        1 {
+            switch $y {
+                a { puts p }
+                b { puts q }
+            }
+        }
+        2 { puts b }
+    }
+}",
+            "foo.tcl",
+            |metric| {
+                // outer switch(+1) + inner switch at nesting 1 (+2) = 3.
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
             },
         );
     }

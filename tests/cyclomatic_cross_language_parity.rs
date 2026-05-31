@@ -200,6 +200,25 @@ fn switch_with_default_parity() {
             "kt",
         ),
     );
+    // Tcl `switch` is a generic command whose non-`default` arms are the
+    // decision points; `default` is free, matching the C-family `default:`
+    // (issue #467). Procs are top-level, so no class offset.
+    sums.insert(
+        "tcl",
+        ccn_sum(
+            LANG::Tcl,
+            r"proc f {x} {
+    switch $x {
+        1 { return one }
+        2 { return two }
+        3 { return three }
+        default { return other }
+    }
+}
+",
+            "tcl",
+        ),
+    );
     let offsets = BTreeMap::from([
         ("java", JAVA_CLASS_OFFSET),
         // C# requires every function to live inside a class, same as
@@ -332,6 +351,23 @@ f() {
 }
 ",
             "kt",
+        ),
+    );
+    // Tcl `switch` with no `default` arm: all three arms are decision
+    // points (issue #467). Procs are top-level, so no class offset.
+    sums.insert(
+        "tcl",
+        ccn_sum(
+            LANG::Tcl,
+            r"proc f {x} {
+    switch $x {
+        1 { return one }
+        2 { return two }
+        3 { return three }
+    }
+}
+",
+            "tcl",
         ),
     );
     let offsets = BTreeMap::from([("java", JAVA_CLASS_OFFSET), ("csharp", JAVA_CLASS_OFFSET)]);
