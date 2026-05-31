@@ -105,7 +105,7 @@ jobs:
       # them — sarif-fmt pulls in syntect — on every run.
       - name: Cache clippy-sarif and sarif-fmt
         id: cache-sarif-tools
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
             ~/.cargo/bin/clippy-sarif
@@ -139,7 +139,7 @@ jobs:
       # the build on warnings regardless of this step.
       - name: Upload SARIF to code scanning
         if: always() && hashFiles('rust-clippy-results.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-        uses: github/codeql-action/upload-sarif@03e4368ac7daa2bd82b3e85262f3bf87ee112f57 # v3
+        uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
         with:
           sarif_file: rust-clippy-results.sarif
           category: clippy
@@ -220,7 +220,7 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-      - uses: taiki-e/install-action@f48d2f8ba2b452934c948b7be1a768079c3632ff # v2.79.6
+      - uses: taiki-e/install-action@50b4a718b59c718df4ef27a3b445f86cd57b9f00 # v2.80.0
         with:
           tool: cargo-nextest
       # nextest runs the lib / bins / integration tests and writes the JUnit
@@ -249,7 +249,7 @@ jobs:
       # whose read-only token cannot create check runs.
       - name: Publish test report
         if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-        uses: mikepenz/action-junit-report@3585e9575db828022551b4231f165eb59a0e74e3 # v5
+        uses: mikepenz/action-junit-report@3a81627bfac62268172037048872e8ebd4207e6d # v6.4.1
         with:
           report_paths: target/nextest/ci/junit.xml
           check_name: test report (${{ matrix.os }})
@@ -280,7 +280,7 @@ jobs:
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           key: coverage
-      - uses: taiki-e/install-action@f48d2f8ba2b452934c948b7be1a768079c3632ff # v2.79.6
+      - uses: taiki-e/install-action@50b4a718b59c718df4ef27a3b445f86cd57b9f00 # v2.80.0
         with:
           tool: cargo-nextest,cargo-llvm-cov
       # nextest is the same runner the `test` job uses, so instrumenting it
@@ -392,7 +392,7 @@ jobs:
         with:
           fetch-depth: 1
           submodules: false
-      - uses: EmbarkStudios/cargo-deny-action@a531616d8ce3b9177443e48a1159bc945a099823 # v2.0.19
+      - uses: EmbarkStudios/cargo-deny-action@bb137d7af7e4fb67e5f82a49c4fce4fad40782fe # v2.0.20
         with:
           command: check advisories bans licenses sources
 
@@ -409,7 +409,7 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-      - uses: taiki-e/install-action@f48d2f8ba2b452934c948b7be1a768079c3632ff # v2.79.6
+      - uses: taiki-e/install-action@50b4a718b59c718df4ef27a3b445f86cd57b9f00 # v2.80.0
         with:
           tool: cargo-about@0.8.4
       # Fails if any dep in either binary crate's transitive closure
@@ -472,7 +472,7 @@ jobs:
           tar -xzf /tmp/rumdl.tgz -C /tmp rumdl
           install -m 0755 /tmp/rumdl /usr/local/bin/rumdl
           rumdl --version
-      - uses: taiki-e/install-action@f48d2f8ba2b452934c948b7be1a768079c3632ff # v2.79.6
+      - uses: taiki-e/install-action@50b4a718b59c718df4ef27a3b445f86cd57b9f00 # v2.80.0
         with:
           tool: taplo-cli@0.10.0,shellcheck@0.10.0,shfmt@3.12.0
       # actionlint 1.7.12's prebuilt binary is not yet in

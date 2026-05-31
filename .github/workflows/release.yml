@@ -260,12 +260,12 @@ jobs:
 
       - name: Install cross (Linux cross-compile)
         if: matrix.cross
-        uses: taiki-e/install-action@f48d2f8ba2b452934c948b7be1a768079c3632ff # v2.79.6
+        uses: taiki-e/install-action@50b4a718b59c718df4ef27a3b445f86cd57b9f00 # v2.80.0
         with:
           tool: cross@${{ env.CROSS_VERSION }}
 
       - name: Install cargo-about
-        uses: taiki-e/install-action@f48d2f8ba2b452934c948b7be1a768079c3632ff # v2.79.6
+        uses: taiki-e/install-action@50b4a718b59c718df4ef27a3b445f86cd57b9f00 # v2.80.0
         with:
           tool: cargo-about@${{ env.CARGO_ABOUT_VERSION }}
 
@@ -499,7 +499,7 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.target }}
 
-      - uses: taiki-e/install-action@f48d2f8ba2b452934c948b7be1a768079c3632ff # v2.79.6
+      - uses: taiki-e/install-action@50b4a718b59c718df4ef27a3b445f86cd57b9f00 # v2.80.0
         with:
           tool: cargo-deb@${{ env.CARGO_DEB_VERSION }}
 
@@ -584,7 +584,7 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.target }}
 
-      - uses: taiki-e/install-action@f48d2f8ba2b452934c948b7be1a768079c3632ff # v2.79.6
+      - uses: taiki-e/install-action@50b4a718b59c718df4ef27a3b445f86cd57b9f00 # v2.80.0
         with:
           tool: cargo-generate-rpm@${{ env.CARGO_GENERATE_RPM_VERSION }}
 
@@ -704,7 +704,7 @@ jobs:
       # cross-arch builds (aarch64 on an x86_64 runner), run the Alpine
       # container under qemu for the target architecture so abuild's
       # CARCH matches.
-      - uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
+      - uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
         if: matrix.apk_arch != 'x86_64'
 
       - name: Build .apk inside alpine:3.20 container
@@ -791,7 +791,7 @@ jobs:
         image: [ubuntu:22.04, ubuntu:24.04, debian:12]
         arch: [amd64, arm64]
     steps:
-      - uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
+      - uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
         if: matrix.arch == 'arm64'
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -848,7 +848,7 @@ jobs:
         image: [rockylinux:9, fedora:latest, amazonlinux:2023]
         arch: [x86_64, aarch64]
     steps:
-      - uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
+      - uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
         if: matrix.arch == 'aarch64'
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -899,7 +899,7 @@ jobs:
       matrix:
         arch: [x86_64, aarch64]
     steps:
-      - uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
+      - uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
         if: matrix.arch == 'aarch64'
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -1115,7 +1115,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable tip
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
-      - uses: taiki-e/install-action@f48d2f8ba2b452934c948b7be1a768079c3632ff # v2.79.6
+      - uses: taiki-e/install-action@50b4a718b59c718df4ef27a3b445f86cd57b9f00 # v2.80.0
         with:
           tool: cargo-cyclonedx@${{ env.CARGO_CYCLONEDX_VERSION }}
 
