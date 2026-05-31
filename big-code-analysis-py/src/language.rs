@@ -50,6 +50,7 @@ pub(crate) fn lang_to_name(lang: LANG) -> &'static str {
         LANG::Elixir => "elixir",
         LANG::Go => "go",
         LANG::Groovy => "groovy",
+        LANG::Irules => "irules",
         LANG::Java => "java",
         // `Javascript` has no extensions and is filtered out of
         // `public_languages`, so this arm is never reached through

@@ -1179,6 +1179,69 @@ impl Cognitive for TclCode {
     }
 }
 
+impl Cognitive for IrulesCode {
+    fn compute<'a>(
+        node: &Node<'a>,
+        _code: &'a [u8],
+        stats: &mut Stats,
+        nesting_map: &mut HashMap<usize, (usize, usize, usize)>,
+    ) {
+        use Irules::*;
+
+        let (mut nesting, mut depth, lambda) = get_nesting_from_map(node, nesting_map);
+
+        match node.kind_id().into() {
+            // Defensive guard for parity with sibling impls; iRules' dedicated
+            // `Elseif` node means `is_else_if` is never true for an `If`.
+            If if !Self::is_else_if(node) => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
+            }
+            // `elseif` extends the chain: +1 without increasing nesting.
+            Elseif => {
+                increment_branch_extension(stats);
+            }
+            Else => {
+                increment_by_one(stats);
+            }
+            // Loops and ternary. `DictFor` iterates; `dict update`/`dict with`
+            // do not and are excluded.
+            For | Foreach | While | DictFor | TernaryExpr => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
+            }
+            // `catch` is a conditional error handler; its body only runs when
+            // the guarded command errors.
+            Catch => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
+            }
+            // iRules `switch` is a dedicated node (unlike Tcl): +1 plus current
+            // nesting, with the `default` arm free, matching the C-family
+            // `SwitchStatement` cognitive handling (lesson 11).
+            Switch => {
+                increase_nesting(stats, &mut nesting, depth, lambda);
+            }
+            // Boolean sequences inside expressions: both symbolic (`&&`/`||`)
+            // and the iRules keyword forms (`and`/`or`).
+            BinopExpr => {
+                compute_booleans_with(node, stats, |id| {
+                    matches!(id.into(), AMPAMP | PIPEPIPE | And | Or)
+                });
+            }
+            // All four function-space kinds reset nesting and bump the
+            // function depth (see the `IrulesCode` Checker impl).
+            Procedure | WhenEvent | OnHandler | TrapHandler => {
+                nesting = 0;
+                increment_function_depth(
+                    &mut depth,
+                    node,
+                    &[Procedure, WhenEvent, OnHandler, TrapHandler],
+                );
+            }
+            _ => {}
+        }
+        nesting_map.insert(node.id(), (nesting, depth, lambda));
+    }
+}
+
 impl Cognitive for LuaCode {
     fn compute<'a>(
         node: &Node<'a>,
@@ -1387,6 +1450,29 @@ pub(crate) fn tcl_switch_decision_arms(node: &Node, code: &[u8]) -> Option<usize
             // `default` arm is the switch fallback and does not contribute a
             // decision point.
             arm.child_by_field_name("name")
+                .and_then(|pat| pat.utf8_text(code))
+                != Some("default")
+        })
+        .count();
+    Some(decision_arms)
+}
+
+// iRules counterpart to [`tcl_switch_decision_arms`]. Unlike Tcl, the iRules
+// grammar models `switch` as a dedicated node with `switch_arm` children, so
+// the arms are read off the tree directly instead of re-parsing a generic
+// command. Returns the number of non-`default` arms (each a decision point in
+// standard CCN); `None` when `node` is not a `switch`. The `default` arm is the
+// fallback and does not contribute a branch (the Java/C-family wildcard
+// convention — lesson 11, #106).
+pub(crate) fn irules_switch_decision_arms(node: &Node, code: &[u8]) -> Option<usize> {
+    if node.kind_id() != Irules::Switch as u16 {
+        return None;
+    }
+    let decision_arms = node
+        .children()
+        .filter(|arm| arm.kind_id() == Irules::SwitchArm as u16)
+        .filter(|arm| {
+            arm.child_by_field_name("pattern")
                 .and_then(|pat| pat.utf8_text(code))
                 != Some("default")
         })
@@ -9355,6 +9441,138 @@ end",
                       "max": 2.0
                     }"###
                 );
+            },
+        );
+    }
+
+    /// A handler with no control flow has zero cognitive complexity.
+    #[test]
+    fn irules_no_cognitive() {
+        check_metrics::<IrulesParser>("when X { set a 1 }\n", "foo.irule", |metric| {
+            assert_eq!(metric.cognitive.cognitive_sum(), 0.0);
+        });
+    }
+
+    /// A single `if` adds one.
+    #[test]
+    fn irules_simple_function() {
+        check_metrics::<IrulesParser>(
+            "when X { if { $a } { log local0. \"hi\" } }\n",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 1.0);
+            },
+        );
+    }
+
+    /// A run of the *same* boolean operator (`$a && $b && $c`) is one
+    /// sequence: `if` (1) + boolean sequence (1) = 2.
+    #[test]
+    fn irules_sequence_same_booleans() {
+        check_metrics::<IrulesParser>(
+            "when X { if { $a && $b && $c } { log local0. \"hi\" } }\n",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+            },
+        );
+    }
+
+    /// Switching operator (`$a && $b || $c`) starts a new sequence: `if` (1)
+    /// + `&&` sequence (1) + `||` sequence (1) = 3.
+    #[test]
+    fn irules_sequence_different_booleans() {
+        check_metrics::<IrulesParser>(
+            "when X { if { $a && $b || $c } { log local0. \"hi\" } }\n",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+            },
+        );
+    }
+
+    /// Unary negation (`!`) does not itself add cognitive cost; only the
+    /// boolean sequence does: `if` (1) + `&&` sequence (1) = 2.
+    #[test]
+    fn irules_not_booleans() {
+        check_metrics::<IrulesParser>(
+            "when X { if { !$a && !$b } { log local0. \"hi\" } }\n",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 2.0);
+            },
+        );
+    }
+
+    /// One level of nesting: `while` (1) + `if` (1 + nesting 1 = 2) = 3.
+    #[test]
+    fn irules_1_level_nesting() {
+        check_metrics::<IrulesParser>(
+            "when X { while { $a } { if { $b } { log local0. \"hi\" } } }\n",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+            },
+        );
+    }
+
+    /// Two levels: `while` (1) + `if` (2) + `foreach` (1 + nesting 2 = 3) = 6.
+    #[test]
+    fn irules_2_level_nesting() {
+        check_metrics::<IrulesParser>(
+            "when X { while { $a } { if { $b } { foreach z $l { log local0. \"hi\" } } } }\n",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 6.0);
+            },
+        );
+    }
+
+    /// The lesson-10 guard for `is_else_if`: an `if … elseif … elseif …
+    /// else` chain (each clause +1 at the same level = 4) must score
+    /// *lower* than the same number of `if`s nested inside one another
+    /// (1 + 2 + 3 = 6, paying the nesting penalty). A broken `is_else_if`
+    /// predicate that treated `elseif` like a fresh nested `if` would push
+    /// the chain's score up toward the nested value, so the strict `<`
+    /// assertion catches the regression that #115 found in Java/C#.
+    #[test]
+    fn irules_else_if_chain() {
+        use std::cell::Cell;
+
+        let chain = "when X { if { $a } { set r 1 } elseif { $b } { set r 2 } elseif { $c } { set r 3 } else { set r 4 } }\n";
+        let nested = "when X { if { $a } { if { $b } { if { $c } { set r 1 } } } }\n";
+
+        // Capture each measured sum through a `Cell` (check_func_space takes an
+        // `Fn` closure) so the final `<` assertion compares the *actual*
+        // values rather than restating constants.
+        let chain_cog = Cell::new(-1.0);
+        crate::tools::check_func_space::<IrulesParser, _>(chain, "chain.irule", |fs| {
+            chain_cog.set(fs.metrics.cognitive.cognitive_sum());
+        });
+        let nested_cog = Cell::new(-1.0);
+        crate::tools::check_func_space::<IrulesParser, _>(nested, "nested.irule", |fs| {
+            nested_cog.set(fs.metrics.cognitive.cognitive_sum());
+        });
+
+        assert_eq!(chain_cog.get(), 4.0);
+        assert_eq!(nested_cog.get(), 6.0);
+        assert!(
+            chain_cog.get() < nested_cog.get(),
+            "else-if chain ({}) must score lower than equivalently nested ifs ({})",
+            chain_cog.get(),
+            nested_cog.get(),
+        );
+    }
+
+    /// A `switch` nested in an `if`: `if` (1) + `switch` (1 + nesting 1 = 2)
+    /// = 3. Confirms `switch` participates in nesting like other branches.
+    #[test]
+    fn irules_switch_nesting() {
+        check_metrics::<IrulesParser>(
+            "when X { if { $a } { switch $h { a { log local0. \"a\" } b { log local0. \"b\" } } } }\n",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
             },
         );
     }

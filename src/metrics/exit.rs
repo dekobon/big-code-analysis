@@ -308,6 +308,25 @@ impl Exit for TclCode {
     }
 }
 
+impl Exit for IrulesCode {
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+        // Like Tcl, iRules has no `return` keyword node — `return` is a
+        // generic Command (it is not among the grammar's `_builtin`
+        // commands). The bare name word can surface as either `simple_word`
+        // or `concat_word` depending on context, so match on the name text
+        // rather than a fixed kind. A multi-value `return $a $b` still has a
+        // single `name` field and is counted once. iRules flow commands
+        // (`event disable`, `TCP::close`, `reject`, `drop`) are deliberately
+        // not counted as exits in v1.
+        if node.kind_id() == Irules::Command
+            && let Some(name) = node.child_by_field_name("name")
+            && name.utf8_text(code) == Some("return")
+        {
+            stats.exit += 1;
+        }
+    }
+}
+
 impl Exit for PhpCode {
     // tree-sitter-php 0.24.2's `exit_statement` rule covers `exit` only
     // (with or without parentheses); `die(...)` is grammar-classified as
@@ -2424,6 +2443,57 @@ end",
                 }
                 "###
                 );
+            },
+        );
+    }
+
+    /// A handler with no `return` has zero exits (iRules has no `return`
+    /// keyword node; `return` is a generic command matched by name).
+    #[test]
+    fn irules_no_exit() {
+        check_metrics::<IrulesParser>(
+            "when HTTP_REQUEST {
+    set x 1
+    log local0. $x
+}
+",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 0.0);
+            },
+        );
+    }
+
+    /// A `return` command contributes one exit.
+    #[test]
+    fn irules_return() {
+        check_metrics::<IrulesParser>(
+            "when HTTP_REQUEST {
+    if { [HTTP::uri] eq \"/\" } {
+        return
+    }
+    log local0. \"served\"
+}
+",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 1.0);
+            },
+        );
+    }
+
+    /// A multi-value `return` (`return [list ...]`) is a single command and
+    /// counts once, not once per returned value.
+    #[test]
+    fn irules_multi_value_return_counts_once() {
+        check_metrics::<IrulesParser>(
+            "proc pair { a b } {
+    return [list $a $b]
+}
+",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.nexits.exit_sum(), 1.0);
             },
         );
     }

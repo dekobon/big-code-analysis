@@ -403,7 +403,8 @@ implement_metric_trait!(
     PerlCode,
     BashCode,
     LuaCode,
-    TclCode
+    TclCode,
+    IrulesCode
 );
 
 #[cfg(test)]

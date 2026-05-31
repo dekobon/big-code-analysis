@@ -272,7 +272,8 @@ implement_metric_trait!(
     CsharpCode,
     ElixirCode,
     RubyCode,
-    GroovyCode
+    GroovyCode,
+    IrulesCode
 );
 
 #[cfg(test)]
@@ -2091,6 +2092,32 @@ outer() {
             "keyword.rb",
             |metric| {
                 assert_eq!(metric.nom.closures_sum(), 2.0);
+            },
+        );
+    }
+
+    /// iRules counts event handlers (`when` / `on` / `trap`) and `proc`
+    /// definitions as functions; the language has no closures. A file with
+    /// two handlers and one proc reports three functions, zero closures.
+    /// Confirms the handlers-as-functions decision end to end.
+    #[test]
+    fn irules_nom_handlers_and_procs() {
+        check_metrics::<IrulesParser>(
+            "when CLIENT_ACCEPTED {
+    log local0. \"connected\"
+}
+when HTTP_REQUEST {
+    log local0. [HTTP::uri]
+}
+proc helper { x } {
+    return $x
+}
+",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.nom.functions_sum(), 3.0);
+                assert_eq!(metric.nom.closures_sum(), 0.0);
+                assert_eq!(metric.nom.total(), 3.0);
             },
         );
     }

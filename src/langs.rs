@@ -136,6 +136,17 @@ mk_langs!(
         ["tcl"]
     ),
     (
+        "irules",
+        Irules,
+        "The `Irules` language",
+        "irules",
+        IrulesCode,
+        IrulesParser,
+        tree_sitter_irules,
+        [irule, irules],
+        ["irules"]
+    ),
+    (
         "cpp",
         Cpp,
         "The `C/C++` language",

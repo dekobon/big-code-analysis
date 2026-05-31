@@ -190,6 +190,19 @@ func f(x int) string {
 ",
         "tcl",
     );
+    // iRules spells `switch` as a dedicated node, but the cognitive
+    // contribution is the same: one decision point, the `default` arm free.
+    let irules = cognitive_max(
+        LANG::Irules,
+        r"proc f {x} {
+    switch $x {
+        1 { return one }
+        default { return other }
+    }
+}
+",
+        "irule",
+    );
 
     // expected: one explicit arm + wildcard/default in a single
     // switch/match contributes one cognitive decision point.
@@ -207,4 +220,5 @@ func f(x int) string {
     assert_eq!(python, expected, "python");
     assert_eq!(groovy, expected, "groovy");
     assert_eq!(tcl, expected, "tcl");
+    assert_eq!(irules, expected, "irules");
 }

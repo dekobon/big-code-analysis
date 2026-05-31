@@ -403,6 +403,29 @@ impl NArgs for TclCode {
     }
 }
 
+// iRules counterpart of `compute_tcl_args`. Only `procedure` carries an
+// `arguments` *field*; `when_event` handlers have no formal parameters
+// (the event context is implicit), so they correctly count zero. `{a 5}`
+// default-valued parameters parse as a single `argument`, so each formal
+// parameter contributes one regardless of its default.
+fn compute_irules_args(node: &Node, nargs: &mut usize) {
+    let Some(params) = node.child_by_field_name("arguments") else {
+        return;
+    };
+    *nargs += params
+        .children()
+        .filter(|c| c.kind_id() == Irules::Argument)
+        .count();
+}
+
+impl NArgs for IrulesCode {
+    fn compute(node: &Node, stats: &mut Stats) {
+        if Self::is_func(node) {
+            compute_irules_args(node, &mut stats.fn_nargs);
+        }
+    }
+}
+
 implement_metric_trait!(
     [NArgs],
     PythonCode,
@@ -2977,5 +3000,79 @@ proc g {x y z} { puts $x }",
             assert_eq!(metric.nargs.fn_args_sum(), 3.0);
             assert_eq!(metric.nargs.closure_args_sum(), 0.0);
         });
+    }
+
+    /// A file of bare top-level commands has no function spaces, so the
+    /// argument count is zero.
+    #[test]
+    fn irules_no_functions_and_closures() {
+        check_metrics::<IrulesParser>("set x 1\nlog local0. $x\n", "foo.irule", |metric| {
+            assert_eq!(metric.nargs.fn_args_sum(), 0.0);
+            assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+        });
+    }
+
+    /// A `when` handler is a function space but has no formal parameters
+    /// (the event context is implicit), so its argument count is zero —
+    /// `when_event` carries no `arguments` field. Guards edge case #10.
+    #[test]
+    fn irules_handler_zero_args() {
+        check_metrics::<IrulesParser>(
+            "when HTTP_REQUEST { log local0. \"hit\" }\n",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.nargs.fn_args_sum(), 0.0);
+                assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+                // The handler is still counted as a function space.
+                assert_eq!(metric.nom.functions_sum(), 1.0);
+            },
+        );
+    }
+
+    /// A `proc` with two formal parameters contributes two arguments.
+    #[test]
+    fn irules_single_proc() {
+        check_metrics::<IrulesParser>("proc f { a b } { return $a }\n", "foo.irule", |metric| {
+            assert_eq!(metric.nargs.fn_args_sum(), 2.0);
+            assert_eq!(metric.nargs.closure_args_sum(), 0.0);
+        });
+    }
+
+    /// A `proc` with an empty argument list contributes zero arguments.
+    #[test]
+    fn irules_proc_no_args() {
+        check_metrics::<IrulesParser>("proc f { } { return 1 }\n", "foo.irule", |metric| {
+            assert_eq!(metric.nargs.fn_args_sum(), 0.0);
+        });
+    }
+
+    /// A default-valued parameter (`{b 5}`) is a single `argument`, so each
+    /// formal parameter counts once regardless of its default: `{a {b 5} c}`
+    /// is three arguments.
+    #[test]
+    fn irules_proc_arg_defaults() {
+        check_metrics::<IrulesParser>(
+            "proc f { a {b 5} c } { return $a }\n",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.nargs.fn_args_sum(), 3.0);
+            },
+        );
+    }
+
+    /// A `proc` and a `when` handler in one file: only the proc's two
+    /// parameters count; the handler contributes zero.
+    #[test]
+    fn irules_multiple_functions() {
+        check_metrics::<IrulesParser>(
+            "proc add { a b } { return [expr { $a + $b }] }
+when HTTP_REQUEST { log local0. \"hit\" }
+",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.nargs.fn_args_sum(), 2.0);
+                assert_eq!(metric.nom.functions_sum(), 2.0);
+            },
+        );
     }
 }

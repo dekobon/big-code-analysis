@@ -353,6 +353,25 @@ impl Alterator for TclCode {
     }
 }
 
+impl Alterator for IrulesCode {
+    fn alterate(
+        node: &Node,
+        code: &[u8],
+        span: bool,
+        field_name: Option<&'static str>,
+        children: Vec<AstNode>,
+    ) -> AstNode {
+        match Irules::from(node.kind_id()) {
+            // Preserve string literals verbatim to avoid whitespace trimming.
+            Irules::QuotedWord | Irules::BracedWord | Irules::BracedWordSimple => {
+                let (text, span) = Self::get_text_span(node, code, span, true);
+                AstNode::with_field_name(node.kind(), text, span, field_name, Vec::new())
+            }
+            _ => Self::get_default(node, code, span, field_name, children),
+        }
+    }
+}
+
 impl Alterator for PhpCode {
     fn alterate(
         node: &Node,

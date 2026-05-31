@@ -29,6 +29,7 @@ macro_rules! mk_get_language {
                 Lang::Python => tree_sitter_python::LANGUAGE.into(),
                 Lang::Rust => tree_sitter_rust::LANGUAGE.into(),
                 Lang::Tcl => tree_sitter_tcl::LANGUAGE.into(),
+                Lang::Irules => tree_sitter_irules::LANGUAGE.into(),
                 Lang::Preproc => tree_sitter_preproc::LANGUAGE.into(),
                 Lang::Bash => tree_sitter_bash::LANGUAGE.into(),
                 Lang::Csharp => tree_sitter_c_sharp::LANGUAGE.into(),

@@ -1070,6 +1070,45 @@ impl Cyclomatic for TclCode {
     }
 }
 
+impl Cyclomatic for IrulesCode {
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], stats: &mut Stats) {
+        // Unlike Tcl, iRules has a dedicated `switch`/`switch_arm` node: each
+        // non-`default` arm is a decision point in standard CCN, while modified
+        // CCN collapses the whole `switch` to a single container decision. The
+        // arms are counted at the `switch` node so the `switch_arm` children
+        // are not also matched below (which would double-count).
+        if let Some(arms) = crate::metrics::cognitive::irules_switch_decision_arms(node, code) {
+            stats.cyclomatic += arms as f64;
+            stats.cyclomatic_modified += 1.;
+            return;
+        }
+        match node.kind_id().into() {
+            // Branches and loops. `DictFor` is an iterating construct; the
+            // non-looping `dict update` / `dict with` are intentionally
+            // excluded. `Else` carries no condition and is not a branch.
+            Irules::If
+            | Irules::Elseif
+            | Irules::For
+            | Irules::Foreach
+            | Irules::While
+            | Irules::DictFor
+            | Irules::Catch
+            | Irules::TernaryExpr
+            // Short-circuit logical operators, both symbolic and the iRules
+            // keyword forms (`and`/`or`) — Tcl has no keyword forms, so these
+            // two arms are iRules-specific.
+            | Irules::AMPAMP
+            | Irules::PIPEPIPE
+            | Irules::And
+            | Irules::Or => {
+                stats.cyclomatic += 1.;
+                stats.cyclomatic_modified += 1.;
+            }
+            _ => {}
+        }
+    }
+}
+
 #[cfg(test)]
 #[allow(
     clippy::float_cmp,
@@ -6413,5 +6452,139 @@ f() {
             assert_eq!(s.cyclomatic_modified_sum(), 4.0);
             assert_eq!(s.cyclomatic_modified_max(), 3.0);
         });
+    }
+
+    /// Nested control flow inside a `when` handler (the iRules floor case,
+    /// mirroring `rust_1_level_nesting`). unit(1) + handler(base 1 + while 1
+    /// + if 1 = 3) = sum 4, max 3.
+    #[test]
+    fn irules_1_level_nesting() {
+        check_metrics::<IrulesParser>(
+            "when HTTP_REQUEST {
+    while { $x > 0 } {
+        if { $x > 10 } {
+            set x [expr { $x - 1 }]
+        }
+    }
+}
+",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+            },
+        );
+    }
+
+    /// iRules `switch` is a dedicated node: each non-`default` arm is one
+    /// standard decision; the whole `switch` is one modified decision.
+    /// standard: unit(1) + handler(base 1 + 2 arms) = 4; modified:
+    /// unit(1) + handler(base 1 + switch 1) = 3. The `default` arm is free.
+    #[test]
+    fn irules_switch() {
+        check_metrics::<IrulesParser>(
+            "when HTTP_REQUEST {
+    switch [HTTP::host] {
+        a { pool pool_a }
+        b { pool pool_b }
+        default { pool pool_d }
+    }
+}
+",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_max(), 2.0);
+            },
+        );
+    }
+
+    /// The keyword logical operators `and` / `or` are decision points just
+    /// like `&&` / `||` (iRules-specific — Tcl's grammar has no keyword
+    /// forms). unit(1) + handler(base 1 + if 1 + and 1 + or 1 = 4) = 5.
+    /// Guards edge case #3 / the keyword-operator arms in the impl.
+    #[test]
+    fn irules_and_or_keywords() {
+        check_metrics::<IrulesParser>(
+            "when HTTP_REQUEST {
+    if { $a and $b or $c } {
+        log local0. \"hit\"
+    }
+}
+",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 5.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 5.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 4.0);
+            },
+        );
+    }
+
+    /// String comparison operators (`contains`, `eq`, `matches`, …) are
+    /// operators, NOT branches. Two of them appear here, joined by one `||`;
+    /// only the `if` and the `||` are decisions: unit(1) + handler(base 1 +
+    /// if 1 + `||` 1 = 3) = 4. The two string operators add 0. Guards edge
+    /// case #4: if each string operator were wrongly counted as a branch the
+    /// sum would be 6, so the divergence (4 vs 6) is unambiguous — it cannot
+    /// be confused with the `if`/`||` simply being miscounted.
+    #[test]
+    fn irules_string_ops_not_branches() {
+        check_metrics::<IrulesParser>(
+            "when HTTP_REQUEST {
+    if { [HTTP::uri] contains \"admin\" || [HTTP::host] eq \"x\" } {
+        log local0. \"hit\"
+    }
+}
+",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 4.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 3.0);
+            },
+        );
+    }
+
+    /// A ternary `? :` in an `expr` is one decision; the bare `>` comparison
+    /// is not. unit(1) + handler(base 1 + ternary 1 = 2) = 3.
+    #[test]
+    fn irules_ternary() {
+        check_metrics::<IrulesParser>(
+            "when HTTP_REQUEST {
+    set y [expr { $x > 0 ? 1 : 0 }]
+}
+",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
+            },
+        );
+    }
+
+    /// `dict for` iterates and is a loop decision; the non-looping
+    /// `dict update` / `dict with` are excluded by the impl.
+    /// unit(1) + handler(base 1 + dict_for 1 = 2) = 3.
+    #[test]
+    fn irules_dict_for_loop() {
+        check_metrics::<IrulesParser>(
+            "when HTTP_REQUEST {
+    dict for { k v } $d {
+        log local0. $k
+    }
+}
+",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.cyclomatic.cyclomatic_sum(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_modified_sum(), 3.0);
+                assert_eq!(metric.cyclomatic.cyclomatic_max(), 2.0);
+            },
+        );
     }
 }

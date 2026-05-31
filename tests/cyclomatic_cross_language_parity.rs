@@ -219,6 +219,25 @@ fn switch_with_default_parity() {
             "tcl",
         ),
     );
+    // iRules `switch` is a dedicated node (unlike Tcl's command form), but
+    // counts the same: 3 non-`default` arms, fallback free. Procs are
+    // top-level, so no class offset.
+    sums.insert(
+        "irules",
+        ccn_sum(
+            LANG::Irules,
+            r"proc f {x} {
+    switch $x {
+        1 { return one }
+        2 { return two }
+        3 { return three }
+        default { return other }
+    }
+}
+",
+            "irule",
+        ),
+    );
     let offsets = BTreeMap::from([
         ("java", JAVA_CLASS_OFFSET),
         // C# requires every function to live inside a class, same as
@@ -522,6 +541,20 @@ f() {
 }
 ",
             "groovy",
+        ),
+    );
+    // iRules has a dedicated `elseif` node; each `elseif` is a decision and
+    // the trailing `else` is free, matching the family. Proc is top-level,
+    // so no class offset.
+    sums.insert(
+        "irules",
+        ccn_sum(
+            LANG::Irules,
+            r"proc f {x} {
+    if { $x == 1 } { return 10 } elseif { $x == 2 } { return 20 } elseif { $x == 3 } { return 30 } else { return 0 }
+}
+",
+            "irule",
         ),
     );
     let offsets = BTreeMap::from([("java", JAVA_CLASS_OFFSET)]);

@@ -1886,7 +1886,8 @@ implement_metric_trait!(
     PerlCode,
     BashCode,
     LuaCode,
-    TclCode
+    TclCode,
+    IrulesCode
 );
 
 // Elixir Npa (#275). `defmodule` is treated as a class via source-aware

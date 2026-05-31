@@ -45,6 +45,7 @@ per-language pipeline depends on).
 | `elixir`     | `tree-sitter-elixir`                                                           |
 | `go`         | `tree-sitter-go`                                                               |
 | `groovy`     | `dekobon-tree-sitter-groovy`                                                   |
+| `irules`     | `tree-sitter-irules` (F5 iRules, a Tcl dialect)                                |
 | `java`       | `tree-sitter-java`                                                             |
 | `javascript` | `tree-sitter-javascript`                                                       |
 | `kotlin`     | `tree-sitter-kotlin-ng`                                                        |

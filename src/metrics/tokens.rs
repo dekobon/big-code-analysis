@@ -193,7 +193,8 @@ implement_metric_trait!(
     CsharpCode,
     ElixirCode,
     RubyCode,
-    GroovyCode
+    GroovyCode,
+    IrulesCode
 );
 
 #[cfg(test)]

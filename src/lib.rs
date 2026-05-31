@@ -44,6 +44,7 @@
 //! - Elixir (`elixir`)
 //! - Go (`go`)
 //! - Groovy (`groovy`)
+//! - F5 iRules (`irules`)
 //! - Java (`java`)
 //! - JavaScript (`javascript`)
 //! - JavaScript, Firefox-internal "MozJS" (`mozjs`)
@@ -112,12 +113,12 @@ mod macros;
 mod langs;
 pub use crate::langs::{
     BashCode, BashParser, CcommentCode, CcommentParser, CppCode, CppParser, CsharpCode,
-    CsharpParser, ElixirCode, ElixirParser, GoCode, GoParser, GroovyCode, GroovyParser, JavaCode,
-    JavaParser, JavascriptCode, JavascriptParser, KotlinCode, KotlinParser, LANG, LuaCode,
-    LuaParser, MozjsCode, MozjsParser, PerlCode, PerlParser, PhpCode, PhpParser, PreprocCode,
-    PreprocParser, PythonCode, PythonParser, RubyCode, RubyParser, RustCode, RustParser, TclCode,
-    TclParser, TsxCode, TsxParser, TypescriptCode, TypescriptParser, action, analyze_dispatch,
-    get_from_emacs_mode, get_from_ext, get_ops, metrics_from_tree,
+    CsharpParser, ElixirCode, ElixirParser, GoCode, GoParser, GroovyCode, GroovyParser, IrulesCode,
+    IrulesParser, JavaCode, JavaParser, JavascriptCode, JavascriptParser, KotlinCode, KotlinParser,
+    LANG, LuaCode, LuaParser, MozjsCode, MozjsParser, PerlCode, PerlParser, PhpCode, PhpParser,
+    PreprocCode, PreprocParser, PythonCode, PythonParser, RubyCode, RubyParser, RustCode,
+    RustParser, TclCode, TclParser, TsxCode, TsxParser, TypescriptCode, TypescriptParser, action,
+    analyze_dispatch, get_from_emacs_mode, get_from_ext, get_ops, metrics_from_tree,
 };
 // The path-positional `get_function_spaces*` shims are `#[deprecated]`
 // at their definition sites; re-exporting them at the crate root keeps

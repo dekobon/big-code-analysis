@@ -46,6 +46,9 @@ pub use language_go::*;
 pub mod language_groovy;
 pub use language_groovy::*;
 
+pub mod language_irules;
+pub use language_irules::*;
+
 pub mod language_java;
 pub use language_java::*;
 

@@ -1821,6 +1821,18 @@ mod tests {
         );
     }
 
+    /// Lesson-9 contract for iRules: an unclosed `when` handler (truncated
+    /// mid-body) must still yield a `Unit` top-level space. Like Tcl, the
+    /// grammar keeps `source_file` as the root with an inner `ERROR`, so
+    /// this pins the contract rather than the synthetic-Unit wrapper path.
+    #[test]
+    fn irules_top_level_space_is_unit_contract() {
+        assert_top_level_space_is_unit_contract::<crate::IrulesParser>(
+            "when HTTP_REQUEST { if { $a } {\n",
+            "partial.irule",
+        );
+    }
+
     #[test]
     fn perl_top_level_space_is_unit_contract() {
         assert_top_level_space_is_unit_contract::<crate::PerlParser>(

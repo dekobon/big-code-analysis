@@ -1658,6 +1658,66 @@ impl Loc for TclCode {
     }
 }
 
+impl Loc for IrulesCode {
+    fn compute(node: &Node, stats: &mut Stats, is_func_space: bool, is_unit: bool) {
+        let (start, end) = init(node, stats, is_func_space, is_unit);
+
+        match node.kind_id().into() {
+            Irules::SourceFile => {}
+
+            Irules::Comment => {
+                add_cloc_lines(stats, start, end);
+            }
+
+            // Compound-statement headers and dedicated statement productions
+            // each count once. `when_event` / `on_handler` / `trap_handler`
+            // are the iRules handler headers; `for` / `dict_for` are loops
+            // Tcl lacks; `switch` counts once (its arms' bodies count their
+            // own commands — `switch_arm` is a pattern/body pair, not itself
+            // an executable line). `else` is intentionally excluded (it has no
+            // condition), matching the Tcl impl above.
+            Irules::Procedure
+            | Irules::WhenEvent
+            | Irules::OnHandler
+            | Irules::TrapHandler
+            | Irules::If
+            | Irules::Elseif
+            | Irules::For
+            | Irules::Foreach
+            | Irules::While
+            | Irules::DictFor
+            | Irules::DictUpdate
+            | Irules::DictWith
+            | Irules::Switch
+            | Irules::Set
+            | Irules::Global
+            | Irules::Namespace
+            | Irules::Try
+            | Irules::Catch
+            | Irules::Regexp => {
+                stats.lloc.logical_lines += 1;
+            }
+
+            // `expr` at statement level is a logical line; inside [...] it is a
+            // sub-expression and is not counted (same semantics as Command).
+            Irules::ExprCmd
+            // Commands inside [...] are sub-expressions, not top-level statements.
+            | Irules::Command
+                if node
+                    .parent()
+                    .is_none_or(|p| p.kind_id() != Irules::CommandSubstitution) =>
+            {
+                stats.lloc.logical_lines += 1;
+            }
+
+            _ => {
+                check_comment_ends_on_code_line(stats, start);
+                stats.ploc.lines.insert(start);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 #[allow(
     clippy::float_cmp,
@@ -10199,5 +10259,110 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
                 "cloc must not exceed sloc"
             );
         });
+    }
+
+    /// Interior blank lines are counted as BLANK and excluded from PLOC.
+    /// sloc 6 (every line) / ploc 4 (4 code lines) / lloc 3 (handler + 2
+    /// `set`s) / cloc 0 / blank 2.
+    #[test]
+    fn irules_blank() {
+        check_metrics::<IrulesParser>(
+            "when X {\n\n    set x 1\n\n    set y 2\n}\n",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 6.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.cloc(), 0.0);
+                assert_eq!(metric.loc.blank(), 2.0);
+            },
+        );
+    }
+
+    /// A handler body with no blank lines reports zero BLANK. lloc 3 =
+    /// handler + `set` + `log` command.
+    #[test]
+    fn irules_no_zero_blank() {
+        check_metrics::<IrulesParser>(
+            "when HTTP_REQUEST {\n    set x 1\n    log local0. $x\n}\n",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.loc.sloc(), 4.0);
+                assert_eq!(metric.loc.ploc(), 4.0);
+                assert_eq!(metric.loc.lloc(), 3.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+            },
+        );
+    }
+
+    /// `#`-prefixed comment lines are counted as CLOC (iRules has no block
+    /// comments, so each comment node spans exactly one line).
+    #[test]
+    fn irules_cloc() {
+        check_metrics::<IrulesParser>(
+            "# a\n# b\n# c\nwhen X { set x 1 }\n",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.loc.cloc(), 3.0);
+                assert_eq!(metric.loc.blank(), 0.0);
+            },
+        );
+    }
+
+    /// LLOC counts each statement once: handler header, `if`, `set`, and the
+    /// generic `log` command = 4. The `switch_arm` headers are not counted
+    /// (their bodies' commands are), verified in `irules_switch_lloc`.
+    #[test]
+    fn irules_lloc() {
+        check_metrics::<IrulesParser>(
+            "when X {\n    if { $a } {\n        set x 1\n    }\n    log local0. done\n}\n",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.loc.lloc(), 4.0);
+            },
+        );
+    }
+
+    /// A command inside `[...]` (`command_substitution`) is a sub-expression,
+    /// not a top-level statement, so it does not add to LLOC. Here lloc 2 =
+    /// handler + `set`; the inner `expr` is NOT counted. Removing the
+    /// `CommandSubstitution` guard would push lloc to 3 — this is the loc
+    /// gating-decision regression test.
+    #[test]
+    fn irules_no_command_substitution_lloc() {
+        check_metrics::<IrulesParser>(
+            "when X {\n    set y [expr { 1 + 2 }]\n}\n",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.loc.lloc(), 2.0);
+            },
+        );
+    }
+
+    /// `switch` counts once; each arm's *body* command counts, but the
+    /// `switch_arm` pattern/body pair itself is not a logical line. lloc 4 =
+    /// handler + `switch` + two `set`s (one per arm body).
+    #[test]
+    fn irules_switch_lloc() {
+        check_metrics::<IrulesParser>(
+            "when X {\n    switch $h {\n        a { set r 1 }\n        b { set r 2 }\n    }\n}\n",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.loc.lloc(), 4.0);
+            },
+        );
+    }
+
+    /// A `proc` definition and its `return` command are each one logical
+    /// line: lloc 2.
+    #[test]
+    fn irules_proc_lloc() {
+        check_metrics::<IrulesParser>(
+            "proc f { a } {\n    return $a\n}\n",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.loc.lloc(), 2.0);
+            },
+        );
     }
 }

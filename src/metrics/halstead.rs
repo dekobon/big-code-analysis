@@ -512,6 +512,12 @@ impl Halstead for TclCode {
     }
 }
 
+impl Halstead for IrulesCode {
+    fn compute<'a>(node: &Node<'a>, code: &'a [u8], halstead_maps: &mut HalsteadMaps<'a>) {
+        compute_halstead::<Self>(node, code, halstead_maps);
+    }
+}
+
 #[cfg(test)]
 #[allow(
     clippy::float_cmp,
@@ -3467,5 +3473,204 @@ f() {
             assert_eq!(metric.halstead.u_operators(), 6.0);
             assert_eq!(metric.halstead.u_operands(), 3.0);
         });
+    }
+
+    /// Comprehensive iRules Halstead test exercising every operator family
+    /// classified in `get_op_type`: declaration/control keywords (`proc`,
+    /// `set`, `if`, `return`), structural punctuation (`{}` `[]` `()`),
+    /// arithmetic (`+`), comparison (`>`), the word-form string comparator
+    /// (`eq`), and short-circuit logical (`&&`). Anchored on the integer
+    /// `n1`/`N1`/`n2`/`N2` headline values; the float fields are derived and
+    /// bit-brittle, so they are not pinned.
+    ///
+    /// The second half pins the lesson-4 invariant: the independent
+    /// text-keyed `operands_and_operators` store must dedupe to the same
+    /// `n1`/`n2`. A classification change that moved one store without the
+    /// other (e.g. a kind landing in both the operator and operand arms)
+    /// would break this even though the snapshot stayed green.
+    #[test]
+    fn irules_operators_and_operands() {
+        let source = "proc f { a b } {
+    set x [expr { $a + $b }]
+    if { $x > 0 && $a eq \"go\" } {
+        return $x
+    }
+    return 0
+}
+";
+        check_metrics::<IrulesParser>(source, "foo.irule", |metric| {
+            assert_eq!(metric.halstead.u_operators(), 12.0);
+            assert_eq!(metric.halstead.operators(), 20.0);
+            assert_eq!(metric.halstead.u_operands(), 12.0);
+            assert_eq!(metric.halstead.operands(), 16.0);
+        });
+
+        let path = PathBuf::from("foo.irule");
+        let parser = IrulesParser::new(source.as_bytes().to_vec(), &path, None);
+        let ops = crate::operands_and_operators(&parser, &path).expect("ops walk succeeds");
+        let unique_operators: HashSet<&str> = ops.operators.iter().map(String::as_str).collect();
+        let unique_operands: HashSet<&str> = ops.operands.iter().map(String::as_str).collect();
+        assert_eq!(
+            unique_operators.len(),
+            12,
+            "dedupe(ops.operators) must equal n1; operators were {:?}",
+            ops.operators
+        );
+        assert_eq!(
+            unique_operands.len(),
+            12,
+            "dedupe(ops.operands) must equal n2; operands were {:?}",
+            ops.operands
+        );
+    }
+
+    /// An inert `"hello world"` double-quoted string (no `$var` / `[cmd]`
+    /// interpolation child) contributes exactly **one** operand — the
+    /// wrapping `QuotedWord`. Operands are `f`, `s`, `"hello world"`, and
+    /// the proc-body `braced_word` (counted as an operand in the Tcl
+    /// family). iRules additionally counts the `set` target `s`, which
+    /// tree-sitter-tcl's grammar structure omits — hence n2=4 here vs Tcl's
+    /// 3. Mirrors `tcl_inert_quoted_word_counts_as_operand` (#277).
+    #[test]
+    fn irules_inert_quoted_word_counts_as_operand() {
+        let source = "proc f {} {\n    set s \"hello world\"\n}\n";
+        check_metrics::<IrulesParser>(source, "foo.irule", |metric| {
+            assert_eq!(metric.halstead.u_operators(), 4.0);
+            assert_eq!(metric.halstead.operators(), 6.0);
+            assert_eq!(metric.halstead.u_operands(), 4.0);
+            assert_eq!(metric.halstead.operands(), 4.0);
+        });
+
+        let path = PathBuf::from("foo.irule");
+        let parser = IrulesParser::new(source.as_bytes().to_vec(), &path, None);
+        let ops = crate::operands_and_operators(&parser, &path).expect("ops walk succeeds");
+        // The inert quoted word is present as exactly one operand (not
+        // dropped, not split): dropping it would mean the inert branch was
+        // over-guarded.
+        let quoted = ops
+            .operands
+            .iter()
+            .filter(|o| o.as_str() == "\"hello world\"")
+            .count();
+        assert_eq!(quoted, 1, "inert quoted word must be one operand");
+        let unique_operands: HashSet<&str> = ops.operands.iter().map(String::as_str).collect();
+        assert_eq!(unique_operands.len(), 4, "operands were {:?}", ops.operands);
+    }
+
+    /// Regression for the `QuotedWord` interpolation guard (the #277 /
+    /// Bash-#180 / C#-#183 / PHP-#184 pattern). An interpolated
+    /// `"$x is $y"` must contribute **zero** operands for the wrapping
+    /// `QuotedWord`; the inner `$x` / `$y` `variable_substitution` nodes are
+    /// walked separately and count on their own. Operands are `f`, `x`, `y`,
+    /// `s`, `$x`, `$y`, and the proc-body `braced_word` = 7. If the guard
+    /// regressed (wrapper classified `Operand`), the wrapper string would
+    /// add an 8th operand. This is the branch that had no test before.
+    #[test]
+    fn irules_interpolated_quoted_word_no_double_count() {
+        let source = "proc f {x y} {\n    set s \"$x is $y\"\n}\n";
+        check_metrics::<IrulesParser>(source, "foo.irule", |metric| {
+            assert_eq!(metric.halstead.u_operators(), 4.0);
+            assert_eq!(metric.halstead.operators(), 6.0);
+            assert_eq!(metric.halstead.u_operands(), 7.0);
+            assert_eq!(metric.halstead.operands(), 7.0);
+        });
+
+        let path = PathBuf::from("foo.irule");
+        let parser = IrulesParser::new(source.as_bytes().to_vec(), &path, None);
+        let ops = crate::operands_and_operators(&parser, &path).expect("ops walk succeeds");
+        // The wrapping interpolated string must NOT appear as an operand;
+        // its inner substitutions must. The wrapper, if wrongly counted,
+        // would surface as the quoted literal `"$x is $y"` (with quotes,
+        // like the inert `"hello world"` operand). Match that exact token —
+        // a substring check would false-match the proc-body `braced_word`
+        // operand, which legitimately contains the source text.
+        assert!(
+            !ops.operands.iter().any(|o| o.as_str() == "\"$x is $y\""),
+            "interpolated wrapper must not be an operand; operands were {:?}",
+            ops.operands
+        );
+        assert!(
+            ops.operands.iter().any(|o| o.as_str() == "$x")
+                && ops.operands.iter().any(|o| o.as_str() == "$y"),
+            "inner $x / $y substitutions must each be operands; operands were {:?}",
+            ops.operands
+        );
+        let unique_operands: HashSet<&str> = ops.operands.iter().map(String::as_str).collect();
+        assert_eq!(unique_operands.len(), 7, "operands were {:?}", ops.operands);
+    }
+
+    /// Exercises the operator families not covered by
+    /// `irules_operators_and_operands`: bitwise (`& | ^ ~ << >>`), ternary
+    /// (`? :`), the keyword string comparators (`starts_with`, `ends_with`,
+    /// `contains`, `matches`, `eq`, `ne`), and the keyword logical operator
+    /// (`and`). Pins every operator-family arm in `get_op_type` plus the
+    /// lesson-4 dedupe invariant.
+    #[test]
+    fn irules_bitwise_ternary_string_ops() {
+        let source = "proc f { a b } {
+    set bits [expr { $a & $b | $a ^ ~$b }]
+    set sh [expr { $a << 2 | $b >> 1 }]
+    set t [expr { $a > 0 ? $a : $b }]
+    if { $a starts_with \"x\" && $b ends_with \"y\" } { return 1 }
+    if { $a contains \"z\" || $b matches \"q\" } { return 2 }
+    if { $a eq \"m\" and $b ne \"n\" } { return 3 }
+    return $b
+}
+";
+        check_metrics::<IrulesParser>(source, "foo.irule", |metric| {
+            assert_eq!(metric.halstead.u_operators(), 26.0);
+            assert_eq!(metric.halstead.operators(), 57.0);
+            assert_eq!(metric.halstead.u_operands(), 23.0);
+            assert_eq!(metric.halstead.operands(), 42.0);
+        });
+
+        let path = PathBuf::from("foo.irule");
+        let parser = IrulesParser::new(source.as_bytes().to_vec(), &path, None);
+        let ops = crate::operands_and_operators(&parser, &path).expect("ops walk succeeds");
+        let unique_operators: HashSet<&str> = ops.operators.iter().map(String::as_str).collect();
+        let unique_operands: HashSet<&str> = ops.operands.iter().map(String::as_str).collect();
+        assert_eq!(
+            unique_operators.len(),
+            26,
+            "dedupe(ops.operators) must equal n1; operators were {:?}",
+            ops.operators
+        );
+        assert_eq!(
+            unique_operands.len(),
+            23,
+            "dedupe(ops.operands) must equal n2; operands were {:?}",
+            ops.operands
+        );
+    }
+
+    /// A bare `$x` produces one `variable_substitution` operand. Its inner
+    /// `id` leaf (the *named* `Id` node — not the anonymous `Id2` token Tcl
+    /// has there) must NOT be counted separately, or every variable
+    /// reference double-counts. `get_op_type` excludes `Id` whose parent is
+    /// a `VariableSubstitution`. Operands: `f`, the proc arg `x`, `return`,
+    /// `$x`, and the proc-body `braced_word` — five, with no duplicate
+    /// (`operands()` == 5). If the guard regressed, the inner `id` "x" would
+    /// add a sixth operand occurrence (it text-collides with the proc arg
+    /// `x`, so `u_operands` would stay 5 but `operands()` would rise to 6 —
+    /// hence the total, not just the unique count, is asserted).
+    #[test]
+    fn irules_bare_variable_operand() {
+        let source = "proc f {x} {\n    return $x\n}\n";
+        check_metrics::<IrulesParser>(source, "foo.irule", |metric| {
+            assert_eq!(metric.halstead.u_operators(), 3.0);
+            assert_eq!(metric.halstead.operators(), 5.0);
+            assert_eq!(metric.halstead.u_operands(), 5.0);
+            assert_eq!(metric.halstead.operands(), 5.0);
+        });
+
+        let path = PathBuf::from("foo.irule");
+        let parser = IrulesParser::new(source.as_bytes().to_vec(), &path, None);
+        let ops = crate::operands_and_operators(&parser, &path).expect("ops walk succeeds");
+        let bare_var = ops.operands.iter().filter(|o| o.as_str() == "$x").count();
+        assert_eq!(
+            bare_var, 1,
+            "bare $x must be exactly one operand (inner id leaf not double-counted); operands were {:?}",
+            ops.operands
+        );
     }
 }

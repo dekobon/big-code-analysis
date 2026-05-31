@@ -308,6 +308,21 @@ macro_rules! tcl_bool_terminal_kinds {
     };
 }
 
+// iRules counterpart of `tcl_bool_terminal_kinds!` (the grammar is a Tcl
+// dialect, so the terminal-operand set is the same shape).
+macro_rules! irules_bool_terminal_kinds {
+    () => {
+        $crate::Irules::SimpleWord
+            | $crate::Irules::BracedWord
+            | $crate::Irules::BracedWordSimple
+            | $crate::Irules::QuotedWord
+            | $crate::Irules::VariableSubstitution
+            | $crate::Irules::CommandSubstitution
+            | $crate::Irules::Boolean
+            | $crate::Irules::Number
+    };
+}
+
 // The JS-family languages diverge on which aliased `kind_id`s the
 // grammar emits — JavaScript, Mozjs, and Tsx have `Identifier2`,
 // TypeScript does not; TypeScript has `MemberExpression4` /
@@ -424,8 +439,8 @@ pub(crate) use {
     cpp_bool_terminal_kinds, csharp_bool_terminal_kinds, csharp_invocation_expr_kinds,
     csharp_paren_expr_kinds, csharp_prefix_unary_expr_kinds, csharp_var_decl_kinds,
     csharp_var_declarator_kinds, go_bool_terminal_kinds, groovy_bool_terminal_kinds,
-    java_bool_terminal_kinds, javascript_bool_terminal_kinds, lua_bool_terminal_kinds,
-    mozjs_bool_terminal_kinds, perl_bool_terminal_kinds, php_bool_terminal_kinds,
-    python_bool_terminal_kinds, rust_bool_terminal_kinds, tcl_bool_terminal_kinds,
-    tsx_bool_terminal_kinds, typescript_bool_terminal_kinds,
+    irules_bool_terminal_kinds, java_bool_terminal_kinds, javascript_bool_terminal_kinds,
+    lua_bool_terminal_kinds, mozjs_bool_terminal_kinds, perl_bool_terminal_kinds,
+    php_bool_terminal_kinds, python_bool_terminal_kinds, rust_bool_terminal_kinds,
+    tcl_bool_terminal_kinds, tsx_bool_terminal_kinds, typescript_bool_terminal_kinds,
 };

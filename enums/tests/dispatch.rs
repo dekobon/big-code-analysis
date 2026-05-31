@@ -69,6 +69,13 @@ fn lang_tcl_resolves_to_vendored_tcl() {
     assert_dispatch(Lang::Tcl, "Tcl", tree_sitter_tcl::LANGUAGE.into());
 }
 
+// iRules (an F5 Tcl dialect) is a crates.io grammar, not a vendored fork,
+// so it dispatches through the plain `tree_sitter_irules::LANGUAGE`.
+#[test]
+fn lang_irules_resolves_to_tree_sitter_irules() {
+    assert_dispatch(Lang::Irules, "Irules", tree_sitter_irules::LANGUAGE.into());
+}
+
 // The Cpp -> mozcpp swap is the original drift bug this test file
 // guards against (issue #344). Asserting against `tree_sitter_mozcpp`
 // (not `tree_sitter_cpp`) is the load-bearing detail here.
@@ -191,7 +198,7 @@ fn lang_groovy_resolves_to_dekobon_tree_sitter_groovy() {
 //
 // Bumping this number without adding a matching `lang_*_resolves_to_*`
 // test above is the failure mode this guard exists to catch.
-const EXPECTED_LANG_VARIANT_COUNT: usize = 21;
+const EXPECTED_LANG_VARIANT_COUNT: usize = 22;
 
 #[test]
 fn coverage_every_lang_variant_is_dispatched() {

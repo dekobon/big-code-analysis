@@ -23,6 +23,20 @@ for historical reference.
 
 ### Added
 
+- Support for **F5 iRules** source files (`.irule`, `.irules`), a Tcl
+  scripting dialect, via the
+  [`tree-sitter-irules`](https://crates.io/crates/tree-sitter-irules)
+  grammar. Adds the `Irules` `LANG` variant and the `IrulesCode` /
+  `IrulesParser` re-exports, gated behind a new `irules` Cargo feature
+  (enabled by `all-languages`). `when EVENT { … }` event handlers and
+  `proc` definitions are treated as function spaces, so per-handler
+  metrics are reported (the grammar's `on` / `trap` handler nodes are
+  handled defensively but parse as ordinary commands in practice). Real
+  implementations are provided for ABC,
+  cognitive, cyclomatic (including the dedicated `switch`/`switch_arm`
+  node and the `and`/`or` keyword operators), exit, Halstead, LoC, and
+  NArgs; the remaining metrics use the shared defaults. Additive new
+  language — minor bump per [STABILITY.md](./STABILITY.md).
 - Cyclomatic complexity's counting of Rust's `?` operator (the
   `try_expression` grammar node) is now configurable
   ([#409](https://github.com/dekobon/big-code-analysis/issues/409)).

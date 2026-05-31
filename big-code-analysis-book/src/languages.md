@@ -13,6 +13,7 @@ This is the list of programming languages parsed by
 - [x] Preproc
 - [x] Go
 - [x] Groovy
+- [x] Irules
 - [x] Java
 - [x] JavaScript
 - [x] Kotlin
