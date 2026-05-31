@@ -32,7 +32,7 @@ path = "bindings/rust/lib.rs"
 tree-sitter-language="0.1.0"
 
 [build-dependencies]
-cc = "^1.0"
+cc = "^1.2"
 # This dependency is not used at all for this crate, but it is here so that
 # dependabot can send notifications when there are updates for this grammar.
 #
