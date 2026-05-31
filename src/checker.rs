@@ -1723,9 +1723,9 @@ impl Checker for RubyCode {
             // forms `lambda { }` / `proc { }` parse as a `Call` carrying a
             // `Block`/`DoBlock` argument (parent is not a `Lambda`), so they
             // still count exactly once.
-            Ruby::Block | Ruby::DoBlock => !node
+            Ruby::Block | Ruby::DoBlock => node
                 .parent()
-                .is_some_and(|parent| parent.kind_id() == Ruby::Lambda),
+                .is_none_or(|parent| parent.kind_id() != Ruby::Lambda),
             _ => false,
         }
     }
