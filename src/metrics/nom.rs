@@ -1142,6 +1142,69 @@ mod tests {
     }
 
     #[test]
+    fn csharp_property_nom() {
+        // A bodied property (`int W { get => _w; set => _w = value; }`)
+        // defines two callable accessors. The `property_declaration` node
+        // must NOT open its own space on top of them, else it double-counts
+        // (the property analogue of #464). The correct count is 2 — the
+        // accessor count — matching the npm path which reports 2.
+        check_metrics::<CsharpParser>(
+            "class A {
+                private int _w;
+                public int W { get => _w; set => _w = value; }
+            }",
+            "foo.cs",
+            |metric| {
+                // expected: get + set accessors = 2 functions; the
+                // PropertyDeclaration node defers and opens no space (#472).
+                assert_eq!(metric.nom.functions_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_auto_property_nom() {
+        // An auto-property (`int Y { get; set; }`) still has two
+        // `accessor_declaration` children, so it defers to them exactly like
+        // a bodied property — the #472 gate must not change this count.
+        check_metrics::<CsharpParser>(
+            "class A {
+                public int Y { get; set; }
+            }",
+            "foo.cs",
+            |metric| {
+                // expected: get + set accessors = 2 functions, unchanged.
+                assert_eq!(metric.nom.functions_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_expression_bodied_property_nom() {
+        // An expression-bodied property (`int W => _w;`) has NO
+        // `accessor_declaration` child — it defines a single implicit
+        // getter via an `arrow_expression_clause`. With no accessor to
+        // defer to, the `property_declaration` opened no space at all
+        // before #472 (0 functions). The fix gates the entry on the
+        // absence of accessors so it counts as 1, matching the npm
+        // `.max(1)` fallback.
+        check_metrics::<CsharpParser>(
+            "class A {
+                private int _w;
+                public int W => _w;
+            }",
+            "foo.cs",
+            |metric| {
+                // expected: one implicit getter, no accessor nodes => 1.
+                assert_eq!(metric.nom.functions_sum(), 1.0);
+                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+            },
+        );
+    }
+
+    #[test]
     fn go_top_level_funcs() {
         check_metrics::<GoParser>(
             "package main

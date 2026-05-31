@@ -1551,6 +1551,49 @@ mod tests {
     }
 
     #[test]
+    fn csharp_property_wmc() {
+        // A bodied property folds its accessor complexities into the
+        // enclosing class. The `property_declaration` node must NOT open an
+        // extra method space on top of get=1 + set=1 (the property analogue
+        // of the #464 double-count). The correct sum is 2.
+        check_metrics::<CsharpParser>(
+            "class A {
+                private int _w;
+                public int W { get => _w; set => _w = value; }
+            }",
+            "foo.cs",
+            |metric| {
+                // expected: get (cyclomatic 1) + set (cyclomatic 1) = 2;
+                // no extra entry from the PropertyDeclaration node (#472).
+                assert_eq!(metric.wmc.class_wmc_sum(), 2.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.npm.class_nm_sum(), 2.0);
+            },
+        );
+    }
+
+    #[test]
+    fn csharp_expression_bodied_property_wmc() {
+        // The accessor-less expression-bodied form (`int W => _w;`) has no
+        // `accessor_declaration` child, so the #472 gate lets the
+        // PropertyDeclaration node itself open a single method space — it
+        // must be 1, not 0 as before the fix (mirrors npm `.max(1)`).
+        check_metrics::<CsharpParser>(
+            "class A {
+                private int _w;
+                public int W => _w;
+            }",
+            "foo.cs",
+            |metric| {
+                // expected: one implicit getter (cyclomatic 1) = 1.
+                assert_eq!(metric.wmc.class_wmc_sum(), 1.0);
+                assert_eq!(metric.wmc.interface_wmc_sum(), 0.0);
+                assert_eq!(metric.npm.class_nm_sum(), 1.0);
+            },
+        );
+    }
+
+    #[test]
     fn csharp_single_interface() {
         check_metrics::<CsharpParser>(
             "public interface I {

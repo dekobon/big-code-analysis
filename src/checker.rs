@@ -579,7 +579,7 @@ impl Checker for JavaCode {
 /// `accessor_list`. Returns `0` for the expression-bodied form
 /// (`this[int i] => _d[i];` / `int W => _w;`), which has no accessor list.
 ///
-/// Shared by `csharp_indexer_has_accessors` (here) and the npm reference
+/// Shared by `csharp_member_has_accessors` (here) and the npm reference
 /// `csharp_count_member`, which keeps its own `.max(1)` fallback so an
 /// accessor-less expression-bodied member still counts as one method (#464).
 pub(crate) fn csharp_accessor_count(node: &Node) -> usize {
@@ -590,19 +590,19 @@ pub(crate) fn csharp_accessor_count(node: &Node) -> usize {
         .count()
 }
 
-/// Returns `true` when a C# `indexer_declaration` carries bodied accessors —
-/// an `accessor_list` containing at least one `accessor_declaration`
-/// (`get` / `set` / `init`). Returns `false` for the expression-bodied form
-/// (`this[int i] => _d[i];`), which has no accessor list and defines a single
-/// implicit getter.
+/// Returns `true` when a C# `indexer_declaration` / `property_declaration`
+/// carries bodied accessors — an `accessor_list` containing at least one
+/// `accessor_declaration` (`get` / `set` / `init`). Returns `false` for the
+/// expression-bodied form (`this[int i] => _d[i];` / `int W => _w;`), which
+/// has no accessor list and defines a single implicit getter.
 ///
 /// Shared by `CsharpCode::is_func` / `is_func_space` and
-/// `CsharpCode::get_space_kind` so all three agree on when an indexer opens
-/// its own Function space versus deferring to its accessor children. This
-/// mirrors the npm reference (`csharp_count_member`): an indexer counts as
-/// its accessor count, falling back to 1 for the accessor-less
-/// expression-bodied form (#464).
-pub(crate) fn csharp_indexer_has_accessors(node: &Node) -> bool {
+/// `CsharpCode::get_space_kind` so all three agree on when an indexer or
+/// property opens its own Function space versus deferring to its accessor
+/// children. This mirrors the npm reference (`csharp_count_member`): the
+/// member counts as its accessor count, falling back to 1 for the
+/// accessor-less expression-bodied form (#464 indexer, #472 property).
+pub(crate) fn csharp_member_has_accessors(node: &Node) -> bool {
     csharp_accessor_count(node) > 0
 }
 
@@ -615,15 +615,19 @@ impl Checker for CsharpCode {
         false
     }
 
-    // A bodied indexer (`this[int i] { get; set; }`) defers to its
-    // `accessor_declaration` children for its function spaces — counting it
-    // here too triple-counts the indexer in nom/wmc (#464). Only the
-    // accessor-less expression-bodied form (`this[int i] => _d[i];`) opens a
-    // space directly, matching the npm `.max(1)` fallback and the way
-    // expression-bodied accessors are the sole callable for that indexer.
+    // A bodied indexer (`this[int i] { get; set; }`) or property
+    // (`int X { get; set; }`) defers to its `accessor_declaration` children
+    // for its function spaces — counting it here too double-counts (property,
+    // #472) or triple-counts (indexer, #464) the member in nom/wmc. Only the
+    // accessor-less expression-bodied form (`this[int i] => _d[i];` /
+    // `int W => _w;`) opens a space directly, matching the npm `.max(1)`
+    // fallback and the way the implicit getter is the sole callable.
     fn is_func_space(node: &Node) -> bool {
-        if node.kind_id() == Csharp::IndexerDeclaration as u16 {
-            return !csharp_indexer_has_accessors(node);
+        if matches!(
+            node.kind_id().into(),
+            Csharp::IndexerDeclaration | Csharp::PropertyDeclaration
+        ) {
+            return !csharp_member_has_accessors(node);
         }
         matches!(
             node.kind_id().into(),
@@ -646,8 +650,11 @@ impl Checker for CsharpCode {
     }
 
     fn is_func(node: &Node) -> bool {
-        if node.kind_id() == Csharp::IndexerDeclaration as u16 {
-            return !csharp_indexer_has_accessors(node);
+        if matches!(
+            node.kind_id().into(),
+            Csharp::IndexerDeclaration | Csharp::PropertyDeclaration
+        ) {
+            return !csharp_member_has_accessors(node);
         }
         matches!(
             node.kind_id().into(),
