@@ -10,20 +10,10 @@
 # We build the bca binary from source on purpose so any in-progress
 # change to metric computation is reflected in the values we gate on.
 
-# Scan the whole repo, honouring the ignore file. Since v3 (issue #376)
-# baseline keys are recorded relative to the baseline file's own
-# directory (the anchor), so the choice of `paths` value does not move
-# baseline keys.
-#
-# NOTE on path emission: the manifest resolves a relative `paths`
-# value against this file's own directory, so a *bare* `bca check`
-# (with no `--paths` flag) walks with absolute paths. The `.bcaignore`
-# patterns are `./`-anchored to match the `--paths .` walker output,
-# so the repo's own gate (`make self-scan`) keeps passing `--paths .`
-# explicitly to preserve that prefix and the deny-set match. This
-# `paths` key documents the canonical form and is overridden by the
-# Makefile's `--paths .`; reconciling the two cleanly is tracked with
-# the exclusion-set consolidation (#485).
+# Scan the whole repo, honouring the ignore file. The walker re-anchors
+# the resolved seed to the `./`-prefixed form (#488), so the
+# `./`-anchored `.bcaignore` deny-set matches identically whether the
+# root came from this manifest, `--paths .`, or `--paths "$PWD"`.
 paths = ["."]
 exclude_from = ".bcaignore"
 

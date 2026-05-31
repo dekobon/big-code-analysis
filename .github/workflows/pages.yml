@@ -214,18 +214,15 @@ jobs:
       # reading the manifest. `bca` resolves the manifest by climbing
       # from the working directory to the repo root.
       #
-      # `--paths .` is kept explicit (rather than left to the manifest's
-      # `paths = ["."]` key) because the manifest resolves a relative
-      # `paths` value to an *absolute* path, which would make the
-      # walker emit absolute paths. That would defeat both the
-      # `./`-anchored `.bcaignore` patterns and the `--strip-prefix
-      # "./"` below, which matches the `./` prefix that `--paths .`
-      # produces in the walker's output.
+      # Path selection is left to the manifest's `paths = ["."]` key.
+      # The manifest resolves it to an absolute root, but the walker
+      # re-anchors that root to the `./`-prefixed form (#488), so the
+      # `./`-anchored `.bcaignore` deny-set matches and the
+      # `--strip-prefix "./"` below still lands on the emitted prefix.
       - name: Generate Markdown report
         run: |
           set -euo pipefail
           bca \
-            --paths . \
             report markdown \
             --top 30 \
             --strip-prefix "./" \
@@ -235,7 +232,6 @@ jobs:
         run: |
           set -euo pipefail
           bca \
-            --paths . \
             report html \
             --top 50 \
             --strip-prefix "./" \

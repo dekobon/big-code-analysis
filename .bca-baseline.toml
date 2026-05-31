@@ -425,7 +425,7 @@ path = "big-code-analysis-cli/src/lib.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 3017714.106954717
+value = 3023334.6708870064
 
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"

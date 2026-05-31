@@ -44,6 +44,7 @@ mod markdown_report;
 mod metric_catalog;
 mod threshold_suggestion;
 mod thresholds;
+mod walk_seed;
 
 pub use commands::run;
 use dispatch::act_on_file;
@@ -1132,17 +1133,16 @@ where
 /// Returns a flat `Vec<PathBuf>` of files. Include/exclude globs are
 /// applied later by `explore()`, matching today's semantics.
 fn expand_seed_paths(
-    paths: Vec<PathBuf>,
+    mut paths: Vec<PathBuf>,
     paths_from: Option<PathBuf>,
     no_ignore: bool,
 ) -> Vec<PathBuf> {
     use ignore::WalkBuilder;
-    let mut seeds = paths;
     if let Some(src) = paths_from {
-        seeds.extend(read_paths_from(&src).unwrap_or_else(|e| die(e)));
+        paths.extend(read_paths_from(&src).unwrap_or_else(|e| die(e)));
     }
     let mut out: Vec<PathBuf> = Vec::new();
-    for seed in seeds {
+    for seed in paths.into_iter().map(walk_seed::reanchor_seed) {
         if !seed.exists() {
             // Match today's `explore()` behavior: warn, do not die.
             eprintln!("Warning: File doesn't exist: {}", seed.display());

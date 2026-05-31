@@ -407,18 +407,13 @@ SELF_SCAN_BCA := cargo run --quiet --release -p big-code-analysis-cli --
 # aware on Linux via Rust's std lib), so no `$(nproc)` plumbing is
 # needed for the self-scan recipes (issue #383).
 #
-# `--paths .` is kept on the command line rather than left to the
-# manifest's `paths = ["."]` key on purpose. The manifest resolves a
-# relative `paths` value against the manifest's own directory, so a
-# bare `bca check` walks with *absolute* paths. The `.bcaignore`
-# patterns are `./`-anchored to match the `--paths .` walker output
-# one-to-one, so an absolute walk would slip every excluded directory
-# (vendored grammars, tests/, the fixture repos) back into the gate.
-# Passing `--paths .` here keeps the walker emitting `./`-prefixed
-# paths, so the deny-set matches and the offender set stays
-# byte-identical to the pre-manifest gate. (Tracked for a cleaner fix
-# alongside the exclusion-set consolidation, #485.)
-SELF_SCAN_PATHS_ARG := --paths .
+# The walk root is left to the manifest's `paths = ["."]` key: a bare
+# `bca check` resolves it to an absolute root, but the walker now
+# re-anchors that root to the `./`-prefixed relative form before
+# matching (#488), so the `./`-anchored `.bcaignore` deny-set matches
+# the same files whether the seed was `.`, `$PWD`, or a manifest-
+# resolved absolute path. The previous `--paths .` workaround is no
+# longer needed.
 #
 # Diff-aware footer partitioning in the self-scan gate (#356/#387). Set
 # BCA_SINCE=<ref> to append `--since <ref>`, which splits the per-file
@@ -445,17 +440,17 @@ SELF_SCAN_SINCE_ARGS := $(if $(BCA_SINCE),--since $(BCA_SINCE),)
 
 self-scan:
 	@echo "bca self-scan (hard gate)..."
-	@$(SELF_SCAN_BCA) $(SELF_SCAN_PATHS_ARG) check $(SELF_SCAN_SINCE_ARGS)
+	@$(SELF_SCAN_BCA) check $(SELF_SCAN_SINCE_ARGS)
 
 self-scan-headroom:
 	@echo "bca self-scan (soft gate, BCA_HEADROOM=$${BCA_HEADROOM:-0.95})..."
-	@$(SELF_SCAN_BCA) $(SELF_SCAN_PATHS_ARG) check $(SELF_SCAN_SINCE_ARGS) \
+	@$(SELF_SCAN_BCA) check $(SELF_SCAN_SINCE_ARGS) \
 	  --tier soft \
 	  --headroom $${BCA_HEADROOM:-0.95}
 
 self-scan-write-baseline:
 	@echo "Refreshing .bca-baseline.toml from current offenders..."
-	@$(SELF_SCAN_BCA) $(SELF_SCAN_PATHS_ARG) check --write-baseline .bca-baseline.toml
+	@$(SELF_SCAN_BCA) check --write-baseline .bca-baseline.toml
 
 # Refresh `.bca-baseline.toml` against the SOFT thresholds
 # (the `bca.toml` limits scaled by BCA_HEADROOM, default 0.95).
@@ -465,7 +460,7 @@ self-scan-write-baseline:
 # the new headroom band rather than firing on every commit.
 self-scan-write-baseline-headroom:
 	@echo "Refreshing .bca-baseline.toml from current soft-tier offenders (BCA_HEADROOM=$${BCA_HEADROOM:-0.95})..."
-	@$(SELF_SCAN_BCA) $(SELF_SCAN_PATHS_ARG) check \
+	@$(SELF_SCAN_BCA) check \
 	  --tier soft \
 	  --headroom $${BCA_HEADROOM:-0.95} \
 	  --write-baseline .bca-baseline.toml
