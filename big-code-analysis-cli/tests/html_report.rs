@@ -89,8 +89,12 @@ fn report_html_top_zero_rejected() {
 
 #[test]
 fn report_html_with_no_paths_is_well_formed() {
+    // `--no-config` keeps the test hermetic: the runner's cwd is inside
+    // the repo, whose root `bca.toml` declares `paths = ["."]` that
+    // would otherwise make this no-paths run walk the whole repo and
+    // emit hotspot tables.
     let output = cli()
-        .args(["report", "html"])
+        .args(["--no-config", "report", "html"])
         .output()
         .expect("invocation succeeds");
     assert!(output.status.success());

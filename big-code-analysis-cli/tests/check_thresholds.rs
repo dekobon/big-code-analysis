@@ -120,8 +120,11 @@ fn check_requires_at_least_one_threshold() {
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
 
+    // `--no-config` keeps the test hermetic: the runner's cwd is inside
+    // the repo, whose root `bca.toml` supplies a `[thresholds]` table
+    // that would otherwise satisfy the "at least one threshold" check.
     cli()
-        .args(["--paths", &path, "check"])
+        .args(["--no-config", "--paths", &path, "check"])
         .assert()
         .code(1)
         .stderr(predicate::str::contains("no thresholds configured"));
@@ -309,11 +312,22 @@ fn check_uses_file_sentinel_for_top_level_space() {
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
 
+    // `--no-config` keeps the test hermetic: the runner's cwd is inside
+    // the repo, whose root `bca.toml` declares a `baseline` key that
+    // would otherwise prefix the violation line with a `[new]` tag and
+    // break the `starts_with(path)` assertion below.
     let assert = cli()
         // loc.sloc aggregates source lines at the file level, so a
         // threshold of 1 is guaranteed to fire there for any
         // non-trivial fixture.
-        .args(["--paths", &path, "check", "--threshold", "loc.sloc=1"])
+        .args([
+            "--no-config",
+            "--paths",
+            &path,
+            "check",
+            "--threshold",
+            "loc.sloc=1",
+        ])
         .assert()
         .code(2);
     let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
@@ -1079,8 +1093,13 @@ fn check_soft_tier_without_config_warns_and_noops() {
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
 
+    // `--no-config` keeps the test hermetic: the runner's cwd is inside
+    // the repo, whose root `bca.toml` `[thresholds]` table would give
+    // the soft tier something to scale, so the "no effect" note would
+    // not fire.
     cli()
         .args([
+            "--no-config",
             "--paths",
             &path,
             "check",
@@ -1309,9 +1328,20 @@ fn check_soft_table_scale_without_hard_base_errors() {
         "[thresholds]\nnargs = 7\n[thresholds.soft]\ncyclomatic = \"0.9x\"\n",
     );
 
+    // `--no-config` keeps the test hermetic: the runner's cwd is inside
+    // the repo, whose root `bca.toml` declares a hard `cyclomatic`
+    // limit that would merge under `--config` and give the `"0.9x"`
+    // soft scale a base to multiply, masking the intended error.
     cli()
         .args([
-            "--paths", &path, "check", "--config", &cfg, "--tier", "soft",
+            "--no-config",
+            "--paths",
+            &path,
+            "check",
+            "--config",
+            &cfg,
+            "--tier",
+            "soft",
         ])
         .assert()
         .code(1)

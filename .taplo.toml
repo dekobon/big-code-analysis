@@ -14,7 +14,7 @@ include = [
     "xtask/**/*.toml",
     "mise.toml",
     ".typos.toml",
-    "bca-thresholds.toml",
+    "bca.toml",
 ]
 exclude = [
     "target/**",

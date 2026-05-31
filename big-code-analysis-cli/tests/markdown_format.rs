@@ -150,8 +150,11 @@ fn report_collects_nonzero_summaries() {
 
 #[test]
 fn report_with_no_paths_produces_empty_summary() {
+    // `--no-config` keeps the test hermetic: the runner's cwd is inside
+    // the repo, whose root `bca.toml` declares `paths = ["."]` that
+    // would otherwise make this no-paths run walk the whole repo.
     cli()
-        .args(["report", "markdown"])
+        .args(["--no-config", "report", "markdown"])
         .assert()
         .success()
         .stdout(predicate::str::contains("**Files analyzed:** 0"));

@@ -370,8 +370,12 @@ fn baseline_line_tolerance_flag_is_honored_end_to_end() {
 
     // Both overloads share the qualified symbol `f`, so the baseline
     // records two entries under one key — the ambiguous case.
+    // `--no-config` keeps the test hermetic: the runner's cwd is
+    // inside the repo, whose root `bca.toml` would otherwise merge its
+    // own thresholds / exclude_from into this fully-explicit run.
     cli()
         .args([
+            "--no-config",
             "--paths",
             src_path.to_str().unwrap(),
             "check",
@@ -394,6 +398,7 @@ fn baseline_line_tolerance_flag_is_honored_end_to_end() {
     // Default tolerance (50) absorbs the small drift → both covered.
     cli()
         .args([
+            "--no-config",
             "--paths",
             src_path.to_str().unwrap(),
             "check",
@@ -410,6 +415,7 @@ fn baseline_line_tolerance_flag_is_honored_end_to_end() {
     // surface as new. Proves the flag value reaches the matcher.
     cli()
         .args([
+            "--no-config",
             "--paths",
             src_path.to_str().unwrap(),
             "check",
@@ -1086,8 +1092,18 @@ fn no_baseline_emits_unprefixed_lines() {
     let dir = TempDir::new().unwrap();
     let src = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
 
+    // `--no-config` keeps the test hermetic: the runner's cwd is inside
+    // the repo, whose root `bca.toml` declares a `baseline` key that
+    // would otherwise tag this run's violations with `[new]`.
     cli()
-        .args(["--paths", &src, "check", "--threshold", "cyclomatic=1"])
+        .args([
+            "--no-config",
+            "--paths",
+            &src,
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+        ])
         .assert()
         .code(2)
         // The violation line must contain the function name and metric,

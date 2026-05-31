@@ -11,9 +11,10 @@ fire — so the regression never makes it past the developer's
 keyboard.
 
 This recipe captures the pattern `big-code-analysis` uses on its own
-source ([`Makefile`'s `self-scan*` targets](https://github.com/dekobon/big-code-analysis/blob/main/Makefile))
-and distils it into something you can drop into your own repo's
-`Makefile`, `justfile`, `package.json` script, or `pre-commit`
+source ([`Makefile`'s `self-scan*` targets](https://github.com/dekobon/big-code-analysis/blob/main/Makefile),
+backed by a consolidated [`bca.toml`](https://github.com/dekobon/big-code-analysis/blob/main/bca.toml)
+manifest) and distils it into something you can drop into your own
+repo's `Makefile`, `justfile`, `package.json` script, or `pre-commit`
 config. The underlying idea is provider-neutral: any threshold
 checker (`bca`, ESLint, clippy, SonarLint, Qodana) can be wired the
 same way.
@@ -65,14 +66,14 @@ recipes for refreshing the baseline at each tier.
 | `self-scan-write-baseline-headroom`   | soft | config × `HEADROOM`   | (write)           | Absorb soft-tier offenders when launching or widening the band. |
 
 The hard tier and the soft tier consume the **same**
-`bca-thresholds.toml` and the **same** `.bca-baseline.toml`. The
+`[thresholds]` table and the **same** `.bca-baseline.toml`. The
 only difference between them is a scalar multiplier applied to
 every threshold value before `bca check` sees it.
 
 This matters: it means a contributor who wants the soft tier to be
 stricter (catch encroachment further out) bumps a single
 environment variable rather than maintaining a parallel
-`bca-thresholds-soft.toml` that will drift out of sync with the
+soft-threshold file that will drift out of sync with the
 hard config the first time anyone forgets to update both files.
 
 ## Two-tier thresholds
@@ -240,8 +241,10 @@ layout.
 # threshold by $(BCA_HEADROOM) (default 0.95).
 #
 # Knobs are namespaced with `BCA_` so they don't collide with anything
-# else in your environment. The big-code-analysis repo's own Makefile
-# uses the same names — this skeleton is drop-in for that project too.
+# else in your environment. The big-code-analysis repo itself uses the
+# manifest form above (a single `bca.toml`) rather than these explicit
+# flags; reach for this skeleton when you can't drop a manifest at the
+# repo root.
 BCA               := bca
 BCA_PATHS         := .
 BCA_EXCLUDE_FROM  := .bcaignore
@@ -382,7 +385,8 @@ are exactly three legitimate resolutions:
    extract a helper, collapse a dispatch arm, split the function.
    This is the common case, and the soft tier exists to give you
    the time to do it on the same branch.
-2. **Raise the limit.** Edit `bca-thresholds.toml`, leave a
+2. **Raise the limit.** Edit the `[thresholds]` table (in `bca.toml`
+   for this repo, or your own threshold file), leave a
    why-comment explaining what changed (a new language module, a
    genuine algorithmic floor, a re-classified macro). Re-run
    `make self-scan-headroom` to confirm the new value covers the

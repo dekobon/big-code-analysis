@@ -602,23 +602,24 @@ locally and add a second tier at 95% of every limit so encroachment
 is caught a commit or two before the hard gate trips:
 
 ```bash
-make self-scan                            # hard gate, 100% of bca-thresholds.toml
+make self-scan                            # hard gate, 100% of bca.toml thresholds
 make self-scan-headroom                   # soft gate, default 95% (BCA_HEADROOM)
 make self-scan-write-baseline             # refresh baseline at hard thresholds
 make self-scan-write-baseline-headroom    # refresh baseline at soft thresholds
 ```
 
-The hard tier is exactly what CI runs; expanded, it is:
+Path selection, the `.bcaignore` deny-set, the per-function
+thresholds, the cyclomatic `?` policy, and the baseline file all
+live in the repo-root `bca.toml` manifest, which `bca` discovers
+automatically. The hard tier is exactly what CI runs; expanded, it
+is a bare check (no path / threshold / baseline flags — the manifest
+supplies them):
 
 ```bash
-cargo run --quiet --release -p big-code-analysis-cli -- \
-    --paths . --exclude-from .bcaignore \
-    check \
-    --config bca-thresholds.toml \
-    --baseline .bca-baseline.toml
+cargo run --quiet --release -p big-code-analysis-cli -- check
 ```
 
-Both tiers consume the same `bca-thresholds.toml` and the same
+Both tiers consume the same `bca.toml` thresholds and the same
 `.bca-baseline.toml`; the soft tier just runs the hard recipe
 with every threshold value multiplied by `BCA_HEADROOM`. Both
 exit `0` clean, `2` on any threshold violation, `1` on tool

@@ -375,11 +375,17 @@ enums-check:
 # values we gate on. When pages.yml bumps the pinned release
 # binary, the two invocations re-sync.
 #
+# Path selection (`paths = ["."]`), the ignore file
+# (`exclude_from = ".bcaignore"`), the baseline
+# (`baseline = ".bca-baseline.toml"`), the per-function thresholds,
+# and the cyclomatic `?` policy (`cyclomatic_count_try = false`) all
+# live in the auto-discovered `bca.toml` manifest, so a bare
+# `bca check` reproduces the full hard-tier gate with no flags.
+#
 # Two tiers:
 #
-#   self-scan            hard gate (limits as configured in
-#                        bca-thresholds.toml; absorbed by
-#                        .bca-baseline.toml). Mirrors CI.
+#   self-scan            hard gate (limits as configured in bca.toml;
+#                        absorbed by .bca-baseline.toml). Mirrors CI.
 #
 #   self-scan-headroom   soft gate (`--tier soft`). Scales every
 #                        limit by BCA_HEADROOM (default 0.95) and
@@ -395,32 +401,25 @@ enums-check:
 # raising a limit):
 #
 #   self-scan-write-baseline   refreshes .bca-baseline.toml in place.
-#
-# NOTE: `--paths .` is conventional but no longer load-bearing.
-# Since v3 (issue #376), baseline keys are recorded relative to the
-# baseline file's own directory (the anchor) so `--paths .`,
-# `--paths $(BASE_DIR)`, and `--paths "$$PWD"` all produce
-# byte-identical baselines and match each other on read.
 # ---------------------------------------------------------------------------
 SELF_SCAN_BCA := cargo run --quiet --release -p big-code-analysis-cli --
 # `--num-jobs` defaults to `auto` (effective CPU count, cgroup-/cpuset-
 # aware on Linux via Rust's std lib), so no `$(nproc)` plumbing is
 # needed for the self-scan recipes (issue #383).
-SELF_SCAN_BASE_ARGS := --paths . --exclude-from .bcaignore
-# Cyclomatic `?` (TryExpression) counting in the self-scan gate (#409).
-# Default keeps counting, so the gate matches every published metric
-# value and the checked-in .bca-baseline.toml. Set
-# BCA_COUNT_CYCLOMATIC_TRY=0 to treat Rust's `?` as linear error
-# propagation in the gate (it appends `--no-cyclomatic-try`); regenerate
-# .bca-baseline.toml in the same toggle, since cyclomatic values for
-# `?`-heavy functions drop.
 #
-# Default to empty so the `:=` expansion below does not trip
-# `--warn-undefined-variables` when the var is unset (the common case);
-# an environment override still wins, since `?=` only assigns when undefined.
-BCA_COUNT_CYCLOMATIC_TRY ?=
-SELF_SCAN_TRY_ARGS := $(if $(filter 0,$(BCA_COUNT_CYCLOMATIC_TRY)),--no-cyclomatic-try,)
-SELF_SCAN_BASE_ARGS += $(SELF_SCAN_TRY_ARGS)
+# `--paths .` is kept on the command line rather than left to the
+# manifest's `paths = ["."]` key on purpose. The manifest resolves a
+# relative `paths` value against the manifest's own directory, so a
+# bare `bca check` walks with *absolute* paths. The `.bcaignore`
+# patterns are `./`-anchored to match the `--paths .` walker output
+# one-to-one, so an absolute walk would slip every excluded directory
+# (vendored grammars, tests/, the fixture repos) back into the gate.
+# Passing `--paths .` here keeps the walker emitting `./`-prefixed
+# paths, so the deny-set matches and the offender set stays
+# byte-identical to the pre-manifest gate. (Tracked for a cleaner fix
+# alongside the exclusion-set consolidation, #485.)
+SELF_SCAN_PATHS_ARG := --paths .
+#
 # Diff-aware footer partitioning in the self-scan gate (#356/#387). Set
 # BCA_SINCE=<ref> to append `--since <ref>`, which splits the per-file
 # rollup footer into "Files in this range:" (offenders the diff touched)
@@ -434,51 +433,39 @@ SELF_SCAN_BASE_ARGS += $(SELF_SCAN_TRY_ARGS)
 # block all auto-enable from GitHub Actions env vars, so no flag is
 # needed for them.
 #
-# Unlike SELF_SCAN_TRY_ARGS (a global `bca` flag), `--since` is a `check`
-# *subcommand* argument, so it is spliced in after `check` in each gate
-# target below — not into SELF_SCAN_BASE_ARGS (which precedes `check`).
+# `--since` is a `check` *subcommand* argument, so it is spliced in
+# after `check` in each gate target below.
 #
-# Default to empty for the same `--warn-undefined-variables` reason as
-# BCA_COUNT_CYCLOMATIC_TRY above; CI's environment value still overrides.
+# Default to empty so the `:=` expansion does not trip
+# `--warn-undefined-variables` when the var is unset (the common
+# case); CI's environment value still overrides, since `?=` only
+# assigns when undefined.
 BCA_SINCE ?=
 SELF_SCAN_SINCE_ARGS := $(if $(BCA_SINCE),--since $(BCA_SINCE),)
 
 self-scan:
 	@echo "bca self-scan (hard gate)..."
-	@$(SELF_SCAN_BCA) $(SELF_SCAN_BASE_ARGS) \
-	  check \
-	  $(SELF_SCAN_SINCE_ARGS) \
-	  --config bca-thresholds.toml \
-	  --baseline .bca-baseline.toml
+	@$(SELF_SCAN_BCA) $(SELF_SCAN_PATHS_ARG) check $(SELF_SCAN_SINCE_ARGS)
 
 self-scan-headroom:
 	@echo "bca self-scan (soft gate, BCA_HEADROOM=$${BCA_HEADROOM:-0.95})..."
-	@$(SELF_SCAN_BCA) $(SELF_SCAN_BASE_ARGS) \
-	  check \
-	  $(SELF_SCAN_SINCE_ARGS) \
-	  --config bca-thresholds.toml \
+	@$(SELF_SCAN_BCA) $(SELF_SCAN_PATHS_ARG) check $(SELF_SCAN_SINCE_ARGS) \
 	  --tier soft \
-	  --headroom $${BCA_HEADROOM:-0.95} \
-	  --baseline .bca-baseline.toml
+	  --headroom $${BCA_HEADROOM:-0.95}
 
 self-scan-write-baseline:
 	@echo "Refreshing .bca-baseline.toml from current offenders..."
-	@$(SELF_SCAN_BCA) $(SELF_SCAN_BASE_ARGS) \
-	  check \
-	  --config bca-thresholds.toml \
-	  --write-baseline .bca-baseline.toml
+	@$(SELF_SCAN_BCA) $(SELF_SCAN_PATHS_ARG) check --write-baseline .bca-baseline.toml
 
 # Refresh `.bca-baseline.toml` against the SOFT thresholds
-# (`bca-thresholds.toml` scaled by BCA_HEADROOM, default 0.95).
+# (the `bca.toml` limits scaled by BCA_HEADROOM, default 0.95).
 # Records every current offender at the soft tier — strictly a
 # superset of the hard-tier offenders. Use this when launching the
 # soft gate or after raising BCA_HEADROOM so the baseline absorbs
 # the new headroom band rather than firing on every commit.
 self-scan-write-baseline-headroom:
 	@echo "Refreshing .bca-baseline.toml from current soft-tier offenders (BCA_HEADROOM=$${BCA_HEADROOM:-0.95})..."
-	@$(SELF_SCAN_BCA) $(SELF_SCAN_BASE_ARGS) \
-	  check \
-	  --config bca-thresholds.toml \
+	@$(SELF_SCAN_BCA) $(SELF_SCAN_PATHS_ARG) check \
 	  --tier soft \
 	  --headroom $${BCA_HEADROOM:-0.95} \
 	  --write-baseline .bca-baseline.toml

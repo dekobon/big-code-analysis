@@ -196,21 +196,22 @@ repos:
 
       # bca self-scan threshold gate (hard tier). Mirrors the
       # `Threshold gate` step in .github/workflows/pages.yml. The
-      # hook fails when any function regresses past
-      # `bca-thresholds.toml` minus the `.bca-baseline.toml`
-      # ratchet. When you intentionally bump a limit, edit
-      # `bca-thresholds.toml` with a why-comment in the same commit;
-      # when you intentionally accept new offenders, run
+      # hook fails when any function regresses past the thresholds in
+      # `bca.toml` minus the `.bca-baseline.toml` ratchet. When you
+      # intentionally bump a limit, edit the `[thresholds]` table in
+      # `bca.toml` with a why-comment in the same commit; when you
+      # intentionally accept new offenders, run
       # `make self-scan-write-baseline` and commit the resulting
       # diff. `files` mirrors the inputs that can change the gate's
-      # verdict — analysed Rust source, the threshold config, the
-      # baseline itself, and `.bcaignore` — and `exclude` matches
-      # the directories `.bcaignore` already filters out so the
-      # hook does not re-fire for changes the gate already skips.
+      # verdict — analysed Rust source, the manifest (paths +
+      # thresholds + cyclomatic policy + baseline), the baseline
+      # itself, and `.bcaignore` — and `exclude` matches the
+      # directories `.bcaignore` already filters out so the hook
+      # does not re-fire for changes the gate already skips.
       - id: bca-self-scan
         name: bca-self-scan
         language: system
-        files: '(\.rs$|^bca-thresholds\.toml$|^\.bca-baseline\.toml$|^\.bcaignore$)'
+        files: '(\.rs$|^bca\.toml$|^\.bca-baseline\.toml$|^\.bcaignore$)'
         # Mirrors `.bcaignore` so the hook does not fire for `.rs`
         # edits in paths the gate already excludes (vendored grammars,
         # tests, generated trees, docs/, packaging/, utils/, man/,
@@ -222,7 +223,7 @@ repos:
         pass_filenames: false
 
       # bca self-scan threshold gate (soft tier). Scales every
-      # threshold in `bca-thresholds.toml` by `BCA_HEADROOM`
+      # threshold in `bca.toml` by `BCA_HEADROOM`
       # (default 0.95) and runs the same baseline-ratcheted check.
       # Fails when a function has crept into the 95-100% band of
       # any limit without being baselined — gives a one-or-two-
@@ -233,7 +234,7 @@ repos:
       - id: bca-self-scan-headroom
         name: bca-self-scan-headroom
         language: system
-        files: '(\.rs$|^bca-thresholds\.toml$|^\.bca-baseline\.toml$|^\.bcaignore$)'
+        files: '(\.rs$|^bca\.toml$|^\.bca-baseline\.toml$|^\.bcaignore$)'
         # Mirrors `.bcaignore` so the hook does not fire for `.rs`
         # edits in paths the gate already excludes (vendored grammars,
         # tests, generated trees, docs/, packaging/, utils/, man/,

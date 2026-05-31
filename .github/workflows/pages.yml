@@ -28,7 +28,7 @@ on:
       - 'tree-sitter-mozjs/**'
       - 'tree-sitter-preproc/**'
       - 'tree-sitter-tcl/**'
-      - 'bca-thresholds.toml'
+      - 'bca.toml'
       - '.bca-baseline.toml'
       - '.github/workflows/pages.yml'
   pull_request:
@@ -45,7 +45,7 @@ on:
       - 'tree-sitter-mozjs/**'
       - 'tree-sitter-preproc/**'
       - 'tree-sitter-tcl/**'
-      - 'bca-thresholds.toml'
+      - 'bca.toml'
       - '.bca-baseline.toml'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
@@ -157,10 +157,12 @@ jobs:
     # cache evicted" combo without killing useful runs.
     timeout-minutes: 30
     # The workspace-minus-vendored exclude list lives in `.bcaignore`
-    # at the repo root — every `bca` invocation below points to it
-    # via `--exclude-from`. If you edit `.bcaignore`, also refresh
-    # `.bca-baseline.toml` in the same commit — the baseline keys
-    # are sensitive to which files the walker actually visits.
+    # at the repo root and is wired in via `exclude_from` in the
+    # auto-discovered `bca.toml` manifest, so the invocations below
+    # pick it up without an explicit `--exclude-from` flag. If you
+    # edit `.bcaignore`, also refresh `.bca-baseline.toml` in the same
+    # commit — the baseline keys are sensitive to which files the
+    # walker actually visits.
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -205,24 +207,25 @@ jobs:
       - name: bca version
         run: bca --version
 
-      # `--exclude-from "${GITHUB_WORKSPACE}/.bcaignore"` reads the
-      # deny-set once from the repo-root file so workflow, recipe,
-      # and local bootstrap all share the same list (issue #355).
-      # No `set -f` / word-splitting dance is needed — patterns are
-      # read line-by-line from disk. The absolute `${GITHUB_WORKSPACE}`
-      # prefix makes the path cwd-independent, so a future step that
-      # sets `working-directory:` does not break the gate.
+      # The deny-set (`exclude_from = ".bcaignore"`) is auto-discovered
+      # from the repo-root `bca.toml` manifest, so the report
+      # invocations no longer pass `--exclude-from` — workflow, recipe,
+      # and local bootstrap all share the same list (issue #355) by
+      # reading the manifest. `bca` resolves the manifest by climbing
+      # from the working directory to the repo root.
       #
-      # `--strip-prefix "./"` matches the `./` prefix that `--paths .`
-      # produces in the walker's output. Passing `$PWD/` (the original
-      # form) would be a no-op because emitted paths never start with
-      # the absolute PWD.
+      # `--paths .` is kept explicit (rather than left to the manifest's
+      # `paths = ["."]` key) because the manifest resolves a relative
+      # `paths` value to an *absolute* path, which would make the
+      # walker emit absolute paths. That would defeat both the
+      # `./`-anchored `.bcaignore` patterns and the `--strip-prefix
+      # "./"` below, which matches the `./` prefix that `--paths .`
+      # produces in the walker's output.
       - name: Generate Markdown report
         run: |
           set -euo pipefail
           bca \
             --paths . \
-            --exclude-from "${GITHUB_WORKSPACE}/.bcaignore" \
             report markdown \
             --top 30 \
             --strip-prefix "./" \
@@ -233,7 +236,6 @@ jobs:
           set -euo pipefail
           bca \
             --paths . \
-            --exclude-from "${GITHUB_WORKSPACE}/.bcaignore" \
             report html \
             --top 50 \
             --strip-prefix "./" \
@@ -243,9 +245,11 @@ jobs:
       # even when thresholds fail — the report is most useful when CI
       # is red. Delegate to `make self-scan` so the local pre-commit
       # gate and the CI gate share one canonical invocation; the
-      # Makefile owns the path filters, --exclude-from, --num-jobs
-      # defaults, and threshold/baseline file selection. Drift between
-      # local and CI is now impossible by construction.
+      # repo-root `bca.toml` manifest owns path selection,
+      # `exclude_from`, the per-function thresholds, the cyclomatic `?`
+      # policy, and the baseline file, while `--num-jobs` defaults to
+      # `auto`. Drift between local and CI is now impossible by
+      # construction.
       #
       # `BCA_SINCE` opts the gate into the #356 diff-aware footer
       # partition (#387): the per-file rollup splits into "Files in this

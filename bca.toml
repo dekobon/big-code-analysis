@@ -1,9 +1,36 @@
 # bca.toml — repo-level manifest, auto-discovered by `bca` (and by
 # `make self-scan`) when climbing from the working directory to the
-# repo root. Path / threshold / baseline selection stays in the
-# Makefile and `bca-thresholds.toml`; this manifest only carries the
-# cyclomatic `?` policy, and its keys are merged *under* any explicit
-# CLI flag (the flag wins).
+# repo root. This is the single source of truth for the project's own
+# self-scan gate: a bare `bca check` (no flags) reproduces the full
+# hard-tier gate. The soft tier and baseline-refresh recipes add only
+# the one flag each that distinguishes them.
+#
+# CI consumes this the same way: `make self-scan` runs `bca check`
+# with no path / threshold / baseline flags, since they all live here.
+# We build the bca binary from source on purpose so any in-progress
+# change to metric computation is reflected in the values we gate on.
+
+# Scan the whole repo, honouring the ignore file. Since v3 (issue #376)
+# baseline keys are recorded relative to the baseline file's own
+# directory (the anchor), so the choice of `paths` value does not move
+# baseline keys.
+#
+# NOTE on path emission: the manifest resolves a relative `paths`
+# value against this file's own directory, so a *bare* `bca check`
+# (with no `--paths` flag) walks with absolute paths. The `.bcaignore`
+# patterns are `./`-anchored to match the `--paths .` walker output,
+# so the repo's own gate (`make self-scan`) keeps passing `--paths .`
+# explicitly to preserve that prefix and the deny-set match. This
+# `paths` key documents the canonical form and is overridden by the
+# Makefile's `--paths .`; reconciling the two cleanly is tracked with
+# the exclusion-set consolidation (#485).
+paths = ["."]
+exclude_from = ".bcaignore"
+
+# Pair with `.bca-baseline.toml` so existing offenders are absorbed;
+# only regressions and new offenders fail the gate. See the Baselines
+# recipe in the book for the bootstrap/refresh/retire flow.
+baseline = ".bca-baseline.toml"
 
 # Treat Rust's `?` (the `try_expression` node) as linear error
 # propagation rather than a branch: it does not contribute to
@@ -11,3 +38,55 @@
 # `--no-cyclomatic-try` on every invocation (#409). Rust-only — no
 # other grammar emits the node, so the key is inert elsewhere.
 cyclomatic_count_try = false
+
+# bca per-function threshold configuration.
+#
+# Editing rules:
+#   * Each key is a stable metric name (or dotted sub-metric name) from
+#     `bca list-metrics` / `bca check --help`. Available names:
+#         cognitive, cyclomatic, cyclomatic.modified,
+#         halstead.volume, halstead.difficulty, halstead.effort,
+#         halstead.time, halstead.bugs,
+#         loc.sloc, loc.ploc, loc.lloc, loc.cloc, loc.blank,
+#         nom, tokens, nexits, nargs,
+#         mi.original, mi.sei, mi.visual_studio,
+#         abc, wmc, npm, npa
+#   * Quote keys containing a dot (TOML requires it).
+#   * Values are per-function limits. A function whose metric exceeds the
+#     limit becomes an offender; the baseline file decides whether it
+#     fails CI.
+#   * Adding a metric is a tightening — regenerate `.bca-baseline.toml`
+#     in the same change so day-one CI does not flip red on offenders
+#     that were previously invisible to the gate.
+#
+# Metrics intentionally NOT gated (yet):
+#   halstead.{volume,difficulty,time,bugs}, cyclomatic.modified, mi.*
+# Their distributions on this codebase are dominated by macro-expanded
+# language modules; gating them would either require thresholds high
+# enough to be meaningless, or fire on the long tail of dispatch arms.
+# They are still computed and visible in `bca report markdown|html`.
+[thresholds]
+cognitive = 25
+cyclomatic = 15
+"halstead.effort" = 50000
+# Set to 800 from the observed file-level distribution: the median
+# source file is ~380 SLOC and the dense cluster of normal hand-
+# written modules runs up to ~890. Rust co-locates `#[cfg(test)]`
+# tests in-file, so file SLOC runs 2-3x what it would with separate
+# test files; a healthy ~300-350 non-test ceiling maps to this range.
+# 800 lets most ordinary documented modules pass without an
+# artificial split or a baseline entry. Still on the baseline ratchet:
+# the genuinely large / test-heavy modules (metrics/*, macros, the big
+# report files), plus a few mid-size modules in the ~760-890 band
+# (alterator.rs, ops.rs, baseline.rs, ...). The soft tier scales this
+# limit to 760 (BCA_HEADROOM 0.95), so files between 760 and 800 are
+# baselined for the soft gate even though they clear the hard one. The
+# same limit also gates per-function SLOC, but that is redundant here:
+# cognitive / cyclomatic / nom / abc catch an oversized function long
+# before it nears 800 lines.
+"loc.sloc" = 800
+nom = 30
+nargs = 7
+nexits = 5
+abc = 50
+wmc = 60
