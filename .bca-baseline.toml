@@ -187,14 +187,14 @@ path = "big-code-analysis-cli/src/commands.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 7121092.621679162
+value = 7091390.387210398
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1910.0
+value = 1923.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
@@ -262,14 +262,14 @@ value = 54349.29454319902
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "run_command_init"
-start_line = 1604
+start_line = 1619
 metric = "halstead.effort"
-value = 61032.23742172194
+value = 57270.79409366582
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "run_command_init"
-start_line = 1604
+start_line = 1619
 metric = "nargs"
 value = 8.0
 
@@ -432,7 +432,7 @@ path = "big-code-analysis-cli/src/lib.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1418.0
+value = 1420.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
@@ -458,7 +458,7 @@ value = 58.0
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
 qualified = "legacy_hint"
-start_line = 1314
+start_line = 1316
 metric = "halstead.effort"
 value = 59351.805921378844
 

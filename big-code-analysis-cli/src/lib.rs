@@ -624,13 +624,15 @@ struct CheckArgs {
     check_exclude_from: Option<PathBuf>,
 }
 
-/// Arguments for the `init` subcommand. Pre-#374 form: scaffolds
-/// `bca-thresholds.toml`, `.bcaignore`, and `.bca-baseline.toml`
-/// in the target directory. Once #374 lands, this will switch to
-/// emitting a single `bca.toml` manifest. Interactive prompts and
-/// `--emit make/just/pre-commit/github-actions` skeletons are
-/// deliberately scoped out of the initial cut — they are tracked
-/// against #379 for a follow-up.
+/// Arguments for the `init` subcommand. Scaffolds the consolidated
+/// `bca.toml` manifest (`paths`, `exclude_from`, `baseline`, and a
+/// `[thresholds]` table) plus the `.bcaignore` and `.bca-baseline.toml`
+/// files the manifest references, in the target directory. With the
+/// manifest in place, a bare `bca check` auto-discovers it and runs the
+/// gate zero-config. Interactive prompts and `--emit
+/// make/just/pre-commit/github-actions` skeletons are deliberately
+/// scoped out of the initial cut — they are tracked against #379 for a
+/// follow-up.
 #[derive(Args, Debug, Default)]
 struct InitArgs {
     /// Directory to scaffold into. Defaults to the current working
@@ -645,7 +647,7 @@ struct InitArgs {
     /// Skip the baseline-generation pass. The written
     /// `.bca-baseline.toml` is then an empty placeholder; the user
     /// can populate it later with
-    /// `bca check --config bca-thresholds.toml --write-baseline .bca-baseline.toml`.
+    /// `bca check --write-baseline .bca-baseline.toml`.
     /// Default: walk the target directory and pin today's offenders.
     #[clap(long = "no-baseline")]
     no_baseline: bool,

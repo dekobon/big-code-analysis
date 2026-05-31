@@ -16,11 +16,13 @@ can live in the same repo; suppression is checked first.
 
 ## End-to-end adoption flow
 
-> One-shot shortcut: `bca init` scaffolds `bca-thresholds.toml`,
-> `.bcaignore`, and an initial `.bca-baseline.toml` derived from the
-> current tree in a single command. It writes the same files the
-> step-by-step recipe below produces; pass `--force` to overwrite
-> existing files or `--no-baseline` to skip the walk. The longer
+> One-shot shortcut: `bca init` scaffolds a consolidated `bca.toml`
+> manifest (with `paths`, `exclude_from`, `baseline`, and a
+> `[thresholds]` table), the `.bcaignore` it references, and an initial
+> `.bca-baseline.toml` derived from the current tree in a single
+> command. With the manifest in place, a bare `bca check` discovers it
+> and gates zero-config; pass `--force` to overwrite existing files or
+> `--no-baseline` to skip the walk. The longer
 > recipe below is useful when you want to tune thresholds before
 > bootstrapping the baseline.
 
