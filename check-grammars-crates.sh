@@ -45,12 +45,6 @@ if [ "$RUN_CI" = "no" ]; then
 	exit 0
 fi
 
-# Install json minimal tests
-JMT_LINK="https://github.com/Luni-4/json-minimal-tests/releases/download"
-JMT_VERSION="0.1.9"
-curl -L "$JMT_LINK/v$JMT_VERSION/json-minimal-tests-linux.tar.gz" \
-	| tar xz -C "$CARGO_HOME/bin"
-
 # Download mozilla-central repository
 MOZILLA_CENTRAL_REPO="https://github.com/mozilla/gecko-dev"
 if [ ! -d "/cache/gecko-dev" ]; then
@@ -76,24 +70,23 @@ if [ "$OLD" != "$NEW" ]; then
 	echo "$ONLY_FILES"
 fi
 
-# Compare metrics
-./check-grammar-crate.py compare-metrics -g "$TREE_SITTER_CRATE"
+# Compare metrics: `bca diff` buckets the per-file deltas by metric and
+# saves a machine-readable diff.json into the compare directory. This
+# replaces the former json-minimal-tests + split-minimal-tests.py chain
+# (issue #487).
+#
+# MIN_CHANGE is the minimum absolute per-file metric change to report; 0
+# reports any change (the former MT_THRESHOLD capped the count of
+# minimal-test files per metric, a different axis that bca diff's
+# per-metric bucketing makes unnecessary).
+MIN_CHANGE=0
+./check-grammar-crate.py compare-metrics -g "$TREE_SITTER_CRATE" -t "$MIN_CHANGE"
 
-# Create artifacts to be uploaded (if there are any)
+# Create artifact to be uploaded (if there is any diff output)
 COMPARE=/tmp/$TREE_SITTER_CRATE-compare
 if [ "$(ls -A "$COMPARE")" ]; then
-	# Maximum number of considered minimal tests for a metric
-	MT_THRESHOLD=30
-
-	# Output directory path
-	OUTPUT_DIR=/tmp/output-$TREE_SITTER_CRATE
-
 	# Grammar name (removes tree-sitter- prefix)
 	GRAMMAR_NAME=$(echo "$TREE_SITTER_CRATE" | cut -c 13-)
 
-	# Split files into distinct directories depending on
-	# their metric differences
-	./split-minimal-tests.py -i "$COMPARE" -o "$OUTPUT_DIR" -t "$MT_THRESHOLD"
-
-	tar -czvf "/tmp/json-diffs-and-minimal-tests-$GRAMMAR_NAME.tar.gz" "$COMPARE" "$OUTPUT_DIR"
+	tar -czvf "/tmp/metric-diff-$GRAMMAR_NAME.tar.gz" "$COMPARE"
 fi

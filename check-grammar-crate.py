@@ -17,13 +17,14 @@ To compute metrics on a continuous integration system:
 
 ./check-grammar-crate.py compute-ci-metrics -p LOCAL_DIR -l TREE_SITTER_GRAMMAR
 
-To compare metrics and retrieve metrics differences and minimal tests:
+To compare metrics and retrieve per-metric differences:
 
-1. Install json-minimal-tests from here: https://github.com/Luni-4/json-minimal-tests/releases
+./check-grammar-crate.py compare-metrics -g TREE_SITTER_GRAMMAR [-t MIN_CHANGE]
 
-./check-grammar-crate.py compare-metrics -l TREE_SITTER_GRAMMAR
-
-NOTE: Add the paths of the software above to the PATH environment variable!
+This buckets the per-file metric deltas by metric using the native
+`bca diff` (issue #487), printing a summary to stdout and saving a
+machine-readable `diff.json` into the compare directory. It replaces the
+former external `json-minimal-tests` + `split-minimal-tests.py` chain.
 """
 
 import argparse
@@ -70,6 +71,12 @@ def run_subprocess(cmd: str, *args: T.Union[str, pathlib.Path]) -> None:
 
 
 # Run big-code-analysis on the chosen repository to compute metrics.
+#
+# Emits one JSON document per source file into `output_dir`, using the
+# current subcommand CLI (`bca metrics -O json --output <dir>`). The pre-
+# subcommand flags this script used to pass (`--metrics
+# --output-format=json --pr`) no longer exist; `--pr` was dropped
+# entirely in the subcommand refactor.
 def run_rca(
     repo_dir: pathlib.Path,
     output_dir: pathlib.Path,
@@ -85,9 +92,9 @@ def run_rca(
         "--package",
         "big-code-analysis-cli",
         "--",
-        "--metrics",
-        "--output-format=json",
-        "--pr",
+        "metrics",
+        "-O",
+        "json",
         "-I",
         *include_grammars,
         "-p",
@@ -128,7 +135,7 @@ def compute_ci_metrics(args: argparse.Namespace) -> None:
     new_dir.mkdir(parents=True, exist_ok=True)
 
     # Git clone big-code-analysis master branch repository
-    print(f"Cloning big-code-analysis master branch into /tmp")
+    print("Cloning big-code-analysis master branch into /tmp")
     run_subprocess(
         "git",
         "clone",
@@ -185,7 +192,13 @@ def compute_metrics(args: argparse.Namespace) -> None:
     run_rca(repo_dir, new_dir, None, EXTENSIONS[args.grammar])
 
 
-# Compare metrics and dump the differences whether there are some.
+# Compare metrics and dump the per-metric differences, if any.
+#
+# Uses the native `bca diff` (issue #487) to bucket the per-file deltas
+# by metric, replacing the external `json-minimal-tests` binary plus
+# `split-minimal-tests.py` that this step used to chain. The TTY form is
+# printed for the CI log; the machine-readable JSON form is saved to the
+# compare directory as a build artifact.
 def compare_metrics(args: argparse.Namespace) -> None:
     # Old metrics directory
     old_dir = WORKDIR / (args.grammar + OLD_SUFFIX)
@@ -198,9 +211,45 @@ def compare_metrics(args: argparse.Namespace) -> None:
     # Create compare directory
     compare_dir.mkdir(parents=True, exist_ok=True)
 
-    # Get JSON differences and minimal tests
-    print("\nSave minimal tests in", compare_dir)
-    run_subprocess("json-minimal-tests", "-o", compare_dir, old_dir, new_dir)
+    # Human-readable summary to the CI log.
+    print("\nPer-metric diff between", old_dir, "and", new_dir)
+    run_subprocess(
+        "cargo",
+        "run",
+        "--release",
+        "--package",
+        "big-code-analysis-cli",
+        "--",
+        "diff",
+        str(old_dir),
+        str(new_dir),
+        "--min-change",
+        str(args.min_change),
+    )
+
+    # Machine-readable artifact for download / inspection.
+    json_path = compare_dir / "diff.json"
+    print("Save JSON diff in", json_path)
+    with open(json_path, "w") as out:
+        subprocess.run(
+            [
+                "cargo",
+                "run",
+                "--release",
+                "--package",
+                "big-code-analysis-cli",
+                "--",
+                "diff",
+                str(old_dir),
+                str(new_dir),
+                "--min-change",
+                str(args.min_change),
+                "--format",
+                "json",
+            ],
+            stdout=out,
+            check=True,
+        )
 
 
 def main() -> None:
@@ -297,6 +346,15 @@ def main() -> None:
         type=str,
         required=True,
         help="tree-sitter grammar used to compare the metrics",
+    )
+    compare_metrics_cmd.add_argument(
+        "-t",
+        "--min-change",
+        type=float,
+        default=0.0,
+        help="Minimum absolute per-file metric change to report "
+        "(passed to `bca diff --min-change`; default %(default)s reports "
+        "any change).",
     )
     compare_metrics_cmd.set_defaults(func=compare_metrics)
 

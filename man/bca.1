@@ -108,6 +108,9 @@ Scaffold the canonical adoption files (`bca.toml` manifest, `.bcaignore`, `.bca\
 bca\-diff\-baseline(1)
 Diff two `.bca\-baseline.toml` files and report what was added, removed, worsened, or improved. Replaces the in\-the\-head TOML diff parsing the book\*(Aqs PR\-review recipe used to walk through. Always exits 0 on success — the diff is informational, not a gate
 .TP
+bca\-diff(1)
+Compare two metric\-output runs and report, per metric, which files changed (old to new), plus files added/removed between the two sets. Each side is a per\-file JSON file or a directory tree of them (the form `bca metrics \-O json \-\-output DIR` writes). Replaces the grammar\-bump glue chain — the external `json\-minimal\-tests` binary plus `split\-minimal\-tests.py` — with one native command. Always exits 0 on success; the diff is informational, not a gate
+.TP
 bca\-exemptions(1)
 Audit everything the `bca check` gate skips in one view: in\-source suppression markers (`bca: suppress`, `#lizard forgives`, …), `[check.exclude]` globs, and `.bca\-baseline.toml` entries. Read\-only; always exits 0 on success
 .TP

@@ -29,6 +29,55 @@ CBOR (`-O cbor`) is the most compact format; it is binary and
 therefore requires `-o`. JSON, TOML, and YAML can all be streamed to
 stdout when `-o` is omitted, which is useful for pipelines.
 
+## Compare two metric runs with `bca diff`
+
+`bca diff` compares two JSON metric runs and reports, per metric, which
+files changed (old → new), plus any files added or removed between the
+two sets. Each side is either a single per-file JSON document or a whole
+directory tree of them (the form `metrics -O json -o <dir>` writes), so
+the common workflow is two `bca metrics` runs into separate directories:
+
+```bash
+# Capture the "before" state.
+bca -p src/ metrics -O json -o /tmp/before
+
+# ...make a change (e.g. bump a tree-sitter grammar)...
+
+# Capture the "after" state and diff.
+bca -p src/ metrics -O json -o /tmp/after
+bca diff /tmp/before /tmp/after
+```
+
+The output buckets every per-file delta by metric name — the same names
+`bca list-metrics` prints (`cyclomatic`, `cognitive`, `sloc`, …):
+
+```text
+2 metric(s) changed, 1 added file(s), 0 removed file(s)
+
+## Added files
+  src/new_module.rs.json
+
+## cyclomatic (2 change(s))
+  src/lib.rs.json.sum  12 → 14
+  src/lib.rs.json.max   4 → 6
+
+## halstead (1 change(s))
+  src/lib.rs.json.effort  5820.3 → 7104.9
+```
+
+Useful flags:
+
+- `--format markdown` for a sticky PR comment, `--format json` for a
+  stable machine-readable schema (CI consumers).
+- `--min-change <N>` reports only deltas whose absolute change is at
+  least `N` (the default `0` reports any change).
+- `--metric <name>` (repeatable) restricts the diff to specific metrics.
+
+`bca diff` always exits 0 on success — it is informational, not a gate.
+It replaces the former `json-minimal-tests` + `split-minimal-tests.py`
+chain used to validate that a grammar bump did not regress metrics; the
+`check-grammar-crate.py` helper now calls `bca diff` internally.
+
 ## Pull a single metric across an entire tree
 
 Combine streamed JSON output with `jq` to extract one value per file:

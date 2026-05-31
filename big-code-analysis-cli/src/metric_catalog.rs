@@ -4,9 +4,9 @@
 //! from the library's canonical [`big_code_analysis::metric_catalog`]
 //! (`FAMILIES`), so adding a metric to the library automatically
 //! surfaces it here. Names match the keys downstream tools (e.g.
-//! `split-minimal-tests.py`) grep for in `list-metrics` output:
-//! top-level family names plus the `loc` sub-metrics, which are
-//! conceptually distinct measurements.
+//! `bca diff`, which buckets per-file metric deltas by them) rely on in
+//! `list-metrics` output: top-level family names plus the `loc`
+//! sub-metrics, which are conceptually distinct measurements.
 
 use std::io::{self, Write};
 

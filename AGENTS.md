@@ -53,8 +53,10 @@ and `cargo run -p big-code-analysis-web --`.
 - `enums/` — separate workspace member (excluded from the root workspace)
   that generates language enum tables.
 - Helper scripts: `check-grammar-crate.py`, `check-grammars-crates.sh`,
-  `recreate-grammars.sh`, `split-minimal-tests.py`,
-  `generate-grammars/`.
+  `recreate-grammars.sh`, `generate-grammars/`. (The grammar-bump diff
+  step now uses the native `bca diff`; the former
+  `split-minimal-tests.py` + external `json-minimal-tests` chain was
+  retired in #487.)
 
 ## Editing principles
 

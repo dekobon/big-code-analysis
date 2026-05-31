@@ -10,7 +10,8 @@ fn cli() -> Command {
 
 /// Without any value, `list-metrics` prints metric names one per line.
 /// The output must include both top-level metric categories and the `loc`
-/// sub-metrics that downstream tools (split-minimal-tests.py) grep for.
+/// sub-metrics that downstream tools (`bca diff`, which buckets per-file
+/// metric deltas by these names) rely on.
 #[test]
 fn list_metrics_prints_names() {
     let assertion = cli().args(["list-metrics"]).assert().success();

@@ -42,6 +42,7 @@ mod html_report;
 mod manifest;
 mod markdown_report;
 mod metric_catalog;
+mod metric_diff;
 mod threshold_suggestion;
 mod thresholds;
 mod walk_seed;
@@ -331,6 +332,15 @@ enum Command {
     /// Always exits 0 on success — the diff is informational, not a
     /// gate.
     DiffBaseline(DiffBaselineArgs),
+    /// Compare two metric-output runs and report, per metric, which
+    /// files changed (old to new), plus files added/removed between the
+    /// two sets. Each side is a per-file JSON file or a directory tree of
+    /// them (the form `bca metrics -O json --output DIR` writes).
+    /// Replaces the grammar-bump glue chain — the external
+    /// `json-minimal-tests` binary plus `split-minimal-tests.py` — with
+    /// one native command. Always exits 0 on success; the diff is
+    /// informational, not a gate.
+    Diff(DiffArgs),
     /// Audit everything the `bca check` gate skips in one view:
     /// in-source suppression markers (`bca: suppress`,
     /// `#lizard forgives`, …), `[check.exclude]` globs, and
@@ -710,6 +720,39 @@ struct DiffBaselineArgs {
     /// Render only the "Improved" section. Ignored by `--format json`.
     #[clap(long = "improved-only")]
     improved_only: bool,
+}
+
+/// Arguments for the `diff` subcommand (issue #487). Takes two
+/// metric-output sets — each a per-file JSON file or a directory tree of
+/// them — and reports per-metric, per-file deltas plus added/removed
+/// files.
+///
+/// `--format json` always emits every bucket; `--min-change` and
+/// `--metric` shape which deltas are reported. Always exits 0 on
+/// success; the diff is informational, not a gate.
+#[derive(Args, Debug)]
+struct DiffArgs {
+    /// Old (base) metric output — the "before" side. A per-file JSON
+    /// file or a directory of per-file JSON.
+    #[clap(value_parser)]
+    old: PathBuf,
+    /// New (updated) metric output — the "after" side. A per-file JSON
+    /// file or a directory of per-file JSON.
+    #[clap(value_parser)]
+    new: PathBuf,
+    /// Output style: `tty` (default), `markdown`, or `json`.
+    #[clap(long, value_enum, default_value_t = OutputFormat::Tty)]
+    format: OutputFormat,
+    /// Minimum absolute change for a per-file metric delta to be
+    /// reported. `0` (the default) reports any change. Mirrors
+    /// `split-minimal-tests.py`'s `-t` threshold.
+    #[clap(long = "min-change", default_value_t = 0.0)]
+    min_change: f64,
+    /// Restrict the diff to one or more metrics (repeatable). Names are
+    /// those printed by `bca list-metrics` (e.g. `cyclomatic`, `sloc`).
+    /// When omitted, every metric is reported.
+    #[clap(long = "metric")]
+    metric: Vec<String>,
 }
 
 /// Arguments for the `exemptions` subcommand (issue #386). Audits the
@@ -1272,6 +1315,7 @@ const SUBCOMMANDS: &[&str] = &[
     "check",
     "init",
     "diff-baseline",
+    "diff",
     "exemptions",
 ];
 

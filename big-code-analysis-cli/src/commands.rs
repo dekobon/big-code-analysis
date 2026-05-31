@@ -1301,12 +1301,14 @@ pub fn run() {
     // so consuming an existing manifest would merge repo-level `paths`
     // into init's baseline-generation walk and pin the wrong tree.
     //
-    // `bca diff-baseline` is excluded for the same reason from the
-    // other direction: it walks no source and reads no global config,
-    // so manifest discovery would be pure overhead.
+    // `bca diff-baseline` and `bca diff` are excluded for the same
+    // reason from the other direction: they walk no source and read no
+    // global config, so manifest discovery would be pure overhead.
     let manifest = if cli.globals.no_config
-        || matches!(cli.command, Command::Init(_) | Command::DiffBaseline(_))
-    {
+        || matches!(
+            cli.command,
+            Command::Init(_) | Command::DiffBaseline(_) | Command::Diff(_)
+        ) {
         None
     } else {
         manifest::discover_and_load()
@@ -1335,6 +1337,7 @@ pub fn run() {
         Command::Preproc(args) => run_command_preproc(cli.globals, args),
         Command::Init(args) => run_command_init(cli.globals, args, preproc),
         Command::DiffBaseline(args) => run_command_diff_baseline(args),
+        Command::Diff(args) => run_command_diff(args),
         Command::Exemptions(args) => {
             run_command_exemptions(cli.globals, args, manifest.as_ref(), preproc);
         }
@@ -1816,6 +1819,34 @@ fn run_command_diff_baseline(args: DiffBaselineArgs) {
     let rendered = match args.format {
         OutputFormat::Tty => diff.render_tty(filter),
         OutputFormat::Markdown => diff.render_markdown(filter),
+        // Serialization of a fixed-shape struct of owned scalars cannot
+        // fail in practice; surface any future error as a tool error
+        // rather than panicking.
+        OutputFormat::Json => diff
+            .render_json()
+            .unwrap_or_else(|e| die(format_args!("failed to serialize diff to JSON: {e}"))),
+    };
+    write_stdout_or_die(rendered.as_bytes());
+}
+
+/// Diff two metric-output sets and print the per-metric result
+/// (issue #487). Each side is a per-file JSON file or a directory of
+/// per-file JSON (the form `bca metrics -O json --output <dir>` writes).
+///
+/// Replaces the legacy grammar-bump glue: the external
+/// `json-minimal-tests` binary plus `split-minimal-tests.py`. Always
+/// exits 0 on success; a load/parse failure is a tool error (exit 1).
+fn run_command_diff(args: crate::DiffArgs) {
+    let diff = crate::metric_diff::MetricDiff::compute(
+        &args.old,
+        &args.new,
+        args.min_change,
+        &args.metric,
+    )
+    .unwrap_or_else(|e| die(format_args!("{e}")));
+    let rendered = match args.format {
+        OutputFormat::Tty => diff.render_tty(),
+        OutputFormat::Markdown => diff.render_markdown(),
         // Serialization of a fixed-shape struct of owned scalars cannot
         // fail in practice; surface any future error as a tool error
         // rather than panicking.

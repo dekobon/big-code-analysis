@@ -1,0 +1,40 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH BCA-DIFF 1  "big-code-analysis 1.1.0" "big-code-analysis Manual"
+.SH NAME
+bca\-diff \- Compare two metric\-output runs and report, per metric, which files changed (old to new), plus files added/removed between the two sets. Each side is a per\-file JSON file or a directory tree of them (the form `bca metrics \-O json \-\-output DIR` writes). Replaces the grammar\-bump glue chain — the external `json\-minimal\-tests` binary plus `split\-minimal\-tests.py` — with one native command. Always exits 0 on success; the diff is informational, not a gate
+.SH SYNOPSIS
+\fBbca\-diff\fR [\fB\-\-format\fR] [\fB\-\-min\-change\fR] [\fB\-\-metric\fR] [\fB\-h\fR|\fB\-\-help\fR] <\fIOLD\fR> <\fINEW\fR> 
+.SH DESCRIPTION
+Compare two metric\-output runs and report, per metric, which files changed (old to new), plus files added/removed between the two sets. Each side is a per\-file JSON file or a directory tree of them (the form `bca metrics \-O json \-\-output DIR` writes). Replaces the grammar\-bump glue chain — the external `json\-minimal\-tests` binary plus `split\-minimal\-tests.py` — with one native command. Always exits 0 on success; the diff is informational, not a gate
+.SH OPTIONS
+.TP
+\fB\-\-format\fR \fI<FORMAT>\fR [default: tty]
+Output style: `tty` (default), `markdown`, or `json`
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+tty
+.IP \(bu 2
+markdown
+.IP \(bu 2
+json
+.RE
+.TP
+\fB\-\-min\-change\fR \fI<MIN_CHANGE>\fR [default: 0]
+Minimum absolute change for a per\-file metric delta to be reported. `0` (the default) reports any change. Mirrors `split\-minimal\-tests.py`\*(Aqs `\-t` threshold
+.TP
+\fB\-\-metric\fR \fI<METRIC>\fR
+Restrict the diff to one or more metrics (repeatable). Names are those printed by `bca list\-metrics` (e.g. `cyclomatic`, `sloc`). When omitted, every metric is reported
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help
+.TP
+<\fIOLD\fR>
+Old (base) metric output — the "before" side. A per\-file JSON file or a directory of per\-file JSON
+.TP
+<\fINEW\fR>
+New (updated) metric output — the "after" side. A per\-file JSON file or a directory of per\-file JSON

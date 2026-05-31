@@ -91,9 +91,9 @@ pub struct MetricInfo {
 #[non_exhaustive]
 pub struct MetricRow {
     /// Bare name printed one-per-line by `list-metrics`, e.g.
-    /// `"halstead"` or `"sloc"`. Downstream tooling
-    /// (`split-minimal-tests.py`) greps these names, so they are an
-    /// external contract.
+    /// `"halstead"` or `"sloc"`. Downstream tooling (`bca diff`, which
+    /// buckets per-file metric deltas by these names) relies on them, so
+    /// they are an external contract.
     pub name: &'static str,
     /// One-line description printed in `list-metrics descriptions` mode.
     pub summary: &'static str,
