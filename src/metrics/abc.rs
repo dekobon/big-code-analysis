@@ -11158,4 +11158,22 @@ function f(int $a, int $b): int {
             },
         );
     }
+
+    /// A bare-truthy `if {$a}` condition carries no comparison, ternary,
+    /// or short-circuit operator, so the unary-conditional walker is
+    /// never invoked and conditions stay 0 — iRules does not wire the
+    /// broader Phase 2B slot routing that counts bare-truthy operands.
+    /// The `log` command is the single branch. Pins the metrics-book
+    /// claim in the ABC per-language deviation table.
+    #[test]
+    fn irules_abc_bare_truthy_reports_zero() {
+        check_metrics::<IrulesParser>(
+            "when X {\n    if { $a } { log local0. hi }\n}\n",
+            "foo.irule",
+            |metric| {
+                assert_eq!(metric.abc.branches_sum(), 1.0);
+                assert_eq!(metric.abc.conditions_sum(), 0.0);
+            },
+        );
+    }
 }

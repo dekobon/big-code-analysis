@@ -2631,8 +2631,8 @@ mod tests {
 
     // Parse `$src` with `$parser_ty` and assert the generic `"string"`
     // filter yields zero matches. Used by the negative test, which
-    // walks 17 languages with identical per-language shape (parse →
-    // count → assert_eq! 0).
+    // walks every language consolidated under `impl_simple_is_string!`
+    // with identical per-language shape (parse → count → assert_eq! 0).
     macro_rules! assert_no_string_matches {
         ($parser_ty:ident, $path:expr, $src:expr, $lang:literal $(,)?) => {{
             let parser = $parser_ty::new($src.to_vec(), $path, None);
@@ -2644,8 +2644,8 @@ mod tests {
     fn simple_is_string_macro_recognises_each_language() {
         use crate::langs::{
             CcommentParser, CppParser, CsharpParser, ElixirParser, GoParser, GroovyParser,
-            JavaParser, KotlinParser, LuaParser, PerlParser, PreprocParser, PythonParser,
-            RubyParser, RustParser, TclParser,
+            IrulesParser, JavaParser, KotlinParser, LuaParser, PerlParser, PreprocParser,
+            PythonParser, RubyParser, RustParser, TclParser,
         };
 
         let path = PathBuf::from("test");
@@ -2814,6 +2814,20 @@ mod tests {
             [QuotedWord, BracedWordSimple, BracedWord]
         );
 
+        // ---- iRules (3 variants): QuotedWord, BracedWord, BracedWordSimple ----
+        // Same Tcl-family braced-word split as Tcl above: the `proc`
+        // body is a named `braced_word` (BracedWord), the simple `set`
+        // assignment is a `braced_word_simple` (BracedWordSimple), and
+        // the quoted literal is a `QuotedWord`.
+        let src = b"set a \"quoted\"\nset b {braced}\nproc p {x y} { return $x }\n".to_vec();
+        let parser = IrulesParser::new(src, &path, None);
+        assert_variants_is_string!(
+            &parser,
+            Irules,
+            IrulesCode,
+            [QuotedWord, BracedWordSimple, BracedWord]
+        );
+
         // ---- Php (7 variants): String, String2, String3,
         // EncapsedString, Heredoc, Nowdoc, ShellCommandExpression ----
         // String2 is the `string` type-keyword (`: string` return
@@ -2898,8 +2912,8 @@ mod tests {
         // every language consolidated under `impl_simple_is_string!`.
         use crate::langs::{
             BashParser, CcommentParser, CppParser, CsharpParser, ElixirParser, GoParser,
-            GroovyParser, JavaParser, KotlinParser, LuaParser, PerlParser, PreprocParser,
-            PythonParser, RubyParser, RustParser, TclParser,
+            GroovyParser, IrulesParser, JavaParser, KotlinParser, LuaParser, PerlParser,
+            PreprocParser, PythonParser, RubyParser, RustParser, TclParser,
         };
 
         let path = PathBuf::from("test");
@@ -2936,6 +2950,9 @@ mod tests {
         // bareword surfaces as `Word`, not any of the three string
         // kinds.
         assert_no_string_matches!(TclParser, &path, b"set x $y\n", "Tcl");
+        // iRules: same Tcl-family `set` of an unquoted identifier word —
+        // the bareword surfaces as `Word`, not any string kind.
+        assert_no_string_matches!(IrulesParser, &path, b"set x $y\n", "Irules");
         // Php: identifier-only assignment.
         assert_no_string_matches!(PhpParser, &path, b"<?php $x = $y;\n", "Php");
         // Elixir: integer assignment, no string/charlist/sigil.

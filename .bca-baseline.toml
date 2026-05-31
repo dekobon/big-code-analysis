@@ -1118,14 +1118,14 @@ path = "src/checker.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 14388632.36034397
+value = 14512790.558701543
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 2964.0
+value = 2981.0
 
 [[entry]]
 path = "src/checker.rs"
@@ -1363,14 +1363,14 @@ path = "src/checker.rs"
 qualified = "simple_is_string_macro_recognises_each_language"
 start_line = 2644
 metric = "abc"
-value = 49.49747468305833
+value = 52.32590180780452
 
 [[entry]]
 path = "src/checker.rs"
 qualified = "simple_is_string_macro_recognises_each_language"
 start_line = 2644
 metric = "halstead.effort"
-value = 105721.44190330332
+value = 115012.68997265898
 
 [[entry]]
 path = "src/comment_rm.rs"
@@ -1734,21 +1734,21 @@ path = "src/metrics/abc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 68251338.35166772
+value = 68376714.7959867
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 11161.0
+value = 11179.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 579.0
+value = 580.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
@@ -1762,7 +1762,7 @@ path = "src/metrics/abc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 857.0
+value = 859.0
 
 [[entry]]
 path = "src/metrics/abc.rs"

@@ -9179,7 +9179,7 @@ $y = 10 + match ($x) { 1 => 2, default => 0 };",
     }
 
     // -----------------------------------------------------------------
-    // Issue #195: nested-function/closure LLOC tests for 11 languages.
+    // Issue #195: nested-function/closure LLOC tests across languages.
     // Mirrors the prior art for Rust (`rust_function_in_loop_lloc`,
     // `rust_closure_expression_lloc`), Mozjs (`mozjs_nested_function_loc`),
     // Bash (`bash_nested_function_loc`), and TypeScript
