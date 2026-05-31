@@ -467,14 +467,14 @@ path = "big-code-analysis-cli/src/manifest.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 589735.721980394
+value = 603420.498585512
 
 [[entry]]
 path = "big-code-analysis-cli/src/manifest.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 10.0
+value = 12.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/manifest.rs"
@@ -486,14 +486,14 @@ value = 7.0
 [[entry]]
 path = "big-code-analysis-cli/src/manifest.rs"
 qualified = "Manifest"
-start_line = 179
+start_line = 193
 metric = "halstead.effort"
 value = 239680.39087199362
 
 [[entry]]
 path = "big-code-analysis-cli/src/manifest.rs"
 qualified = "Manifest"
-start_line = 179
+start_line = 193
 metric = "nargs"
 value = 8.0
 
@@ -725,13 +725,6 @@ value = 8.0
 path = "big-code-analysis-py/src/batch.rs"
 qualified = "analyze_batch"
 start_line = 346
-metric = "cyclomatic"
-value = 18.0
-
-[[entry]]
-path = "big-code-analysis-py/src/batch.rs"
-qualified = "analyze_batch"
-start_line = 346
 metric = "halstead.effort"
 value = 54744.156850060965
 
@@ -802,13 +795,6 @@ value = 29.0
 path = "big-code-analysis-py/src/lib.rs"
 qualified = "_native"
 start_line = 337
-metric = "cyclomatic"
-value = 21.0
-
-[[entry]]
-path = "big-code-analysis-py/src/lib.rs"
-qualified = "_native"
-start_line = 337
 metric = "nexits"
 value = 20.0
 
@@ -860,13 +846,6 @@ qualified = "collect_offenders"
 start_line = 444
 metric = "cognitive"
 value = 24.0
-
-[[entry]]
-path = "big-code-analysis-py/src/sarif.rs"
-qualified = "collect_offenders"
-start_line = 444
-metric = "cyclomatic"
-value = 19.0
 
 [[entry]]
 path = "big-code-analysis-py/src/sarif.rs"
@@ -1776,7 +1755,7 @@ path = "src/metrics/abc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "wmc"
-value = 185.0
+value = 171.0
 
 [[entry]]
 path = "src/metrics/abc.rs"
@@ -1838,13 +1817,6 @@ value = 287297.79316755506
 path = "src/metrics/abc.rs"
 qualified = "Stats::serialize"
 start_line = 148
-metric = "cyclomatic"
-value = 15.0
-
-[[entry]]
-path = "src/metrics/abc.rs"
-qualified = "Stats::serialize"
-start_line = 148
 metric = "nexits"
 value = 14.0
 
@@ -1895,7 +1867,7 @@ path = "src/metrics/cognitive.rs"
 qualified = "<file>"
 start_line = 1
 metric = "wmc"
-value = 172.0
+value = 167.0
 
 [[entry]]
 path = "src/metrics/cognitive.rs"
@@ -1993,7 +1965,7 @@ path = "src/metrics/cyclomatic.rs"
 qualified = "<file>"
 start_line = 1
 metric = "wmc"
-value = 86.0
+value = 75.0
 
 [[entry]]
 path = "src/metrics/cyclomatic.rs"
@@ -2130,13 +2102,6 @@ value = 252.0
 
 [[entry]]
 path = "src/metrics/halstead.rs"
-qualified = "<file>"
-start_line = 1
-metric = "wmc"
-value = 63.0
-
-[[entry]]
-path = "src/metrics/halstead.rs"
 qualified = "Stats"
 start_line = 97
 metric = "nexits"
@@ -2148,13 +2113,6 @@ qualified = "Stats"
 start_line = 157
 metric = "halstead.effort"
 value = 117191.15521123762
-
-[[entry]]
-path = "src/metrics/halstead.rs"
-qualified = "Stats::serialize"
-start_line = 98
-metric = "cyclomatic"
-value = 16.0
 
 [[entry]]
 path = "src/metrics/halstead.rs"
@@ -2203,7 +2161,7 @@ path = "src/metrics/loc.rs"
 qualified = "<file>"
 start_line = 1
 metric = "wmc"
-value = 204.0
+value = 183.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
@@ -2260,13 +2218,6 @@ qualified = "Stats::serialize"
 start_line = 368
 metric = "abc"
 value = 63.00793600809346
-
-[[entry]]
-path = "src/metrics/loc.rs"
-qualified = "Stats::serialize"
-start_line = 368
-metric = "cyclomatic"
-value = 22.0
 
 [[entry]]
 path = "src/metrics/loc.rs"
@@ -2330,13 +2281,6 @@ qualified = "<file>"
 start_line = 1
 metric = "nom"
 value = 267.0
-
-[[entry]]
-path = "src/metrics/nargs.rs"
-qualified = "<file>"
-start_line = 1
-metric = "wmc"
-value = 59.0
 
 [[entry]]
 path = "src/metrics/nargs.rs"
@@ -2462,7 +2406,7 @@ path = "src/metrics/npa.rs"
 qualified = "<file>"
 start_line = 1
 metric = "wmc"
-value = 128.0
+value = 118.0
 
 [[entry]]
 path = "src/metrics/npa.rs"
@@ -2567,7 +2511,7 @@ path = "src/metrics/npm.rs"
 qualified = "<file>"
 start_line = 1
 metric = "wmc"
-value = 137.0
+value = 127.0
 
 [[entry]]
 path = "src/metrics/npm.rs"
@@ -2837,13 +2781,6 @@ value = 10.0
 
 [[entry]]
 path = "src/output/checkstyle.rs"
-qualified = "XmlAttr<'_>::fmt"
-start_line = 114
-metric = "cyclomatic"
-value = 15.0
-
-[[entry]]
-path = "src/output/checkstyle.rs"
 qualified = "write_checkstyle"
 start_line = 45
 metric = "nexits"
@@ -2958,13 +2895,6 @@ value = 5.0
 path = "src/output/dump_metrics.rs"
 qualified = "dump_halstead"
 start_line = 160
-metric = "cyclomatic"
-value = 19.0
-
-[[entry]]
-path = "src/output/dump_metrics.rs"
-qualified = "dump_halstead"
-start_line = 160
 metric = "nexits"
 value = 17.0
 
@@ -2974,13 +2904,6 @@ qualified = "dump_loc"
 start_line = 199
 metric = "nexits"
 value = 8.0
-
-[[entry]]
-path = "src/output/dump_metrics.rs"
-qualified = "dump_metrics"
-start_line = 90
-metric = "cyclomatic"
-value = 18.0
 
 [[entry]]
 path = "src/output/dump_metrics.rs"
@@ -3030,13 +2953,6 @@ qualified = "dump_npm"
 start_line = 385
 metric = "nexits"
 value = 8.0
-
-[[entry]]
-path = "src/output/dump_metrics.rs"
-qualified = "dump_space"
-start_line = 57
-metric = "cyclomatic"
-value = 15.0
 
 [[entry]]
 path = "src/output/dump_metrics.rs"
@@ -3093,13 +3009,6 @@ qualified = "dump_ops_values"
 start_line = 89
 metric = "nexits"
 value = 12.0
-
-[[entry]]
-path = "src/output/dump_ops.rs"
-qualified = "dump_space"
-start_line = 46
-metric = "cyclomatic"
-value = 15.0
 
 [[entry]]
 path = "src/output/dump_ops.rs"
@@ -3268,13 +3177,6 @@ qualified = "<file>"
 start_line = 1
 metric = "nom"
 value = 109.0
-
-[[entry]]
-path = "src/spaces.rs"
-qualified = "<file>"
-start_line = 1
-metric = "wmc"
-value = 58.0
 
 [[entry]]
 path = "src/spaces.rs"

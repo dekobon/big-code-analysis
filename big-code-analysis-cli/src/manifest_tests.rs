@@ -183,3 +183,23 @@ fn merge_globals_respects_explicit_cli_num_jobs() {
         NumJobs::Explicit(8.try_into().unwrap())
     );
 }
+
+/// Every key `RawManifest` consumes must appear in `KNOWN_KEYS`;
+/// otherwise the typed parse honors it while `warn_unknown_keys`
+/// prints a misleading "ignoring unrecognized key" warning. This
+/// regression guards the #409 `cyclomatic_count_try` case, where the
+/// field was added to the typed view but omitted from the allowlist.
+#[test]
+fn known_keys_covers_cyclomatic_count_try() {
+    let text = "cyclomatic_count_try = false\n";
+
+    // Typed view honors it...
+    let raw: RawManifest = toml::from_str(text).expect("typed parse");
+    assert_eq!(raw.cyclomatic_count_try, Some(false));
+
+    // ...and the allowlist agrees, so no spurious warning fires.
+    assert!(
+        unknown_top_level_keys(text).is_empty(),
+        "cyclomatic_count_try is consumed but flagged as unknown"
+    );
+}

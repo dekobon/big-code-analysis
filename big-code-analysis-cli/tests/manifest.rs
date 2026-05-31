@@ -27,14 +27,38 @@ pub fn classify(n: i32) -> &'static str {
 }
 "#;
 
+/// `add_pair` has base cyclomatic 1 plus two `?` (`try_expression`)
+/// operators, so it measures 3 when `?` counts and 1 when it does not
+/// (#409). A manifest `cyclomatic = 2` therefore flips on the
+/// `cyclomatic_count_try` key alone.
+const TRY_RUST: &str = r"
+pub fn add_pair(s: &str) -> Result<i32, std::num::ParseIntError> {
+    let a = s.parse::<i32>()?;
+    let b = s.parse::<i32>()?;
+    Ok(a + b)
+}
+";
+
 /// Create a fixture repo: a temp dir with a `.git` marker (so discovery
-/// halts here), a `bca.toml` with the given body, and `branchy.rs`.
-fn fixture(manifest: &str) -> TempDir {
+/// halts here), a `bca.toml` with the given body, and one source file.
+fn fixture_with(manifest: &str, source_file: &str, source: &str) -> TempDir {
     let dir = TempDir::new().unwrap();
     fs::create_dir(dir.path().join(".git")).unwrap();
     fs::write(dir.path().join("bca.toml"), manifest).unwrap();
-    fs::write(dir.path().join("branchy.rs"), BRANCHY_RUST).unwrap();
+    fs::write(dir.path().join(source_file), source).unwrap();
     dir
+}
+
+/// Fixture repo whose only source file is the branchy [`BRANCHY_RUST`].
+fn fixture(manifest: &str) -> TempDir {
+    fixture_with(manifest, "branchy.rs", BRANCHY_RUST)
+}
+
+/// Like [`fixture`], but the only source file is the `?`-using
+/// [`TRY_RUST`] — no `branchy.rs`, so the gate sees exactly one
+/// function whose cyclomatic depends on the `cyclomatic_count_try` key.
+fn try_fixture(manifest: &str) -> TempDir {
+    fixture_with(manifest, "try_expr.rs", TRY_RUST)
 }
 
 /// Acceptance criterion 1: `bca check` with no flags, run in a directory
@@ -308,6 +332,39 @@ fn unknown_top_level_key_warns_but_runs() {
         .stderr(predicate::str::contains(
             "ignoring unrecognized key `exit_codes`",
         ));
+}
+
+/// End-to-end proof that the `cyclomatic_count_try` manifest key reaches
+/// metric computation through the CLI's `metrics_options()` seam — the
+/// unit merge tests stop at `GlobalOpts`, and nothing else asserts the
+/// emitted cyclomatic actually changes. `add_pair` is cyclomatic 3 with
+/// `?` counting (gate `cyclomatic = 2` fires) and 1 without (clean run).
+/// The clean run also asserts empty stderr, which doubles as an
+/// integration-level guard against the #409 `KNOWN_KEYS` regression: a
+/// spurious "ignoring unrecognized key `cyclomatic_count_try`" warning
+/// would fail `is_empty()`.
+#[test]
+fn manifest_cyclomatic_count_try_false_flips_gate_without_warning() {
+    // Key absent → `?` counts → cyclomatic 3 > 2 → gate fires.
+    let counting = try_fixture("paths = [\".\"]\n\n[thresholds]\ncyclomatic = 2\n");
+    cli()
+        .current_dir(counting.path())
+        .arg("check")
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("cyclomatic"))
+        .stderr(predicate::str::contains("(limit 2)"));
+
+    // Key false → `?` is linear → cyclomatic 1 ≤ 2 → clean, no warning.
+    let linear = try_fixture(
+        "paths = [\".\"]\ncyclomatic_count_try = false\n\n[thresholds]\ncyclomatic = 2\n",
+    );
+    cli()
+        .current_dir(linear.path())
+        .arg("check")
+        .assert()
+        .success()
+        .stderr(predicate::str::is_empty());
 }
 
 /// A manifest `[thresholds.soft]` sub-table (#375) is ignored at the

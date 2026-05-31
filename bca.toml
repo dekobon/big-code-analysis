@@ -1,0 +1,13 @@
+# bca.toml — repo-level manifest, auto-discovered by `bca` (and by
+# `make self-scan`) when climbing from the working directory to the
+# repo root. Path / threshold / baseline selection stays in the
+# Makefile and `bca-thresholds.toml`; this manifest only carries the
+# cyclomatic `?` policy, and its keys are merged *under* any explicit
+# CLI flag (the flag wins).
+
+# Treat Rust's `?` (the `try_expression` node) as linear error
+# propagation rather than a branch: it does not contribute to
+# cyclomatic complexity (standard or modified). Equivalent to passing
+# `--no-cyclomatic-try` on every invocation (#409). Rust-only — no
+# other grammar emits the node, so the key is inert elsewhere.
+cyclomatic_count_try = false

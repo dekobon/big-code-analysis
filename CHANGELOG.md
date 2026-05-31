@@ -747,6 +747,13 @@ for historical reference.
 
 ### Fixed
 
+- The `cyclomatic_count_try` `bca.toml` key is no longer flagged with a
+  spurious "ignoring unrecognized key" warning. The key was added to the
+  typed manifest view in [#409](https://github.com/dekobon/big-code-analysis/issues/409)
+  but omitted from the `KNOWN_KEYS` allowlist that drives the
+  unrecognized-key advisory, so a manifest setting it was silently
+  honored while bca printed a warning claiming it was ignored. The
+  allowlist now includes the key.
 - Ruby stabby lambdas (`->(z) { … }`) are no longer double-counted in
   the `nom` closures metric. tree-sitter-ruby parses a stabby lambda as
   a `Lambda` node that contains its body `Block`/`DoBlock`, so the lambda

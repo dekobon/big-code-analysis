@@ -51,6 +51,7 @@ const KNOWN_KEYS: &[&str] = &[
     "baseline",
     "baseline_line_tolerance",
     "baseline_fuzzy_match",
+    "cyclomatic_count_try",
     "headroom",
     "thresholds",
     "check",
@@ -142,19 +143,32 @@ pub(crate) fn discover_and_load() -> Option<Manifest> {
 /// raw text a second time into a generic table because the typed
 /// [`RawManifest`] silently drops anything it does not name.
 fn warn_unknown_keys(text: &str) {
+    for key in unknown_top_level_keys(text) {
+        eprintln!(
+            "warning: bca.toml: ignoring unrecognized key `{key}` \
+             (unknown option, or a feature not yet released)"
+        );
+    }
+}
+
+/// Top-level keys present in `text` but absent from [`KNOWN_KEYS`].
+///
+/// Split out from [`warn_unknown_keys`] so the allowlist can be tested
+/// directly: every field [`RawManifest`] consumes must be listed in
+/// [`KNOWN_KEYS`], or it is silently honored while bca prints a
+/// misleading "ignoring unrecognized key" warning (the #409
+/// `cyclomatic_count_try` regression).
+fn unknown_top_level_keys(text: &str) -> Vec<String> {
     let Ok(table) = toml::from_str::<toml::Table>(text) else {
         // The typed parse already succeeded, so this cannot fail in
-        // practice; if it somehow does, skip the advisory warnings.
-        return;
+        // practice; if it somehow does, report no unknown keys.
+        return Vec::new();
     };
-    for key in table.keys() {
-        if !KNOWN_KEYS.contains(&key.as_str()) {
-            eprintln!(
-                "warning: bca.toml: ignoring unrecognized key `{key}` \
-                 (unknown option, or a feature not yet released)"
-            );
-        }
-    }
+    table
+        .keys()
+        .filter(|key| !KNOWN_KEYS.contains(&key.as_str()))
+        .cloned()
+        .collect()
 }
 
 /// Climb from the working directory to the repo root looking for
