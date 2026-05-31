@@ -606,13 +606,34 @@ impl Npm for GoCode {
             // signatures via `MethodElem` children of an
             // `InterfaceType`. Interfaces have no func_space of
             // their own, so the count lands on the enclosing space
-            // (typically Unit). Interface members are always visible
-            // to implementers — counted as public per Java's rule.
+            // (typically Unit). Embedded interfaces (`io.Reader`)
+            // parse as `TypeElem`, not `MethodElem`, so they are not
+            // counted here. Go's export rule is lexical and applies
+            // to interface method names too (issue #471, the
+            // interface-side analog of #458): a signature is public
+            // iff its name's first character is an uppercase Unicode
+            // letter. `interface_nm` counts every method element;
+            // `interface_npm` only the exported ones.
             G::InterfaceType => {
-                let methods = node
+                let mut methods = 0_usize;
+                let mut exported = 0_usize;
+                for method in node
                     .children()
                     .filter(|c| matches!(c.kind_id().into(), G::MethodElem))
-                    .count();
+                {
+                    methods += 1;
+                    // The method name is the `FieldIdentifier` child,
+                    // mirroring the `MethodDeclaration` arm; a missing
+                    // name is treated as not-exported.
+                    let is_exported = method
+                        .children()
+                        .find(|c| matches!(c.kind_id().into(), G::FieldIdentifier))
+                        .and_then(|name| name.utf8_text(code))
+                        .is_some_and(super::npa::go_is_exported);
+                    if is_exported {
+                        exported += 1;
+                    }
+                }
                 if methods == 0 {
                     return;
                 }
@@ -620,7 +641,7 @@ impl Npm for GoCode {
                     stats.is_class_space = true;
                 }
                 stats.interface_nm += methods;
-                stats.interface_npm = stats.interface_nm;
+                stats.interface_npm += exported;
             }
             _ => {}
         }
@@ -3449,9 +3470,10 @@ class C {
     #[test]
     fn go_interface_methods_count_as_interface_nm() {
         // `interface { Read() error; Close() error }` declares two
-        // method signatures → interface_nm = 2, interface_npm = 2
-        // (interface members are always visible to implementers,
-        // matching Java's interface rule).
+        // method signatures → interface_nm = 2, interface_npm = 2.
+        // Both names are exported (uppercase first char), so the
+        // lexical export rule (issue #471) leaves npm == nm here;
+        // `go_interface_methods_respect_export` covers the mixed case.
         //
         // Unlike Java / Kotlin / TS, Go interfaces do *not* open a
         // FuncSpace (`GoCode::is_func_space` only matches
@@ -3466,6 +3488,25 @@ class C {
             "foo.go",
             |metric| {
                 assert_eq!(metric.npm.interface_nm_sum(), 2.0);
+                assert_eq!(metric.npm.interface_npm_sum(), 2.0);
+                assert_eq!(metric.npm.class_nm_sum(), 0.0);
+                insta::assert_json_snapshot!(metric.npm);
+            },
+        );
+    }
+
+    #[test]
+    fn go_interface_methods_respect_export() {
+        // Go's lexical export rule applies to interface method names
+        // too (issue #471). `Foo` and `Ünic` (Unicode uppercase first
+        // char) are exported; `bar` is not. interface_nm counts all
+        // three; interface_npm only the two exported. Revert-verified
+        // against the old all-public arm (interface_npm_sum = 3).
+        check_metrics::<GoParser>(
+            "package main\ntype I interface { Foo(); bar(); Ünic() }\n",
+            "foo.go",
+            |metric| {
+                assert_eq!(metric.npm.interface_nm_sum(), 3.0);
                 assert_eq!(metric.npm.interface_npm_sum(), 2.0);
                 assert_eq!(metric.npm.class_nm_sum(), 0.0);
                 insta::assert_json_snapshot!(metric.npm);

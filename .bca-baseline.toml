@@ -2574,21 +2574,21 @@ path = "src/metrics/npm.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 15451095.086261101
+value = 15740937.97266975
 
 [[entry]]
 path = "src/metrics/npm.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 3881.0
+value = 3922.0
 
 [[entry]]
 path = "src/metrics/npm.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 203.0
+value = 206.0
 
 [[entry]]
 path = "src/metrics/npm.rs"
@@ -2602,28 +2602,42 @@ path = "src/metrics/npm.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 349.0
+value = 353.0
 
 [[entry]]
 path = "src/metrics/npm.rs"
 qualified = "<file>"
 start_line = 1
 metric = "wmc"
-value = 133.0
+value = 137.0
+
+[[entry]]
+path = "src/metrics/npm.rs"
+qualified = "GoCode"
+start_line = 567
+metric = "halstead.effort"
+value = 66379.33245427861
 
 [[entry]]
 path = "src/metrics/npm.rs"
 qualified = "GoCode"
 start_line = 567
 metric = "nargs"
-value = 7.0
+value = 9.0
+
+[[entry]]
+path = "src/metrics/npm.rs"
+qualified = "GoCode::compute"
+start_line = 568
+metric = "halstead.effort"
+value = 64139.86021318563
 
 [[entry]]
 path = "src/metrics/npm.rs"
 qualified = "GoCode::compute"
 start_line = 568
 metric = "nargs"
-value = 7.0
+value = 9.0
 
 [[entry]]
 path = "src/metrics/npm.rs"
