@@ -747,6 +747,40 @@ for historical reference.
 
 ### Fixed
 
+- Ruby stabby lambdas (`->(z) { … }`) are no longer double-counted in
+  the `nom` closures metric. tree-sitter-ruby parses a stabby lambda as
+  a `Lambda` node that contains its body `Block`/`DoBlock`, so the lambda
+  was counted once and its body block again; the inner block of a
+  `Lambda` is now skipped while keyword `lambda { }` / `proc { }` forms
+  still count once
+  ([#465](https://github.com/dekobon/big-code-analysis/issues/465)).
+- C/C++ Halstead now counts `sized_type_specifier` modifiers
+  (`unsigned` / `signed` / `long` / `short`) as operators. They are bare
+  keyword tokens rather than `primitive_type` children, so they were
+  classified `Unknown` and dropped — deflating operator counts and
+  derived volume/difficulty/effort/MI for sized integer types
+  ([#466](https://github.com/dekobon/big-code-analysis/issues/466)).
+- Tcl `switch` now contributes to cognitive and cyclomatic complexity
+  (and derived MI). A `switch` is a generic `command` node with no
+  dedicated kind, so both metric dispatchers skipped it; each
+  non-`default` arm is now a cyclomatic decision point and the switch is
+  a `+1`+nesting cognitive structure, matching the cross-language switch
+  convention ([#467](https://github.com/dekobon/big-code-analysis/issues/467)).
+- Go interface method signatures now respect the lexical export rule in
+  `npm`: `interface_npm` counts only methods whose name begins with an
+  uppercase Unicode letter, instead of treating every signature as public
+  ([#471](https://github.com/dekobon/big-code-analysis/issues/471)).
+- C# expression-bodied properties (`int W => _w;`) now count as one
+  method in `nom`/`wmc`, matching the `npm` `.max(1)` count. With no
+  accessor to defer to, the property previously opened no function space
+  and contributed `0`; bodied and auto-property counts are unchanged
+  ([#472](https://github.com/dekobon/big-code-analysis/issues/472)).
+- PHP ABC condition counting no longer over-counts the `default` arm of
+  a `switch` (`DefaultStatement`) or `match` (`MatchDefaultExpression`),
+  matching PHP's cyclomatic decision count. This completes the
+  cross-language "ABC conditions == cyclomatic decisions" invariant after
+  the #469 C-family and #456 Kotlin/C# fixes
+  ([#473](https://github.com/dekobon/big-code-analysis/issues/473)).
 - Kotlin cognitive complexity no longer over-counts labeled non-jump
   expressions ([#450](https://github.com/dekobon/big-code-analysis/issues/450)).
   The labeled-jump arm added by #450 was unconditional, but
