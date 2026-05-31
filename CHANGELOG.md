@@ -23,6 +23,21 @@ for historical reference.
 
 ### Added
 
+- `bca diff`: compare two `bca metrics -O json` runs (single JSON files
+  or directory trees), bucketing per-file metric deltas by metric in
+  `tty` / `markdown` / `json` form, with `--min-change` and `--metric`
+  filters. Replaces the external `json-minimal-tests` +
+  `split-minimal-tests.py` grammar-bump diff chain (the latter is
+  retired). Informational — always exits 0 on success
+  ([#487](https://github.com/dekobon/big-code-analysis/issues/487)).
+- `bca check` baseline files now record **tier/headroom provenance**
+  (format v5): a `[provenance]` table stamps the tier (and headroom for
+  the scaled soft tier) the baseline was written at. `bca check` warns
+  when the current run is *stricter* than the baseline was written
+  against (the silent-desync the baseline-refresh discipline guards),
+  staying silent for the safe hard-reads-soft and equal cases; v2–v4
+  baselines read unchanged with provenance treated as absent
+  ([#486](https://github.com/dekobon/big-code-analysis/issues/486)).
 - Support for **F5 iRules** source files (`.irule`, `.irules`), a Tcl
   scripting dialect, via the
   [`tree-sitter-irules`](https://crates.io/crates/tree-sitter-irules)
@@ -46,8 +61,8 @@ for historical reference.
   `bca.toml` key (the flag ORs on top — it can force opt-out but not
   force counting back on). Setting it false treats `?` as linear error
   propagation rather than a branch, on both standard and modified
-  cyclomatic. The `make self-scan` gate exposes the same opt-out via
-  `BCA_COUNT_CYCLOMATIC_TRY=0`. **The default is unchanged**: `?` keeps
+  cyclomatic. The repo's own `make self-scan` gate sets it via the
+  `bca.toml` manifest. **The default is unchanged**: `?` keeps
   counting `+1`, matching upstream rust-code-analysis, so every
   published metric value and existing snapshot is byte-identical (no
   value change on the default path). Rust-only — no other language
@@ -378,6 +393,22 @@ for historical reference.
 
 ### Changed
 
+- The project's own self-scan gate now reads all configuration (paths,
+  exclude_from, baseline, thresholds, and the cyclomatic-`?` policy)
+  from a single consolidated `bca.toml` manifest; the standalone
+  `bca-thresholds.toml` and the redundant `BCA_COUNT_CYCLOMATIC_TRY`
+  Makefile plumbing are retired, so `bca check` reproduces the gate
+  with no flag threading
+  ([#483](https://github.com/dekobon/big-code-analysis/issues/483)).
+- `bca init` now scaffolds a consolidated `bca.toml` manifest
+  (auto-discovered zero-config) instead of the retired
+  `bca-thresholds.toml` three-file split; `.bcaignore` and
+  `.bca-baseline.toml` are still written
+  ([#484](https://github.com/dekobon/big-code-analysis/issues/484)).
+- CI: removed the hand-translated `.bcaignore` mirror regex from the
+  `bca-self-scan` / `bca-self-scan-headroom` pre-commit hooks;
+  `.bcaignore` is now the single source for the self-scan deny-set
+  ([#485](https://github.com/dekobon/big-code-analysis/issues/485)).
 - Cognitive complexity now applies the SonarSource §B2 jump-statement
   rule uniformly across languages: an *unstructured* jump (labeled
   `break`/`continue`, `goto`) adds +1 while a plain unlabeled
@@ -761,6 +792,13 @@ for historical reference.
 
 ### Fixed
 
+- `--exclude-from` (`.bcaignore`) glob matching is now anchored to the
+  walk root, so an absolute walk root — a `bca.toml` `paths = ["."]`
+  resolved to an absolute path, or an explicit `--paths "$PWD"` —
+  excludes the same files as `--paths .`. Previously the `./`-anchored
+  ignore patterns silently failed to match an absolute walk root,
+  breaking the documented zero-config manifest gate
+  ([#488](https://github.com/dekobon/big-code-analysis/issues/488)).
 - The `cyclomatic_count_try` `bca.toml` key is no longer flagged with a
   spurious "ignoring unrecognized key" warning. The key was added to the
   typed manifest view in [#409](https://github.com/dekobon/big-code-analysis/issues/409)
