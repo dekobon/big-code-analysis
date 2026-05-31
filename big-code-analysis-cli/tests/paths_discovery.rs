@@ -19,9 +19,9 @@ fn cli(env_dir: &Path) -> Command {
     // These tests exercise `--paths` / `--paths-from` / gitignore walking
     // against synthetic tempdir trees and assert on the exact file set
     // walked. The runner's cwd is inside the repo, whose root `bca.toml`
-    // declares `paths`, `exclude`, and `exclude_from`; `--no-config`
-    // suppresses that discovery so the manifest cannot leak extra
-    // path/exclude rules into the walk. As a global flag it must precede
+    // declares `paths` and `exclude_from`; `--no-config` suppresses that
+    // discovery so the manifest cannot leak extra path/exclude rules
+    // into the walk. As a global flag it must precede
     // the subcommand, so it is injected here before any per-test `args`.
     cmd.arg("--no-config");
     cmd
