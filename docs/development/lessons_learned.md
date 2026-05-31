@@ -3087,6 +3087,20 @@ so standalone `not x`, `a in b`, `a is b`, and `for x in y` keep
 counting. The guard reads `node.parent()` and falls through to
 `Operator` on `None`.
 
+**The same wrapper-contains-inner double-count hit Ruby closures, in a
+different metric** (#465, `7e4328a0`). tree-sitter-ruby parses a stabby
+lambda `->(z) { … }` as a `Lambda` node that *contains* its body
+`Block`/`DoBlock`; `RubyCode::is_closure` matched `Lambda | Block | DoBlock`,
+so one lambda scored `nom.closures = 2`. The keyword forms `lambda { }` /
+`proc { }` (a `Call` carrying a `Block` argument whose parent is not a
+`Lambda`) were already correct, so only the stabby form was asymmetric. The
+fix is the same parent-guard — count `Block`/`DoBlock` only when their parent
+is not `Lambda`, which also covers the top-level no-parent case
+(`!parent().is_some_and(== Lambda)` in `7e4328a0`, clippy-modernised to
+`parent().is_none_or(|p| p.kind_id() != Lambda)` in `41e97ea3`). The trap
+generalises beyond Halstead: any node-kind predicate that lists both a
+container and a kind it can contain double-counts.
+
 **Lesson:** For any operator a grammar emits as wrapper-node + keyword
 leaf, classify exactly **one** kind and verify with `bca ops` that the
 occurrence count matches the source. This is the mirror image of
@@ -3327,9 +3341,12 @@ gates rather than re-deriving them (#456). The statement/arrow-switch
 `default` arm then had to be excluded across Java / C# / Groovy / JS / TS /
 TSX / Mozjs in ABC (C and C++ were already correct) — the same `Default`
 token, seven languages, one fix — to bring every language's ABC condition
-count into agreement with its own cyclomatic decision count (#469). PHP's
-`DefaultStatement` / `MatchDefaultExpression` shares the divergence and was
-filed separately (#473).
+count into agreement with its own cyclomatic decision count (#469). PHP
+shared the divergence through *distinct* grammar kinds —
+`DefaultStatement` (switch) and `MatchDefaultExpression` (`match`), not the
+C-family's shared `Default` token — and was completed separately (#473,
+`43c1086b`), so every language's ABC condition count now equals its
+cyclomatic decision count.
 
 **Lesson:** When a metric must skip a default/fallback arm, the exclusion is
 anchored to the *construct*, not the node kind: confirm the construct's own
@@ -3371,6 +3388,18 @@ there are no accessors to defer to, mirroring the npm reference
 `is_func_space`, and `get_space_kind` — share the predicate so the space
 tree never disagrees with itself.
 
+**The C# expression-bodied property had the same latent zero, fixed by
+generalising the same predicate** (#472, `c381c117`). `PropertyDeclaration`
+sat in none of the three dispatch sets, so a bodied property correctly
+deferred to its `get`/`set` accessor spaces — but the expression-bodied form
+(`int W => _w;`), which has no `AccessorDeclaration` child, opened no space at
+all and counted `0` while npm reported `1` via `.max(1)`. The fix renamed
+`csharp_indexer_has_accessors` → `csharp_member_has_accessors` and gated
+`IndexerDeclaration | PropertyDeclaration` on `!csharp_member_has_accessors`
+at all three sites — the identical childless-variant gate as the #464
+indexer, sharing one predicate so indexer and property stay consistent and
+agree with npm.
+
 **Lesson:** Before removing a node kind from a function/space dispatch set
 to fix an over-count, enumerate the construct's variants and find the one
 with no qualifying children — it is relying on the membership you are about
@@ -3380,5 +3409,46 @@ rather than removing it outright, and keep `is_func`, `is_func_space`, and
 self-consistent. This is the inverse of lesson #19 (a *missing* arm scores a
 valid construct as zero): here the arm exists and the fix is to *narrow* it,
 and narrowing too far re-creates #19's zero for the childless sub-case.
+
+---
+
+## 66. A control-flow construct with no dedicated grammar kind escapes every kind-based metric dispatcher
+
+Metric impls dispatch on `match node.kind_id()` — they recognise control
+flow by its grammar *kind* (`If`, `While`, `SwitchStatement`, …). In
+command-dispatched languages, a construct that is semantically control flow
+may have no dedicated kind at all: it is spelled as an ordinary builtin
+command and parses as the same generic `command` node as `puts` or `set`.
+Every kind-based dispatcher skips it silently — there is no missing-enum-arm
+signal (the kind it would need does not exist), no compiler or clippy
+warning, and no test failure unless a fixture exercises the construct *and*
+asserts a score above the base.
+
+**Tcl `switch` contributed zero complexity** (#467, `867d9753`). The Tcl
+cognitive and cyclomatic impls dispatch on dedicated kinds
+(`If`/`Elseif`/`While`/`Foreach`/`Catch`), but Tcl's `switch` is a generic
+`command` whose first word happens to be `switch` — so a three-arm `switch`
+scored cognitive `0.0` and cyclomatic `1.0` (base only), while the
+equivalent C `switch` scored `1.0` / `3.0`. The fix detects the construct
+out-of-band by its leading word (the command's `name` field == `"switch"`)
+and counts its non-`default` arms. Crucially, the arm list is located by
+*structural position* — the sole trailing `braced_word` argument — not a
+fixed child index, because the optional `-exact` / `-glob` / `-regexp` /
+`--` options and the matched value precede it; a positional index would have
+broken on every option-form switch (the failure mode of lesson #53). The
+rarer split form (`switch $x a {b} c {d}`) was deliberately scoped out and
+documented at the call site.
+
+**Lesson:** When a metric dispatches on `kind_id`, a construct the grammar
+models as a generic command (not a dedicated kind) is invisible to it — the
+gap is not a missing enum arm (lesson #51) but a missing *kind*. Audit
+command-dispatched languages (Tcl, shell-like grammars) for builtins that
+are control flow, recognise them out-of-band by their leading word, and
+locate sub-parts by structural position rather than a fixed index so the
+detection survives optional option/flag prefixes. Add a fixture that scores
+above the base and test-via-revert that the arm fires. This is the cousin of
+lesson #61 (the semantic role transfers across grammars but the node *kind*
+does not) — here the node kind the dispatcher needs does not exist for that
+construct in that grammar at all.
 
 ---
