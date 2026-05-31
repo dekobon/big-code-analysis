@@ -1725,7 +1725,7 @@ impl Checker for RubyCode {
             // still count exactly once.
             Ruby::Block | Ruby::DoBlock => !node
                 .parent()
-                .is_some_and(|parent| Ruby::Lambda == parent.kind_id()),
+                .is_some_and(|parent| parent.kind_id() == Ruby::Lambda),
             _ => false,
         }
     }
