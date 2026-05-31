@@ -202,23 +202,24 @@ repos:
       # `bca.toml` with a why-comment in the same commit; when you
       # intentionally accept new offenders, run
       # `make self-scan-write-baseline` and commit the resulting
-      # diff. `files` mirrors the inputs that can change the gate's
-      # verdict — analysed Rust source, the manifest (paths +
-      # thresholds + cyclomatic policy + baseline), the baseline
-      # itself, and `.bcaignore` — and `exclude` matches the
-      # directories `.bcaignore` already filters out so the hook
-      # does not re-fire for changes the gate already skips.
+      # diff. `files` is a coarse fire-or-not filter: the inputs that
+      # can change the gate's verdict — analysed Rust source, the
+      # manifest (paths + thresholds + cyclomatic policy + baseline),
+      # the baseline itself, and `.bcaignore`. It is deliberately NOT
+      # a mirror of `.bcaignore`'s deny-set. The hook runs
+      # `pass_filenames: false`, so `make self-scan` performs a full
+      # repo scan that already honours `.bcaignore` (the gate's single
+      # source of truth, wired via `exclude_from` in `bca.toml`).
+      # Firing on a `.rs` edit that `.bcaignore` would exclude (a
+      # vendored grammar file, a `*_tests.rs`) therefore yields a
+      # correct no-op verdict, never a wrong one — we accept those
+      # occasional wasted runs to delete the glob→regex hand-
+      # translation that used to live in `exclude:` here and silently
+      # drift out of sync with `.bcaignore` (#485).
       - id: bca-self-scan
         name: bca-self-scan
         language: system
         files: '(\.rs$|^bca\.toml$|^\.bca-baseline\.toml$|^\.bcaignore$)'
-        # Mirrors `.bcaignore` so the hook does not fire for `.rs`
-        # edits in paths the gate already excludes (vendored grammars,
-        # tests, generated trees, docs/, packaging/, utils/, man/,
-        # examples/ anywhere in the tree). Keep this list aligned with
-        # `.bcaignore` — if either drifts the hook either fires for
-        # nothing or misses real input changes.
-        exclude: '^(tree-sitter-[^/]+/|tests/|.*/tests/|.*_tests\.rs$|enums/|big-code-analysis-book/|docs/|packaging/|utils/|xtask/|generate-grammars/|man/|abuild-keys/|.*/examples/)'
         entry: make self-scan
         pass_filenames: false
 
@@ -231,17 +232,15 @@ repos:
       # before the hard gate trips. Override with
       # `BCA_HEADROOM=0.90 pre-commit run bca-self-scan-headroom`
       # to widen the band.
+      # See the `files:` rationale on `bca-self-scan` above: the
+      # pattern is a coarse fire-or-not filter, not a mirror of
+      # `.bcaignore`. The full `pass_filenames: false` scan already
+      # honours `.bcaignore`, so no `exclude:` regex is needed here
+      # either (#485).
       - id: bca-self-scan-headroom
         name: bca-self-scan-headroom
         language: system
         files: '(\.rs$|^bca\.toml$|^\.bca-baseline\.toml$|^\.bcaignore$)'
-        # Mirrors `.bcaignore` so the hook does not fire for `.rs`
-        # edits in paths the gate already excludes (vendored grammars,
-        # tests, generated trees, docs/, packaging/, utils/, man/,
-        # examples/ anywhere in the tree). Keep this list aligned with
-        # `.bcaignore` — if either drifts the hook either fires for
-        # nothing or misses real input changes.
-        exclude: '^(tree-sitter-[^/]+/|tests/|.*/tests/|.*_tests\.rs$|enums/|big-code-analysis-book/|docs/|packaging/|utils/|xtask/|generate-grammars/|man/|abuild-keys/|.*/examples/)'
         entry: make self-scan-headroom
         pass_filenames: false
 
