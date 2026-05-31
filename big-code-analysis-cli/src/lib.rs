@@ -320,7 +320,7 @@ enum Command {
     // (its many gate-tuning flags dwarf the other subcommands' args);
     // boxing keeps `Command` small and silences `large_enum_variant`.
     Check(Box<CheckArgs>),
-    /// Scaffold the canonical adoption files (`bca-thresholds.toml`,
+    /// Scaffold the canonical adoption files (`bca.toml` manifest,
     /// `.bcaignore`, `.bca-baseline.toml`) in the current directory.
     /// Replaces the six-step copy-paste flow from the book's adoption
     /// recipe. Refuses to overwrite existing files without `--force`.
