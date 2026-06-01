@@ -822,6 +822,23 @@ for historical reference.
 
 ### Fixed
 
+- `bca diff --since <ref> <subdir>` no longer reports every file as both
+  added and removed. The before side (a `git archive` of `<ref>`) is
+  rooted at the repo top, but the positional was used as the after-side
+  *root*, so a subtree positional keyed the two sides differently and
+  nothing paired. The `--since` positional is now a relative *scope*
+  (equivalent to `--paths`) applied to both sides, which stay rooted at
+  their tree top; an absolute positional is rejected like an absolute
+  `--paths`
+  ([#497](https://github.com/dekobon/big-code-analysis/issues/497)).
+- `[check.exclude]` / `--check-exclude` now exempts offenders from
+  `--paths-from` seeds, not only `--paths`. `apply_check_exclude` was
+  handed only `--paths`, so a violation from a `--paths-from`-sourced
+  absolute seed was matched against the deny-set unanchored and a
+  walk-root-anchored pattern silently failed to exempt it (a
+  false-positive gate failure, or a polluted `--write-baseline`). It now
+  anchors against the full reanchored seed set
+  ([#497](https://github.com/dekobon/big-code-analysis/issues/497)).
 - `bca preproc` again resolves cross-file `#include` directives. #489
   moved the walk to the CLI and handed the library a flat file list, so
   every path took the library walker's single-file branch and the

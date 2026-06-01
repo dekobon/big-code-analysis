@@ -750,20 +750,20 @@ struct DiffBaselineArgs {
 struct DiffArgs {
     /// In file/dir mode: the old (base) metric output — the "before"
     /// side (a per-file JSON file or a directory of per-file JSON).
-    /// In `--since` mode: an optional after-side *source tree* to
-    /// analyze instead of the working tree. Because the before side is
-    /// a `git archive` of the whole ref tree (rooted at the repo top),
-    /// this tree must be rooted comparably — pass a full checkout, not
-    /// a subdirectory, or the root-relative keys will not line up and
-    /// every file is reported as both added and removed. Omit it to
-    /// analyze the working tree.
+    /// In `--since` mode: an optional *relative path scope* (a
+    /// subdirectory or file), equivalent to `--paths`, applied to both
+    /// sides — so `bca diff --since HEAD src` diffs only the `src`
+    /// subtree. It is a scope, never an alternate root: both sides stay
+    /// rooted at the repo top, so the keys always line up. Must be
+    /// relative (an absolute path is rejected); omit it to diff the
+    /// whole tree.
     #[clap(value_parser)]
     old: Option<PathBuf>,
     /// In file/dir mode: the new (after) metric output (a per-file JSON
     /// file or a directory of them). Not used in `--since` mode, where
-    /// the after side is the optional first positional (or the working
-    /// tree) — a second positional with `--since` is rejected at
-    /// runtime.
+    /// the after side is always the working tree and the single
+    /// positional is a path scope — a second positional with `--since`
+    /// is rejected at runtime.
     #[clap(value_parser)]
     new: Option<PathBuf>,
     /// Analyze the tree at this git ref for the "before" side instead of
@@ -773,10 +773,11 @@ struct DiffArgs {
     /// `--exclude` selection as the rest of the CLI so both sides
     /// analyze the same file set.
     ///
-    /// In this mode the before side comes from `<ref>`, so at most one
-    /// positional is accepted and it is the *after* side (a source tree
-    /// to analyze); omit it to analyze the current working tree.
-    /// Passing two positionals with `--since` is rejected at runtime.
+    /// In this mode the before side comes from `<ref>` and the after
+    /// side is the working tree, so at most one positional is accepted
+    /// and it is a relative path *scope* (equivalent to `--paths`)
+    /// applied to both sides; omit it to diff the whole tree. Passing
+    /// two positionals with `--since` is rejected at runtime.
     #[clap(long)]
     since: Option<String>,
     /// Output style: `tty` (default), `markdown`, or `json`.
@@ -1118,7 +1119,7 @@ fn load_preproc_data(path: &Path) -> Arc<PreprocResults> {
 /// path character, not a comment. Returns `Err(message)` on I/O
 /// failure with the failing line number; the CLI caller translates
 /// this into a `die` exit.
-fn read_paths_from(src: &Path) -> Result<Vec<PathBuf>, String> {
+pub(crate) fn read_paths_from(src: &Path) -> Result<Vec<PathBuf>, String> {
     read_lines_from(src, "--paths-from", path_pattern_filter)
 }
 

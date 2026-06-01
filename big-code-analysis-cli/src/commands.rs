@@ -97,7 +97,12 @@ fn run_check(
     // records the structural exemptions and the gate never fails on
     // them. Applied after the empty-input guard above: exempt files are
     // still walked and counted, only their violations are dropped.
-    let violations = apply_check_exclude(violations, &args, &globals_for_remediation.paths);
+    let violations = apply_check_exclude(
+        violations,
+        &args,
+        &globals_for_remediation.paths,
+        globals_for_remediation.paths_from.as_deref(),
+    );
 
     // `--write-baseline <path>` writes there; a bare `--write-baseline`
     // is resolved to the manifest `baseline` by `merge_check` (#496), so
@@ -579,10 +584,12 @@ fn write_check_baseline(violations: Vec<Violation>, path: &Path, provenance: bas
 fn apply_check_exclude(
     violations: Vec<Violation>,
     args: &CheckArgs,
-    seeds: &[PathBuf],
+    paths: &[PathBuf],
+    paths_from: Option<&Path>,
 ) -> Vec<Violation> {
     // Fast path: nothing configured (the common case) skips the
-    // glob-set build and the file read entirely.
+    // glob-set build, the `--paths-from` re-read, and the file read
+    // entirely.
     if args.check_exclude.is_empty() && args.check_exclude_from.is_none() {
         return violations;
     }
@@ -595,17 +602,23 @@ fn apply_check_exclude(
     // before matching, mirroring the global `--exclude`/`--include`
     // anchoring (#489), so a `./`-anchored `[check.exclude]` pattern
     // exempts the same files regardless of how the seed resolved
-    // (absolute, `$PWD`, or a manifest root above the CWD). The seeds
-    // are `--paths` reanchored exactly as the walk emitted them (#493).
+    // (absolute, `$PWD`, or a manifest root above the CWD).
     //
-    // Only `--paths` seeds are threaded here, not `--paths-from`
-    // entries, so a violation from a `--paths-from`-sourced absolute
-    // seed is matched unanchored (unchanged from before #493). Folding
-    // both into one canonical-at-the-walk-seam anchoring is tracked by
-    // #495; until then this covers the manifest/`--paths` cases.
+    // The seeds must be the *full* set the walk anchored against —
+    // `--paths` AND any `--paths-from` entries — reanchored exactly as
+    // [`expand_seed_paths`] did. Threading only `--paths` left a
+    // violation from a `--paths-from`-sourced (e.g. absolute) seed
+    // matched unanchored, so a `[check.exclude]` glob silently failed to
+    // exempt it (#497). Re-reading `--paths-from` here (rather than
+    // plumbing the resolved list back from the walk) keeps the hot
+    // no-exclude path above allocation-free; this branch is the rare
+    // configured case.
+    let mut seeds: Vec<PathBuf> = paths.to_vec();
+    if let Some(src) = paths_from {
+        seeds.extend(crate::read_paths_from(src).unwrap_or_else(|e| die(e)));
+    }
     let seeds: Vec<PathBuf> = seeds
-        .iter()
-        .cloned()
+        .into_iter()
         .map(crate::walk_seed::reanchor_seed)
         .collect();
     let before = violations.len();
@@ -1905,16 +1918,6 @@ fn run_command_diff(globals: GlobalOpts, args: crate::DiffArgs) {
     write_stdout_or_die(rendered.as_bytes());
 }
 
-/// Compute the `bca diff --since <ref>` diff: materialize the tree at
-/// `since_ref` into an auto-cleaning tempdir, run the metric walk
-/// against it (the before side) and against the after side (the
-/// optional positional source tree or the current working tree), then
-/// reuse `metric_diff`'s bucketing. Both sides honor the same
-/// `--paths`/`--include`/`--exclude` selection.
-///
-/// Ref/checkout failures are hard errors (exit 1) per #492, surfaced via
-/// `die` in the caller; this returns `DiffError` for the file-walk /
-/// JSON-load failures `metric_diff` already models.
 fn compute_since_diff(
     globals: &GlobalOpts,
     args: &crate::DiffArgs,
@@ -1924,16 +1927,26 @@ fn compute_since_diff(
     // creating any temp state, so nothing needs cleaning up on this path.
     diff::validate_since_ref(since_ref).unwrap_or_else(|reason| die(reason));
 
-    // The "before" side is a `git archive` extraction of `<ref>`'s tree
-    // into a temp dir; an absolute `--paths` would point at the live
-    // filesystem instead, walking the current tree for both sides and
-    // yielding a silent all-zero diff. Reject it with a clear message
-    // rather than mis-pair (relative paths resolve against each tree
-    // root and select the same files).
-    if let Some(abs) = globals.paths.iter().find(|p| p.is_absolute()) {
+    // Both sides are rooted at their own tree top (a `git archive`
+    // extraction of `<ref>` for the before side, the repo root for the
+    // after side) and pair on root-relative keys. Selection — `--paths`
+    // and the optional positional scope — must therefore be *relative*:
+    // an absolute path addresses the live filesystem, not the extracted
+    // <ref> tree, so it would walk the current tree for both sides and
+    // yield a silent all-zero diff. Reject any absolute selector with a
+    // clear message rather than mis-pair.
+    let scope = args.old.as_deref();
+    let absolute_selector = globals
+        .paths
+        .iter()
+        .map(PathBuf::as_path)
+        .chain(scope)
+        .find(|p| p.is_absolute());
+    if let Some(abs) = absolute_selector {
         die(format_args!(
-            "diff --since: --paths must be relative (got {}); an absolute \
-             path cannot address the extracted <ref> tree",
+            "diff --since: paths must be relative (got {}); an absolute \
+             path cannot address the extracted <ref> tree — scope with a \
+             relative --paths / positional instead",
             abs.display()
         ));
     }
@@ -1958,25 +1971,22 @@ fn compute_since_diff(
     let before_json = tempfile::TempDir::new().map_err(io_to_diff_error)?;
     let before = crate::walk_metric_set(
         before_tree.path(),
-        side_globals(globals),
+        side_globals(globals, scope),
         before_json.path(),
     )?;
 
-    // After side: the optional positional source tree, else the working
-    // tree. In `--since` mode the single trailing positional is bound to
-    // `args.old` by clap; the caller has already rejected a second
-    // positional (`args.new`). `walk_metric_set` anchors the CWD at this
-    // root, so the before/after keys (root-relative) line up. The
-    // working-tree side anchors at the *git repo root* — not the process
-    // CWD — so the keys match the `before` side (a `git archive` of the
-    // whole ref tree, always rooted at the repo top); this lets
-    // `bca diff --since` run correctly from any subdirectory.
-    let after_root = match args.old.as_deref() {
-        Some(new_tree) => new_tree.to_path_buf(),
-        None => diff::git_repo_root().unwrap_or_else(|reason| die(reason)),
-    };
+    // After side: always the working tree, rooted at the *git repo root*
+    // (not the process CWD) so its root-relative keys line up with the
+    // before side — a `git archive` of the whole ref tree, always rooted
+    // at the repo top. This lets `bca diff --since` run from any
+    // subdirectory. The optional positional is a relative *scope* folded
+    // into both sides by `side_globals` (#497), never an alternate root,
+    // so a subtree positional (`bca diff --since HEAD src`) selects the
+    // same files on each side instead of mis-rooting the after walk.
+    let after_root = diff::git_repo_root().unwrap_or_else(|reason| die(reason));
     let after_json = tempfile::TempDir::new().map_err(io_to_diff_error)?;
-    let after = crate::walk_metric_set(&after_root, side_globals(globals), after_json.path())?;
+    let after =
+        crate::walk_metric_set(&after_root, side_globals(globals, scope), after_json.path())?;
 
     Ok(crate::metric_diff::MetricDiff::from_sets(
         &before,
@@ -1986,14 +1996,16 @@ fn compute_since_diff(
     ))
 }
 
-/// Build the per-side [`GlobalOpts`] for a `--since` metric walk: clone
-/// the user's globals (carrying `--include`/`--exclude` and the rest)
-/// but pin `paths` to `.` so the walk is anchored at the side's tree
-/// root (`walk_metric_set` sets the CWD there). When the user passed
-/// explicit `--paths`, honor them as-is — they are interpreted relative
-/// to each tree root, keeping both sides on the same file set.
-fn side_globals(globals: &GlobalOpts) -> GlobalOpts {
+fn side_globals(globals: &GlobalOpts, scope: Option<&Path>) -> GlobalOpts {
     let mut side = globals.clone();
+    // The `--since` positional is a relative path *scope*, not a tree
+    // root: merge it into `--paths` so both sides walk the same subtree
+    // and pair on the same keys (#497). Both sides are rooted at their
+    // own tree top (the `git archive` extraction / the repo root), so a
+    // scope of `src` selects `src/…` on each — never re-roots one side.
+    if let Some(scope) = scope {
+        side.paths.push(scope.to_path_buf());
+    }
     if side.paths.is_empty() {
         side.paths = vec![PathBuf::from(".")];
     }

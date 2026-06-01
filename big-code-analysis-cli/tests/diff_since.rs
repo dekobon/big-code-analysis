@@ -89,26 +89,36 @@ fn since_diffs_working_tree_against_first_commit() {
 }
 
 #[test]
-fn since_with_explicit_after_directory() {
+fn since_positional_scopes_subtree() {
+    // #497: the `--since` positional is a relative *scope* (like
+    // `--paths`), applied to both sides — NOT an alternate after-root.
+    // A subtree positional (`src`) must pair the same files on each
+    // side. Before the fix it re-rooted only the after walk, so the
+    // before keys (`src/work.rs`) and after keys (`work.rs`) never
+    // matched and every file reported as both added and removed with no
+    // delta — the assertion below would find no `cyclomatic.sum` change.
     let repo = repo_with_flat_commit();
-    // Replace the working tree with the branchy form and point the
-    // after side at the repo root explicitly (positional `.`), so both
-    // sides are rooted at the same layout (the before side is the whole
-    // ref tree). `--paths src` scopes both walks to the same subtree.
     fs::write(repo.path().join("src/work.rs"), BRANCHY_SOURCE).expect("write branchy");
 
     let assert = cli()
         .current_dir(repo.path())
-        .args([
-            "diff", "--since", "HEAD", ".", "--paths", "src", "--format", "json",
-        ])
+        .args(["diff", "--since", "HEAD", "src", "--format", "json"])
         .assert()
         .success();
     let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("utf8");
     let doc: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    // A real paired delta proves the keys lined up across both sides.
     let (old, new) = cyclomatic_sum_delta(&doc).expect("cyclomatic.sum delta present");
     assert_eq!(old, 2.0);
     assert_eq!(new, 6.0);
+    // The scope confines the diff to `src/`; nothing outside it leaks in
+    // as a spurious add/remove.
+    let added = doc["added_files"].as_array().expect("added_files array");
+    let removed = doc["removed_files"]
+        .as_array()
+        .expect("removed_files array");
+    assert!(added.is_empty(), "no spurious added files: {added:?}");
+    assert!(removed.is_empty(), "no spurious removed files: {removed:?}");
 }
 
 #[test]
@@ -222,7 +232,7 @@ fn since_rejects_absolute_paths() {
         .assert()
         .failure()
         .code(1)
-        .stderr(predicate::str::contains("--paths must be relative"));
+        .stderr(predicate::str::contains("paths must be relative"));
 }
 
 #[test]

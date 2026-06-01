@@ -12,7 +12,7 @@ Compare two metric\-output runs and report, per metric, which files changed (old
 \fB\-\-since\fR \fI<SINCE>\fR
 Analyze the tree at this git ref for the "before" side instead of reading a captured metric set. Hard\-errors (exit 1) if the process is not in a git checkout, `git` is missing, or the ref does not resolve. Honors the same `\-\-paths` / `\-\-include` / `\-\-exclude` selection as the rest of the CLI so both sides analyze the same file set.
 
-In this mode the before side comes from `<ref>`, so at most one positional is accepted and it is the *after* side (a source tree to analyze); omit it to analyze the current working tree. Passing two positionals with `\-\-since` is rejected at runtime.
+In this mode the before side comes from `<ref>` and the after side is the working tree, so at most one positional is accepted and it is a relative path *scope* (equivalent to `\-\-paths`) applied to both sides; omit it to diff the whole tree. Passing two positionals with `\-\-since` is rejected at runtime.
 .TP
 \fB\-\-format\fR \fI<FORMAT>\fR [default: tty]
 Output style: `tty` (default), `markdown`, or `json`
@@ -39,7 +39,7 @@ Restrict the diff to one or more metrics (repeatable). Names are those printed b
 Print help (see a summary with \*(Aq\-h\*(Aq)
 .TP
 [\fIOLD\fR]
-In file/dir mode: the old (base) metric output — the "before" side (a per\-file JSON file or a directory of per\-file JSON). In `\-\-since` mode: an optional after\-side *source tree* to analyze instead of the working tree. Because the before side is a `git archive` of the whole ref tree (rooted at the repo top), this tree must be rooted comparably — pass a full checkout, not a subdirectory, or the root\-relative keys will not line up and every file is reported as both added and removed. Omit it to analyze the working tree
+In file/dir mode: the old (base) metric output — the "before" side (a per\-file JSON file or a directory of per\-file JSON). In `\-\-since` mode: an optional *relative path scope* (a subdirectory or file), equivalent to `\-\-paths`, applied to both sides — so `bca diff \-\-since HEAD src` diffs only the `src` subtree. It is a scope, never an alternate root: both sides stay rooted at the repo top, so the keys always line up. Must be relative (an absolute path is rejected); omit it to diff the whole tree
 .TP
 [\fINEW\fR]
-In file/dir mode: the new (after) metric output (a per\-file JSON file or a directory of them). Not used in `\-\-since` mode, where the after side is the optional first positional (or the working tree) — a second positional with `\-\-since` is rejected at runtime
+In file/dir mode: the new (after) metric output (a per\-file JSON file or a directory of them). Not used in `\-\-since` mode, where the after side is always the working tree and the single positional is a path scope — a second positional with `\-\-since` is rejected at runtime

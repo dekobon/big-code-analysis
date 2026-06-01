@@ -313,3 +313,51 @@ fn check_exclude_manifest_glob_applies_from_subdir() {
             "skipped 1 violations via [check.exclude]",
         ));
 }
+
+/// Regression for #497: `[check.exclude]` / `--check-exclude` must
+/// anchor violations from `--paths-from` seeds, not only `--paths`.
+///
+/// Before the fix, `apply_check_exclude` was handed only `--paths`, so a
+/// violation from a `--paths-from`-sourced *absolute* seed was matched
+/// against the deny-set unanchored (in its absolute form). A
+/// walk-root-anchored pattern (`./excluded.rs`) therefore never matched
+/// it and the exclude silently no-opped — the offender failed the gate
+/// (or polluted a baseline). The corpus lives in a *sibling* tempdir so
+/// the absolute seed is not at/under the CWD and `reanchor_seed` cannot
+/// collapse it: it stays absolute, reproducing the bug condition.
+#[test]
+fn check_exclude_anchors_paths_from_seeds() {
+    // CWD dir carries the `.git` marker that halts bca.toml discovery.
+    let cwd = TempDir::new().unwrap();
+    fs::create_dir(cwd.path().join(".git")).unwrap();
+
+    // The analyzed corpus is an independent (sibling) absolute path.
+    let corpus = TempDir::new().unwrap();
+    fs::write(
+        corpus.path().join("excluded.rs"),
+        branchy("excluded_offender"),
+    )
+    .unwrap();
+    fs::write(corpus.path().join("kept.rs"), branchy("kept_offender")).unwrap();
+
+    let list = cwd.path().join("paths.txt");
+    fs::write(&list, format!("{}\n", corpus.path().to_str().unwrap())).unwrap();
+
+    cli(cwd.path())
+        .args([
+            "--paths-from",
+            list.to_str().unwrap(),
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--check-exclude",
+            "./excluded.rs",
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("kept_offender"))
+        .stderr(predicate::str::contains("excluded_offender").not())
+        .stderr(predicate::str::contains(
+            "skipped 1 violations via [check.exclude]",
+        ));
+}
