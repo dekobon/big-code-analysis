@@ -375,8 +375,11 @@ can opt out so `?` is treated as linear error propagation:
 - Library: `MetricsOptions::default().with_count_cyclomatic_try(false)`.
 - CLI: the global `--no-cyclomatic-try` flag, or `cyclomatic_count_try
   = false` in `bca.toml` (the flag wins when both are set).
-- `make self-scan`: `BCA_COUNT_CYCLOMATIC_TRY=0` (regenerate
-  `.bca-baseline.toml` in the same toggle, since values drop).
+- A repo gate: set `cyclomatic_count_try = false` in the
+  auto-discovered `bca.toml` (this project's own `make self-scan` does
+  exactly this — no flag or env var). Toggling the policy shifts
+  cyclomatic values, so regenerate `.bca-baseline.toml` in the same
+  change.
 
 The default is unchanged — `?` keeps counting — so published metric
 values are preserved. The toggle is Rust-only; no other language emits

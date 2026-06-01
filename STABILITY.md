@@ -255,7 +255,8 @@ mis-matching. Recent transitions:
 ### Schema-bump operational contract
 
 CLI artifact schemas (the `version` field on `.bca-baseline.toml`,
-the shape of `bca-thresholds.toml`, the on-disk report formats) are
+the shape of the `[thresholds]` config — the `bca.toml` manifest table
+or a `--config` file — the on-disk report formats) are
 read by whichever `bca` binary the user has installed. A schema bump
 in the binary that goes out without a coordinated update to the
 *install-bca* surfaces leaves downstream users in a state where

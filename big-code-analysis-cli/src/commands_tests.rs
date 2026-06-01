@@ -680,7 +680,7 @@ fn scale_threshold_trims_float_artifact_to_six_sig_figs() {
 /// Exact products must pass through untouched: `50_000 * 0.95` is
 /// representable as `47_500.0`, so rounding must not perturb it. Pins
 /// that the 6-sig-fig rounding preserves full precision for the
-/// largest threshold in `bca-thresholds.toml` (`halstead.effort`).
+/// largest threshold in `bca.toml` (`halstead.effort`).
 #[test]
 #[allow(clippy::float_cmp)] // The exact rounded output is the contract under test.
 fn scale_threshold_preserves_large_exact_products() {
