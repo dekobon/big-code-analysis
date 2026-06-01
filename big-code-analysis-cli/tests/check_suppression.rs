@@ -7,6 +7,7 @@
 //! offender lists.
 
 use std::fs;
+use std::path::Path;
 
 use assert_cmd::Command;
 use predicates::prelude::*;
@@ -14,8 +15,12 @@ use tempfile::TempDir;
 
 mod common;
 
-fn cli() -> Command {
-    common::bca_command()
+/// Hermetic `bca` builder: anchors the process cwd at `dir` (a
+/// `tempfile::tempdir()` with no `.git` ancestor) so `bca check` cannot
+/// auto-discover the repo's own `bca.toml` / `.bca-baseline.toml` and
+/// filter the inline fixtures against repo state (#491).
+fn cli(dir: &Path) -> Command {
+    common::cli_in(dir)
 }
 
 /// Rust function with cyclomatic complexity > 1 plus an inline
@@ -76,7 +81,7 @@ fn suppression_marker_silences_violation_by_default() {
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "branchy.rs", SUPPRESSED_RUST);
 
-    cli()
+    cli(dir.path())
         .args(["--paths", &path, "check", "--threshold", "cyclomatic=1"])
         .assert()
         .success()
@@ -90,7 +95,7 @@ fn no_suppress_flag_re_enables_violation() {
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "branchy.rs", SUPPRESSED_RUST);
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &path,
@@ -113,7 +118,7 @@ fn lizard_compat_marker_silences_violation() {
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "branchy.rs", LIZARD_RUST);
 
-    cli()
+    cli(dir.path())
         .args(["--paths", &path, "check", "--threshold", "cyclomatic=1"])
         .assert()
         .success()
@@ -128,7 +133,7 @@ fn file_scoped_marker_silences_nested_function_violation() {
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "branchy.rs", FILE_SUPPRESSED_RUST);
 
-    cli()
+    cli(dir.path())
         .args(["--paths", &path, "check", "--threshold", "cyclomatic=1"])
         .assert()
         .success()
@@ -172,7 +177,7 @@ fn legacy_allow_marker_does_not_suppress() {
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "branchy.rs", LEGACY_ALLOW_RUST);
 
-    cli()
+    cli(dir.path())
         .args(["--paths", &path, "check", "--threshold", "cyclomatic=1"])
         .assert()
         .code(2)
@@ -191,7 +196,7 @@ fn unsuppressed_metric_still_violates() {
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "branchy.rs", SUPPRESSED_RUST);
 
-    cli()
+    cli(dir.path())
         .args(["--paths", &path, "check", "--threshold", "cognitive=0"])
         .assert()
         .code(2)

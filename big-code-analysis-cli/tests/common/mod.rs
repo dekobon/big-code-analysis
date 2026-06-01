@@ -19,6 +19,8 @@
 //! without a separate test-helpers crate. Three small helpers don't
 //! merit that indirection today.
 
+use std::path::Path;
+
 use assert_cmd::Command;
 
 #[allow(dead_code)]
@@ -52,4 +54,41 @@ pub fn bca_command() -> Command {
     let mut cmd = Command::cargo_bin("bca").expect("bca binary builds");
     scrub_ci_env(&mut cmd);
     cmd
+}
+
+/// Build a `bca` `Command` whose working directory is `dir`, scrubbing
+/// CI-side env vars first.
+///
+/// `bca check` discovers its `bca.toml` (and the `baseline` it names)
+/// by climbing parents until it finds the directory containing `.git`.
+/// The integration suite runs from inside this repo, so a `Command`
+/// left at the inherited cwd auto-discovers the repo's own
+/// `bca.toml` + `.bca-baseline.toml` and silently filters/scales each
+/// fixture run against repo state. Anchoring the cwd at a
+/// `tempfile::tempdir()` — which has no `.git` ancestor — makes
+/// discovery find nothing, so the run is hermetic. This is the default
+/// builder for every test that does not *itself* exercise manifest
+/// auto-discovery (see #491).
+#[allow(dead_code)]
+pub fn cli_in(dir: &Path) -> Command {
+    let mut cmd = bca_command();
+    cmd.current_dir(dir);
+    cmd
+}
+
+/// Build a hermetic `bca` `Command` rooted at a fresh, empty
+/// `tempfile::tempdir()`, returning the guard alongside it.
+///
+/// Use this for tests that have no fixture tempdir of their own (e.g.
+/// they analyse a repo-relative fixture via an absolute `--paths`) but
+/// still must not inherit the repo's discovered `bca.toml` / baseline.
+/// The returned [`tempfile::TempDir`] must be kept alive until the
+/// command has been spawned — drop it too early and the cwd vanishes
+/// before `bca` reads it. See [`cli_in`] for the discovery rationale
+/// (#491).
+#[allow(dead_code)]
+pub fn cli_hermetic() -> (tempfile::TempDir, Command) {
+    let dir = tempfile::tempdir().expect("create tempdir for hermetic cwd");
+    let cmd = cli_in(dir.path());
+    (dir, cmd)
 }

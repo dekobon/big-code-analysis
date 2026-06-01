@@ -27,8 +27,12 @@ use tempfile::TempDir;
 mod common;
 use common::validators::{assert_checkstyle_well_formed_and_structural, validate_sarif};
 
-fn cli() -> Command {
-    common::bca_command()
+/// Hermetic `bca` builder: anchors the process cwd at `dir` (a
+/// `tempfile::tempdir()` with no `.git` ancestor) so `bca check` cannot
+/// auto-discover the repo's own `bca.toml` / `.bca-baseline.toml` and
+/// filter the offender document against repo state (#491).
+fn cli(dir: &TempDir) -> Command {
+    common::cli_in(dir.path())
 }
 
 fn write_rust_fixture(dir: &TempDir) -> String {
@@ -39,8 +43,8 @@ fn write_rust_fixture(dir: &TempDir) -> String {
     path.to_str().expect("fixture path is utf-8").to_string()
 }
 
-fn run_metrics(format: &str, fixture_path: &str) -> String {
-    let output = cli()
+fn run_metrics(dir: &TempDir, format: &str, fixture_path: &str) -> String {
+    let output = cli(dir)
         .args(["--paths", fixture_path, "metrics", "-O", format])
         .assert()
         .success()
@@ -54,8 +58,8 @@ fn run_metrics(format: &str, fixture_path: &str) -> String {
 /// --no-fail` so the walk produces offender records (branchy fixture
 /// vs cyclomatic=1) without bumping the exit code. Returns the
 /// document stdout.
-fn run_check_offender_doc(format: &str, fixture_path: &str) -> String {
-    let output = cli()
+fn run_check_offender_doc(dir: &TempDir, format: &str, fixture_path: &str) -> String {
+    let output = cli(dir)
         .args([
             "--paths",
             fixture_path,
@@ -78,7 +82,7 @@ fn run_check_offender_doc(format: &str, fixture_path: &str) -> String {
 fn cli_check_sarif_output_validates_against_schema() {
     let dir = TempDir::new().unwrap();
     let fixture = write_rust_fixture(&dir);
-    let out = run_check_offender_doc("sarif", &fixture);
+    let out = run_check_offender_doc(&dir, "sarif", &fixture);
     if let Err(violations) = validate_sarif(&out) {
         panic!(
             "SARIF schema violations from CLI output:\n  {}\n\nfull document:\n{}",
@@ -105,7 +109,7 @@ fn cli_check_sarif_output_validates_against_schema() {
 fn cli_check_checkstyle_output_is_well_formed() {
     let dir = TempDir::new().unwrap();
     let fixture = write_rust_fixture(&dir);
-    let out = run_check_offender_doc("checkstyle", &fixture);
+    let out = run_check_offender_doc(&dir, "checkstyle", &fixture);
     assert_checkstyle_well_formed_and_structural(&out);
     // Same routing-regression guard as the SARIF test: an empty
     // `<checkstyle version="4.3"/>` document is well-formed but
@@ -131,7 +135,7 @@ fn cli_csv_output_round_trips_through_csv_crate() {
     // one data row so we know real metric content is being emitted.
     let dir = TempDir::new().unwrap();
     let fixture = write_rust_fixture(&dir);
-    let out = run_metrics("csv", &fixture);
+    let out = run_metrics(&dir, "csv", &fixture);
 
     let mut rdr = csv::ReaderBuilder::new()
         .has_headers(false)
@@ -179,7 +183,7 @@ fn cli_check_code_climate_output_matches_gitlab_shape() {
 
     let dir = TempDir::new().unwrap();
     let fixture = write_rust_fixture(&dir);
-    let out = run_check_offender_doc("code-climate", &fixture);
+    let out = run_check_offender_doc(&dir, "code-climate", &fixture);
 
     let doc: serde_json::Value =
         serde_json::from_str(&out).expect("code-climate stdout parses as JSON");

@@ -14,6 +14,7 @@
 
 use std::fmt::Write as _;
 use std::fs;
+use std::path::Path;
 
 use assert_cmd::Command;
 use predicates::prelude::*;
@@ -21,8 +22,15 @@ use tempfile::TempDir;
 
 mod common;
 
-fn cli() -> Command {
-    common::bca_command()
+/// Hermetic `bca` builder: anchors the process cwd at `dir` (a
+/// `tempfile::tempdir()` with no `.git` ancestor) so `bca check` cannot
+/// auto-discover the repo's own `bca.toml` / `.bca-baseline.toml` and
+/// filter the inline fixtures against repo state (#491). The
+/// manifest-discovery tests below pass their own fixture dir (which
+/// *does* carry a `.git` + `bca.toml`), so they still exercise
+/// discovery against fixture state, not repo state.
+fn cli(dir: &Path) -> Command {
+    common::cli_in(dir)
 }
 
 /// Build a Rust source whose sole function `classify` has cyclomatic
@@ -58,7 +66,7 @@ fn default_mode_exits_two_on_violation() {
     let dir = TempDir::new().unwrap();
     let src = write_branchy(&dir, 5);
 
-    cli()
+    cli(dir.path())
         .args(["--paths", &src, "check", "--threshold", "cyclomatic=1"])
         .assert()
         .code(2);
@@ -77,7 +85,7 @@ fn default_mode_collapses_regression_to_two() {
     let src = src_path.to_str().unwrap().to_owned();
     let baseline = dir.path().join("baseline.toml");
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -92,7 +100,7 @@ fn default_mode_collapses_regression_to_two() {
 
     fs::write(&src_path, branchy_source(6)).unwrap(); // worsen to cyclomatic 7
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -111,7 +119,7 @@ fn strict_clean_exits_zero() {
     let dir = TempDir::new().unwrap();
     let src = write_branchy(&dir, 5);
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -129,7 +137,7 @@ fn no_fail_overrides_strict_exit_codes() {
     let dir = TempDir::new().unwrap();
     let src = write_branchy(&dir, 5);
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -151,7 +159,7 @@ fn strict_new_only_exits_two() {
     let dir = TempDir::new().unwrap();
     let src = write_branchy(&dir, 5);
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -172,7 +180,7 @@ fn strict_regression_only_exits_three() {
     let src = src_path.to_str().unwrap().to_owned();
     let baseline = dir.path().join("baseline.toml");
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -189,7 +197,7 @@ fn strict_regression_only_exits_three() {
     // baselined offender.
     fs::write(&src_path, branchy_source(6)).unwrap();
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -212,7 +220,7 @@ fn strict_mixed_exits_four() {
     let baseline = dir.path().join("baseline.toml");
 
     // Baseline captures only file a.rs (cyclomatic 5).
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             dir.path().to_str().unwrap(),
@@ -229,7 +237,7 @@ fn strict_mixed_exits_four() {
     fs::write(&a, branchy_source(6)).unwrap(); // cyclomatic 7
     fs::write(dir.path().join("b.rs"), branchy_source(4)).unwrap();
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             dir.path().to_str().unwrap(),
@@ -253,7 +261,7 @@ fn strict_hard_breach_under_soft_tier_exits_five() {
     let config = dir.path().join("thresholds.toml");
     fs::write(&config, "[thresholds]\ncyclomatic = 10\n").unwrap();
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -277,7 +285,7 @@ fn strict_soft_encroachment_exits_two_not_five() {
     let config = dir.path().join("thresholds.toml");
     fs::write(&config, "[thresholds]\ncyclomatic = 10\n").unwrap();
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -312,8 +320,7 @@ fn manifest_exit_codes_tiered_reported_in_effective_config() {
         "paths = [\".\"]\n\n[thresholds]\ncyclomatic = 1\n\n[check]\nexit_codes = \"tiered\"\n",
     );
 
-    cli()
-        .current_dir(dir.path())
+    cli(dir.path())
         .args(["check", "--print-effective-config"])
         .assert()
         .success()
@@ -324,8 +331,7 @@ fn manifest_exit_codes_tiered_reported_in_effective_config() {
 fn default_effective_config_reports_default_exit_codes() {
     let dir = manifest_fixture("paths = [\".\"]\n\n[thresholds]\ncyclomatic = 1\n");
 
-    cli()
-        .current_dir(dir.path())
+    cli(dir.path())
         .args(["check", "--print-effective-config"])
         .assert()
         .success()
@@ -338,8 +344,7 @@ fn manifest_exit_codes_invalid_value_is_tool_error() {
         "paths = [\".\"]\n\n[thresholds]\ncyclomatic = 1\n\n[check]\nexit_codes = \"bogus\"\n",
     );
 
-    cli()
-        .current_dir(dir.path())
+    cli(dir.path())
         .arg("check")
         .assert()
         .code(1)

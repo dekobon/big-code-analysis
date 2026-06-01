@@ -7,6 +7,7 @@
 //! `.git` marker halts `bca.toml` discovery at the fixture root.
 
 use std::fs;
+use std::path::Path;
 
 use assert_cmd::Command;
 use predicates::prelude::*;
@@ -14,8 +15,14 @@ use tempfile::TempDir;
 
 mod common;
 
-fn cli() -> Command {
-    common::bca_command()
+/// Hermetic `bca` builder: anchors the process cwd at `dir` (a
+/// `tempfile::tempdir()` with no `.git` ancestor) so `bca check` cannot
+/// auto-discover the repo's own `bca.toml` / `.bca-baseline.toml` and
+/// filter the inline fixtures against repo state (#491). The
+/// manifest-discovery tests below pass their own fixture dir, which
+/// carries a deliberate `.git` + `bca.toml`.
+fn cli(dir: &Path) -> Command {
+    common::cli_in(dir)
 }
 
 /// Cyclomatic == 4 (three decision points plus one). Named per-fixture
@@ -44,7 +51,7 @@ fn two_file_fixture() -> TempDir {
 fn check_exclude_flag_drops_matching_offenders_only() {
     let dir = two_file_fixture();
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             dir.path().to_str().unwrap(),
@@ -71,7 +78,7 @@ fn check_exclude_covering_sole_offender_exits_zero() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("excluded.rs"), branchy("excluded_offender")).unwrap();
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             dir.path().to_str().unwrap(),
@@ -100,7 +107,7 @@ fn check_exclude_from_file_drops_matching_offenders() {
     let ignore = dir.path().join(".bcacheckignore");
     fs::write(&ignore, "# structural exemptions\n\n**/excluded.rs\n").unwrap();
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             dir.path().to_str().unwrap(),
@@ -125,7 +132,7 @@ fn write_baseline_omits_excluded_files() {
     let dir = two_file_fixture();
     let baseline = dir.path().join("base.toml");
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             dir.path().to_str().unwrap(),
@@ -160,7 +167,7 @@ fn report_markdown_still_shows_excluded_files() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("excluded.rs"), branchy("excluded_offender")).unwrap();
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             dir.path().to_str().unwrap(),
@@ -185,8 +192,7 @@ fn manifest_check_exclude_table_drops_offenders() {
     )
     .unwrap();
 
-    cli()
-        .current_dir(dir.path())
+    cli(dir.path())
         .arg("check")
         .assert()
         .code(2)
@@ -209,8 +215,7 @@ fn cli_check_exclude_overrides_manifest_table() {
     )
     .unwrap();
 
-    cli()
-        .current_dir(dir.path())
+    cli(dir.path())
         .args(["check", "--check-exclude", "**/kept.rs"])
         .assert()
         .code(2)
@@ -225,7 +230,7 @@ fn print_effective_config_lists_check_exclude() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("kept.rs"), branchy("kept_offender")).unwrap();
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             dir.path().to_str().unwrap(),
@@ -251,7 +256,7 @@ fn check_exclude_from_missing_file_names_the_right_flag() {
     let dir = two_file_fixture();
     let missing = dir.path().join("does-not-exist.txt");
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             dir.path().to_str().unwrap(),

@@ -7,6 +7,7 @@
 //! and the flag composition matrix behaves as documented.
 
 use std::fs;
+use std::path::Path;
 
 use assert_cmd::Command;
 use predicates::prelude::*;
@@ -14,8 +15,12 @@ use tempfile::TempDir;
 
 mod common;
 
-fn cli() -> Command {
-    common::bca_command()
+/// Hermetic `bca` builder: anchors the process cwd at `dir` (a
+/// `tempfile::tempdir()` with no `.git` ancestor) so `bca check` cannot
+/// auto-discover the repo's own `bca.toml` / `.bca-baseline.toml` and
+/// filter the inline fixtures against repo state (#491).
+fn cli(dir: &Path) -> Command {
+    common::cli_in(dir)
 }
 
 /// Rust function with cyclomatic complexity > 1: each branch
@@ -84,7 +89,7 @@ fn write_baseline_then_recheck_exits_clean() {
     let src = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
     let baseline = dir.path().join("baseline.toml");
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -98,7 +103,7 @@ fn write_baseline_then_recheck_exits_clean() {
         .success()
         .stderr(predicate::str::contains("wrote 1 baseline entries"));
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -119,7 +124,7 @@ fn regressed_function_fails_even_when_baselined() {
     fs::write(&src_path, BRANCHY_RUST).unwrap();
     let baseline = dir.path().join("baseline.toml");
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             src_path.to_str().unwrap(),
@@ -136,7 +141,7 @@ fn regressed_function_fails_even_when_baselined() {
     // name and start_line, higher cyclomatic).
     fs::write(&src_path, WORSER_RUST).unwrap();
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             src_path.to_str().unwrap(),
@@ -158,7 +163,7 @@ fn new_offender_fails_even_with_baseline() {
     let src = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
     let baseline = dir.path().join("baseline.toml");
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -174,7 +179,7 @@ fn new_offender_fails_even_with_baseline() {
     // Add a second branchy file that isn't in the baseline.
     let new_src = write_fixture(&dir, "extra.rs", BRANCHY_RUST);
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             new_src.as_str(),
@@ -197,7 +202,7 @@ fn improved_function_still_passes() {
     let src_path = write_file(&dir, "branchy.rs", WORSER_RUST);
     let baseline = dir.path().join("baseline.toml");
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             src_path.to_str().unwrap(),
@@ -213,7 +218,7 @@ fn improved_function_still_passes() {
     // Replace with a less-complex function (cyclomatic drops to 5).
     fs::write(&src_path, BRANCHY_RUST).unwrap();
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             src_path.to_str().unwrap(),
@@ -239,7 +244,7 @@ fn moved_function_still_covered_after_line_drift() {
     let src_path = write_file(&dir, "branchy.rs", BRANCHY_RUST);
     let baseline = dir.path().join("baseline.toml");
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             src_path.to_str().unwrap(),
@@ -258,7 +263,7 @@ fn moved_function_still_covered_after_line_drift() {
     let shifted = format!("/// Doc comment.\n///\n///\n{BRANCHY_RUST}");
     fs::write(&src_path, shifted).unwrap();
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             src_path.to_str().unwrap(),
@@ -301,7 +306,7 @@ fn same_named_methods_on_different_impls_match_independently() {
     let src = write_fixture(&dir, "impls.rs", TWO_IMPLS_RUST);
     let baseline = dir.path().join("baseline.toml");
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -328,7 +333,7 @@ fn same_named_methods_on_different_impls_match_independently() {
     );
 
     // Re-check unchanged: both are covered, gate passes clean.
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -373,7 +378,7 @@ fn baseline_line_tolerance_flag_is_honored_end_to_end() {
     // `--no-config` keeps the test hermetic: the runner's cwd is
     // inside the repo, whose root `bca.toml` would otherwise merge its
     // own thresholds / exclude_from into this fully-explicit run.
-    cli()
+    cli(dir.path())
         .args([
             "--no-config",
             "--paths",
@@ -396,7 +401,7 @@ fn baseline_line_tolerance_flag_is_honored_end_to_end() {
     .unwrap();
 
     // Default tolerance (50) absorbs the small drift → both covered.
-    cli()
+    cli(dir.path())
         .args([
             "--no-config",
             "--paths",
@@ -413,7 +418,7 @@ fn baseline_line_tolerance_flag_is_honored_end_to_end() {
 
     // Tolerance 0 rejects any drift on the ambiguous symbol → both
     // surface as new. Proves the flag value reaches the matcher.
-    cli()
+    cli(dir.path())
         .args([
             "--no-config",
             "--paths",
@@ -441,7 +446,7 @@ fn fuzzy_match_covers_renamed_function() {
     let src_path = write_file(&dir, "branchy.rs", BRANCHY_RUST);
     let baseline = dir.path().join("baseline.toml");
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             src_path.to_str().unwrap(),
@@ -465,7 +470,7 @@ fn fuzzy_match_covers_renamed_function() {
 
     // Without fuzzy: the qualified symbol changed, so it is a new
     // offender and the gate fails.
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             src_path.to_str().unwrap(),
@@ -480,7 +485,7 @@ fn fuzzy_match_covers_renamed_function() {
         .stderr(predicate::str::contains("[new]"));
 
     // With fuzzy: the body hash matches, so it stays covered.
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             src_path.to_str().unwrap(),
@@ -520,7 +525,7 @@ pub fn classify(n: i32) -> &'static str {
     let src = write_fixture(&dir, "branchy.rs", suppressed_src);
     let baseline = dir.path().join("baseline.toml");
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -562,7 +567,7 @@ pub fn classify(n: i32) -> &'static str {
     let src = write_fixture(&dir, "branchy.rs", suppressed_src);
     let baseline = dir.path().join("baseline.toml");
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -585,7 +590,7 @@ fn baseline_and_write_baseline_conflict_at_arg_parse() {
     let dir = TempDir::new().unwrap();
     let src = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -607,7 +612,7 @@ fn write_baseline_conflicts_with_output_format() {
     let dir = TempDir::new().unwrap();
     let src = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -629,7 +634,7 @@ fn write_baseline_conflicts_with_output() {
     let dir = TempDir::new().unwrap();
     let src = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -653,7 +658,7 @@ fn missing_baseline_file_fails_with_exit_1() {
     let dir = TempDir::new().unwrap();
     let src = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -675,7 +680,7 @@ fn malformed_baseline_toml_fails_with_exit_1() {
     let baseline = dir.path().join("baseline.toml");
     fs::write(&baseline, "this is not = valid toml [[[\n").unwrap();
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -697,7 +702,7 @@ fn higher_version_baseline_fails_with_helpful_message() {
     let baseline = dir.path().join("baseline.toml");
     fs::write(&baseline, "version = 99\n").unwrap();
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -719,7 +724,7 @@ fn empty_baseline_file_fails_with_missing_version() {
     let baseline = dir.path().join("baseline.toml");
     fs::write(&baseline, "").unwrap();
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -742,7 +747,7 @@ fn no_fail_overrides_baseline_fail() {
     let src_path = write_file(&dir, "branchy.rs", BRANCHY_RUST);
     let baseline = dir.path().join("baseline.toml");
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             src_path.to_str().unwrap(),
@@ -757,7 +762,7 @@ fn no_fail_overrides_baseline_fail() {
 
     fs::write(&src_path, WORSER_RUST).unwrap();
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             src_path.to_str().unwrap(),
@@ -790,7 +795,7 @@ fn stale_baseline_entries_do_not_cover_unrelated_violations() {
     )
     .unwrap();
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -819,7 +824,7 @@ fn write_baseline_byte_equal_across_two_runs() {
     let baseline_b = dir.path().join("b.toml");
 
     for out in [&baseline_a, &baseline_b] {
-        cli()
+        cli(dir.path())
             .args([
                 "--paths",
                 &src,
@@ -847,7 +852,7 @@ fn filter_emits_summary_when_any_filtered() {
     let src = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
     let baseline = dir.path().join("baseline.toml");
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -860,7 +865,7 @@ fn filter_emits_summary_when_any_filtered() {
         .assert()
         .success();
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -883,7 +888,7 @@ fn write_baseline_creates_parent_directory() {
     let src = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
     let baseline = dir.path().join("nested/sub/baseline.toml");
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -913,7 +918,7 @@ fn top_level_file_metric_baselined() {
     let src = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
     let baseline = dir.path().join("baseline.toml");
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -936,7 +941,7 @@ fn top_level_file_metric_baselined() {
     // Re-run with the same threshold and the freshly-written
     // baseline: the file-level violation must be filtered like any
     // other entry.
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -962,7 +967,7 @@ fn write_baseline_with_no_matching_files_fails_with_exit_1() {
     fs::create_dir(&empty).unwrap();
     let baseline = dir.path().join("baseline.toml");
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             empty.to_str().unwrap(),
@@ -988,7 +993,7 @@ fn clean_tree_write_baseline_produces_empty_versioned_file() {
     let src = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
     let baseline = dir.path().join("baseline.toml");
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -1020,7 +1025,7 @@ fn regressed_violation_carries_tag_prefix() {
     let src_path = write_file(&dir, "branchy.rs", BRANCHY_RUST);
     let baseline = dir.path().join("baseline.toml");
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             src_path.to_str().unwrap(),
@@ -1035,7 +1040,7 @@ fn regressed_violation_carries_tag_prefix() {
 
     fs::write(&src_path, WORSER_RUST).unwrap();
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             src_path.to_str().unwrap(),
@@ -1058,7 +1063,7 @@ fn new_violation_carries_new_tag() {
     let src = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
     let baseline = dir.path().join("baseline.toml");
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -1073,7 +1078,7 @@ fn new_violation_carries_new_tag() {
 
     let new_src = write_fixture(&dir, "extra.rs", BRANCHY_RUST);
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             new_src.as_str(),
@@ -1099,7 +1104,7 @@ fn no_baseline_emits_unprefixed_lines() {
     // `--no-config` keeps the test hermetic: the runner's cwd is inside
     // the repo, whose root `bca.toml` declares a `baseline` key that
     // would otherwise tag this run's violations with `[new]`.
-    cli()
+    cli(dir.path())
         .args([
             "--no-config",
             "--paths",
@@ -1134,8 +1139,7 @@ fn write_baseline_byte_equal_across_paths_forms() {
     let abs_paths = dir.path().to_str().unwrap().to_string();
 
     // Form A: --paths . (relative to CWD = tempdir).
-    cli()
-        .current_dir(dir.path())
+    cli(dir.path())
         .args([
             "--paths",
             ".",
@@ -1149,8 +1153,7 @@ fn write_baseline_byte_equal_across_paths_forms() {
         .success();
 
     // Form B: --paths /abs/tempdir (absolute).
-    cli()
-        .current_dir(dir.path())
+    cli(dir.path())
         .args([
             "--paths",
             &abs_paths,
@@ -1189,8 +1192,7 @@ fn check_baseline_matches_across_paths_forms() {
     let abs_paths = dir.path().to_str().unwrap().to_string();
 
     // Write with --paths "." (relative).
-    cli()
-        .current_dir(dir.path())
+    cli(dir.path())
         .args([
             "--paths",
             ".",
@@ -1206,8 +1208,7 @@ fn check_baseline_matches_across_paths_forms() {
 
     // Read back with absolute --paths. Pre-#376: every entry would
     // mismatch and the gate would re-fail on every offender.
-    cli()
-        .current_dir(dir.path())
+    cli(dir.path())
         .args([
             "--paths",
             &abs_paths,
@@ -1249,8 +1250,7 @@ fn legacy_v2_baseline_migrates_dot_prefix() {
     )
     .unwrap();
 
-    cli()
-        .current_dir(dir.path())
+    cli(dir.path())
         .args([
             "--paths",
             ".",
@@ -1276,7 +1276,7 @@ fn soft_write_baseline_stamps_tier_and_headroom() {
     let src = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
     let baseline = dir.path().join("baseline.toml");
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -1308,7 +1308,7 @@ fn hard_check_reading_soft_baseline_is_silent() {
     let src = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
     let baseline = dir.path().join("baseline.toml");
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -1325,7 +1325,7 @@ fn hard_check_reading_soft_baseline_is_silent() {
         .assert()
         .success();
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -1348,7 +1348,7 @@ fn stricter_check_reading_looser_baseline_warns() {
     let src = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
     let baseline = dir.path().join("baseline.toml");
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,
@@ -1365,7 +1365,7 @@ fn stricter_check_reading_looser_baseline_warns() {
         .assert()
         .success();
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &src,

@@ -6,6 +6,7 @@
 //! / 1 tool error.
 
 use std::fs;
+use std::path::Path;
 
 use assert_cmd::Command;
 use predicates::prelude::*;
@@ -13,8 +14,12 @@ use tempfile::TempDir;
 
 mod common;
 
-fn cli() -> Command {
-    common::bca_command()
+/// Hermetic `bca` builder: anchors the process cwd at `dir` (a
+/// `tempfile::tempdir()` with no `.git` ancestor) so `bca check` cannot
+/// auto-discover the repo's own `bca.toml` / `.bca-baseline.toml` and
+/// filter or scale the inline fixtures against repo state (#491).
+fn cli(dir: &Path) -> Command {
+    common::cli_in(dir)
 }
 
 /// Rust function with cyclomatic complexity > 1: each branch contributes
@@ -55,7 +60,7 @@ fn check_clean_exits_zero_with_no_offenders() {
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
 
-    cli()
+    cli(dir.path())
         .args(["--paths", &path, "check", "--threshold", "cyclomatic=10"])
         .assert()
         .success()
@@ -67,7 +72,7 @@ fn check_violation_exits_two_with_stable_stderr() {
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
 
-    cli()
+    cli(dir.path())
         .args(["--paths", &path, "check", "--threshold", "cyclomatic=1"])
         .assert()
         .code(2)
@@ -85,7 +90,7 @@ fn check_no_fail_keeps_exit_zero_but_still_reports() {
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &path,
@@ -105,7 +110,7 @@ fn check_unknown_metric_exits_one_with_clear_error() {
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
 
-    cli()
+    cli(dir.path())
         .args(["--paths", &path, "check", "--threshold", "not_a_metric=1"])
         .assert()
         // Exit 1 (tool error), not 2 (threshold exceeded). This is the
@@ -123,7 +128,7 @@ fn check_requires_at_least_one_threshold() {
     // `--no-config` keeps the test hermetic: the runner's cwd is inside
     // the repo, whose root `bca.toml` supplies a `[thresholds]` table
     // that would otherwise satisfy the "at least one threshold" check.
-    cli()
+    cli(dir.path())
         .args(["--no-config", "--paths", &path, "check"])
         .assert()
         .code(1)
@@ -137,7 +142,7 @@ fn check_unknown_metric_close_typo_suggests_correction() {
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
 
-    cli()
+    cli(dir.path())
         .args(["--paths", &path, "check", "--threshold", "cyclic=15"])
         .assert()
         .code(1)
@@ -153,7 +158,7 @@ fn check_unknown_metric_dotted_typo_suggests_correction() {
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
 
-    cli()
+    cli(dir.path())
         .args(["--paths", &path, "check", "--threshold", "halstead.efort=1"])
         .assert()
         .code(1)
@@ -169,7 +174,7 @@ fn check_unknown_metric_unrelated_input_omits_suggestion() {
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
 
-    cli()
+    cli(dir.path())
         .args(["--paths", &path, "check", "--threshold", "xyznonexistent=1"])
         .assert()
         .code(1)
@@ -187,7 +192,7 @@ fn check_unknown_metric_in_toml_config_suggests_correction() {
     fs::write(&config_path, "[thresholds]\ncyclomatc = 15\n").expect("write config");
     let config_str = config_path.to_str().expect("utf8 config path");
 
-    cli()
+    cli(dir.path())
         .args(["--paths", &path, "check", "--config", config_str])
         .assert()
         .code(1)
@@ -202,7 +207,7 @@ fn check_with_no_matching_files_exits_one() {
     // a typo in `--paths` silently green-lights CI.
     let dir = TempDir::new().unwrap();
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             dir.path().to_str().unwrap(),
@@ -222,7 +227,7 @@ fn check_reads_thresholds_from_toml_config() {
     let cfg_path = dir.path().join("thresholds.toml");
     fs::write(&cfg_path, "[thresholds]\ncyclomatic = 1\n").unwrap();
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &path,
@@ -245,7 +250,7 @@ fn check_cli_threshold_overrides_config() {
     // so the run should pass cleanly.
     fs::write(&cfg_path, "[thresholds]\ncyclomatic = 1\n").unwrap();
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &path,
@@ -268,7 +273,7 @@ fn check_emits_one_line_per_metric_per_function() {
     // Two thresholds tight enough that the same function violates both.
     // The contract is one line per (function, metric), so we expect at
     // least two lines for `classify` — one for each metric.
-    let assert = cli()
+    let assert = cli(dir.path())
         .args([
             "--paths",
             &path,
@@ -316,7 +321,7 @@ fn check_uses_file_sentinel_for_top_level_space() {
     // the repo, whose root `bca.toml` declares a `baseline` key that
     // would otherwise prefix the violation line with a `[new]` tag and
     // break the `starts_with(path)` assertion below.
-    let assert = cli()
+    let assert = cli(dir.path())
         // loc.sloc aggregates source lines at the file level, so a
         // threshold of 1 is guaranteed to fire there for any
         // non-trivial fixture.
@@ -365,7 +370,7 @@ fn check_sarif_output_to_file_with_violations_exits_two() {
     // Use a nested path to exercise parent-directory creation.
     let out_path = dir.path().join("nested").join("report.sarif.json");
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &fixture,
@@ -401,7 +406,7 @@ fn check_no_fail_with_sarif_output_exits_zero() {
     let fixture = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
     let out_path = dir.path().join("report.sarif.json");
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &fixture,
@@ -436,7 +441,7 @@ fn check_clean_run_emits_empty_sarif_document() {
     let fixture = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
     let out_path = dir.path().join("report.sarif.json");
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &fixture,
@@ -469,7 +474,7 @@ fn check_clang_warning_output_streams_one_line_per_offender() {
     let dir = TempDir::new().unwrap();
     let fixture = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
 
-    let output = cli()
+    let output = cli(dir.path())
         .args([
             "--paths",
             &fixture,
@@ -512,7 +517,7 @@ pub fn outer() -> i32 {
 ";
     let path = write_fixture(&dir, "nested.rs", body);
 
-    let assert = cli()
+    let assert = cli(dir.path())
         .args(["--paths", &path, "check", "--threshold", "cyclomatic=1"])
         .assert()
         .code(2);
@@ -553,7 +558,7 @@ fn check_subcommand_swallowed_by_variadic_exclude() {
     // No separator between `--exclude` values and `check`. clap eats
     // `check` as one more glob, then errors because no subcommand was
     // ever provided.
-    let assert = cli()
+    let assert = cli(dir.path())
         .args([
             "--paths",
             &path,
@@ -583,7 +588,7 @@ fn check_runs_with_num_jobs_separator() {
     // exclude list and the subcommand terminates the variadic and lets
     // clap recognise `check`. This is the exact argv shape the Pages
     // workflow uses.
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &path,
@@ -614,7 +619,7 @@ fn summary_footer_emitted_by_default() {
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
 
-    cli()
+    cli(dir.path())
         .args(["--paths", &path, "check", "--threshold", "cyclomatic=1"])
         .assert()
         .code(2)
@@ -627,7 +632,7 @@ fn summary_footer_suppressed_by_no_summary() {
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &path,
@@ -648,7 +653,7 @@ fn summary_skipped_for_clean_run() {
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "trivial.rs", TRIVIAL_RUST);
 
-    cli()
+    cli(dir.path())
         .args(["--paths", &path, "check", "--threshold", "cyclomatic=10"])
         .assert()
         .success()
@@ -688,7 +693,7 @@ fn cli_helper_does_not_leak_to_github_step_summary() {
     let result = std::panic::catch_unwind(|| {
         // Regression: `cli()` strips the inherited env var, so
         // the child never sees a step-summary target.
-        cli()
+        cli(dir.path())
             .args(["--paths", &path, "check", "--threshold", "cyclomatic=1"])
             .assert()
             .code(2);
@@ -723,7 +728,7 @@ fn summary_pluralizes_count() {
     let p2 = write_fixture(&dir, "b.rs", BRANCHY_RUST);
     let p3 = write_fixture(&dir, "c.rs", BRANCHY_RUST);
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &p1,
@@ -760,7 +765,7 @@ fn summary_worst_metric_uses_max_ratio() {
     let dir = TempDir::new().unwrap();
     let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &path,
@@ -783,7 +788,7 @@ fn summary_sorts_by_count_desc() {
     let a = write_fixture(&dir, "a.rs", BRANCHY_RUST); // 1 fn, 2 metrics violated
     let b = write_fixture(&dir, "b.rs", ONE_BRANCH_RUST); // 1 fn, 1 metric violated
 
-    let output = cli()
+    let output = cli(dir.path())
         .args([
             "--paths",
             &a,
@@ -819,7 +824,8 @@ fn summary_sorts_by_count_desc() {
 /// debuggability contract for issue #380.
 #[test]
 fn check_print_effective_config_toml_emits_resolved_thresholds_and_exits_zero() {
-    cli()
+    let dir = TempDir::new().unwrap();
+    cli(dir.path())
         .args([
             "check",
             "--threshold",
@@ -837,7 +843,8 @@ fn check_print_effective_config_toml_emits_resolved_thresholds_and_exits_zero() 
 /// shape as the TOML form (thresholds + check tables).
 #[test]
 fn check_print_effective_config_json_emits_valid_json() {
-    let assert = cli()
+    let dir = TempDir::new().unwrap();
+    let assert = cli(dir.path())
         .args([
             "check",
             "--threshold",
@@ -874,7 +881,7 @@ fn check_print_effective_config_conflicts_with_write_baseline() {
     let dir = TempDir::new().unwrap();
     let baseline_path = dir.path().join("baseline.toml");
 
-    cli()
+    cli(dir.path())
         .args([
             "check",
             "--threshold",
@@ -897,7 +904,7 @@ fn check_print_effective_config_conflicts_with_write_baseline() {
 fn check_print_effective_config_toml_roundtrips_through_config() {
     let dir = TempDir::new().unwrap();
     // First pass: capture the effective config to a file.
-    let assert = cli()
+    let assert = cli(dir.path())
         .args([
             "check",
             "--threshold",
@@ -914,7 +921,7 @@ fn check_print_effective_config_toml_roundtrips_through_config() {
 
     // Second pass: feed it back via --config and re-print. The
     // re-emitted [thresholds] table must match the original.
-    let assert2 = cli()
+    let assert2 = cli(dir.path())
         .args([
             "check",
             "--config",
@@ -953,13 +960,13 @@ fn check_headroom_scales_config_limit_into_offender() {
     let cfg = write_fixture(&dir, "thresholds.toml", "[thresholds]\ncyclomatic = 100\n");
 
     // Sanity: clean at full scale (hard tier).
-    cli()
+    cli(dir.path())
         .args(["--paths", &path, "check", "--config", &cfg])
         .assert()
         .success();
 
     // Scaled to 1.0 at the soft tier → offender.
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &path,
@@ -987,7 +994,7 @@ fn check_headroom_ignored_at_hard_tier() {
     let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
     let cfg = write_fixture(&dir, "thresholds.toml", "[thresholds]\ncyclomatic = 100\n");
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &path,
@@ -1016,7 +1023,7 @@ fn check_headroom_one_is_noop() {
     let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
     let cfg = write_fixture(&dir, "thresholds.toml", "[thresholds]\ncyclomatic = 5\n");
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &path,
@@ -1046,7 +1053,7 @@ fn check_headroom_out_of_range_exits_one() {
     // `--headroom=<v>` (joined form) so clap forwards a leading-`-`
     // value to our validator instead of treating it as a flag.
     for ratio in ["--headroom=1.5", "--headroom=0", "--headroom=-0.5"] {
-        cli()
+        cli(dir.path())
             .args(["--paths", &path, "check", "--config", &cfg, ratio])
             .assert()
             .code(1)
@@ -1066,12 +1073,11 @@ fn check_headroom_does_not_scale_cli_threshold_override() {
     let path = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
     let cfg = write_fixture(&dir, "thresholds.toml", "[thresholds]\ncyclomatic = 2\n");
 
-    // Run from the temp dir so no auto-discovered repo `bca.toml`
-    // baseline leaks in: at `--headroom 0.5` this run is stricter than
-    // the repo's soft-0.95 baseline and would otherwise draw the (here
-    // irrelevant) provenance warning (#486).
-    cli()
-        .current_dir(dir.path())
+    // `cli(dir.path())` runs from the temp dir so no auto-discovered
+    // repo `bca.toml` baseline leaks in: at `--headroom 0.5` this run is
+    // stricter than the repo's soft-0.95 baseline and would otherwise
+    // draw the (here irrelevant) provenance warning (#486).
+    cli(dir.path())
         .args([
             "--paths",
             &path,
@@ -1102,7 +1108,7 @@ fn check_soft_tier_without_config_warns_and_noops() {
     // the repo, whose root `bca.toml` `[thresholds]` table would give
     // the soft tier something to scale, so the "no effect" note would
     // not fire.
-    cli()
+    cli(dir.path())
         .args([
             "--no-config",
             "--paths",
@@ -1134,7 +1140,7 @@ fn check_headroom_write_baseline_captures_scaled_offenders() {
     let baseline_str = baseline.to_str().unwrap();
 
     // Write a baseline at the scaled (1.0) limit: classify is captured.
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &path,
@@ -1157,7 +1163,7 @@ fn check_headroom_write_baseline_captures_scaled_offenders() {
     );
 
     // Re-run filtered by that baseline at the same tier: suppressed.
-    cli()
+    cli(dir.path())
         .args([
             "--paths",
             &path,
@@ -1183,7 +1189,7 @@ fn check_headroom_print_effective_config_shows_scaled_values_and_ratio() {
     let dir = TempDir::new().unwrap();
     let cfg = write_fixture(&dir, "thresholds.toml", "[thresholds]\ncyclomatic = 100\n");
 
-    cli()
+    cli(dir.path())
         .args([
             "check",
             "--config",
@@ -1222,13 +1228,13 @@ fn check_soft_table_absolute_override_trips_at_soft_tier() {
     );
 
     // Hard tier: limit 10, classify (5) is clean; the soft table is ignored.
-    cli()
+    cli(dir.path())
         .args(["--paths", &path, "check", "--config", &cfg])
         .assert()
         .success();
 
     // Soft tier: limit 3, classify (5) trips.
-    cli()
+    cli(dir.path())
         .args([
             "--paths", &path, "check", "--config", &cfg, "--tier", "soft",
         ])
@@ -1250,7 +1256,7 @@ fn check_soft_table_scale_relative_resolves_against_hard() {
         "[thresholds]\ncyclomatic = 10\n[thresholds.soft]\ncyclomatic = \"0.4x\"\n",
     );
 
-    cli()
+    cli(dir.path())
         .args([
             "--paths", &path, "check", "--config", &cfg, "--tier", "soft",
         ])
@@ -1271,7 +1277,7 @@ fn check_soft_table_unspecified_metric_inherits_hard_limit() {
         "[thresholds]\ncyclomatic = 100\nnargs = 7\n[thresholds.soft]\ncyclomatic = 3\n",
     );
 
-    cli()
+    cli(dir.path())
         .args([
             "check",
             "--config",
@@ -1300,7 +1306,7 @@ fn check_soft_table_ignores_headroom_with_warning() {
         "[thresholds]\ncyclomatic = 100\n[thresholds.soft]\ncyclomatic = 50\n",
     );
 
-    cli()
+    cli(dir.path())
         .args([
             "check",
             "--config",
@@ -1337,7 +1343,7 @@ fn check_soft_table_scale_without_hard_base_errors() {
     // the repo, whose root `bca.toml` declares a hard `cyclomatic`
     // limit that would merge under `--config` and give the `"0.9x"`
     // soft scale a base to multiply, masking the intended error.
-    cli()
+    cli(dir.path())
         .args([
             "--no-config",
             "--paths",
