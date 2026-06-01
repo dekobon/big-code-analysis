@@ -30,6 +30,12 @@ for historical reference.
   `split-minimal-tests.py` grammar-bump diff chain (the latter is
   retired). Informational — always exits 0 on success
   ([#487](https://github.com/dekobon/big-code-analysis/issues/487)).
+  A `bca diff --since <ref> [<new>]` mode analyzes the tree at a git ref
+  (materialized into an auto-cleaning temp dir) for the "before" side
+  and diffs it against the working tree or an explicit `<new>`,
+  honouring the same `--paths` / `--include` / `--exclude` selection;
+  it hard-errors (exit 1) on unresolvable refs or a non-git checkout
+  ([#492](https://github.com/dekobon/big-code-analysis/issues/492)).
 - `bca check` baseline files now record **tier/headroom provenance**
   (format v5): a `[provenance]` table stamps the tier (and headroom for
   the scaled soft tier) the baseline was written at. `bca check` warns
@@ -799,6 +805,10 @@ for historical reference.
   ignore patterns silently failed to match an absolute walk root,
   breaking the documented zero-config manifest gate
   ([#488](https://github.com/dekobon/big-code-analysis/issues/488)).
+  Matching is now anchored to each file's walk root rather than the
+  process CWD, so manifest-driven excludes also apply when `bca` runs
+  from a subdirectory below the manifest directory
+  ([#489](https://github.com/dekobon/big-code-analysis/issues/489)).
 - The `cyclomatic_count_try` `bca.toml` key is no longer flagged with a
   spurious "ignoring unrecognized key" warning. The key was added to the
   typed manifest view in [#409](https://github.com/dekobon/big-code-analysis/issues/409)
