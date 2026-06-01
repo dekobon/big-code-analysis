@@ -191,14 +191,14 @@ path = "big-code-analysis-cli/src/commands.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 8025452.660622023
+value = 8032138.570220204
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 2131.0
+value = 2141.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
@@ -618,7 +618,7 @@ path = "big-code-analysis-cli/src/metric_diff.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1552615.1473053638
+value = 1579186.894855429
 
 [[entry]]
 path = "big-code-analysis-cli/src/metric_diff.rs"
@@ -632,14 +632,14 @@ path = "big-code-analysis-cli/src/metric_diff.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nexits"
-value = 17.0
+value = 16.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/metric_diff.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 38.0
+value = 39.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/metric_diff.rs"

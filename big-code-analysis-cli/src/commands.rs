@@ -1901,6 +1901,17 @@ fn compute_since_diff(
         ));
     }
 
+    // `--paths-from` names a file list outside either tree; it cannot be
+    // resolved consistently against both the extracted <ref> tree and
+    // the working tree, so reject it rather than silently ignore the
+    // user's selection (scope a `--since` diff with --paths / globs).
+    if globals.paths_from.is_some() {
+        die(format_args!(
+            "diff --since: --paths-from is not supported; scope the diff \
+             with --paths / --include / --exclude instead"
+        ));
+    }
+
     // TempDir auto-removes on drop — including every `?` below — so the
     // "no leftover temp trees, even on error" acceptance holds without
     // manual teardown.
@@ -1949,10 +1960,9 @@ fn side_globals(globals: &GlobalOpts) -> GlobalOpts {
     if side.paths.is_empty() {
         side.paths = vec![PathBuf::from(".")];
     }
-    // `paths_from` is a captured file outside the tree; consuming it on
-    // both sides would double-read it relative to the wrong roots, so
-    // drop it — `--since` selection is via `--paths`/globs only.
-    side.paths_from = None;
+    // `--paths-from` is rejected upstream in `compute_since_diff` (it
+    // cannot resolve against both the <ref> tree and the working tree),
+    // so it is already `None` here — selection is via `--paths`/globs.
     side
 }
 

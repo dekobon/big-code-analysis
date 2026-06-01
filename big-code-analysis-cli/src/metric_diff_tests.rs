@@ -193,22 +193,66 @@ fn tty_render_lists_changes_and_files() {
 }
 
 #[test]
-fn load_set_directory_keys_on_relative_path() {
+fn load_set_directory_keys_on_name_field_with_relpath_fallback() {
     let dir = tempfile::tempdir().expect("tempdir");
     let sub = dir.path().join("nested");
     std::fs::create_dir_all(&sub).expect("mkdir");
+    // With a `name`, the entry keys on it — the source-of-truth identity
+    // bca emits — so a directory set pairs with a single-file set and
+    // the `.json` output suffix / dir layout never leak into the key.
     std::fs::write(
         sub.join("x.json"),
         serde_json::to_vec(
-            &json!({ "name": "ignored", "metrics": { "tokens": { "tokens": 7.0 } } }),
+            &json!({ "name": "src/x.rs", "metrics": { "tokens": { "tokens": 7.0 } } }),
         )
         .expect("encode"),
     )
     .expect("write");
+    // Without a `name`, it falls back to the path relative to the root.
+    std::fs::write(
+        sub.join("y.json"),
+        serde_json::to_vec(&json!({ "metrics": { "tokens": { "tokens": 1.0 } } })).expect("encode"),
+    )
+    .expect("write");
     let loaded = load_set(dir.path()).expect("load dir");
-    // expected: keyed by path relative to the dir root, not `name`.
-    assert!(loaded.contains_key("nested/x.json"));
-    assert_eq!(loaded["nested/x.json"]["tokens"]["tokens"], json!(7.0));
+    assert!(loaded.contains_key("src/x.rs"));
+    assert_eq!(loaded["src/x.rs"]["tokens"]["tokens"], json!(7.0));
+    assert!(loaded.contains_key("nested/y.json"));
+}
+
+#[test]
+fn diff_pairs_single_file_against_directory_on_name() {
+    // Regression: a single-file input keys on `name`, so a directory
+    // input must too — else `bca diff <file> <dir>` reports the same
+    // source file as added+removed (disjoint key spaces) instead of a
+    // delta. old = directory (`name` src/a.rs), new = single file (same
+    // `name`); they must pair as a 3 -> 5 change, not 1 added + 1 removed.
+    let scratch = tempfile::tempdir().expect("tempdir");
+    let old_dir = scratch.path().join("old");
+    std::fs::create_dir_all(&old_dir).expect("mkdir");
+    std::fs::write(
+        old_dir.join("a.rs.json"),
+        serde_json::to_vec(
+            &json!({ "name": "src/a.rs", "metrics": { "cyclomatic": { "sum": 3.0 } } }),
+        )
+        .expect("encode"),
+    )
+    .expect("write");
+    let new_file = scratch.path().join("after.json");
+    std::fs::write(
+        &new_file,
+        serde_json::to_vec(
+            &json!({ "name": "src/a.rs", "metrics": { "cyclomatic": { "sum": 5.0 } } }),
+        )
+        .expect("encode"),
+    )
+    .expect("write");
+
+    let diff = MetricDiff::compute(old_dir.as_path(), &new_file, 0.0, &[]).expect("diff");
+    assert_eq!(diff.added_files.len(), 0, "must pair, not report added");
+    assert_eq!(diff.removed_files.len(), 0, "must pair, not report removed");
+    assert_eq!(diff.buckets["cyclomatic"].changed[0].old, 3.0);
+    assert_eq!(diff.buckets["cyclomatic"].changed[0].new, 5.0);
 }
 
 #[test]

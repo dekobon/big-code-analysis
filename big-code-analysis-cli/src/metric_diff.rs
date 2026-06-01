@@ -489,26 +489,26 @@ fn load_set(path: &Path) -> Result<MetricSet, DiffError> {
     Ok(set)
 }
 
-/// Load every per-file JSON document under `root` into a [`MetricSet`]
-/// keyed by each file's path relative to `root`. Shared by [`load_set`]
-/// (the directory branch) and the `bca diff --since` walk in `lib.rs`,
-/// so both pair files on identical root-relative keys. `walk_json_files`
-/// only yields paths under `root`, so the `strip_prefix` cannot fail in
-/// practice; the fallback to the full path is defensive.
+/// Load every per-file JSON document under `root` into a [`MetricSet`].
+/// Each entry is keyed by its document's own `name` field — the
+/// root-relative source path bca emits — so a directory set pairs with
+/// a single-file set (which keys the same way) and with the
+/// working-tree / `--since` sides regardless of the `.json` output-file
+/// suffix or output-dir layout. Falls back to the path relative to
+/// `root` when `name` is absent (`walk_json_files` only yields paths
+/// under `root`, so `strip_prefix` cannot fail in practice). Shared by
+/// [`load_set`]'s directory branch and the `--since` walk in `lib.rs`.
 pub(crate) fn load_dir_set(root: &Path) -> Result<MetricSet, DiffError> {
     let mut set = MetricSet::new();
     for entry in walk_json_files(root)? {
-        let rel = entry.strip_prefix(root).unwrap_or(&entry);
-        set.insert(path_to_key(rel)?, load_metrics(&entry)?);
+        let value = read_json(&entry)?;
+        let key = value.get(NAME_KEY).and_then(Value::as_str).map_or_else(
+            || path_to_key(entry.strip_prefix(root).unwrap_or(&entry)),
+            |name| Ok(name.to_string()),
+        )?;
+        set.insert(key, extract_metrics(value));
     }
     Ok(set)
-}
-
-/// Read a path's JSON document and return its top-level `metrics` object
-/// (an empty object if absent, so a malformed file degrades to "no
-/// metrics" rather than aborting the whole diff).
-fn load_metrics(path: &Path) -> Result<Value, DiffError> {
-    Ok(extract_metrics(read_json(path)?))
 }
 
 /// Pull the top-level `metrics` object out of a per-file document,

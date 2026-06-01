@@ -240,6 +240,23 @@ fn since_rejects_dash_leading_ref() {
         .stderr(predicate::str::contains("starts with `-`"));
 }
 
+#[test]
+fn since_rejects_paths_from() {
+    // `--paths-from` names a file list that cannot resolve consistently
+    // against both the extracted <ref> tree and the working tree, so it
+    // is rejected rather than silently ignored (which would walk the
+    // whole tree on both sides).
+    let repo = repo_with_flat_commit();
+    fs::write(repo.path().join("files.txt"), "src/work.rs\n").expect("write list");
+    cli()
+        .current_dir(repo.path())
+        .args(["diff", "--since", "HEAD", "--paths-from", "files.txt"])
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(predicate::str::contains("--paths-from is not supported"));
+}
+
 /// Pull `(old, new)` for the `cyclomatic.sum` field out of the
 /// `--format json` diff document, searching the `cyclomatic` bucket's
 /// changed entries.
