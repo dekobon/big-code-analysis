@@ -255,6 +255,17 @@ impl Manifest {
         {
             args.baseline = Some(self.resolve(baseline));
         }
+        // A bare `--write-baseline` (flag present, no path) writes to the
+        // manifest's `baseline` — the same file `bca check` reads — so the
+        // path lives in exactly one place (#496). Resolve it here, since
+        // the read-baseline merge above is intentionally skipped on a
+        // write run. With no manifest `baseline`, it stays `Some(None)`
+        // and `run_check` reports the missing-path error.
+        if matches!(args.write_baseline, Some(None))
+            && let Some(baseline) = &self.raw.baseline
+        {
+            args.write_baseline = Some(Some(self.resolve(baseline)));
+        }
         if args.baseline_line_tolerance.is_none() {
             args.baseline_line_tolerance = self.raw.baseline_line_tolerance;
         }

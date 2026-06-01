@@ -48,8 +48,8 @@ File path for the aggregated offender document. Stdout if omitted. Only meaningf
 \fB\-\-baseline\fR \fI<BASELINE>\fR
 Filter known offenders listed in this TOML baseline. A baselined function whose metric value has not worsened is suppressed; a worsened value (or any new offender) still fails. See the "Baselines" recipe in the book for the full adoption flow
 .TP
-\fB\-\-write\-baseline\fR \fI<WRITE_BASELINE>\fR
-Walk the tree and write the current offender set to this path instead of failing. The resulting file pins today\*(Aqs metric values as the baseline; subsequent `\-\-baseline <path>` runs ratchet down from there. Conflicts with `\-\-baseline`, `\-\-output\-format`, `\-\-output`, `\-\-since`, and `\-\-changed\-only` — diff\-scope filtering would write a *partial* baseline that the next non\-`\-\-changed\-only` run would treat as a complete snapshot, silently masking every offender outside the diff scope
+\fB\-\-write\-baseline\fR [\fI<PATH>\fR]
+Walk the tree and write the current offender set to a baseline file instead of failing. The resulting file pins today\*(Aqs metric values as the baseline; subsequent `\-\-baseline <path>` runs ratchet down from there. Takes an optional path: `\-\-write\-baseline <path>` writes there; a bare `\-\-write\-baseline` (no value) writes to the `baseline` key from the auto\-discovered `bca.toml` manifest (errors if no manifest `baseline` is set). Conflicts with `\-\-baseline`, `\-\-output\-format`, `\-\-output`, `\-\-since`, and `\-\-changed\-only` — diff\-scope filtering would write a *partial* baseline that the next non\-`\-\-changed\-only` run would treat as a complete snapshot, silently masking every offender outside the diff scope
 .TP
 \fB\-\-no\-summary\fR
 Skip the trailing per\-file rollup footer. The footer groups violations by file and cites the single worst\-ratio metric per file. Pass this when downstream tooling grep\-pipes the stderr stream and would be confused by the trailing summary block. Default: footer enabled

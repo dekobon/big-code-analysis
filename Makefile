@@ -450,7 +450,7 @@ self-scan-headroom:
 
 self-scan-write-baseline:
 	@echo "Refreshing .bca-baseline.toml from current offenders..."
-	@$(SELF_SCAN_BCA) check --write-baseline .bca-baseline.toml
+	@$(SELF_SCAN_BCA) check --write-baseline
 
 # Refresh `.bca-baseline.toml` against the SOFT thresholds
 # (the `bca.toml` limits scaled by BCA_HEADROOM, default 0.95).
@@ -463,7 +463,7 @@ self-scan-write-baseline-headroom:
 	@$(SELF_SCAN_BCA) check \
 	  --tier soft \
 	  --headroom $${BCA_HEADROOM:-0.95} \
-	  --write-baseline .bca-baseline.toml
+	  --write-baseline
 
 # ---------------------------------------------------------------------------
 # Python tooling (big-code-analysis-py)

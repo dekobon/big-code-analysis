@@ -179,9 +179,9 @@ self-scan:                          # hard tier (CI mirror)
 self-scan-headroom:                 # soft tier (early warning)
 	bca check --tier soft --headroom 0.95
 self-scan-write-baseline:           # absorb hard-tier offenders
-	bca check --write-baseline .bca-baseline.toml
+	bca check --write-baseline
 self-scan-write-baseline-headroom:  # absorb soft-tier offenders
-	bca check --tier soft --headroom 0.95 --write-baseline .bca-baseline.toml
+	bca check --tier soft --headroom 0.95 --write-baseline
 ```
 
 <!-- rumdl-enable MD010 -->

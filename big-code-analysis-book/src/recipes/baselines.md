@@ -46,8 +46,14 @@ cognitive = 20
 ### 2. Bootstrap the baseline
 
 ```bash
-bca check --write-baseline .bca-baseline.toml
+bca check --write-baseline
 ```
+
+A bare `--write-baseline` (no path) writes to the `baseline` key from
+the `bca.toml` you just created, so the filename lives in exactly one
+place. Pass an explicit path (`--write-baseline <file>`) only when you
+have no manifest `baseline` to default to — without one, the bare form
+errors rather than guessing a filename.
 
 Commit both files in the same change:
 
@@ -94,7 +100,7 @@ Every few weeks, or after a focused refactor:
 
 ```bash
 cp .bca-baseline.toml .bca-baseline.old.toml
-bca check --write-baseline .bca-baseline.toml
+bca check --write-baseline
 bca diff-baseline .bca-baseline.old.toml .bca-baseline.toml
 ```
 

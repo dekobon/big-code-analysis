@@ -99,8 +99,18 @@ fn run_check(
     // still walked and counted, only their violations are dropped.
     let violations = apply_check_exclude(violations, &args, &globals_for_remediation.paths);
 
-    if let Some(path) = args.write_baseline.as_deref() {
-        write_check_baseline(violations, path, provenance);
+    // `--write-baseline <path>` writes there; a bare `--write-baseline`
+    // is resolved to the manifest `baseline` by `merge_check` (#496), so
+    // a remaining `Some(None)` means no path was given and no manifest
+    // `baseline` exists — a hard error rather than a silent no-write.
+    if let Some(target) = args.write_baseline.as_ref() {
+        let path = target.clone().unwrap_or_else(|| {
+            die(
+                "--write-baseline needs a path: pass one (`--write-baseline <file>`) \
+                 or set a `baseline` key in bca.toml",
+            )
+        });
+        write_check_baseline(violations, &path, provenance);
         return;
     }
 
@@ -1782,7 +1792,7 @@ fn run_command_init(globals: GlobalOpts, args: InitArgs, preproc: Option<Arc<Pre
             output_format: None,
             output: None,
             baseline: None,
-            write_baseline: Some(baseline_path.clone()),
+            write_baseline: Some(Some(baseline_path.clone())),
             no_summary: true,
             since: None,
             changed_only: false,

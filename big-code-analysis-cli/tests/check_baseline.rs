@@ -118,6 +118,68 @@ fn write_baseline_then_recheck_exits_clean() {
 }
 
 #[test]
+fn write_baseline_bare_uses_manifest_baseline() {
+    // #496: a bare `--write-baseline` (no path) writes to the `baseline`
+    // key from the auto-discovered `bca.toml`, so the path lives in one
+    // place. Build a tempdir manifest + `.git` marker so discovery stops
+    // there, then run a flagless `bca check --write-baseline`.
+    let dir = TempDir::new().unwrap();
+    fs::create_dir(dir.path().join(".git")).unwrap();
+    fs::write(
+        dir.path().join("bca.toml"),
+        "paths = [\".\"]\nbaseline = \".bca-baseline.toml\"\n\n[thresholds]\ncyclomatic = 1\n",
+    )
+    .unwrap();
+    fs::write(dir.path().join("branchy.rs"), BRANCHY_RUST).unwrap();
+    let manifest_baseline = dir.path().join(".bca-baseline.toml");
+    assert!(!manifest_baseline.exists(), "baseline must not exist yet");
+
+    cli(dir.path())
+        .args(["check", "--write-baseline"])
+        .assert()
+        .success();
+
+    // Written to the manifest's `baseline` path, capturing the branchy
+    // offender — not to a default or the CWD under a different name.
+    assert!(
+        manifest_baseline.exists(),
+        "bare --write-baseline must write to the manifest `baseline` path"
+    );
+    let written = fs::read_to_string(&manifest_baseline).unwrap();
+    assert!(written.contains("version ="), "wrote a real baseline file");
+    assert!(
+        written.contains("branchy.rs"),
+        "captured the offender: {written}"
+    );
+}
+
+#[test]
+fn write_baseline_bare_without_manifest_baseline_errors() {
+    // With no manifest `baseline` to fall back to, a bare
+    // `--write-baseline` has no path and must hard-error (not silently
+    // skip the write). The tempdir has no `bca.toml`, and a `.git`
+    // marker stops manifest discovery at the tempdir so an ancestor
+    // `bca.toml` (e.g. a TMPDIR nested under a repo checkout) can't be
+    // discovered and silently satisfy the bare write.
+    let dir = TempDir::new().unwrap();
+    fs::create_dir(dir.path().join(".git")).unwrap();
+    let src = write_fixture(&dir, "branchy.rs", BRANCHY_RUST);
+
+    cli(dir.path())
+        .args([
+            "--paths",
+            &src,
+            "check",
+            "--threshold",
+            "cyclomatic=1",
+            "--write-baseline",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--write-baseline needs a path"));
+}
+
+#[test]
 fn regressed_function_fails_even_when_baselined() {
     let dir = TempDir::new().unwrap();
     let src_path = dir.path().join("branchy.rs");

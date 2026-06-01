@@ -191,14 +191,14 @@ path = "big-code-analysis-cli/src/commands.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 8073146.4528027475
+value = 8102229.115789836
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 2168.0
+value = 2178.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
@@ -219,82 +219,82 @@ path = "big-code-analysis-cli/src/commands.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 114.0
+value = 115.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "EffectiveConfig"
-start_line = 256
+start_line = 266
 metric = "nargs"
 value = 12.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "EffectiveConfig::from_resolved"
-start_line = 262
+start_line = 272
 metric = "nargs"
 value = 12.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "compute_since_diff"
-start_line = 1908
+start_line = 1918
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "compute_since_diff"
-start_line = 1908
+start_line = 1918
 metric = "nexits"
 value = 5.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "emit_check_results"
-start_line = 828
+start_line = 838
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "filter_by_baseline"
-start_line = 644
+start_line = 654
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "print_effective_config"
-start_line = 158
+start_line = 168
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "run"
-start_line = 1313
+start_line = 1323
 metric = "cyclomatic"
 value = 19.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "run"
-start_line = 1313
+start_line = 1323
 metric = "halstead.effort"
 value = 59891.8081185821
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "run_command_init"
-start_line = 1718
+start_line = 1728
 metric = "halstead.effort"
-value = 57270.79409366582
+value = 57824.72798765644
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "run_command_init"
-start_line = 1718
+start_line = 1728
 metric = "nargs"
 value = 8.0
 
@@ -457,14 +457,14 @@ path = "big-code-analysis-cli/src/lib.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 3574048.6595044374
+value = 3594690.7687846357
 
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1640.0
+value = 1651.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
@@ -490,14 +490,14 @@ value = 67.0
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
 qualified = "expand_seed_paths"
-start_line = 1217
+start_line = 1228
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
 qualified = "legacy_hint"
-start_line = 1536
+start_line = 1547
 metric = "halstead.effort"
 value = 59351.805921378844
 
@@ -506,7 +506,7 @@ path = "big-code-analysis-cli/src/manifest.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 603420.498585512
+value = 639989.1905500073
 
 [[entry]]
 path = "big-code-analysis-cli/src/manifest.rs"
@@ -527,7 +527,7 @@ path = "big-code-analysis-cli/src/manifest.rs"
 qualified = "Manifest"
 start_line = 193
 metric = "halstead.effort"
-value = 239680.39087199362
+value = 263984.64837339433
 
 [[entry]]
 path = "big-code-analysis-cli/src/manifest.rs"
@@ -535,6 +535,13 @@ qualified = "Manifest"
 start_line = 193
 metric = "nargs"
 value = 8.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/manifest.rs"
+qualified = "Manifest::merge_check"
+start_line = 248
+metric = "cyclomatic"
+value = 16.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/markdown_report.rs"

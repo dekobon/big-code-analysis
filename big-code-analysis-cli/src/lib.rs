@@ -449,21 +449,32 @@ struct CheckArgs {
     /// "Baselines" recipe in the book for the full adoption flow.
     #[clap(long = "baseline", value_parser, conflicts_with = "write_baseline")]
     baseline: Option<PathBuf>,
-    /// Walk the tree and write the current offender set to this path
-    /// instead of failing. The resulting file pins today's metric
+    /// Walk the tree and write the current offender set to a baseline
+    /// file instead of failing. The resulting file pins today's metric
     /// values as the baseline; subsequent `--baseline <path>` runs
-    /// ratchet down from there. Conflicts with `--baseline`,
-    /// `--output-format`, `--output`, `--since`, and `--changed-only`
-    /// — diff-scope filtering would write a *partial* baseline that
-    /// the next non-`--changed-only` run would treat as a complete
-    /// snapshot, silently masking every offender outside the diff
-    /// scope.
+    /// ratchet down from there. Takes an optional path: `--write-baseline
+    /// <path>` writes there; a bare `--write-baseline` (no value) writes
+    /// to the `baseline` key from the auto-discovered `bca.toml` manifest
+    /// (errors if no manifest `baseline` is set). Conflicts with
+    /// `--baseline`, `--output-format`, `--output`, `--since`, and
+    /// `--changed-only` — diff-scope filtering would write a *partial*
+    /// baseline that the next non-`--changed-only` run would treat as a
+    /// complete snapshot, silently masking every offender outside the
+    /// diff scope.
     #[clap(
         long = "write-baseline",
         value_parser,
+        num_args = 0..=1,
+        value_name = "PATH",
         conflicts_with_all = ["baseline", "output_format", "output", "since", "changed_only"],
     )]
-    write_baseline: Option<PathBuf>,
+    // The three states are meaningful and distinct: `None` (flag absent),
+    // `Some(None)` (bare `--write-baseline`, resolve from the manifest
+    // `baseline` key), and `Some(Some(path))` (explicit path). This is the
+    // canonical clap idiom for an optional-value flag, so the
+    // `option_option` lint does not apply.
+    #[allow(clippy::option_option)]
+    write_baseline: Option<Option<PathBuf>>,
     /// Skip the trailing per-file rollup footer. The footer groups
     /// violations by file and cites the single worst-ratio metric per
     /// file. Pass this when downstream tooling grep-pipes the stderr

@@ -44,6 +44,15 @@ for historical reference.
   staying silent for the safe hard-reads-soft and equal cases; v2–v4
   baselines read unchanged with provenance treated as absent
   ([#486](https://github.com/dekobon/big-code-analysis/issues/486)).
+- `bca check --write-baseline` now accepts an optional path. A bare
+  `--write-baseline` (no value) writes to the `baseline` key from the
+  auto-discovered `bca.toml` manifest — the same file `bca check` reads
+  — so the baseline filename lives in exactly one place. Passing an
+  explicit `--write-baseline <path>` still works; the bare form errors
+  (exit 1) when no manifest `baseline` is set rather than guessing a
+  filename. The repo's own `make self-scan-write-baseline[-headroom]`
+  recipes drop their hard-coded path
+  ([#496](https://github.com/dekobon/big-code-analysis/issues/496)).
 - Support for **F5 iRules** source files (`.irule`, `.irules`), a Tcl
   scripting dialect, via the
   [`tree-sitter-irules`](https://crates.io/crates/tree-sitter-irules)
