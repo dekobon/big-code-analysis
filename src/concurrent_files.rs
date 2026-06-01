@@ -164,13 +164,29 @@ pub enum ConcurrentErrors {
 }
 
 /// Data related to files.
+///
+/// `include` / `exclude` are matched against each walked path **as the
+/// walk emits it** — i.e. prefixed by the `paths` entry it was found
+/// under (`./src/x.rs` for a `.` root, `/abs/root/src/x.rs` for an
+/// absolute root). The match is therefore path-form sensitive: a
+/// `./`-anchored glob will not match files discovered under an absolute
+/// root. Callers that need path-form-independent matching must either
+/// keep `paths` and the globs in the same form, or pre-filter the file
+/// set and pass empty globsets here. The `big-code-analysis-cli` walk
+/// does the latter: it resolves and anchors the file set itself (so a
+/// `bca.toml` `paths = ["."]` resolved to an absolute root still honours
+/// `./`-anchored excludes, see issues #488/#489) and hands this struct
+/// empty globsets. Reconciling the two filtering layers into one
+/// anchored seam is tracked by #495 (a 2.0-scoped API reshape).
 #[derive(Debug)]
 pub struct FilesData {
-    /// Kind of files included in a search.
+    /// Globs of files to include; matched against the emitted path form
+    /// (see the type-level note on path-form sensitivity).
     pub include: GlobSet,
-    /// Kind of files excluded from a search.
+    /// Globs of files to exclude; matched against the emitted path form
+    /// (see the type-level note on path-form sensitivity).
     pub exclude: GlobSet,
-    /// List of file paths.
+    /// Root paths to walk (files are yielded recursively under each).
     pub paths: Vec<PathBuf>,
 }
 
