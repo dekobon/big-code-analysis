@@ -1577,7 +1577,7 @@ fn run_command_preproc(globals: GlobalOpts, args: PreprocArgs) {
     // list the workers processed (rather than the library's old
     // directory-walk callback, which #489 left dead) is what restores
     // `bca preproc` include resolution — see #495.
-    let all_files = group_files_by_basename(&paths);
+    let all_files = group_files_by_basename(paths);
 
     let mut data = Arc::try_unwrap(preproc_lock)
         .expect("all worker threads have joined; Arc refcount is 1")

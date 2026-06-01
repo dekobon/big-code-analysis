@@ -8,7 +8,7 @@ use super::*;
 
 #[test]
 fn group_files_by_basename_inserts_valid_utf8_filename() {
-    let all_files = group_files_by_basename(&[PathBuf::from("/some/dir/foo.cpp")]);
+    let all_files = group_files_by_basename(vec![PathBuf::from("/some/dir/foo.cpp")]);
     assert_eq!(all_files.len(), 1);
     assert_eq!(
         all_files["foo.cpp"],
@@ -18,8 +18,10 @@ fn group_files_by_basename_inserts_valid_utf8_filename() {
 
 #[test]
 fn group_files_by_basename_groups_duplicate_filenames() {
-    let all_files =
-        group_files_by_basename(&[PathBuf::from("/a/foo.cpp"), PathBuf::from("/b/foo.cpp")]);
+    let all_files = group_files_by_basename(vec![
+        PathBuf::from("/a/foo.cpp"),
+        PathBuf::from("/b/foo.cpp"),
+    ]);
     assert_eq!(all_files.len(), 1);
     assert_eq!(
         all_files["foo.cpp"],
@@ -35,7 +37,7 @@ fn group_files_by_basename_skips_non_utf8_filename() {
 
     let bad_name = OsStr::from_bytes(b"\xff\xfe");
     let path = PathBuf::from("/some/dir").join(bad_name);
-    let all_files = group_files_by_basename(&[path]);
+    let all_files = group_files_by_basename(vec![path]);
     assert!(all_files.is_empty());
 }
 

@@ -1054,7 +1054,7 @@ fn build_exclude_globset(mut patterns: Vec<String>, from: Option<&Path>, flag: &
 /// analyzed, so the grouping always matches the analyzed set — this is
 /// what `bca preproc` lost when #489 made the library's directory-walk
 /// callback dead (see #495).
-fn group_files_by_basename(paths: &[PathBuf]) -> HashMap<String, Vec<PathBuf>> {
+fn group_files_by_basename(paths: Vec<PathBuf>) -> HashMap<String, Vec<PathBuf>> {
     let mut all_files: HashMap<String, Vec<PathBuf>> = HashMap::new();
     for path in paths {
         // Skip non-UTF-8 basenames: the preproc include-resolution map
@@ -1063,10 +1063,8 @@ fn group_files_by_basename(paths: &[PathBuf]) -> HashMap<String, Vec<PathBuf>> {
         let Some(fname) = path.file_name().and_then(|n| n.to_str()) else {
             continue;
         };
-        all_files
-            .entry(fname.to_string())
-            .or_default()
-            .push(path.clone());
+        let key = fname.to_string();
+        all_files.entry(key).or_default().push(path);
     }
     all_files
 }
@@ -1294,13 +1292,20 @@ fn run_walk(globals: GlobalOpts, cfg: Config) -> Vec<PathBuf> {
         globals.no_ignore,
         &filters,
     );
-    let files_data = FilesData {
-        paths: paths.clone(),
+    // Only `bca preproc` (`PreprocProduce`) consumes the returned list —
+    // for cross-file `#include` grouping (#495); every other command
+    // discards it. So clone the file set only on that path and move it
+    // into the runner otherwise, rather than duplicating the whole
+    // resolved list on the common commands.
+    let returned = if matches!(cfg.action, Action::PreprocProduce) {
+        paths.clone()
+    } else {
+        Vec::new()
     };
     ConcurrentRunner::new(num_jobs, act_on_file)
-        .run(cfg, files_data)
+        .run(cfg, FilesData { paths })
         .unwrap_or_else(|e| die(format_args!("{e:?}")));
-    paths
+    returned
 }
 
 /// Analyze the source tree rooted at `root` with `globals` (whose

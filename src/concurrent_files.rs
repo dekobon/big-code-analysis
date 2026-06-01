@@ -53,8 +53,11 @@ fn send_file<T>(
 /// resolves it via its gitignore-aware `expand_seed_paths`). This
 /// function therefore performs no directory traversal and no glob
 /// filtering of its own: it skips entries that are missing or are not
-/// regular files (warning to stderr, matching the historical
-/// behaviour) and sends the rest. Re-walking or re-filtering here
+/// regular files (warning to stderr) and sends the rest. For the
+/// `big-code-analysis-cli` caller this skip is a safety net only —
+/// `expand_seed_paths` already yields existing regular files — but it
+/// keeps this public entry point robust for a direct library caller
+/// that hands in an arbitrary path. Re-walking or re-filtering here
 /// would re-introduce the emitted-path-form dependence that #488/#489
 /// removed (see #495).
 fn explore<Config>(

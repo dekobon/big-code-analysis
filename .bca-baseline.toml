@@ -191,7 +191,7 @@ path = "big-code-analysis-cli/src/commands.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 8079714.62735452
+value = 8078672.35250579
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
@@ -457,14 +457,14 @@ path = "big-code-analysis-cli/src/lib.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 3468711.2836261285
+value = 3492389.6764319628
 
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1620.0
+value = 1625.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
@@ -490,14 +490,14 @@ value = 64.0
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
 qualified = "expand_seed_paths"
-start_line = 1219
+start_line = 1217
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
 qualified = "legacy_hint"
-start_line = 1516
+start_line = 1521
 metric = "halstead.effort"
 value = 59351.805921378844
 
@@ -1498,28 +1498,28 @@ value = 7.0
 [[entry]]
 path = "src/concurrent_files.rs"
 qualified = "ConcurrentRunner<Config>"
-start_line = 122
+start_line = 125
 metric = "halstead.effort"
 value = 92318.33583226973
 
 [[entry]]
 path = "src/concurrent_files.rs"
 qualified = "ConcurrentRunner<Config>"
-start_line = 122
+start_line = 125
 metric = "nexits"
 value = 6.0
 
 [[entry]]
 path = "src/concurrent_files.rs"
 qualified = "ConcurrentRunner<Config>::run"
-start_line = 160
+start_line = 163
 metric = "halstead.effort"
 value = 58357.36039891874
 
 [[entry]]
 path = "src/concurrent_files.rs"
 qualified = "ConcurrentRunner<Config>::run"
-start_line = 160
+start_line = 163
 metric = "nexits"
 value = 6.0
 
