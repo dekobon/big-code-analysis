@@ -119,7 +119,6 @@ include = [
 aho-corasick = "^1.0"
 crossbeam = { version = "^0.8", features = ["crossbeam-channel"] }
 csv = "=1.4.0"
-globset = "^0.4"
 num = "^0.4"
 num-derive = "^0.4"
 num-format = "^0.4"
@@ -246,6 +245,10 @@ quick-xml = "^0.39"
 # Test-only: the integration corpus harness and the concurrent_files
 # unit tests walk fixture trees; production code no longer walks (#495).
 walkdir = "^2.3"
+# Test-only: the integration corpus harness builds include/exclude
+# globsets to filter the resolved corpus file list; production code no
+# longer filters via globsets (the CLI owns the walk seam) (#495).
+globset = "^0.4"
 
 [profile.dev.package.insta]
 opt-level = 3
