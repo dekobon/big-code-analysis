@@ -748,14 +748,22 @@ struct DiffBaselineArgs {
 /// success; the diff is informational, not a gate.
 #[derive(Args, Debug)]
 struct DiffArgs {
-    /// Old (base) metric output — the "before" side. A per-file JSON
-    /// file or a directory of per-file JSON. Omit when using `--since`.
+    /// In file/dir mode: the old (base) metric output — the "before"
+    /// side (a per-file JSON file or a directory of per-file JSON).
+    /// In `--since` mode: an optional after-side *source tree* to
+    /// analyze instead of the working tree. Because the before side is
+    /// a `git archive` of the whole ref tree (rooted at the repo top),
+    /// this tree must be rooted comparably — pass a full checkout, not
+    /// a subdirectory, or the root-relative keys will not line up and
+    /// every file is reported as both added and removed. Omit it to
+    /// analyze the working tree.
     #[clap(value_parser)]
     old: Option<PathBuf>,
     /// In file/dir mode: the new (after) metric output (a per-file JSON
-    /// file or a directory of them). In `--since` mode: an optional
-    /// source tree to analyze for the after side; when omitted the
-    /// current working tree is analyzed.
+    /// file or a directory of them). Not used in `--since` mode, where
+    /// the after side is the optional first positional (or the working
+    /// tree) — a second positional with `--since` is rejected at
+    /// runtime.
     #[clap(value_parser)]
     new: Option<PathBuf>,
     /// Analyze the tree at this git ref for the "before" side instead of
@@ -775,8 +783,9 @@ struct DiffArgs {
     #[clap(long, value_enum, default_value_t = OutputFormat::Tty)]
     format: OutputFormat,
     /// Minimum absolute change for a per-file metric delta to be
-    /// reported. `0` (the default) reports any change. Mirrors
-    /// `split-minimal-tests.py`'s `-t` threshold.
+    /// reported. `0` (the default) reports any change of any size;
+    /// raise it to suppress small deltas and surface only the larger
+    /// metric movements (e.g. on a grammar bump).
     #[clap(long = "min-change", default_value_t = 0.0)]
     min_change: f64,
     /// Restrict the diff to one or more metrics (repeatable). Names are

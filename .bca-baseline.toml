@@ -464,7 +464,7 @@ path = "big-code-analysis-cli/src/lib.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1651.0
+value = 1660.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
@@ -490,14 +490,14 @@ value = 67.0
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
 qualified = "expand_seed_paths"
-start_line = 1228
+start_line = 1237
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
 qualified = "legacy_hint"
-start_line = 1547
+start_line = 1556
 metric = "halstead.effort"
 value = 59351.805921378844
 
