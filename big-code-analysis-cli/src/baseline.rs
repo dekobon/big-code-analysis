@@ -71,6 +71,16 @@ pub(crate) const BASELINE_VERSION: u32 = 5;
 /// reject with a "regenerate" hint instead of silently mis-matching.
 const LEGACY_MIN_VERSION: u32 = 2;
 
+/// First format version that keys entries by qualified symbol
+/// (`Struct::method`) instead of a bare function name (issue #376's
+/// follow-up, `d469108b`). Baselines below this stored only the bare
+/// name, so a current run's qualified violation must be matched by its
+/// innermost segment. Pinned to the format boundary — NOT
+/// `BASELINE_VERSION` — so later version bumps (e.g. the v5 provenance
+/// table, #486) do not silently widen bare-name matching to cover
+/// versions that already store qualified names.
+const QUALIFIED_SYMBOL_MIN_VERSION: u32 = 4;
+
 /// Default tolerance (in lines) for the `start_line` disambiguator when
 /// two baseline entries share the same `(path, qualified, metric)` key
 /// — overloads, duplicate `impl` blocks, or collided anonymous spaces.
@@ -385,7 +395,7 @@ impl Baseline {
         // paths. Below v3 the path form predates issue #376 and must be
         // re-canonicalised; v3 paths are already canonical and must NOT
         // be re-encoded (that would double-escape any `%XX`).
-        let legacy_symbol_match = version < BASELINE_VERSION;
+        let legacy_symbol_match = version < QUALIFIED_SYMBOL_MIN_VERSION;
         let recanonicalize_path = version < 3;
         // Provenance (issue #486) is v5+. v2–v4 carry none; the check
         // treats absent provenance as "unknown" and stays silent — old

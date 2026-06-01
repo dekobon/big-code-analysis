@@ -381,6 +381,25 @@ fn classify_different_function_is_new() {
 }
 
 #[test]
+fn classify_v4_qualified_symbol_matches_without_legacy_bare_reduction() {
+    // Regression for the v4 bare-name reduction the BASELINE_VERSION
+    // 4->5 bump (#486 provenance) introduced: `legacy_symbol_match`
+    // must stay pinned to `version < QUALIFIED_SYMBOL_MIN_VERSION` (4),
+    // not `version < BASELINE_VERSION`. A v4 entry already keys by the
+    // qualified symbol, so a current violation with the same qualified
+    // name (`MyStruct::do_thing`) must classify `Covered` — under the
+    // bug it was reduced to the bare `do_thing`, mis-keyed against the
+    // stored `MyStruct::do_thing`, and wrongly reclassified `New`,
+    // failing the gate for every downstream v4 baseline with `::`.
+    let toml = "version = 4\n[[entry]]\npath=\"a\"\nqualified=\"MyStruct::do_thing\"\nstart_line=1\nmetric=\"cyclomatic\"\nvalue=5.0\n";
+    let b = parse(toml).expect("parse");
+    assert!(matches!(
+        b.classify(&v("a", "MyStruct::do_thing", 1, "cyclomatic", 5.0)),
+        Coverage::Covered { recorded } if recorded == 5.0
+    ));
+}
+
+#[test]
 fn classify_survives_arbitrary_line_drift_for_unique_symbol() {
     // The headline #377 behaviour: a baseline entry whose qualified
     // symbol is unique in the file matches the violation regardless of
