@@ -130,7 +130,7 @@ pub(crate) struct MetricDiff {
 /// A loaded metric-output set: a map from pairing key (relative path for
 /// a directory, the document `name` for a single file) to the parsed
 /// top-level `metrics` object for that file.
-type MetricSet = BTreeMap<String, Value>;
+pub(crate) type MetricSet = BTreeMap<String, Value>;
 
 impl MetricDiff {
     /// Load both sides, then compute the bucketed diff. `min_change` is
@@ -149,8 +149,11 @@ impl MetricDiff {
     }
 
     /// Diff two already-loaded sets. Split out from [`compute`] so tests
-    /// can drive synthetic sets without touching the filesystem.
-    fn from_sets(
+    /// can drive synthetic sets without touching the filesystem, and so
+    /// the `--since` path (which materializes both sides in-memory from
+    /// metric walks rather than from on-disk JSON sets) can reuse the
+    /// exact same bucketing.
+    pub(crate) fn from_sets(
         old: &MetricSet,
         new: &MetricSet,
         min_change: f64,
@@ -498,14 +501,14 @@ fn load_metrics(path: &Path) -> Result<Value, DiffError> {
 
 /// Pull the top-level `metrics` object out of a per-file document,
 /// defaulting to an empty object.
-fn extract_metrics(value: Value) -> Value {
+pub(crate) fn extract_metrics(value: Value) -> Value {
     value
         .get(METRICS_KEY)
         .cloned()
         .unwrap_or_else(|| Value::Object(serde_json::Map::new()))
 }
 
-fn read_json(path: &Path) -> Result<Value, DiffError> {
+pub(crate) fn read_json(path: &Path) -> Result<Value, DiffError> {
     let bytes = std::fs::read(path).map_err(|source| DiffError::Read {
         path: path.to_path_buf(),
         source,
@@ -518,7 +521,7 @@ fn read_json(path: &Path) -> Result<Value, DiffError> {
 
 /// Convert a path into a stable string key, erroring on non-UTF-8 rather
 /// than lossily transcoding (identifier paths must round-trip).
-fn path_to_key(path: &Path) -> Result<String, DiffError> {
+pub(crate) fn path_to_key(path: &Path) -> Result<String, DiffError> {
     path.to_str()
         .map(str::to_string)
         .ok_or_else(|| DiffError::NonUtf8Path {
@@ -530,7 +533,7 @@ fn path_to_key(path: &Path) -> Result<String, DiffError> {
 /// `ignore` crate the walker uses elsewhere, but with ignore-file
 /// awareness disabled: a metric-output dir is a build artifact, not a
 /// source tree, so `.gitignore` rules must not hide its contents.
-fn walk_json_files(root: &Path) -> Result<Vec<PathBuf>, DiffError> {
+pub(crate) fn walk_json_files(root: &Path) -> Result<Vec<PathBuf>, DiffError> {
     let mut files = Vec::new();
     let walker = ignore::WalkBuilder::new(root)
         .standard_filters(false)

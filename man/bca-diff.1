@@ -4,10 +4,15 @@
 .SH NAME
 bca\-diff \- Compare two metric\-output runs and report, per metric, which files changed (old to new), plus files added/removed between the two sets. Each side is a per\-file JSON file or a directory tree of them (the form `bca metrics \-O json \-\-output DIR` writes). Replaces the grammar\-bump glue chain — the external `json\-minimal\-tests` binary plus `split\-minimal\-tests.py` — with one native command. Always exits 0 on success; the diff is informational, not a gate
 .SH SYNOPSIS
-\fBbca\-diff\fR [\fB\-\-format\fR] [\fB\-\-min\-change\fR] [\fB\-\-metric\fR] [\fB\-h\fR|\fB\-\-help\fR] <\fIOLD\fR> <\fINEW\fR> 
+\fBbca\-diff\fR [\fB\-\-since\fR] [\fB\-\-format\fR] [\fB\-\-min\-change\fR] [\fB\-\-metric\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIOLD\fR] [\fINEW\fR] 
 .SH DESCRIPTION
 Compare two metric\-output runs and report, per metric, which files changed (old to new), plus files added/removed between the two sets. Each side is a per\-file JSON file or a directory tree of them (the form `bca metrics \-O json \-\-output DIR` writes). Replaces the grammar\-bump glue chain — the external `json\-minimal\-tests` binary plus `split\-minimal\-tests.py` — with one native command. Always exits 0 on success; the diff is informational, not a gate
 .SH OPTIONS
+.TP
+\fB\-\-since\fR \fI<SINCE>\fR
+Analyze the tree at this git ref for the "before" side instead of reading a captured metric set. Hard\-errors (exit 1) if the process is not in a git checkout, `git` is missing, or the ref does not resolve. Honors the same `\-\-paths` / `\-\-include` / `\-\-exclude` selection as the rest of the CLI so both sides analyze the same file set.
+
+In this mode the before side comes from `<ref>`, so at most one positional is accepted and it is the *after* side (a source tree to analyze); omit it to analyze the current working tree. Passing two positionals with `\-\-since` is rejected at runtime.
 .TP
 \fB\-\-format\fR \fI<FORMAT>\fR [default: tty]
 Output style: `tty` (default), `markdown`, or `json`
@@ -31,10 +36,10 @@ Minimum absolute change for a per\-file metric delta to be reported. `0` (the de
 Restrict the diff to one or more metrics (repeatable). Names are those printed by `bca list\-metrics` (e.g. `cyclomatic`, `sloc`). When omitted, every metric is reported
 .TP
 \fB\-h\fR, \fB\-\-help\fR
-Print help
+Print help (see a summary with \*(Aq\-h\*(Aq)
 .TP
-<\fIOLD\fR>
-Old (base) metric output — the "before" side. A per\-file JSON file or a directory of per\-file JSON
+[\fIOLD\fR]
+Old (base) metric output — the "before" side. A per\-file JSON file or a directory of per\-file JSON. Omit when using `\-\-since`
 .TP
-<\fINEW\fR>
-New (updated) metric output — the "after" side. A per\-file JSON file or a directory of per\-file JSON
+[\fINEW\fR]
+In file/dir mode: the new (after) metric output (a per\-file JSON file or a directory of them). In `\-\-since` mode: an optional source tree to analyze for the after side; when omitted the current working tree is analyzed

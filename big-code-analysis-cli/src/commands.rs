@@ -1337,7 +1337,7 @@ pub fn run() {
         Command::Preproc(args) => run_command_preproc(cli.globals, args),
         Command::Init(args) => run_command_init(cli.globals, args, preproc),
         Command::DiffBaseline(args) => run_command_diff_baseline(args),
-        Command::Diff(args) => run_command_diff(args),
+        Command::Diff(args) => run_command_diff(cli.globals, args),
         Command::Exemptions(args) => {
             run_command_exemptions(cli.globals, args, manifest.as_ref(), preproc);
         }
@@ -1829,20 +1829,31 @@ fn run_command_diff_baseline(args: DiffBaselineArgs) {
     write_stdout_or_die(rendered.as_bytes());
 }
 
-/// Diff two metric-output sets and print the per-metric result
-/// (issue #487). Each side is a per-file JSON file or a directory of
-/// per-file JSON (the form `bca metrics -O json --output <dir>` writes).
-///
-/// Replaces the legacy grammar-bump glue: the external
-/// `json-minimal-tests` binary plus `split-minimal-tests.py`. Always
-/// exits 0 on success; a load/parse failure is a tool error (exit 1).
-fn run_command_diff(args: crate::DiffArgs) {
-    let diff = crate::metric_diff::MetricDiff::compute(
-        &args.old,
-        &args.new,
-        args.min_change,
-        &args.metric,
-    )
+fn run_command_diff(globals: GlobalOpts, args: crate::DiffArgs) {
+    let diff = if let Some(since_ref) = args.since.as_deref() {
+        // `--since` takes at most one positional (the after-side tree),
+        // which clap binds to `old` first. A second positional (`new`)
+        // is ambiguous in this mode, so reject it with a clear message
+        // rather than silently ignoring it.
+        if args.new.is_some() {
+            die(
+                "bca diff --since takes at most one positional (the after-side tree); \
+                 omit it to diff against the working tree",
+            );
+        }
+        compute_since_diff(&globals, &args, since_ref)
+    } else {
+        // File/dir mode: both positionals are required captured metric
+        // sets, so reaching here with `--since` absent means `old`/`new`
+        // came from the positionals; enforce both are present.
+        let Some(old) = args.old.as_deref() else {
+            die("bca diff: provide two metric-output paths (<old> <new>) or use --since <ref>");
+        };
+        let Some(new) = args.new.as_deref() else {
+            die("bca diff: missing <new> metric-output path (or use --since <ref>)");
+        };
+        crate::metric_diff::MetricDiff::compute(old, new, args.min_change, &args.metric)
+    }
     .unwrap_or_else(|e| die(format_args!("{e}")));
     let rendered = match args.format {
         OutputFormat::Tty => diff.render_tty(),
@@ -1855,6 +1866,85 @@ fn run_command_diff(args: crate::DiffArgs) {
             .unwrap_or_else(|e| die(format_args!("failed to serialize diff to JSON: {e}"))),
     };
     write_stdout_or_die(rendered.as_bytes());
+}
+
+/// Compute the `bca diff --since <ref>` diff: materialize the tree at
+/// `since_ref` into an auto-cleaning tempdir, run the metric walk
+/// against it (the before side) and against the after side (the
+/// optional positional source tree or the current working tree), then
+/// reuse `metric_diff`'s bucketing. Both sides honor the same
+/// `--paths`/`--include`/`--exclude` selection.
+///
+/// Ref/checkout failures are hard errors (exit 1) per #492, surfaced via
+/// `die` in the caller; this returns `DiffError` for the file-walk /
+/// JSON-load failures `metric_diff` already models.
+fn compute_since_diff(
+    globals: &GlobalOpts,
+    args: &crate::DiffArgs,
+    since_ref: &str,
+) -> Result<crate::metric_diff::MetricDiff, crate::metric_diff::DiffError> {
+    // Hard-error early on an unresolvable ref / non-git checkout, before
+    // creating any temp state, so nothing needs cleaning up on this path.
+    diff::validate_since_ref(since_ref).unwrap_or_else(|reason| die(reason));
+
+    // TempDir auto-removes on drop — including every `?` below — so the
+    // "no leftover temp trees, even on error" acceptance holds without
+    // manual teardown.
+    let before_tree = tempfile::TempDir::new().map_err(io_to_diff_error)?;
+    diff::materialize_tree(since_ref, before_tree.path()).unwrap_or_else(|reason| die(reason));
+
+    let before_json = tempfile::TempDir::new().map_err(io_to_diff_error)?;
+    let before = crate::walk_metric_set(
+        before_tree.path(),
+        side_globals(globals),
+        before_json.path(),
+    )?;
+
+    // After side: the optional positional source tree, else the working
+    // tree. In `--since` mode the single trailing positional is bound to
+    // `args.old` by clap; the caller has already rejected a second
+    // positional (`args.new`). `walk_metric_set` anchors the CWD at this
+    // root, so the before/after keys (root-relative) line up.
+    let after_root = match args.old.as_deref() {
+        Some(new_tree) => new_tree.to_path_buf(),
+        None => std::env::current_dir().map_err(io_to_diff_error)?,
+    };
+    let after_json = tempfile::TempDir::new().map_err(io_to_diff_error)?;
+    let after = crate::walk_metric_set(&after_root, side_globals(globals), after_json.path())?;
+
+    Ok(crate::metric_diff::MetricDiff::from_sets(
+        &before,
+        &after,
+        args.min_change,
+        &args.metric,
+    ))
+}
+
+/// Build the per-side [`GlobalOpts`] for a `--since` metric walk: clone
+/// the user's globals (carrying `--include`/`--exclude` and the rest)
+/// but pin `paths` to `.` so the walk is anchored at the side's tree
+/// root (`walk_metric_set` sets the CWD there). When the user passed
+/// explicit `--paths`, honor them as-is — they are interpreted relative
+/// to each tree root, keeping both sides on the same file set.
+fn side_globals(globals: &GlobalOpts) -> GlobalOpts {
+    let mut side = globals.clone();
+    if side.paths.is_empty() {
+        side.paths = vec![PathBuf::from(".")];
+    }
+    // `paths_from` is a captured file outside the tree; consuming it on
+    // both sides would double-read it relative to the wrong roots, so
+    // drop it — `--since` selection is via `--paths`/globs only.
+    side.paths_from = None;
+    side
+}
+
+/// Adapt a `std::io::Error` raised while creating temp state for the
+/// `--since` walk into the `DiffError` the caller already renders.
+fn io_to_diff_error(source: std::io::Error) -> crate::metric_diff::DiffError {
+    crate::metric_diff::DiffError::Read {
+        path: PathBuf::from("<temp>"),
+        source,
+    }
 }
 
 /// Default baseline file audited by `bca exemptions` when neither

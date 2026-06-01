@@ -73,6 +73,34 @@ Useful flags:
   least `N` (the default `0` reports any change).
 - `--metric <name>` (repeatable) restricts the diff to specific metrics.
 
+### Diff against a git ref with `--since`
+
+For the interactive "what did my uncommitted change do to the metrics?"
+case, `--since <ref>` skips the two-capture dance: it analyzes the tree
+**at a git ref** for the before side, and diffs it against the current
+working tree (or an explicit after-side tree):
+
+```bash
+# Before = the tree at HEAD~1; after = the current working tree.
+bca diff --since HEAD~1 -p src/
+
+# After = an explicit tree (e.g. a second checkout) instead of the
+# working tree. The single positional is the after side.
+bca diff --since main /path/to/other-checkout -p src/
+```
+
+`--since` materializes the ref's tree into a temporary directory (via
+`git archive`), runs the same metric walk against it, then diffs — the
+temp tree is removed automatically, including on error. The same
+`-p/--paths`, `-I/--include`, and `-X/--exclude` selection applies to
+both sides so they analyze the same file set; paths are interpreted
+relative to each tree root.
+
+Unlike `bca check --since` (best-effort), `bca diff --since` is an
+explicit request: an unresolvable ref, a missing `git`, or a non-git
+working directory is a hard error (exit 1). `--since` takes at most one
+positional (the after side); passing two is an error.
+
 `bca diff` always exits 0 on success — it is informational, not a gate.
 It replaces the former `json-minimal-tests` + `split-minimal-tests.py`
 chain used to validate that a grammar bump did not regress metrics; the

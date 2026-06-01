@@ -374,6 +374,95 @@ pub(crate) fn canonicalize_for_match(path: &Path) -> PathBuf {
     path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
 }
 
+/// Subcommand for `git rev-parse --verify <ref>^{tree}`, used to confirm
+/// a `--since` ref resolves to a tree object before we try to archive
+/// it. The `^{tree}` peel rejects refs that exist but do not name a
+/// commit/tree (e.g. a blob SHA), giving a precise diagnostic instead of
+/// a confusing `git archive` failure downstream.
+const TREEISH_SUFFIX: &str = "^{tree}";
+
+/// Validate that `since_ref` can serve as the "before" side of
+/// `bca diff --since`: the dash guard from [`resolve_scope`] applies
+/// (an unguarded `-x` ref would be parsed as a git option), the process
+/// must be inside a git checkout, and the ref must resolve to a tree.
+///
+/// Unlike `bca check --since` (best-effort: a missing ref silently
+/// disables diff scoping), `bca diff --since` is an explicit request to
+/// diff against a ref, so every failure here is a hard error the caller
+/// renders to stderr before exiting 1.
+pub(crate) fn validate_since_ref(since_ref: &str) -> Result<(), String> {
+    // Mirror `resolve_scope`'s up-front dash guard: git's `--` only
+    // separates revs from paths, not options from args, so a dash-
+    // leading ref reaches git's option parser and errors confusingly.
+    if since_ref.starts_with('-') {
+        return Err(format!(
+            "diff --since ref {since_ref:?} starts with `-`; git would parse it as an option. \
+             Pass a plain ref (e.g. `HEAD~1`, `main`, a SHA) instead."
+        ));
+    }
+    // Confirm we are in a git checkout (and git is installed) before
+    // probing the ref, so the diagnostic names the right problem.
+    let repo_root = git_repo_root().map_err(|reason| {
+        format!("diff --since {since_ref}: {reason}; --since requires a git checkout")
+    })?;
+    // Peel to a tree to reject non-tree-ish refs and missing refs alike.
+    run_git(
+        &["rev-parse", "--verify", "--quiet", &format!("{since_ref}{TREEISH_SUFFIX}")],
+        Some(Path::new(&repo_root)),
+    )
+    .map(|_| ())
+    .map_err(|e| {
+        e.into_message(&format!(
+            "diff --since: ref {since_ref:?} does not resolve to a tree (git rev-parse --verify {since_ref}{TREEISH_SUFFIX})"
+        ))
+    })
+}
+
+/// Materialize the tree at `since_ref` into `dest` (an existing,
+/// empty directory — typically a [`tempfile::TempDir`] the caller owns
+/// so it auto-cleans on every exit path, including errors).
+///
+/// Uses `git archive --format=tar <ref> -o <tarfile>` into a sibling
+/// temp file, then `tar -xf <tarfile> -C <dest>`. The archive route
+/// (vs `git worktree add`) needs no checkout-state bookkeeping and
+/// conflicts with no existing worktree; the only artifacts are the
+/// caller-owned `dest` dir and the internally-owned tarball, both
+/// auto-removed on drop.
+pub(crate) fn materialize_tree(since_ref: &str, dest: &Path) -> Result<(), String> {
+    let repo_root =
+        git_repo_root().map_err(|reason| format!("diff --since {since_ref}: {reason}"))?;
+    // Hold the tarball in its own NamedTempFile so it is removed on every
+    // return path, including the extraction-failure `?` below.
+    let tarball = tempfile::NamedTempFile::new()
+        .map_err(|e| format!("diff --since: failed to create temp archive file: {e}"))?;
+    let tar_path = tarball.path();
+    let tar_path_str = tar_path
+        .to_str()
+        .ok_or_else(|| "diff --since: temp archive path is not valid UTF-8".to_string())?;
+    run_git(
+        &["archive", "--format=tar", "-o", tar_path_str, since_ref],
+        Some(Path::new(&repo_root)),
+    )
+    .map_err(|e| e.into_message(&format!("diff --since: git archive {since_ref}")))?;
+
+    let dest_str = dest
+        .to_str()
+        .ok_or_else(|| "diff --since: extraction dir path is not valid UTF-8".to_string())?;
+    let status = Command::new("tar")
+        .args(["-xf", tar_path_str, "-C", dest_str])
+        .status()
+        .map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => "tar binary not found on PATH".to_string(),
+            _ => format!("diff --since: failed to invoke tar: {e}"),
+        })?;
+    if !status.success() {
+        return Err(format!(
+            "diff --since: tar failed to extract the archive for {since_ref}"
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 #[path = "diff_tests.rs"]
 mod tests;

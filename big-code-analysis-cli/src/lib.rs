@@ -722,10 +722,15 @@ struct DiffBaselineArgs {
     improved_only: bool,
 }
 
-/// Arguments for the `diff` subcommand (issue #487). Takes two
-/// metric-output sets — each a per-file JSON file or a directory tree of
-/// them — and reports per-metric, per-file deltas plus added/removed
-/// files.
+/// Arguments for the `diff` subcommand (issue #487, `--since` from
+/// #492). Reports per-metric, per-file deltas plus added/removed files.
+///
+/// Two input modes:
+/// - File/dir mode: two positional metric-output sets (`<old> <new>`),
+///   each a per-file JSON file or a directory tree of them.
+/// - `--since <ref> [<new>]`: analyze the tree at `<ref>` for the
+///   before side; the after side is the optional `<new>` source tree or
+///   the current working tree.
 ///
 /// `--format json` always emits every bucket; `--min-change` and
 /// `--metric` shape which deltas are reported. Always exits 0 on
@@ -733,13 +738,28 @@ struct DiffBaselineArgs {
 #[derive(Args, Debug)]
 struct DiffArgs {
     /// Old (base) metric output — the "before" side. A per-file JSON
-    /// file or a directory of per-file JSON.
+    /// file or a directory of per-file JSON. Omit when using `--since`.
     #[clap(value_parser)]
-    old: PathBuf,
-    /// New (updated) metric output — the "after" side. A per-file JSON
-    /// file or a directory of per-file JSON.
+    old: Option<PathBuf>,
+    /// In file/dir mode: the new (after) metric output (a per-file JSON
+    /// file or a directory of them). In `--since` mode: an optional
+    /// source tree to analyze for the after side; when omitted the
+    /// current working tree is analyzed.
     #[clap(value_parser)]
-    new: PathBuf,
+    new: Option<PathBuf>,
+    /// Analyze the tree at this git ref for the "before" side instead of
+    /// reading a captured metric set. Hard-errors (exit 1) if the
+    /// process is not in a git checkout, `git` is missing, or the ref
+    /// does not resolve. Honors the same `--paths` / `--include` /
+    /// `--exclude` selection as the rest of the CLI so both sides
+    /// analyze the same file set.
+    ///
+    /// In this mode the before side comes from `<ref>`, so at most one
+    /// positional is accepted and it is the *after* side (a source tree
+    /// to analyze); omit it to analyze the current working tree.
+    /// Passing two positionals with `--since` is rejected at runtime.
+    #[clap(long)]
+    since: Option<String>,
     /// Output style: `tty` (default), `markdown`, or `json`.
     #[clap(long, value_enum, default_value_t = OutputFormat::Tty)]
     format: OutputFormat,
@@ -1276,6 +1296,103 @@ fn run_walk(globals: GlobalOpts, cfg: Config) -> HashMap<String, Vec<PathBuf>> {
         .set_proc_dir_paths(process_dir_path)
         .run(cfg, files_data)
         .unwrap_or_else(|e| die(format_args!("{e:?}")))
+}
+
+/// Analyze the source tree rooted at `root` with `globals` (whose
+/// `paths` the caller has set to seeds *relative to* `root`, and whose
+/// `include`/`exclude` carry the user's selection), writing per-file
+/// JSON into `json_out_dir`, and return the resulting in-memory
+/// [`MetricSet`] keyed by each file's path relative to `root`.
+///
+/// This is the metric-extraction half of `bca diff --since`: the
+/// "before" side runs it against a tempdir holding the tree at a git
+/// ref, the "after" side against the working tree (or an explicit
+/// directory). Keying relative to `root` is what lets the two sides
+/// pair on the same logical layout even though their absolute roots
+/// differ (a `/tmp/…` extraction dir vs the repo).
+///
+/// The walk runs with the process CWD anchored at `root` (via the
+/// drop-restoring [`with_cwd`] guard) and the caller's seeds expressed
+/// relative to it, so the JSON writer emits each per-file document under
+/// `json_out_dir` named by the root-relative source path
+/// (`src/foo.rs.json`). The key is then just that path relative to
+/// `json_out_dir` — byte-identical across the two sides whenever the
+/// same logical file exists in both trees.
+pub(crate) fn walk_metric_set(
+    root: &Path,
+    globals: GlobalOpts,
+    json_out_dir: &Path,
+) -> Result<metric_diff::MetricSet, metric_diff::DiffError> {
+    let action = Action::Metrics {
+        format: Some(MetricsFormat::Json),
+        pretty: false,
+    };
+    let cfg = Config {
+        output: Some(json_out_dir.to_path_buf()),
+        ..Config::new(action, &globals, None)
+    };
+
+    // Walk with the process CWD anchored at `root` and the seeds
+    // expressed relative to it (the caller passes `.`/`<subdir>`),
+    // so the JSON writer emits files under `json_out_dir` named by the
+    // root-relative source path (`src/foo.rs.json`) with no absolute
+    // prefix to strip. This is what makes the "before" side (a
+    // /tmp/… extraction) and the "after" side (the working tree or an
+    // explicit dir) pair on the same keys despite different absolute
+    // roots, without depending on `reanchor_seed`'s under-CWD rewrite.
+    //
+    // `bca diff` runs `run_walk` to completion synchronously here — the
+    // worker threads spawn and join inside this call — so the scoped
+    // CWD swap cannot race another command's walk.
+    let restore = with_cwd(root)?;
+    run_walk(globals, cfg);
+    drop(restore);
+
+    let mut set = metric_diff::MetricSet::new();
+    for json in metric_diff::walk_json_files(json_out_dir)? {
+        // `walk_json_files` only returns files under `json_out_dir`, so
+        // the strip cannot fail in practice; fall back to the full path
+        // defensively rather than unwrapping.
+        let rel = json.strip_prefix(json_out_dir).unwrap_or(&json);
+        let key = metric_diff::path_to_key(rel)?;
+        let metrics = metric_diff::extract_metrics(metric_diff::read_json(&json)?);
+        set.insert(key, metrics);
+    }
+    Ok(set)
+}
+
+/// RAII guard that restores the process working directory to its prior
+/// value when dropped. Returned by [`with_cwd`].
+struct CwdGuard {
+    previous: PathBuf,
+}
+
+impl Drop for CwdGuard {
+    fn drop(&mut self) {
+        // Best-effort restore: if the prior directory is gone the
+        // process is already in a degraded state, and `bca diff` is
+        // about to return anyway. Swallowing the error keeps `Drop`
+        // panic-free (a panic here would mask the real error on the
+        // unwinding path).
+        let _ = std::env::set_current_dir(&self.previous);
+    }
+}
+
+/// Switch the process working directory to `dir`, returning a guard that
+/// restores the previous directory on drop (including every `?`/error
+/// path in the caller). Surfaces the current-dir read and the switch as
+/// [`metric_diff::DiffError::Read`] so the `bca diff --since` caller can
+/// render a single error kind.
+fn with_cwd(dir: &Path) -> Result<CwdGuard, metric_diff::DiffError> {
+    let previous = std::env::current_dir().map_err(|source| metric_diff::DiffError::Read {
+        path: PathBuf::from("."),
+        source,
+    })?;
+    std::env::set_current_dir(dir).map_err(|source| metric_diff::DiffError::Read {
+        path: dir.to_path_buf(),
+        source,
+    })?;
+    Ok(CwdGuard { previous })
 }
 
 /// Read `path` and decode it as UTF-8, dying (exit 1) on an I/O or

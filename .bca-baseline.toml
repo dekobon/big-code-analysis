@@ -191,35 +191,35 @@ path = "big-code-analysis-cli/src/commands.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 7521687.795763054
+value = 7990271.367219667
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 2023.0
+value = 2113.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 169.0
+value = 177.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nexits"
-value = 25.0
+value = 31.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 107.0
+value = 112.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
@@ -234,6 +234,13 @@ qualified = "EffectiveConfig::from_resolved"
 start_line = 262
 metric = "nargs"
 value = 12.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands.rs"
+qualified = "compute_since_diff"
+start_line = 1881
+metric = "nexits"
+value = 6.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
@@ -268,7 +275,7 @@ path = "big-code-analysis-cli/src/commands.rs"
 qualified = "run"
 start_line = 1292
 metric = "halstead.effort"
-value = 58403.91444159848
+value = 59891.8081185821
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
@@ -289,21 +296,28 @@ path = "big-code-analysis-cli/src/diff.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 377960.1455394685
+value = 540759.8648621507
 
 [[entry]]
 path = "big-code-analysis-cli/src/diff.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 15.0
+value = 25.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/diff.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nexits"
-value = 11.0
+value = 20.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/diff.rs"
+qualified = "materialize_tree"
+start_line = 431
+metric = "nexits"
+value = 7.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/dispatch.rs"
@@ -436,47 +450,47 @@ path = "big-code-analysis-cli/src/lib.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 3252361.766631078
+value = 3567118.744924333
 
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1505.0
+value = 1622.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 75.0
+value = 81.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nexits"
-value = 14.0
+value = 20.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 59.0
+value = 64.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
 qualified = "expand_seed_paths"
-start_line = 1193
+start_line = 1213
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/lib.rs"
 qualified = "legacy_hint"
-start_line = 1401
+start_line = 1518
 metric = "halstead.effort"
 value = 59351.805921378844
 
@@ -597,7 +611,7 @@ path = "big-code-analysis-cli/src/metric_diff.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1513649.78963072
+value = 1521802.3019626627
 
 [[entry]]
 path = "big-code-analysis-cli/src/metric_diff.rs"
@@ -625,7 +639,7 @@ path = "big-code-analysis-cli/src/metric_diff.rs"
 qualified = "MetricDiff"
 start_line = 135
 metric = "halstead.effort"
-value = 338383.2316719176
+value = 339166.52618967666
 
 [[entry]]
 path = "big-code-analysis-cli/src/metric_diff.rs"
@@ -637,21 +651,21 @@ value = 16.0
 [[entry]]
 path = "big-code-analysis-cli/src/metric_diff.rs"
 qualified = "MetricDiff::from_sets"
-start_line = 153
+start_line = 156
 metric = "halstead.effort"
-value = 49716.195646641056
+value = 52190.161602200234
 
 [[entry]]
 path = "big-code-analysis-cli/src/metric_diff.rs"
 qualified = "MetricDiff::from_sets"
-start_line = 153
+start_line = 156
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/metric_diff.rs"
 qualified = "load_set"
-start_line = 471
+start_line = 474
 metric = "nexits"
 value = 5.0
 
