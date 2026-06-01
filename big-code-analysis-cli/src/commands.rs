@@ -41,7 +41,7 @@ use crate::{
     InitArgs, ListMetricsArgs, NodesArgs, OutputFormat, PreprocArgs, PrintConfigFormat, ReportArgs,
     StripCommentsArgs, StructuredArgs, Tier, die, die_io, group_files_by_basename, legacy_hint,
     load_baseline, load_preproc_data, load_threshold_config, read_exclude_patterns_from, run_walk,
-    write_atomic, write_stdout_or_die,
+    run_walk_collecting, write_atomic, write_stdout_or_die,
 };
 
 fn run_check(
@@ -1571,7 +1571,7 @@ fn run_command_preproc(globals: GlobalOpts, args: PreprocArgs) {
         // this command (the original code passed `None` here too).
         ..Config::new(Action::PreprocProduce, &globals, None)
     };
-    let paths = run_walk(globals, cfg);
+    let paths = run_walk_collecting(globals, cfg);
     // Group the analyzed file list by basename for cross-file
     // `#include` resolution. Computing this from the same resolved
     // list the workers processed (rather than the library's old

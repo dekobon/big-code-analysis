@@ -1268,7 +1268,14 @@ fn expand_seed_paths(
     out
 }
 
-fn run_walk(globals: GlobalOpts, cfg: Config) -> Vec<PathBuf> {
+/// Resolve the seeds into the terminal, walk-root-anchored file list
+/// plus the worker count. The include/exclude filtering is applied here,
+/// anchored to each file's walk root (#489), so the resolved list is the
+/// final file set: the library runner processes it as-is, with no second
+/// walk and no second, emitted-path-form-sensitive glob match (the dead
+/// library globsets and re-walk were removed in #495). This anchored
+/// walk is the single filtering seam.
+fn resolve_walk_files(globals: GlobalOpts) -> (Vec<PathBuf>, usize) {
     let include = mk_globset(globals.include).unwrap_or_else(|e| die(e));
     let exclude = build_exclude_globset(
         globals.exclude,
@@ -1276,12 +1283,6 @@ fn run_walk(globals: GlobalOpts, cfg: Config) -> Vec<PathBuf> {
         "--exclude-from",
     );
     let num_jobs = globals.num_jobs.resolve();
-    // The include/exclude filtering is applied here, anchored to each
-    // file's walk root (#489), so the resolved `paths` are the final,
-    // terminal file set. The library runner processes that list as-is —
-    // it does no second walk and no second, emitted-path-form-sensitive
-    // glob match (the dead library globsets and re-walk were removed in
-    // #495). This anchored walk is the single filtering seam.
     let filters = WalkFilters {
         include: &include,
         exclude: &exclude,
@@ -1292,20 +1293,34 @@ fn run_walk(globals: GlobalOpts, cfg: Config) -> Vec<PathBuf> {
         globals.no_ignore,
         &filters,
     );
-    // Only `bca preproc` (`PreprocProduce`) consumes the returned list —
-    // for cross-file `#include` grouping (#495); every other command
-    // discards it. So clone the file set only on that path and move it
-    // into the runner otherwise, rather than duplicating the whole
-    // resolved list on the common commands.
-    let returned = if matches!(cfg.action, Action::PreprocProduce) {
-        paths.clone()
-    } else {
-        Vec::new()
-    };
+    (paths, num_jobs)
+}
+
+/// Resolve the seeds and process the file set concurrently. The common
+/// walk entry point; callers that also need the resolved file list (only
+/// `bca preproc`, for `#include` grouping) use [`run_walk_collecting`].
+fn run_walk(globals: GlobalOpts, cfg: Config) {
+    let (paths, num_jobs) = resolve_walk_files(globals);
     ConcurrentRunner::new(num_jobs, act_on_file)
         .run(cfg, FilesData { paths })
         .unwrap_or_else(|e| die(format_args!("{e:?}")));
-    returned
+}
+
+/// Like [`run_walk`], but returns the resolved terminal file list.
+/// `bca preproc` needs it to group files by basename for cross-file
+/// `#include` resolution after the analysis (#495); it is the only
+/// caller that consumes the list, so only this variant clones it.
+fn run_walk_collecting(globals: GlobalOpts, cfg: Config) -> Vec<PathBuf> {
+    let (paths, num_jobs) = resolve_walk_files(globals);
+    ConcurrentRunner::new(num_jobs, act_on_file)
+        .run(
+            cfg,
+            FilesData {
+                paths: paths.clone(),
+            },
+        )
+        .unwrap_or_else(|e| die(format_args!("{e:?}")));
+    paths
 }
 
 /// Analyze the source tree rooted at `root` with `globals` (whose
