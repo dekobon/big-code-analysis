@@ -1348,17 +1348,10 @@ pub(crate) fn walk_metric_set(
     run_walk(globals, cfg);
     drop(restore);
 
-    let mut set = metric_diff::MetricSet::new();
-    for json in metric_diff::walk_json_files(json_out_dir)? {
-        // `walk_json_files` only returns files under `json_out_dir`, so
-        // the strip cannot fail in practice; fall back to the full path
-        // defensively rather than unwrapping.
-        let rel = json.strip_prefix(json_out_dir).unwrap_or(&json);
-        let key = metric_diff::path_to_key(rel)?;
-        let metrics = metric_diff::extract_metrics(metric_diff::read_json(&json)?);
-        set.insert(key, metrics);
-    }
-    Ok(set)
+    // The JSON writer emitted one document per source file under
+    // `json_out_dir`, keyed by the root-relative source path — the same
+    // shape `bca diff`'s directory inputs use, so reuse its loader.
+    metric_diff::load_dir_set(json_out_dir)
 }
 
 /// RAII guard that restores the process working directory to its prior

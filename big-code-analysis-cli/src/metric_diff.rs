@@ -374,7 +374,10 @@ fn family_bucket(family_key: &str) -> FamilyBucket<'_> {
 /// `_min` / `_max` suffixes appended by the emitter), so the bucket is
 /// that first segment when it matches a `loc` row name.
 fn loc_bucket(field: &str) -> Option<&'static str> {
-    let head = field.split('_').next().unwrap_or(field);
+    // The sub-metric is the segment before the first `_` suffix
+    // (`sloc`, `sloc_average`, …); `split_once` yields the whole field
+    // when there is no suffix.
+    let head = field.split_once('_').map_or(field, |(head, _)| head);
     FAMILIES
         .iter()
         .find(|f| f.name == EXPANDED_FAMILY)?
@@ -472,22 +475,31 @@ fn collect_leaves(
 /// layout. For a single file, the document's `name` field is the key
 /// (falling back to the file's own name when absent).
 fn load_set(path: &Path) -> Result<MetricSet, DiffError> {
-    let mut set = MetricSet::new();
     if path.is_dir() {
-        for entry in walk_json_files(path)? {
-            let rel = entry.strip_prefix(path).unwrap_or(&entry);
-            let key = path_to_key(rel)?;
-            let metrics = load_metrics(&entry)?;
-            set.insert(key, metrics);
-        }
-    } else {
-        let value = read_json(path)?;
-        let key = value
-            .get(NAME_KEY)
-            .and_then(Value::as_str)
-            .map(str::to_string)
-            .map_or_else(|| path_to_key(path), Ok)?;
-        set.insert(key, extract_metrics(value));
+        return load_dir_set(path);
+    }
+    let mut set = MetricSet::new();
+    let value = read_json(path)?;
+    let key = value
+        .get(NAME_KEY)
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .map_or_else(|| path_to_key(path), Ok)?;
+    set.insert(key, extract_metrics(value));
+    Ok(set)
+}
+
+/// Load every per-file JSON document under `root` into a [`MetricSet`]
+/// keyed by each file's path relative to `root`. Shared by [`load_set`]
+/// (the directory branch) and the `bca diff --since` walk in `lib.rs`,
+/// so both pair files on identical root-relative keys. `walk_json_files`
+/// only yields paths under `root`, so the `strip_prefix` cannot fail in
+/// practice; the fallback to the full path is defensive.
+pub(crate) fn load_dir_set(root: &Path) -> Result<MetricSet, DiffError> {
+    let mut set = MetricSet::new();
+    for entry in walk_json_files(root)? {
+        let rel = entry.strip_prefix(root).unwrap_or(&entry);
+        set.insert(path_to_key(rel)?, load_metrics(&entry)?);
     }
     Ok(set)
 }
@@ -501,14 +513,14 @@ fn load_metrics(path: &Path) -> Result<Value, DiffError> {
 
 /// Pull the top-level `metrics` object out of a per-file document,
 /// defaulting to an empty object.
-pub(crate) fn extract_metrics(value: Value) -> Value {
+fn extract_metrics(value: Value) -> Value {
     value
         .get(METRICS_KEY)
         .cloned()
         .unwrap_or_else(|| Value::Object(serde_json::Map::new()))
 }
 
-pub(crate) fn read_json(path: &Path) -> Result<Value, DiffError> {
+fn read_json(path: &Path) -> Result<Value, DiffError> {
     let bytes = std::fs::read(path).map_err(|source| DiffError::Read {
         path: path.to_path_buf(),
         source,
@@ -521,7 +533,7 @@ pub(crate) fn read_json(path: &Path) -> Result<Value, DiffError> {
 
 /// Convert a path into a stable string key, erroring on non-UTF-8 rather
 /// than lossily transcoding (identifier paths must round-trip).
-pub(crate) fn path_to_key(path: &Path) -> Result<String, DiffError> {
+fn path_to_key(path: &Path) -> Result<String, DiffError> {
     path.to_str()
         .map(str::to_string)
         .ok_or_else(|| DiffError::NonUtf8Path {
@@ -533,7 +545,7 @@ pub(crate) fn path_to_key(path: &Path) -> Result<String, DiffError> {
 /// `ignore` crate the walker uses elsewhere, but with ignore-file
 /// awareness disabled: a metric-output dir is a build artifact, not a
 /// source tree, so `.gitignore` rules must not hide its contents.
-pub(crate) fn walk_json_files(root: &Path) -> Result<Vec<PathBuf>, DiffError> {
+fn walk_json_files(root: &Path) -> Result<Vec<PathBuf>, DiffError> {
     let mut files = Vec::new();
     let walker = ignore::WalkBuilder::new(root)
         .standard_filters(false)
