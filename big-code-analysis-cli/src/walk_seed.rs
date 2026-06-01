@@ -109,6 +109,27 @@ pub(crate) fn match_path_for(seed: &std::path::Path, path: &std::path::Path) -> 
     }
 }
 
+/// Anchor `path` to the `./`-relative walk-root form using the first
+/// `seed` that contains it. For callers that filter *after* the walk
+/// (e.g. `[check.exclude]` matching already-emitted violation paths,
+/// #493) and so have lost the per-seed association [`match_path_for`]
+/// relies on. A `path` equal to a seed (a single explicit file
+/// `--paths`) is returned unchanged, matching the file-seed branch of
+/// the walk filter; so is a `path` no seed contains. `seeds` must
+/// already be [`reanchor_seed`]-normalised (the form the walk emitted).
+pub(crate) fn anchor_against_seeds(seeds: &[PathBuf], path: &std::path::Path) -> PathBuf {
+    for seed in seeds {
+        if let Ok(rel) = path.strip_prefix(seed) {
+            if rel.as_os_str().is_empty() {
+                // path == seed: a single explicit file, matched as spelled.
+                break;
+            }
+            return PathBuf::from(".").join(rel);
+        }
+    }
+    path.to_path_buf()
+}
+
 #[cfg(test)]
 #[path = "walk_seed_tests.rs"]
 mod tests;

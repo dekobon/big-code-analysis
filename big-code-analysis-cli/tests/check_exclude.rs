@@ -276,3 +276,40 @@ fn check_exclude_from_missing_file_names_the_right_flag() {
         // before `exclude-from`).
         .stderr(predicate::str::contains(" --exclude-from").not());
 }
+
+/// #493: a manifest `[check.exclude]` glob must exempt the same files
+/// when `bca check` runs from a subdirectory below the manifest dir.
+/// `paths = ["."]` resolves to the manifest dir (an ancestor of the
+/// CWD), so the walk root is absolute and above the CWD — pre-fix the
+/// `./`-anchored `[check.exclude]` matched the emitted absolute
+/// violation path and exempted nothing, failing the gate on the
+/// vendored offender. Matching is now anchored to the walk root.
+#[test]
+fn check_exclude_manifest_glob_applies_from_subdir() {
+    let dir = TempDir::new().unwrap();
+    let repo = dir.path().canonicalize().unwrap();
+    // `.git` marks the manifest-discovery boundary; the manifest gates
+    // cyclomatic and structurally exempts the vendored subtree.
+    fs::create_dir(repo.join(".git")).unwrap();
+    fs::write(
+        repo.join("bca.toml"),
+        "paths = [\".\"]\n\n[thresholds]\ncyclomatic = 1\n\n[check]\nexclude = [\"./vendor/**\"]\n",
+    )
+    .unwrap();
+    fs::create_dir(repo.join("vendor")).unwrap();
+    fs::write(repo.join("vendor/v.rs"), branchy("vendor_offender")).unwrap();
+    fs::create_dir(repo.join("src")).unwrap();
+    fs::write(repo.join("src/keep.rs"), branchy("keep_offender")).unwrap();
+
+    // Run from `src/`: the manifest is discovered by climbing to `repo/`,
+    // whose `paths=["."]` resolves to `repo/` — above this CWD.
+    common::cli_in(&repo.join("src"))
+        .arg("check")
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("keep_offender"))
+        .stderr(predicate::str::contains("vendor_offender").not())
+        .stderr(predicate::str::contains(
+            "skipped 1 violations via [check.exclude]",
+        ));
+}

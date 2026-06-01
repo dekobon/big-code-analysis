@@ -809,6 +809,11 @@ for historical reference.
   process CWD, so manifest-driven excludes also apply when `bca` runs
   from a subdirectory below the manifest directory
   ([#489](https://github.com/dekobon/big-code-analysis/issues/489)).
+  The same walk-root anchoring now applies to the `[check.exclude]`
+  gate-exemption globs, which previously matched the emitted (possibly
+  absolute) violation path and so silently exempted nothing under an
+  absolute / above-CWD walk root
+  ([#493](https://github.com/dekobon/big-code-analysis/issues/493)).
 - The `cyclomatic_count_try` `bca.toml` key is no longer flagged with a
   spurious "ignoring unrecognized key" warning. The key was added to the
   typed manifest view in [#409](https://github.com/dekobon/big-code-analysis/issues/409)

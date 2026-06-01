@@ -737,7 +737,7 @@ fn apply_check_exclude_drops_matching_paths_only() {
         violation("src/metrics/cognitive.rs", "compute", 20.0, 10.0),
     ];
     let args = check_args_excluding(&["src/languages/language_*.rs", "tests/**"], None);
-    let kept = apply_check_exclude(violations, &args);
+    let kept = apply_check_exclude(violations, &args, &[]);
 
     // The two structural-exemption files are dropped; the genuine
     // offender in `src/metrics` survives.
@@ -754,7 +754,7 @@ fn apply_check_exclude_no_patterns_is_identity() {
         violation("b.rs", "g", 30.0, 10.0),
     ];
     let args = check_args_excluding(&[], None);
-    let kept = apply_check_exclude(violations, &args);
+    let kept = apply_check_exclude(violations, &args, &[]);
     assert_eq!(kept.len(), 2);
     assert_eq!(kept[0].path, PathBuf::from("a.rs"));
     assert_eq!(kept[1].path, PathBuf::from("b.rs"));
@@ -772,7 +772,7 @@ fn apply_check_exclude_reads_patterns_from_file() {
         violation("src/lib.rs", "f", 20.0, 10.0),
     ];
     let args = check_args_excluding(&[], ignore.to_str());
-    let kept = apply_check_exclude(violations, &args);
+    let kept = apply_check_exclude(violations, &args, &[]);
 
     assert_eq!(kept.len(), 1);
     assert_eq!(kept[0].path, PathBuf::from("src/lib.rs"));
@@ -792,7 +792,7 @@ fn apply_check_exclude_unions_flag_and_file() {
     // Flag contributes `xtask/**`; the file contributes `tests/**`; the
     // two deny-sets union, so only `src/lib.rs` survives.
     let args = check_args_excluding(&["xtask/**"], ignore.to_str());
-    let kept = apply_check_exclude(violations, &args);
+    let kept = apply_check_exclude(violations, &args, &[]);
 
     assert_eq!(kept.len(), 1);
     assert_eq!(kept[0].path, PathBuf::from("src/lib.rs"));

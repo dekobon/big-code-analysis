@@ -1,4 +1,4 @@
-use super::{match_path_for, reanchor_seed};
+use super::{anchor_against_seeds, match_path_for, reanchor_seed};
 use std::path::{Path, PathBuf};
 
 #[test]
@@ -137,4 +137,46 @@ fn absolute_sibling_tree_is_unchanged() {
         PathBuf::from("/definitely/not/under/cwd")
     };
     assert_eq!(reanchor_seed(outside.clone()), outside);
+}
+
+#[test]
+fn anchor_against_seeds_anchors_path_under_an_absolute_seed() {
+    // #493: a violation path emitted under an absolute walk root (a
+    // manifest `paths=["."]` resolved above the CWD) anchors to the
+    // `./`-relative form so a `./`-anchored `[check.exclude]` matches.
+    let seeds = vec![PathBuf::from("/abs/repo/.")];
+    assert_eq!(
+        anchor_against_seeds(&seeds, Path::new("/abs/repo/./vendor/v.rs")),
+        Path::new("./vendor/v.rs")
+    );
+    // A relative `.` seed leaves an already-anchored path unchanged.
+    assert_eq!(
+        anchor_against_seeds(&[PathBuf::from(".")], Path::new("./vendor/v.rs")),
+        Path::new("./vendor/v.rs")
+    );
+}
+
+#[test]
+fn anchor_against_seeds_leaves_single_file_seed_as_spelled() {
+    // path == seed (a single explicit file `--paths`): matched as the
+    // caller spelled it, mirroring the walk's file-seed branch.
+    let seeds = vec![PathBuf::from("/abs/repo/x.rs")];
+    assert_eq!(
+        anchor_against_seeds(&seeds, Path::new("/abs/repo/x.rs")),
+        Path::new("/abs/repo/x.rs")
+    );
+}
+
+#[test]
+fn anchor_against_seeds_passes_through_when_no_seed_contains_path() {
+    // First matching seed wins; an unrelated seed leaves the path as-is.
+    let seeds = vec![PathBuf::from("/other"), PathBuf::from("/abs/repo")];
+    assert_eq!(
+        anchor_against_seeds(&seeds, Path::new("/abs/repo/src/a.rs")),
+        Path::new("./src/a.rs")
+    );
+    assert_eq!(
+        anchor_against_seeds(&[PathBuf::from("/nope")], Path::new("/abs/repo/v.rs")),
+        Path::new("/abs/repo/v.rs")
+    );
 }

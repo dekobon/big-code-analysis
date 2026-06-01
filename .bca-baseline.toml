@@ -191,21 +191,21 @@ path = "big-code-analysis-cli/src/commands.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 8032138.570220204
+value = 8069502.417475942
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 2141.0
+value = 2156.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 179.0
+value = 180.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
@@ -238,28 +238,28 @@ value = 12.0
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "compute_since_diff"
-start_line = 1881
+start_line = 1896
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "compute_since_diff"
-start_line = 1881
+start_line = 1896
 metric = "nexits"
 value = 5.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "emit_check_results"
-start_line = 807
+start_line = 822
 metric = "nargs"
 value = 7.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "filter_by_baseline"
-start_line = 623
+start_line = 638
 metric = "nargs"
 value = 7.0
 
@@ -273,28 +273,28 @@ value = 7.0
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "run"
-start_line = 1292
+start_line = 1307
 metric = "cyclomatic"
 value = 19.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "run"
-start_line = 1292
+start_line = 1307
 metric = "halstead.effort"
 value = 59891.8081185821
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "run_command_init"
-start_line = 1691
+start_line = 1706
 metric = "halstead.effort"
 value = 57270.79409366582
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "run_command_init"
-start_line = 1691
+start_line = 1706
 metric = "nargs"
 value = 8.0
 
@@ -766,6 +766,13 @@ qualified = "Violation"
 start_line = 422
 metric = "nargs"
 value = 7.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/walk_seed.rs"
+qualified = "<file>"
+start_line = 1
+metric = "halstead.effort"
+value = 47666.56893588434
 
 [[entry]]
 path = "big-code-analysis-py/python/big_code_analysis/_flatten.py"

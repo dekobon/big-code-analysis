@@ -97,7 +97,7 @@ fn run_check(
     // records the structural exemptions and the gate never fails on
     // them. Applied after the empty-input guard above: exempt files are
     // still walked and counted, only their violations are dropped.
-    let violations = apply_check_exclude(violations, &args);
+    let violations = apply_check_exclude(violations, &args, &globals_for_remediation.paths);
 
     if let Some(path) = args.write_baseline.as_deref() {
         write_check_baseline(violations, path, provenance);
@@ -566,7 +566,11 @@ fn write_check_baseline(violations: Vec<Violation>, path: &Path, provenance: bas
     );
 }
 
-fn apply_check_exclude(violations: Vec<Violation>, args: &CheckArgs) -> Vec<Violation> {
+fn apply_check_exclude(
+    violations: Vec<Violation>,
+    args: &CheckArgs,
+    seeds: &[PathBuf],
+) -> Vec<Violation> {
     // Fast path: nothing configured (the common case) skips the
     // glob-set build and the file read entirely.
     if args.check_exclude.is_empty() && args.check_exclude_from.is_none() {
@@ -577,10 +581,21 @@ fn apply_check_exclude(violations: Vec<Violation>, args: &CheckArgs) -> Vec<Viol
         args.check_exclude_from.as_deref(),
         "--check-exclude-from",
     );
+    // Anchor each violation's emitted path to the walk-root `./`-form
+    // before matching, mirroring the global `--exclude`/`--include`
+    // anchoring (#489), so a `./`-anchored `[check.exclude]` pattern
+    // exempts the same files regardless of how the seed resolved
+    // (absolute, `$PWD`, or a manifest root above the CWD). The seeds
+    // are `--paths` reanchored exactly as the walk emitted them (#493).
+    let seeds: Vec<PathBuf> = seeds
+        .iter()
+        .cloned()
+        .map(crate::walk_seed::reanchor_seed)
+        .collect();
     let before = violations.len();
     let kept: Vec<Violation> = violations
         .into_iter()
-        .filter(|v| !globset.is_match(&v.path))
+        .filter(|v| !globset.is_match(crate::walk_seed::anchor_against_seeds(&seeds, &v.path)))
         .collect();
     let skipped = before - kept.len();
     if skipped > 0 {
