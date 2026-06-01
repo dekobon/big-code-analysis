@@ -68,6 +68,47 @@ pub(crate) fn reanchor_seed(seed: PathBuf) -> PathBuf {
     }
 }
 
+/// Compute the path to match exclude/include globs against for a file
+/// `path` discovered under the directory walk `seed`.
+///
+/// `reanchor_seed` (above) makes the walker's *emitted* path form
+/// independent of how `--paths` was spelled, but it can only express a
+/// walk root **at or under** the current directory: it rewrites an
+/// absolute seed to its CWD-relative remainder. A manifest-driven `bca
+/// check` invoked from a subdirectory *below* the manifest directory
+/// resolves `paths = ["."]` to the manifest dir, an **ancestor** of the
+/// CWD, which `reanchor_seed` cannot collapse, so the seed stays
+/// absolute and the walker emits absolute file paths that the
+/// `./`-anchored deny-set never matches (#489).
+///
+/// Glob matching must therefore be anchored to the **walk root**, not
+/// the CWD: every file discovered under `seed` is matched against its
+/// path *relative to that seed*, with a `./` prefix to match the
+/// convention the patterns (`.bcaignore`, `--exclude-from`, `[check]
+/// exclude`) and a bare `--paths .` walk both use. This is correct for
+/// every seed form (absolute, relative, `$PWD`, the reanchored `.`, and
+/// a manifest root above the CWD) because the relative tail under the
+/// walk root is invariant across all of them.
+///
+/// `strip_prefix` is purely lexical and skips `CurDir` components, so
+/// the already-reanchored `.` seed (whose emitted files carry a leading
+/// `./`) strips just as cleanly as an absolute seed: `./vendor/x` minus
+/// `.` is `vendor/x`, re-prefixed to `./vendor/x` — no double `./`.
+/// When `path` is not under `seed` it is returned unchanged as a
+/// defensive fallback (the walker always produces files under `seed`,
+/// so this branch is unreachable in practice).
+///
+/// Used for **directory** seeds only — the sole case excludes apply to.
+/// A single explicit file `--paths` seed is matched as the caller
+/// spelled it (matching `reanchor_seed`'s contract), so it never
+/// reaches this helper.
+pub(crate) fn match_path_for(seed: &std::path::Path, path: &std::path::Path) -> PathBuf {
+    match path.strip_prefix(seed) {
+        Ok(rel) => PathBuf::from(".").join(rel),
+        Err(_) => path.to_path_buf(),
+    }
+}
+
 #[cfg(test)]
 #[path = "walk_seed_tests.rs"]
 mod tests;

@@ -163,6 +163,68 @@ fn exclude_set_is_identical_across_path_forms() {
     assert_eq!(dot, manifest);
 }
 
+/// Run `bca metrics` with an auto-discovered `bca.toml` (`paths =
+/// ["."]`, `exclude_from = ".bcaignore"`) from `run_from`, which may be
+/// a subdirectory below the manifest directory. The manifest is climbed
+/// to from `run_from`, so `paths = ["."]` resolves against the manifest
+/// dir — an ancestor of `run_from` — exercising the #489 case.
+fn walked_via_manifest_from(fixture: &Path, run_from: &Path) -> Vec<String> {
+    std::fs::write(
+        fixture.join("bca.toml"),
+        "paths = [\".\"]\nexclude_from = \".bcaignore\"\n",
+    )
+    .unwrap();
+    let out = TempDir::new().unwrap();
+    cli(fixture)
+        .current_dir(run_from)
+        .args(["metrics", "-O", "json", "-o", out.path().to_str().unwrap()])
+        .assert()
+        .success();
+    let names = emitted_json(out.path());
+    std::fs::remove_file(fixture.join("bca.toml")).unwrap();
+    names
+}
+
+#[test]
+fn manifest_excludes_apply_when_run_from_subdir() {
+    // #489: a manifest-driven walk invoked from a subdirectory *below*
+    // the manifest directory must still honor the `./`-anchored
+    // `.bcaignore`. `paths = ["."]` resolves to the manifest dir (an
+    // ancestor of the CWD), which #488's CWD-relative seed re-anchoring
+    // cannot collapse — pre-fix the absolute walk root leaked the
+    // vendored file straight past the deny-set. Glob matching is now
+    // anchored to the walk root, so the exclude applies regardless of
+    // which subdir launched the run.
+    let dir = TempDir::new().unwrap();
+    let fixture = dir.path().canonicalize().unwrap();
+    make_tree(&fixture);
+    let subdir = fixture.join("src");
+    assert!(subdir.is_dir(), "fixture must contain the src/ subdir");
+
+    let from_subdir = walked_via_manifest_from(&fixture, &subdir);
+    assert_eq!(
+        from_subdir,
+        vec!["keep.py.json".to_string()],
+        "running from a subdir must still exclude vendor/ and tests/ \
+         via the manifest's ./-anchored .bcaignore (#489)"
+    );
+
+    // No regression for #488's repo-root invocation nor the `--paths
+    // \"$PWD\"` form: both must still drop the vendored/test files.
+    let from_root = walked_via_manifest_from(&fixture, &fixture);
+    assert_eq!(
+        from_root,
+        vec!["keep.py.json".to_string()],
+        "repo-root manifest invocation must still exclude (no #488 regression)"
+    );
+    let pwd_seed = walked_with_seed(&fixture, &fixture, fixture.to_str().unwrap());
+    assert_eq!(
+        pwd_seed,
+        vec!["keep.py.json".to_string()],
+        "--paths \"$PWD\" must still exclude (no #488 regression)"
+    );
+}
+
 #[test]
 fn absolute_subdir_seed_still_excludes() {
     // A seed that is an absolute path to a *subdirectory* of the walk

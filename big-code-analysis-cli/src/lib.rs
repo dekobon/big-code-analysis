@@ -1169,18 +1169,32 @@ where
         .collect()
 }
 
-/// Expand seed paths for the walk: union `--paths` with
-/// `--paths-from`, then for each seed:
-///   - file → keep as-is (explicit override of any ignore rules);
-///   - directory → expand via `ignore::WalkBuilder`, gitignore-aware
-///     unless `no_ignore` is set.
-///
-/// Returns a flat `Vec<PathBuf>` of files. Include/exclude globs are
-/// applied later by `explore()`, matching today's semantics.
+/// Borrowed include/exclude glob pair plus the walk-root-anchored match
+/// predicate they drive. Grouping the two globsets keeps
+/// `expand_seed_paths`'s signature narrow and co-locates the match
+/// convention (empty globset = no-op) with the patterns it applies to.
+struct WalkFilters<'a> {
+    include: &'a GlobSet,
+    exclude: &'a GlobSet,
+}
+
+impl WalkFilters<'_> {
+    /// Does `match_path` pass the include/exclude filters? An empty
+    /// globset is a no-op (no `--include` means "all"; no `--exclude`
+    /// means "none"). `match_path` is the form anchored to the file's
+    /// walk root (#489), so `./`-anchored patterns match regardless of
+    /// how the seed was spelled.
+    fn passes(&self, match_path: &Path) -> bool {
+        (self.include.is_empty() || self.include.is_match(match_path))
+            && (self.exclude.is_empty() || !self.exclude.is_match(match_path))
+    }
+}
+
 fn expand_seed_paths(
     mut paths: Vec<PathBuf>,
     paths_from: Option<PathBuf>,
     no_ignore: bool,
+    filters: &WalkFilters<'_>,
 ) -> Vec<PathBuf> {
     use ignore::WalkBuilder;
     if let Some(src) = paths_from {
@@ -1194,7 +1208,13 @@ fn expand_seed_paths(
             continue;
         }
         if seed.is_file() {
-            out.push(seed);
+            // A single explicit file seed keeps the form the caller
+            // spelled (its emitted `name` must match the single-file
+            // `bca.analyze()` API), and is matched against the globs
+            // as-is — the historical single-file filter behaviour.
+            if filters.passes(&seed) {
+                out.push(seed);
+            }
             continue;
         }
         let mut wb = WalkBuilder::new(&seed);
@@ -1210,7 +1230,14 @@ fn expand_seed_paths(
             let entry = entry
                 .unwrap_or_else(|e| die(format_args!("walk error in {}: {e}", seed.display())));
             if entry.file_type().is_some_and(|t| t.is_file()) {
-                out.push(entry.into_path());
+                let path = entry.into_path();
+                // Anchor the glob match to the walk root rather than the
+                // emitted (possibly absolute) path, so `./`-anchored
+                // excludes match regardless of how the seed resolved —
+                // including a manifest root above the CWD (#489).
+                if filters.passes(&walk_seed::match_path_for(&seed, &path)) {
+                    out.push(path);
+                }
             }
         }
     }
@@ -1225,10 +1252,24 @@ fn run_walk(globals: GlobalOpts, cfg: Config) -> HashMap<String, Vec<PathBuf>> {
         "--exclude-from",
     );
     let num_jobs = globals.num_jobs.resolve();
-    let paths = expand_seed_paths(globals.paths, globals.paths_from, globals.no_ignore);
+    // The include/exclude filtering is applied here, anchored to each
+    // file's walk root (#489), so the resolved `paths` are already the
+    // final file set. Hand the library empty globsets to avoid a second,
+    // emitted-path-form-sensitive match that would re-introduce the very
+    // path-form dependence #488/#489 remove.
+    let filters = WalkFilters {
+        include: &include,
+        exclude: &exclude,
+    };
+    let paths = expand_seed_paths(
+        globals.paths,
+        globals.paths_from,
+        globals.no_ignore,
+        &filters,
+    );
     let files_data = FilesData {
-        include,
-        exclude,
+        include: GlobSet::empty(),
+        exclude: GlobSet::empty(),
         paths,
     };
     ConcurrentRunner::new(num_jobs, act_on_file)

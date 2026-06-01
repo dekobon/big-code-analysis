@@ -1,4 +1,4 @@
-use super::reanchor_seed;
+use super::{match_path_for, reanchor_seed};
 use std::path::{Path, PathBuf};
 
 #[test]
@@ -74,6 +74,57 @@ fn nonexistent_absolute_seed_is_unchanged() {
     seed.push("definitely-not-a-real-entry-zzz");
     assert!(!seed.exists(), "guard: this path must not exist");
     assert_eq!(reanchor_seed(seed.clone()), seed.as_path());
+}
+
+#[test]
+fn match_path_anchors_absolute_walk_root_to_dot_relative() {
+    // The #489 core: a file emitted under an *absolute* walk root
+    // (a manifest `paths = ["."]` resolved to its dir, which may be an
+    // ancestor of the CWD) must match against its `./`-prefixed tail so
+    // the `./`-anchored deny-set still applies.
+    let seed = PathBuf::from("/repo");
+    let path = PathBuf::from("/repo/vendor/drop.rs");
+    assert_eq!(
+        match_path_for(&seed, &path),
+        Path::new("./vendor/drop.rs"),
+        "absolute walk root must anchor matching to ./-relative tail"
+    );
+}
+
+#[test]
+fn match_path_handles_reanchored_dot_seed_without_double_prefix() {
+    // The reanchored `.` seed emits files already carrying a leading
+    // `./`; stripping `.` is lexical and skips the `CurDir` component,
+    // so the result is a single `./`-prefixed path, never `././`.
+    let seed = PathBuf::from(".");
+    let path = PathBuf::from("./vendor/drop.rs");
+    assert_eq!(
+        match_path_for(&seed, &path),
+        Path::new("./vendor/drop.rs"),
+        "reanchored `.` seed must not double the `./` prefix"
+    );
+}
+
+#[test]
+fn match_path_relative_subdir_seed_anchors_to_dot_relative() {
+    // A bare relative subdir seed (`--paths src`) emits `src/...`; the
+    // match path strips the seed and re-prefixes, so `./`-anchored
+    // patterns are evaluated against the walk-root tail.
+    let seed = PathBuf::from("src");
+    let path = PathBuf::from("src/languages/language_rust.rs");
+    assert_eq!(
+        match_path_for(&seed, &path),
+        Path::new("./languages/language_rust.rs")
+    );
+}
+
+#[test]
+fn match_path_returns_unchanged_when_not_under_seed() {
+    // Defensive fallback: a path the walker could not have produced from
+    // `seed` is returned verbatim rather than mangled.
+    let seed = PathBuf::from("/repo");
+    let path = PathBuf::from("/elsewhere/foo.rs");
+    assert_eq!(match_path_for(&seed, &path), Path::new("/elsewhere/foo.rs"));
 }
 
 #[test]
