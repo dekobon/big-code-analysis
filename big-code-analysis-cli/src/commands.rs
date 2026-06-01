@@ -587,6 +587,12 @@ fn apply_check_exclude(
     // exempts the same files regardless of how the seed resolved
     // (absolute, `$PWD`, or a manifest root above the CWD). The seeds
     // are `--paths` reanchored exactly as the walk emitted them (#493).
+    //
+    // Only `--paths` seeds are threaded here, not `--paths-from`
+    // entries, so a violation from a `--paths-from`-sourced absolute
+    // seed is matched unanchored (unchanged from before #493). Folding
+    // both into one canonical-at-the-walk-seam anchoring is tracked by
+    // #495; until then this covers the manifest/`--paths` cases.
     let seeds: Vec<PathBuf> = seeds
         .iter()
         .cloned()

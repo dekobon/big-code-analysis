@@ -110,24 +110,27 @@ pub(crate) fn match_path_for(seed: &std::path::Path, path: &std::path::Path) -> 
 }
 
 /// Anchor `path` to the `./`-relative walk-root form using the first
-/// `seed` that contains it. For callers that filter *after* the walk
-/// (e.g. `[check.exclude]` matching already-emitted violation paths,
-/// #493) and so have lost the per-seed association [`match_path_for`]
-/// relies on. A `path` equal to a seed (a single explicit file
-/// `--paths`) is returned unchanged, matching the file-seed branch of
-/// the walk filter; so is a `path` no seed contains. `seeds` must
-/// already be [`reanchor_seed`]-normalised (the form the walk emitted).
+/// `seed` that *contains* it, delegating the per-seed transform to
+/// [`match_path_for`]. For callers that filter *after* the walk (e.g.
+/// `[check.exclude]` matching already-emitted violation paths, #493) and
+/// so have lost the per-seed association `match_path_for` relies on.
+///
+/// A `seed` equal to `path` (a single explicit file `--paths`) does not
+/// anchor — the walk's file-seed branch matches it as spelled — so that
+/// seed is skipped and a later *directory* seed that contains the path
+/// may still anchor it. A `path` no seed contains is returned unchanged.
+/// `seeds` must already be [`reanchor_seed`]-normalised (the form the
+/// walk emitted).
 pub(crate) fn anchor_against_seeds(seeds: &[PathBuf], path: &std::path::Path) -> PathBuf {
-    for seed in seeds {
-        if let Ok(rel) = path.strip_prefix(seed) {
-            if rel.as_os_str().is_empty() {
-                // path == seed: a single explicit file, matched as spelled.
-                break;
-            }
-            return PathBuf::from(".").join(rel);
-        }
-    }
-    path.to_path_buf()
+    seeds
+        .iter()
+        .find_map(|seed| match path.strip_prefix(seed) {
+            // Strictly under `seed` (non-empty remainder): anchor it.
+            Ok(rel) if !rel.as_os_str().is_empty() => Some(match_path_for(seed, path)),
+            // path == seed (file seed) or not under it: try the next seed.
+            _ => None,
+        })
+        .unwrap_or_else(|| path.to_path_buf())
 }
 
 #[cfg(test)]

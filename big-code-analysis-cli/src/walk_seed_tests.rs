@@ -168,6 +168,20 @@ fn anchor_against_seeds_leaves_single_file_seed_as_spelled() {
 }
 
 #[test]
+fn anchor_against_seeds_lets_a_later_dir_seed_anchor_a_file_seed_path() {
+    // A path equal to an *earlier* file seed must not shadow a *later*
+    // directory seed that contains it: the file-seed match is skipped so
+    // the dir seed anchors the path to the `./`-form a `./`-anchored
+    // `[check.exclude]` expects. (Regressed when the loop `break`'d
+    // instead of trying the next seed.)
+    let seeds = vec![PathBuf::from("/abs/repo/x.rs"), PathBuf::from("/abs/repo")];
+    assert_eq!(
+        anchor_against_seeds(&seeds, Path::new("/abs/repo/x.rs")),
+        Path::new("./x.rs")
+    );
+}
+
+#[test]
 fn anchor_against_seeds_passes_through_when_no_seed_contains_path() {
     // First matching seed wins; an unrelated seed leaves the path as-is.
     let seeds = vec![PathBuf::from("/other"), PathBuf::from("/abs/repo")];
