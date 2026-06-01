@@ -1887,6 +1887,20 @@ fn compute_since_diff(
     // creating any temp state, so nothing needs cleaning up on this path.
     diff::validate_since_ref(since_ref).unwrap_or_else(|reason| die(reason));
 
+    // The "before" side is a `git archive` extraction of `<ref>`'s tree
+    // into a temp dir; an absolute `--paths` would point at the live
+    // filesystem instead, walking the current tree for both sides and
+    // yielding a silent all-zero diff. Reject it with a clear message
+    // rather than mis-pair (relative paths resolve against each tree
+    // root and select the same files).
+    if let Some(abs) = globals.paths.iter().find(|p| p.is_absolute()) {
+        die(format_args!(
+            "diff --since: --paths must be relative (got {}); an absolute \
+             path cannot address the extracted <ref> tree",
+            abs.display()
+        ));
+    }
+
     // TempDir auto-removes on drop — including every `?` below — so the
     // "no leftover temp trees, even on error" acceptance holds without
     // manual teardown.
@@ -1904,10 +1918,14 @@ fn compute_since_diff(
     // tree. In `--since` mode the single trailing positional is bound to
     // `args.old` by clap; the caller has already rejected a second
     // positional (`args.new`). `walk_metric_set` anchors the CWD at this
-    // root, so the before/after keys (root-relative) line up.
+    // root, so the before/after keys (root-relative) line up. The
+    // working-tree side anchors at the *git repo root* — not the process
+    // CWD — so the keys match the `before` side (a `git archive` of the
+    // whole ref tree, always rooted at the repo top); this lets
+    // `bca diff --since` run correctly from any subdirectory.
     let after_root = match args.old.as_deref() {
         Some(new_tree) => new_tree.to_path_buf(),
-        None => std::env::current_dir().map_err(io_to_diff_error)?,
+        None => diff::git_repo_root().unwrap_or_else(|reason| die(reason)),
     };
     let after_json = tempfile::TempDir::new().map_err(io_to_diff_error)?;
     let after = crate::walk_metric_set(&after_root, side_globals(globals), after_json.path())?;

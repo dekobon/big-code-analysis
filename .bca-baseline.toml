@@ -16,14 +16,14 @@ path = "big-code-analysis-cli/src/baseline.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 2446998.897733825
+value = 2449495.9970644563
 
 [[entry]]
 path = "big-code-analysis-cli/src/baseline.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 1048.0
+value = 1058.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/baseline.rs"
@@ -49,35 +49,35 @@ value = 48.0
 [[entry]]
 path = "big-code-analysis-cli/src/baseline.rs"
 qualified = "Baseline"
-start_line = 347
+start_line = 357
 metric = "halstead.effort"
-value = 312013.719370234
+value = 309578.14662239177
 
 [[entry]]
 path = "big-code-analysis-cli/src/baseline.rs"
 qualified = "Baseline"
-start_line = 347
+start_line = 357
 metric = "nargs"
 value = 17.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/baseline.rs"
 qualified = "Baseline"
-start_line = 347
+start_line = 357
 metric = "nexits"
 value = 8.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/baseline.rs"
 qualified = "Baseline::from_str"
-start_line = 366
+start_line = 376
 metric = "halstead.effort"
-value = 57747.352870642855
+value = 56942.06556051136
 
 [[entry]]
 path = "big-code-analysis-cli/src/baseline.rs"
 qualified = "Baseline::match_in_group"
-start_line = 552
+start_line = 562
 metric = "nargs"
 value = 7.0
 
@@ -191,35 +191,35 @@ path = "big-code-analysis-cli/src/commands.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 7990271.367219667
+value = 8025452.660622023
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "<file>"
 start_line = 1
 metric = "loc.sloc"
-value = 2113.0
+value = 2131.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 177.0
+value = 179.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nexits"
-value = 31.0
+value = 30.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 112.0
+value = 114.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
@@ -239,8 +239,15 @@ value = 12.0
 path = "big-code-analysis-cli/src/commands.rs"
 qualified = "compute_since_diff"
 start_line = 1881
+metric = "nargs"
+value = 7.0
+
+[[entry]]
+path = "big-code-analysis-cli/src/commands.rs"
+qualified = "compute_since_diff"
+start_line = 1881
 metric = "nexits"
-value = 6.0
+value = 5.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/commands.rs"
@@ -296,7 +303,7 @@ path = "big-code-analysis-cli/src/diff.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 540759.8648621507
+value = 541589.8876785162
 
 [[entry]]
 path = "big-code-analysis-cli/src/diff.rs"

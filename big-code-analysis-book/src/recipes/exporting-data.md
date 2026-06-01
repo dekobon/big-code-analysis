@@ -93,8 +93,12 @@ bca diff --since main /path/to/other-checkout -p src/
 `git archive`), runs the same metric walk against it, then diffs — the
 temp tree is removed automatically, including on error. The same
 `-p/--paths`, `-I/--include`, and `-X/--exclude` selection applies to
-both sides so they analyze the same file set; paths are interpreted
-relative to each tree root.
+both sides so they analyze the same file set. Selection paths are
+**repo-root-relative** and must be relative: the working-tree side is
+anchored at the repository root (matching the whole-tree `git archive`
+of the ref), so `bca diff --since` produces the same result from any
+subdirectory. An absolute `--paths` is rejected (exit 1) — it cannot
+address the extracted ref tree.
 
 Unlike `bca check --since` (best-effort), `bca diff --since` is an
 explicit request: an unresolvable ref, a missing `git`, or a non-git

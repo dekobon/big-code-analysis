@@ -179,6 +179,67 @@ fn since_leaves_no_temp_trees_behind() {
     );
 }
 
+#[test]
+fn since_from_subdir_pairs_against_repo_root() {
+    // Regression: `bca diff --since` must pair files correctly when run
+    // from a subdirectory. The before side is a `git archive` of the
+    // whole ref tree (rooted at the repo top), so the working-tree after
+    // side must also anchor at the repo root — not the process CWD —
+    // else the keys (`src/work.rs` vs a CWD-relative form) never match
+    // and every file reports as a meaningless add+remove instead of a
+    // delta. Run from `src/`; the delta must still resolve to 2 -> 6.
+    let repo = repo_with_flat_commit();
+    fs::write(repo.path().join("src/work.rs"), BRANCHY_SOURCE).expect("write branchy");
+
+    let assert = cli()
+        .current_dir(repo.path().join("src"))
+        .args([
+            "diff", "--since", "HEAD", "--paths", "src", "--format", "json",
+        ])
+        .assert()
+        .success();
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).expect("utf8");
+    let doc: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    // expected: pairs as a delta (2 -> 6), NOT add+remove. Pre-fix the
+    // after side anchored at the `src/` CWD, so no `cyclomatic.changed`
+    // row existed and this `expect` panicked.
+    let (old, new) = cyclomatic_sum_delta(&doc).expect("cyclomatic.sum delta present");
+    assert_eq!(old, 2.0, "before-side cyclomatic.sum");
+    assert_eq!(new, 6.0, "after-side cyclomatic.sum");
+}
+
+#[test]
+fn since_rejects_absolute_paths() {
+    // An absolute `--paths` cannot address the extracted `<ref>` tree
+    // (it points at the live filesystem), which would silently walk the
+    // current tree for both sides. Reject it with a clear message.
+    let repo = repo_with_flat_commit();
+    let abs = repo.path().join("src");
+    cli()
+        .current_dir(repo.path())
+        .args(["diff", "--since", "HEAD", "--paths"])
+        .arg(&abs)
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(predicate::str::contains("--paths must be relative"));
+}
+
+#[test]
+fn since_rejects_dash_leading_ref() {
+    // A dash-leading ref would reach git's option parser; the explicit
+    // `--since=-x` form binds the value, so the dash guard (not clap)
+    // produces the diagnostic.
+    let repo = repo_with_flat_commit();
+    cli()
+        .current_dir(repo.path())
+        .args(["diff", "--since=-x", "--paths", "src"])
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(predicate::str::contains("starts with `-`"));
+}
+
 /// Pull `(old, new)` for the `cyclomatic.sum` field out of the
 /// `--format json` diff document, searching the `cyclomatic` bucket's
 /// changed entries.

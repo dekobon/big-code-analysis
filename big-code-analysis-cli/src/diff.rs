@@ -286,7 +286,7 @@ fn collect_changed(base: &str) -> Result<HashSet<PathBuf>, String> {
     Ok(out)
 }
 
-fn git_repo_root() -> Result<PathBuf, String> {
+pub(crate) fn git_repo_root() -> Result<PathBuf, String> {
     let stdout = run_git(&["rev-parse", "--show-toplevel"], None).map_err(|e| match e {
         // Outside a git checkout / git binary missing / non-UTF-8
         // toplevel all collapse to the same diagnostic because the
