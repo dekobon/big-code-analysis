@@ -16,8 +16,8 @@ runnable example.
 
 | Goal                                            | Command + flags                                                                                              |
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Hard gate on threshold regressions              | `bca check --config bca-thresholds.toml`                                                                     |
-| Ratchet thresholds on an existing codebase      | `bca check --config bca-thresholds.toml --baseline .bca-baseline.toml` *(‡)*                                 |
+| Hard gate on threshold regressions              | `bca check --config bca.toml`                                                                     |
+| Ratchet thresholds on an existing codebase      | `bca check --config bca.toml --baseline .bca-baseline.toml` *(‡)*                                 |
 | Inline PR annotations (GitHub)                  | `bca check … --output-format clang-warning --no-fail` + GCC problem matcher                                  |
 | Code Scanning alerts (GitHub)                   | `bca check … --output-format sarif --no-fail` + `github/codeql-action/upload-sarif`                          |
 | Merge-request widget (GitLab Code Quality)      | `bca check … --output-format code-climate --no-fail`                                                         |
@@ -85,7 +85,7 @@ so a green-path rerun skips the download entirely:
 > **CLI-artifact schema compatibility.** The `BCA_VERSION` you pin
 > here must support the schema version of every CLI artifact your
 > repo commits — most importantly `.bca-baseline.toml` (carries its
-> own `version` field) and `bca-thresholds.toml`. A baseline file
+> own `version` field) and `bca.toml`. A baseline file
 > written by a newer `bca` (e.g., the v3 schema introduced in
 > [#376](https://github.com/dekobon/big-code-analysis/issues/376))
 > is **not loadable** by an older `bca` and the gate will fail with
@@ -261,9 +261,9 @@ at it:
 ```bash
 # Once, on a developer machine. Commit both files.
 bca --paths src/ check \
-    --config bca-thresholds.toml \
+    --config bca.toml \
     --write-baseline .bca-baseline.toml
-git add bca-thresholds.toml .bca-baseline.toml
+git add bca.toml .bca-baseline.toml
 ```
 
 This snippet bootstraps from `src/` only — appropriate for a
@@ -288,7 +288,7 @@ deny-set covering vendored grammars, generated trees, and tests.
 - name: Threshold check with baseline
   run: |
     bca --paths src/ check \
-        --config bca-thresholds.toml \
+        --config bca.toml \
         --baseline .bca-baseline.toml
 ```
 
@@ -350,7 +350,7 @@ offender list. Two flags answer that:
 - name: Threshold check with diff-aware footer
   run: |
     bca --paths . --exclude-from .bcaignore check \
-        --config bca-thresholds.toml \
+        --config bca.toml \
         --baseline .bca-baseline.toml \
         --since "origin/${{ github.base_ref }}"
 ```
@@ -408,7 +408,7 @@ not shown` line so the count stays visible.
 - name: Threshold check with inline annotations
   run: |
     bca --paths . --exclude-from .bcaignore check \
-        --config bca-thresholds.toml \
+        --config bca.toml \
         --baseline .bca-baseline.toml
   # No `--github-annotations` flag needed — auto-enabled in GHA.
 ```
@@ -435,7 +435,7 @@ written by other tools earlier in the same step) is preserved.
 - name: Threshold check with step-summary digest
   run: |
     bca --paths . --exclude-from .bcaignore check \
-        --config bca-thresholds.toml \
+        --config bca.toml \
         --baseline .bca-baseline.toml
   # No flag needed — `$GITHUB_STEP_SUMMARY` is set automatically in GHA.
 ```
@@ -454,7 +454,7 @@ digest from above):
 ```text
 --- next steps ---
 * Detailed reports: bca-reports artifact at https://github.com/<owner>/<repo>/actions/runs/<run-id>
-* To refresh baseline: bca --paths . --exclude-from .bcaignore check --config bca-thresholds.toml --write-baseline .bca-baseline.toml
+* To refresh baseline: bca --paths . --exclude-from .bcaignore check --config bca.toml --write-baseline .bca-baseline.toml
 * Adoption guide: https://dekobon.github.io/big-code-analysis/recipes/baselines.html
 ```
 
@@ -473,7 +473,7 @@ Refresh after focused refactors:
 
 ```bash
 bca --paths src/ check \
-    --config bca-thresholds.toml \
+    --config bca.toml \
     --write-baseline .bca-baseline.toml
 git diff .bca-baseline.toml   # expect a shrinking file
 ```
@@ -500,7 +500,7 @@ recommended invocation is:
 - name: Threshold gate (diff-aware + GHA UX)
   run: |
     bca --paths . --exclude-from .bcaignore check \
-        --config bca-thresholds.toml \
+        --config bca.toml \
         --baseline .bca-baseline.toml \
         --since "origin/${{ github.base_ref }}"
   # No `--github-annotations` or `--summary-file` flag needed:
@@ -542,7 +542,7 @@ an env signal. To preview the GHA experience locally:
 GITHUB_ACTIONS=true GITHUB_STEP_SUMMARY=/tmp/bca-summary.md \
   BCA_DIFF_BASE=main \
   bca --paths . --exclude-from .bcaignore check \
-      --config bca-thresholds.toml --baseline .bca-baseline.toml
+      --config bca.toml --baseline .bca-baseline.toml
 cat /tmp/bca-summary.md
 ```
 
@@ -565,14 +565,14 @@ when the count grows:
     git worktree add /tmp/base "$BASE"
 
     bca --paths /tmp/base check \
-        --config bca-thresholds.toml \
+        --config bca.toml \
         --output-format checkstyle \
         --output /tmp/base.xml \
         --no-fail
     BASE_COUNT=$(grep -c "<error" /tmp/base.xml || true)
 
     bca --paths "$PWD" check \
-        --config bca-thresholds.toml \
+        --config bca.toml \
         --output-format checkstyle \
         --output /tmp/head.xml \
         --no-fail
@@ -602,7 +602,7 @@ locally and add a second tier at 95% of every limit so encroachment
 is caught a commit or two before the hard gate trips:
 
 ```bash
-make self-scan                            # hard gate, 100% of bca-thresholds.toml
+make self-scan                            # hard gate, 100% of bca.toml
 make self-scan-headroom                   # soft gate, default 95% (BCA_HEADROOM)
 make self-scan-write-baseline             # refresh baseline at hard thresholds
 make self-scan-write-baseline-headroom    # refresh baseline at soft thresholds
@@ -614,11 +614,11 @@ The hard tier is exactly what CI runs; expanded, it is:
 cargo run --quiet --release -p big-code-analysis-cli -- \
     --paths . --exclude-from .bcaignore \
     check \
-    --config bca-thresholds.toml \
+    --config bca.toml \
     --baseline .bca-baseline.toml
 ```
 
-Both tiers consume the same `bca-thresholds.toml` and the same
+Both tiers consume the same `bca.toml` and the same
 `.bca-baseline.toml`; the soft tier just runs the hard recipe
 with every threshold value multiplied by `BCA_HEADROOM`. Both
 exit `0` clean, `2` on any threshold violation, `1` on tool
@@ -699,14 +699,14 @@ bca-quality:
     - bca
         --paths "$PWD"
         check
-        --config bca-thresholds.toml
+        --config bca.toml
         --output-format code-climate
         --output gl-code-quality-report.json
         --no-fail
     - bca
         --paths "$PWD"
         check
-        --config bca-thresholds.toml
+        --config bca.toml
         --output-format checkstyle
         --output bca-checkstyle.xml
         --no-fail
@@ -718,7 +718,7 @@ bca-quality:
         --output bca-report.md
     # The threshold gate runs separately so the artifacts above still
     # publish on failure. Exit 2 = at least one threshold exceeded.
-    - bca --paths "$PWD" check --config bca-thresholds.toml
+    - bca --paths "$PWD" check --config bca.toml
   artifacts:
     when: always
     reports:
@@ -756,7 +756,7 @@ code_quality:
   stage: quality
   script:
     - bca --paths "$CI_PROJECT_DIR" check
-          --config bca-thresholds.toml
+          --config bca.toml
           --output-format code-climate
           --output gl-code-quality-report.json
           --no-fail
@@ -826,7 +826,7 @@ XML directly. The same invocation feeds both:
 
 ```bash
 bca --paths src/ check \
-    --config bca-thresholds.toml \
+    --config bca.toml \
     --output-format checkstyle \
     --output report.checkstyle.xml
 ```
@@ -862,7 +862,7 @@ Applies regardless of provider:
   workspace paths. Without it the diff between two reports is
   dominated by `/home/runner/work/...` vs.
   `/builds/group/project/...` noise.
-- **Store `bca-thresholds.toml` at the repo root**, alongside
+- **Store `bca.toml` at the repo root**, alongside
   `Cargo.toml` / `pyproject.toml` / `package.json`. Treat it as
   source: review threshold relaxations in code review.
 - **Exit-code contract.** `bca check` exits `0` clean, `2` on any

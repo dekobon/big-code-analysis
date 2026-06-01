@@ -65,7 +65,7 @@ Or pull thresholds from a TOML config (one place to keep CI thresholds
 versioned alongside the code):
 
 ```toml
-# bca-thresholds.toml
+# bca.toml
 [thresholds]
 cyclomatic = 15
 cognitive = 20
@@ -74,7 +74,7 @@ cognitive = 20
 ```
 
 ```bash
-bca --paths src/ check --config bca-thresholds.toml
+bca --paths src/ check --config bca.toml
 ```
 
 CLI flags override values from `--config` for the same metric name, so
@@ -121,7 +121,7 @@ cyclomatic = "0.9x"   # 90% of the hard limit → 13.5
 ```
 
 ```bash
-bca --paths src/ check --config bca-thresholds.toml --tier soft
+bca --paths src/ check --config bca.toml --tier soft
 ```
 
 The soft tier resolves in a fixed order:
@@ -247,7 +247,7 @@ and applies the baseline filter to whatever remains.
 
 ```bash
 bca --paths src/ check \
-    --config bca-thresholds.toml \
+    --config bca.toml \
     --write-baseline .bca-baseline.toml
 ```
 
@@ -288,7 +288,7 @@ record every violation (CI-auditor flow).
 
 ```bash
 bca --paths src/ check \
-    --config bca-thresholds.toml \
+    --config bca.toml \
     --baseline .bca-baseline.toml
 ```
 
@@ -340,7 +340,7 @@ behavior `--report-only` or `--soft-fail`; here the flag is spelled
 
 ```bash
 bca --paths src/ check \
-    --config bca-thresholds.toml --no-fail
+    --config bca.toml --no-fail
 ```
 
 ## Actionable failure output
@@ -395,7 +395,7 @@ on the next full-tree run).
 ```yaml
 - name: Check code complexity thresholds
   run: |
-    bca --paths src/ check --config bca-thresholds.toml
+    bca --paths src/ check --config bca.toml
   # The default behavior — non-zero exit fails the step — is exactly
   # what we want here. No extra wiring needed.
 ```
@@ -407,7 +407,7 @@ annotation while you reduce the count, swap in `--no-fail`:
 - name: Surface complexity hot spots (non-blocking)
   run: |
     bca --paths src/ check \
-        --config bca-thresholds.toml --no-fail
+        --config bca.toml --no-fail
 ```
 
 ## Exporting offender records
@@ -478,7 +478,7 @@ jobs:
       - name: Run big-code-analysis
         run: |
           bca --paths . check \
-              --config bca-thresholds.toml \
+              --config bca.toml \
               --output-format sarif \
               --output report.sarif.json \
               --no-fail
@@ -523,7 +523,7 @@ code_quality:
   stage: quality
   script:
     - bca --paths "$CI_PROJECT_DIR" check
-          --config bca-thresholds.toml
+          --config bca.toml
           --output-format code-climate
           --output gl-code-quality-report.json
           --no-fail
@@ -581,7 +581,7 @@ jobs:
       - name: Run big-code-analysis
         run: |
           bca --paths . check \
-              --config bca-thresholds.toml \
+              --config bca.toml \
               --output-format clang-warning \
               --no-fail
 ```

@@ -16,7 +16,7 @@ can live in the same repo; suppression is checked first.
 
 ## End-to-end adoption flow
 
-> One-shot shortcut: `bca init` scaffolds `bca-thresholds.toml`,
+> One-shot shortcut: `bca init` scaffolds `bca.toml`,
 > `.bcaignore`, and an initial `.bca-baseline.toml` derived from the
 > current tree in a single command. It writes the same files the
 > step-by-step recipe below produces; pass `--force` to overwrite
@@ -31,7 +31,7 @@ from a `bca check --no-fail` run over the repo to see the current
 distribution.
 
 ```toml
-# bca-thresholds.toml
+# bca.toml
 [thresholds]
 cyclomatic = 15
 cognitive = 20
@@ -42,14 +42,14 @@ cognitive = 20
 
 ```bash
 bca --paths src/ check \
-    --config bca-thresholds.toml \
+    --config bca.toml \
     --write-baseline .bca-baseline.toml
 ```
 
 Commit both files in the same change:
 
 ```bash
-git add bca-thresholds.toml .bca-baseline.toml
+git add bca.toml .bca-baseline.toml
 git commit -m "ci: introduce metric thresholds with baseline"
 ```
 
@@ -67,7 +67,7 @@ GitHub Actions:
 - name: Check code complexity thresholds
   run: |
     bca --paths src/ check \
-        --config bca-thresholds.toml \
+        --config bca.toml \
         --baseline .bca-baseline.toml
 ```
 
@@ -80,7 +80,7 @@ threshold-check:
     - cargo install --locked big-code-analysis-cli@<VERSION>
   script:
     - bca --paths src/ check
-        --config bca-thresholds.toml
+        --config bca.toml
         --baseline .bca-baseline.toml
 ```
 
@@ -94,7 +94,7 @@ Every few weeks, or after a focused refactor:
 ```bash
 cp .bca-baseline.toml .bca-baseline.old.toml
 bca --paths src/ check \
-    --config bca-thresholds.toml \
+    --config bca.toml \
     --write-baseline .bca-baseline.toml
 bca diff-baseline .bca-baseline.old.toml .bca-baseline.toml
 ```
@@ -257,7 +257,7 @@ suppression or baseline — pass `--no-suppress` and omit `--baseline`:
 
 ```bash
 bca --paths src/ check \
-    --config bca-thresholds.toml \
+    --config bca.toml \
     --no-suppress \
     --no-fail
 ```

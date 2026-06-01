@@ -1,7 +1,7 @@
 # Local threshold gates
 
 CI is the last line of defence, not the first. By the time
-`bca check --config bca-thresholds.toml --baseline .bca-baseline.toml`
+`bca check --config bca.toml --baseline .bca-baseline.toml`
 fires red on a pull request, the offending change has already been
 pushed, the author has context-switched, and someone has to revisit
 the diff to nudge a metric back under its limit. A local threshold
@@ -65,7 +65,7 @@ recipes for refreshing the baseline at each tier.
 | `self-scan-write-baseline-headroom`   | soft | config × `HEADROOM`   | (write)           | Absorb soft-tier offenders when launching or widening the band. |
 
 The hard tier and the soft tier consume the **same**
-`bca-thresholds.toml` and the **same** `.bca-baseline.toml`. The
+`bca.toml` and the **same** `.bca-baseline.toml`. The
 only difference between them is a scalar multiplier applied to
 every threshold value before `bca check` sees it.
 
@@ -236,7 +236,7 @@ layout.
 ```make
 # --- bca local threshold gates ------------------------------------------
 # HARD tier mirrors CI exactly. Both tiers consume the same
-# bca-thresholds.toml + .bca-baseline.toml; the soft tier scales every
+# bca.toml + .bca-baseline.toml; the soft tier scales every
 # threshold by $(BCA_HEADROOM) (default 0.95).
 #
 # Knobs are namespaced with `BCA_` so they don't collide with anything
@@ -245,7 +245,7 @@ layout.
 BCA               := bca
 BCA_PATHS         := .
 BCA_EXCLUDE_FROM  := .bcaignore
-BCA_THRESHOLDS    := bca-thresholds.toml
+BCA_THRESHOLDS    := bca.toml
 BCA_BASELINE      := .bca-baseline.toml
 BCA_HEADROOM      ?= 0.95
 
@@ -382,7 +382,7 @@ are exactly three legitimate resolutions:
    extract a helper, collapse a dispatch arm, split the function.
    This is the common case, and the soft tier exists to give you
    the time to do it on the same branch.
-2. **Raise the limit.** Edit `bca-thresholds.toml`, leave a
+2. **Raise the limit.** Edit `bca.toml`, leave a
    why-comment explaining what changed (a new language module, a
    genuine algorithmic floor, a re-classified macro). Re-run
    `make self-scan-headroom` to confirm the new value covers the
@@ -410,7 +410,7 @@ For projects that prefer [`just`](https://github.com/casey/just):
 bca         := "bca"
 paths       := "."
 exclude     := ".bcaignore"
-thresholds  := "bca-thresholds.toml"
+thresholds  := "bca.toml"
 baseline    := ".bca-baseline.toml"
 headroom    := env_var_or_default("BCA_HEADROOM", "0.95")
 
@@ -450,10 +450,10 @@ when debugging:
 ```json
 {
   "scripts": {
-    "self-scan": "bca --paths . --exclude-from .bcaignore check --config bca-thresholds.toml --baseline .bca-baseline.toml",
-    "self-scan-headroom": "bca --paths . --exclude-from .bcaignore check --config bca-thresholds.toml --headroom 0.95 --baseline .bca-baseline.toml",
-    "self-scan-write-baseline": "bca --paths . --exclude-from .bcaignore check --config bca-thresholds.toml --write-baseline .bca-baseline.toml",
-    "self-scan-write-baseline-headroom": "bca --paths . --exclude-from .bcaignore check --config bca-thresholds.toml --headroom 0.95 --write-baseline .bca-baseline.toml"
+    "self-scan": "bca --paths . --exclude-from .bcaignore check --config bca.toml --baseline .bca-baseline.toml",
+    "self-scan-headroom": "bca --paths . --exclude-from .bcaignore check --config bca.toml --headroom 0.95 --baseline .bca-baseline.toml",
+    "self-scan-write-baseline": "bca --paths . --exclude-from .bcaignore check --config bca.toml --write-baseline .bca-baseline.toml",
+    "self-scan-write-baseline-headroom": "bca --paths . --exclude-from .bcaignore check --config bca.toml --headroom 0.95 --write-baseline .bca-baseline.toml"
   }
 }
 ```

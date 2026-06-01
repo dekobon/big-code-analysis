@@ -176,7 +176,7 @@ walk. Use it in audit pipelines that need the raw, un-silenced
 offender list:
 
 ```bash
-bca --paths src/ check --config bca-thresholds.toml --no-suppress
+bca --paths src/ check --config bca.toml --no-suppress
 ```
 
 The flag has no effect on metric values themselves: raw
