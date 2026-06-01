@@ -1,8 +1,9 @@
 # Local threshold gates
 
 CI is the last line of defence, not the first. By the time
-`bca check --config bca-thresholds.toml --baseline .bca-baseline.toml`
-fires red on a pull request, the offending change has already been
+`bca check` (reading the repo-root `bca.toml` manifest and its
+`.bca-baseline.toml`) fires red on a pull request, the offending
+change has already been
 pushed, the author has context-switched, and someone has to revisit
 the diff to nudge a metric back under its limit. A local threshold
 gate moves that feedback to the moment of `git commit` — the same
@@ -247,18 +248,18 @@ layout.
 ```make
 # --- bca local threshold gates ------------------------------------------
 # HARD tier mirrors CI exactly. Both tiers consume the same
-# bca-thresholds.toml + .bca-baseline.toml; the soft tier scales every
+# thresholds.toml + .bca-baseline.toml; the soft tier scales every
 # threshold by $(BCA_HEADROOM) (default 0.95).
 #
 # Knobs are namespaced with `BCA_` so they don't collide with anything
 # else in your environment. The big-code-analysis repo itself uses the
 # manifest form above (a single `bca.toml`) rather than these explicit
 # flags; reach for this skeleton when you can't drop a manifest at the
-# repo root.
+# repo root and must point `--config` at a standalone threshold file.
 BCA               := bca
 BCA_PATHS         := .
 BCA_EXCLUDE_FROM  := .bcaignore
-BCA_THRESHOLDS    := bca-thresholds.toml
+BCA_THRESHOLDS    := thresholds.toml
 BCA_BASELINE      := .bca-baseline.toml
 BCA_HEADROOM      ?= 0.95
 
@@ -424,7 +425,7 @@ For projects that prefer [`just`](https://github.com/casey/just):
 bca         := "bca"
 paths       := "."
 exclude     := ".bcaignore"
-thresholds  := "bca-thresholds.toml"
+thresholds  := "thresholds.toml"
 baseline    := ".bca-baseline.toml"
 headroom    := env_var_or_default("BCA_HEADROOM", "0.95")
 
@@ -464,10 +465,10 @@ when debugging:
 ```json
 {
   "scripts": {
-    "self-scan": "bca --paths . --exclude-from .bcaignore check --config bca-thresholds.toml --baseline .bca-baseline.toml",
-    "self-scan-headroom": "bca --paths . --exclude-from .bcaignore check --config bca-thresholds.toml --headroom 0.95 --baseline .bca-baseline.toml",
-    "self-scan-write-baseline": "bca --paths . --exclude-from .bcaignore check --config bca-thresholds.toml --write-baseline .bca-baseline.toml",
-    "self-scan-write-baseline-headroom": "bca --paths . --exclude-from .bcaignore check --config bca-thresholds.toml --headroom 0.95 --write-baseline .bca-baseline.toml"
+    "self-scan": "bca --paths . --exclude-from .bcaignore check --config thresholds.toml --baseline .bca-baseline.toml",
+    "self-scan-headroom": "bca --paths . --exclude-from .bcaignore check --config thresholds.toml --headroom 0.95 --baseline .bca-baseline.toml",
+    "self-scan-write-baseline": "bca --paths . --exclude-from .bcaignore check --config thresholds.toml --write-baseline .bca-baseline.toml",
+    "self-scan-write-baseline-headroom": "bca --paths . --exclude-from .bcaignore check --config thresholds.toml --headroom 0.95 --write-baseline .bca-baseline.toml"
   }
 }
 ```

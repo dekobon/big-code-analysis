@@ -33,7 +33,10 @@ from a `bca check --no-fail` run over the repo to see the current
 distribution.
 
 ```toml
-# bca-thresholds.toml
+# bca.toml — dropped at the repo root, auto-discovered by `bca check`.
+paths = ["src"]
+baseline = ".bca-baseline.toml"
+
 [thresholds]
 cyclomatic = 15
 cognitive = 20
@@ -43,15 +46,13 @@ cognitive = 20
 ### 2. Bootstrap the baseline
 
 ```bash
-bca --paths src/ check \
-    --config bca-thresholds.toml \
-    --write-baseline .bca-baseline.toml
+bca check --write-baseline .bca-baseline.toml
 ```
 
 Commit both files in the same change:
 
 ```bash
-git add bca-thresholds.toml .bca-baseline.toml
+git add bca.toml .bca-baseline.toml
 git commit -m "ci: introduce metric thresholds with baseline"
 ```
 
@@ -68,9 +69,9 @@ GitHub Actions:
 ```yaml
 - name: Check code complexity thresholds
   run: |
-    bca --paths src/ check \
-        --config bca-thresholds.toml \
-        --baseline .bca-baseline.toml
+    bca check
+  # `paths`, thresholds, and `baseline` all come from the
+  # auto-discovered `bca.toml` manifest at the repo root.
 ```
 
 GitLab CI (snippet for the relevant job):
@@ -81,9 +82,7 @@ threshold-check:
   before_script:
     - cargo install --locked big-code-analysis-cli@<VERSION>
   script:
-    - bca --paths src/ check
-        --config bca-thresholds.toml
-        --baseline .bca-baseline.toml
+    - bca check
 ```
 
 Exit codes: `0` clean, `2` regression or new offender, `1` tool error.
@@ -95,9 +94,7 @@ Every few weeks, or after a focused refactor:
 
 ```bash
 cp .bca-baseline.toml .bca-baseline.old.toml
-bca --paths src/ check \
-    --config bca-thresholds.toml \
-    --write-baseline .bca-baseline.toml
+bca check --write-baseline .bca-baseline.toml
 bca diff-baseline .bca-baseline.old.toml .bca-baseline.toml
 ```
 
@@ -315,7 +312,6 @@ suppression or baseline — pass `--no-suppress` and omit `--baseline`:
 
 ```bash
 bca --paths src/ check \
-    --config bca-thresholds.toml \
     --no-suppress \
     --no-fail
 ```

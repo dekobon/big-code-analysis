@@ -61,11 +61,14 @@ bca --paths src/ check \
     --threshold loc.lloc=200
 ```
 
-Or pull thresholds from a TOML config (one place to keep CI thresholds
-versioned alongside the code):
+Or keep thresholds in the `bca.toml` manifest (one place to version CI
+thresholds alongside the code). Dropped at the repo root, it is
+auto-discovered — a bare `bca check` reads it with no `--config` flag:
 
 ```toml
-# bca-thresholds.toml
+# bca.toml
+paths = ["src"]
+
 [thresholds]
 cyclomatic = 15
 cognitive = 20
@@ -74,12 +77,17 @@ cognitive = 20
 ```
 
 ```bash
-bca --paths src/ check --config bca-thresholds.toml
+bca check
 ```
 
-CLI flags override values from `--config` for the same metric name, so
-you can keep a project-wide default and tighten a single metric for a
-specific run.
+To merge a separate threshold file on top of the manifest for one run,
+pass it explicitly with `--config`; CLI flags and `--config` values
+override the manifest for the same metric name, so you can keep a
+project-wide default and tighten a single metric for a specific run:
+
+```bash
+bca --paths src/ check --config bca.toml
+```
 
 ### Accepted metric names
 
@@ -121,7 +129,7 @@ cyclomatic = "0.9x"   # 90% of the hard limit → 13.5
 ```
 
 ```bash
-bca --paths src/ check --config bca-thresholds.toml --tier soft
+bca --paths src/ check --tier soft
 ```
 
 The soft tier resolves in a fixed order:
@@ -247,7 +255,6 @@ and applies the baseline filter to whatever remains.
 
 ```bash
 bca --paths src/ check \
-    --config bca-thresholds.toml \
     --write-baseline .bca-baseline.toml
 ```
 
@@ -291,7 +298,6 @@ record every violation (CI-auditor flow).
 
 ```bash
 bca --paths src/ check \
-    --config bca-thresholds.toml \
     --baseline .bca-baseline.toml
 ```
 
@@ -342,8 +348,7 @@ behavior `--report-only` or `--soft-fail`; here the flag is spelled
 `--no-fail`.
 
 ```bash
-bca --paths src/ check \
-    --config bca-thresholds.toml --no-fail
+bca --paths src/ check --no-fail
 ```
 
 ## Actionable failure output
@@ -398,9 +403,10 @@ on the next full-tree run).
 ```yaml
 - name: Check code complexity thresholds
   run: |
-    bca --paths src/ check --config bca-thresholds.toml
-  # The default behavior — non-zero exit fails the step — is exactly
-  # what we want here. No extra wiring needed.
+    bca check
+  # Thresholds and paths come from the auto-discovered `bca.toml`
+  # manifest at the repo root. The default behavior — non-zero exit
+  # fails the step — is exactly what we want here. No extra wiring.
 ```
 
 If you want to keep the job green and surface offenders as a build
@@ -409,8 +415,7 @@ annotation while you reduce the count, swap in `--no-fail`:
 ```yaml
 - name: Surface complexity hot spots (non-blocking)
   run: |
-    bca --paths src/ check \
-        --config bca-thresholds.toml --no-fail
+    bca --paths src/ check --no-fail
 ```
 
 ## Exporting offender records
@@ -481,7 +486,6 @@ jobs:
       - name: Run big-code-analysis
         run: |
           bca --paths . check \
-              --config bca-thresholds.toml \
               --output-format sarif \
               --output report.sarif.json \
               --no-fail
@@ -526,7 +530,6 @@ code_quality:
   stage: quality
   script:
     - bca --paths "$CI_PROJECT_DIR" check
-          --config bca-thresholds.toml
           --output-format code-climate
           --output gl-code-quality-report.json
           --no-fail
@@ -584,7 +587,6 @@ jobs:
       - name: Run big-code-analysis
         run: |
           bca --paths . check \
-              --config bca-thresholds.toml \
               --output-format clang-warning \
               --no-fail
 ```
