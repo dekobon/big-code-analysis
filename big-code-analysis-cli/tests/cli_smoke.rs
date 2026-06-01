@@ -216,6 +216,73 @@ fn preproc_writes_json_to_output_file() {
         serde_json::from_str(&content).expect("preproc output file must be valid JSON");
 }
 
+#[test]
+fn preproc_resolves_cross_file_include_across_directory() {
+    // Regression guard for the #489 → #495 preproc breakage: with a
+    // multi-file C tree where `main.c` includes `helper.h` from a
+    // sibling subdirectory, the basename-grouping the resolver needs
+    // must be computed from the analyzed file list so `fix_includes`
+    // can resolve the directive. Before #495 the grouping callback was
+    // dead (the library walk no longer fired it), leaving every file's
+    // `indirect_includes` containing only itself — the cross-file
+    // include silently unresolved. The smoke test above misses this
+    // because its fixture has no `#include`.
+    let dir = TempDir::new().unwrap();
+    std::fs::create_dir(dir.path().join("sub")).unwrap();
+    let main_c = dir.path().join("main.c");
+    let helper_h = dir.path().join("sub/helper.h");
+    std::fs::write(
+        &main_c,
+        "#include \"helper.h\"\nint main(void){ return HELPER; }\n",
+    )
+    .unwrap();
+    std::fs::write(&helper_h, "#define HELPER 42\n").unwrap();
+
+    let output = cli()
+        .args(["--paths", dir.path().to_str().unwrap(), "preproc"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "preproc should succeed");
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let json: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("preproc must emit valid JSON");
+
+    let main_key = main_c.to_str().unwrap();
+    let helper_key = helper_h.to_str().unwrap();
+    let main_entry = json
+        .get("files")
+        .and_then(|f| f.get(main_key))
+        .unwrap_or_else(|| panic!("preproc output missing entry for {main_key}: {json:#}"));
+
+    // The raw directive is recorded verbatim as a direct include.
+    let direct: Vec<&str> = main_entry["direct_includes"]
+        .as_array()
+        .expect("direct_includes is an array")
+        .iter()
+        .map(|v| v.as_str().expect("include is a string"))
+        .collect();
+    assert!(
+        direct.contains(&"helper.h"),
+        "main.c must record the raw `helper.h` direct include, got {direct:?}",
+    );
+
+    // The cross-file include must be RESOLVED into main.c's indirect
+    // includes by basename grouping — this is the assertion that fails
+    // against the empty-`all_files` regression.
+    let indirect: Vec<&str> = main_entry["indirect_includes"]
+        .as_array()
+        .expect("indirect_includes is an array")
+        .iter()
+        .map(|v| v.as_str().expect("include is a string"))
+        .collect();
+    assert!(
+        indirect.contains(&helper_key),
+        "main.c's indirect_includes must resolve the cross-directory \
+         `helper.h` to {helper_key}, got {indirect:?}",
+    );
+}
+
 /// Recursively yield files under `dir` whose extension equals `ext`.
 fn walkdir_entries(dir: &std::path::Path, ext: &str) -> impl Iterator<Item = std::path::PathBuf> {
     fn visit(dir: &std::path::Path, ext: &str, found: &mut Vec<std::path::PathBuf>) {

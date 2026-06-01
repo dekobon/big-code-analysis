@@ -13,7 +13,8 @@
 use std::path::Path;
 use std::path::PathBuf;
 
-use globset::{Glob, GlobSetBuilder};
+use globset::{Glob, GlobSet, GlobSetBuilder};
+use walkdir::{DirEntry, WalkDir};
 
 use big_code_analysis::LANG;
 use big_code_analysis::*;
@@ -132,11 +133,16 @@ pub fn compare_rca_output_with_files_under(
         gsbe.add(Glob::new(file).unwrap());
     }
 
-    let files_data = FilesData {
-        include: gsbi.build().unwrap(),
-        exclude: gsbe.build().unwrap(),
-        paths: vec![source_root.join(repo_name)],
-    };
+    // The library runner is a terminal file-set processor (#495): it no
+    // longer walks directories or applies globsets. Resolve the corpus
+    // root into a filtered file list here — skipping hidden entries and
+    // applying the include/exclude globsets against the emitted path —
+    // then hand the runner the resolved list.
+    let include = gsbi.build().unwrap();
+    let exclude = gsbe.build().unwrap();
+    let paths = resolve_corpus_files(&source_root.join(repo_name), &include, &exclude);
+
+    let files_data = FilesData { paths };
 
     if let Err(e) = ConcurrentRunner::new(num_jobs, act_on_file).run(cfg, files_data) {
         // Use panic! rather than process::exit so the failure surfaces
@@ -144,4 +150,29 @@ pub fn compare_rca_output_with_files_under(
         // the binary's tests produce their own diagnostics.
         panic!("ConcurrentRunner failed: {e:?}");
     }
+}
+
+fn is_hidden(entry: &DirEntry) -> bool {
+    entry
+        .file_name()
+        .to_str()
+        .is_some_and(|s| s.starts_with('.'))
+}
+
+/// Walk `root` recursively, returning the regular files that pass the
+/// include/exclude globsets (matched against the emitted path, as the
+/// pre-#495 library walk did) and aren't under a hidden directory.
+#[allow(dead_code)]
+fn resolve_corpus_files(root: &Path, include: &GlobSet, exclude: &GlobSet) -> Vec<PathBuf> {
+    WalkDir::new(root)
+        .into_iter()
+        .filter_entry(|e| !is_hidden(e))
+        .filter_map(Result::ok)
+        .map(walkdir::DirEntry::into_path)
+        .filter(|path| {
+            path.is_file()
+                && (include.is_empty() || include.is_match(path))
+                && (exclude.is_empty() || !exclude.is_match(path))
+        })
+        .collect()
 }

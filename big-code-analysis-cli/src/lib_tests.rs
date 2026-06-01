@@ -6,45 +6,9 @@
 
 use super::*;
 
-fn test_config(action: Action) -> Config {
-    Config {
-        action,
-        output: None,
-        language: None,
-        line_start: None,
-        line_end: None,
-        preproc_lock: None,
-        preproc: None,
-        count_lock: None,
-        markdown_tx: None,
-        strip_prefix: String::new(),
-        threshold_set: None,
-        check_tx: None,
-        exemptions_tx: None,
-        files_dispatched: None,
-        suppression_policy: SuppressionPolicy::Honor,
-        warning: false,
-        skip_generated: true,
-        report_skipped: false,
-        exclude_tests: false,
-        no_cyclomatic_try: false,
-        fuzzy_baseline: false,
-    }
-}
-
 #[test]
-fn process_dir_path_noop_outside_preproc() {
-    let cfg = test_config(Action::Dump);
-    let mut all_files = HashMap::new();
-    process_dir_path(&mut all_files, Path::new("/some/file.cpp"), &cfg);
-    assert!(all_files.is_empty());
-}
-
-#[test]
-fn process_dir_path_inserts_valid_utf8_filename() {
-    let cfg = test_config(Action::PreprocProduce);
-    let mut all_files = HashMap::new();
-    process_dir_path(&mut all_files, Path::new("/some/dir/foo.cpp"), &cfg);
+fn group_files_by_basename_inserts_valid_utf8_filename() {
+    let all_files = group_files_by_basename(&[PathBuf::from("/some/dir/foo.cpp")]);
     assert_eq!(all_files.len(), 1);
     assert_eq!(
         all_files["foo.cpp"],
@@ -53,11 +17,9 @@ fn process_dir_path_inserts_valid_utf8_filename() {
 }
 
 #[test]
-fn process_dir_path_groups_duplicate_filenames() {
-    let cfg = test_config(Action::PreprocProduce);
-    let mut all_files = HashMap::new();
-    process_dir_path(&mut all_files, Path::new("/a/foo.cpp"), &cfg);
-    process_dir_path(&mut all_files, Path::new("/b/foo.cpp"), &cfg);
+fn group_files_by_basename_groups_duplicate_filenames() {
+    let all_files =
+        group_files_by_basename(&[PathBuf::from("/a/foo.cpp"), PathBuf::from("/b/foo.cpp")]);
     assert_eq!(all_files.len(), 1);
     assert_eq!(
         all_files["foo.cpp"],
@@ -67,15 +29,13 @@ fn process_dir_path_groups_duplicate_filenames() {
 
 #[cfg(unix)]
 #[test]
-fn process_dir_path_skips_non_utf8_filename() {
+fn group_files_by_basename_skips_non_utf8_filename() {
     use std::ffi::OsStr;
     use std::os::unix::ffi::OsStrExt;
 
-    let cfg = test_config(Action::PreprocProduce);
-    let mut all_files = HashMap::new();
     let bad_name = OsStr::from_bytes(b"\xff\xfe");
     let path = PathBuf::from("/some/dir").join(bad_name);
-    process_dir_path(&mut all_files, &path, &cfg);
+    let all_files = group_files_by_basename(&[path]);
     assert!(all_files.is_empty());
 }
 

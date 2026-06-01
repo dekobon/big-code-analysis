@@ -399,6 +399,21 @@ for historical reference.
 
 ### Changed
 
+- **(breaking)** `FilesData` and `ConcurrentRunner` are reshaped into a
+  terminal file-set processor: `FilesData` drops its `include` /
+  `exclude` `GlobSet` fields (now just `FilesData { paths }`),
+  `ConcurrentRunner::run` returns `Result<(), ConcurrentErrors>` instead
+  of `Result<HashMap<String, Vec<PathBuf>>, ConcurrentErrors>`, and the
+  `set_proc_dir_paths` / `set_proc_path` builder methods are removed.
+  The library previously re-walked and re-filtered the file list the
+  CLI had already resolved and anchored (#489), causing a redundant
+  per-file `stat` and dead, path-form-sensitive globsets. The library
+  is now a pure concurrent processor of an already-resolved file list;
+  the CLI's anchored, gitignore-aware `expand_seed_paths` is the single
+  walk and filtering seam. This is a source-level break **deferred to
+  the next major (`2.0`)** bump; the release-prep commit moves this
+  entry into the `2.0.0` section
+  ([#495](https://github.com/dekobon/big-code-analysis/issues/495)).
 - The project's own self-scan gate now reads all configuration (paths,
   exclude_from, baseline, thresholds, and the cyclomatic-`?` policy)
   from a single consolidated `bca.toml` manifest; the standalone
@@ -798,6 +813,16 @@ for historical reference.
 
 ### Fixed
 
+- `bca preproc` again resolves cross-file `#include` directives. #489
+  moved the walk to the CLI and handed the library a flat file list, so
+  every path took the library walker's single-file branch and the
+  basename-grouping callback (`proc_dir_paths`) that feeds
+  `fix_includes` never fired — leaving each file's `indirect_includes`
+  containing only itself and every cross-file include unresolved. The
+  basename grouping now runs in the CLI over the resolved file list the
+  workers analyzed, so includes resolve again. Guarded by a new
+  multi-file integration test
+  ([#495](https://github.com/dekobon/big-code-analysis/issues/495)).
 - `--exclude-from` (`.bcaignore`) glob matching is now anchored to the
   walk root, so an absolute walk root — a `bca.toml` `paths = ["."]`
   resolved to an absolute path, or an explicit `--paths "$PWD"` —

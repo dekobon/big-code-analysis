@@ -4,56 +4,8 @@
 // self-scan walker so production-file metric caps stay tight.
 
 use super::*;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tempfile::Builder;
-use walkdir::WalkDir;
-
-// `tempfile::TempDir::new()` uses a default `.tmp` prefix, which
-// would itself trip `is_hidden` and filter the entire fixture out.
-// The tests below use `Builder::new().prefix("visible-")` to land
-// on a non-hidden root.
-fn make_visible_tempdir() -> tempfile::TempDir {
-    Builder::new().prefix("visible-").tempdir().unwrap()
-}
-
-/// Returns the visited `DirEntry` filenames for a directory tree,
-/// applying the same `filter_entry(is_hidden)` gate used by
-/// `explore`.
-fn walk_skipping_hidden(dir: &Path) -> Vec<String> {
-    WalkDir::new(dir)
-        .into_iter()
-        .filter_entry(|e| !is_hidden(e))
-        .filter_map(Result::ok)
-        .filter_map(|e| e.file_name().to_str().map(str::to_owned))
-        .collect()
-}
-
-#[test]
-fn is_hidden_skips_dotfiles_and_keeps_regular_files() {
-    let dir = make_visible_tempdir();
-    std::fs::write(dir.path().join("keep.rs"), "// kept\n").unwrap();
-    std::fs::write(dir.path().join(".env"), "secret=1\n").unwrap();
-    std::fs::write(dir.path().join(".gitignore"), "target/\n").unwrap();
-
-    let visited = walk_skipping_hidden(dir.path());
-    assert!(visited.iter().any(|n| n == "keep.rs"));
-    assert!(!visited.iter().any(|n| n == ".env"));
-    assert!(!visited.iter().any(|n| n == ".gitignore"));
-}
-
-#[test]
-fn is_hidden_prunes_hidden_directories_recursively() {
-    let dir = make_visible_tempdir();
-    let hidden_dir = dir.path().join(".hidden");
-    std::fs::create_dir(&hidden_dir).unwrap();
-    std::fs::write(hidden_dir.join("inside.rs"), "// inside hidden\n").unwrap();
-    std::fs::write(dir.path().join("visible.rs"), "// visible\n").unwrap();
-
-    let visited = walk_skipping_hidden(dir.path());
-    // The hidden directory and everything inside it must be pruned.
-    assert!(visited.iter().any(|n| n == "visible.rs"));
-    assert!(!visited.iter().any(|n| n == ".hidden"));
-    assert!(!visited.iter().any(|n| n == "inside.rs"));
-}
 
 #[test]
 fn consumer_terminates_on_poison_pill() {
@@ -67,10 +19,10 @@ fn consumer_terminates_on_poison_pill() {
     // Count how many times the supplied closure is invoked so the
     // test would notice if the consumer mistakenly tried to process
     // the poison-pill.
-    let invocations = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let invocations = Arc::new(AtomicUsize::new(0));
     let invocations_for_closure = Arc::clone(&invocations);
     let func = Arc::new(move |_path: PathBuf, _cfg: &()| {
-        invocations_for_closure.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        invocations_for_closure.fetch_add(1, Ordering::SeqCst);
         Ok(())
     });
 
@@ -83,7 +35,7 @@ fn consumer_terminates_on_poison_pill() {
     // panics on the now-`None` job item.
     handle.join().expect("consumer thread should not panic");
     assert_eq!(
-        invocations.load(std::sync::atomic::Ordering::SeqCst),
+        invocations.load(Ordering::SeqCst),
         0,
         "consumer must not invoke the closure for the poison-pill",
     );
@@ -96,10 +48,10 @@ fn consumer_processes_jobs_then_terminates_on_poison_pill() {
     // the loop without panicking.
     let (sender, receiver): (JobSender<()>, JobReceiver<()>) = unbounded();
 
-    let invocations = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let invocations = Arc::new(AtomicUsize::new(0));
     let invocations_for_closure = Arc::clone(&invocations);
     let func = Arc::new(move |_path: PathBuf, _cfg: &()| {
-        invocations_for_closure.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        invocations_for_closure.fetch_add(1, Ordering::SeqCst);
         Ok(())
     });
 
@@ -118,149 +70,76 @@ fn consumer_processes_jobs_then_terminates_on_poison_pill() {
 
     handle.join().expect("consumer thread should not panic");
     assert_eq!(
-        invocations.load(std::sync::atomic::Ordering::SeqCst),
+        invocations.load(Ordering::SeqCst),
         3,
         "all three real jobs must be processed before the poison-pill",
     );
 }
 
-// ── Filters::matches truth table ───────────────────────────────────
-
-fn globset(patterns: &[&str]) -> GlobSet {
-    let mut builder = globset::GlobSetBuilder::new();
-    for p in patterns {
-        builder.add(globset::Glob::new(p).expect("valid glob"));
-    }
-    builder.build().expect("globset")
-}
+// ── Terminal file-list dispatch (post-#495) ──────────────────────
+//
+// The runner no longer walks directories or filters globs: `paths` is
+// the resolved, terminal file list and every regular-file entry is
+// dispatched exactly once. The tests below pin that contract.
 
 #[test]
-fn filters_matches_empty_include_means_accept_all() {
-    let include = GlobSet::empty();
-    let exclude = GlobSet::empty();
-    let f = Filters {
-        include: &include,
-        exclude: &exclude,
-    };
-    assert!(f.matches(Path::new("any.rs")));
-    assert!(f.matches(Path::new("nested/dir/file.py")));
-}
-
-#[test]
-fn filters_matches_include_pattern_filters_out_misses() {
-    let include = globset(&["**/*.rs"]);
-    let exclude = GlobSet::empty();
-    let f = Filters {
-        include: &include,
-        exclude: &exclude,
-    };
-    assert!(f.matches(Path::new("src/lib.rs")));
-    assert!(!f.matches(Path::new("docs/notes.md")));
-}
-
-#[test]
-fn filters_matches_exclude_pattern_overrides_include() {
-    let include = globset(&["**/*.rs"]);
-    let exclude = globset(&["**/target/**"]);
-    let f = Filters {
-        include: &include,
-        exclude: &exclude,
-    };
-    assert!(f.matches(Path::new("src/lib.rs")));
-    // Excluded by `target/` despite matching `*.rs`.
-    assert!(!f.matches(Path::new("target/debug/build.rs")));
-}
-
-#[test]
-fn filters_matches_empty_exclude_means_only_include_filters() {
-    let include = globset(&["**/*.py"]);
-    let exclude = GlobSet::empty();
-    let f = Filters {
-        include: &include,
-        exclude: &exclude,
-    };
-    assert!(f.matches(Path::new("script.py")));
-    assert!(!f.matches(Path::new("script.rs")));
-}
-
-// ── walk_dir_files lazy-allocation path ───────────────────────────
-
-#[test]
-fn walk_dir_files_yields_only_included_regular_files() {
+fn run_dispatches_every_file_in_the_terminal_list() {
     let tmp = Builder::new()
-        .prefix("visible-walk")
+        .prefix("visible-run")
         .tempdir()
         .expect("tempdir");
     let root = tmp.path();
-    std::fs::write(root.join("keep.rs"), b"// kept").expect("write keep");
-    std::fs::write(root.join("skip.txt"), b"// skipped").expect("write skip");
-    std::fs::create_dir(root.join("sub")).expect("mkdir sub");
-    std::fs::write(root.join("sub/inner.rs"), b"// nested").expect("write inner");
+    let a = root.join("a.rs");
+    let b = root.join("b.py");
+    std::fs::write(&a, b"// a").expect("write a");
+    std::fs::write(&b, b"# b").expect("write b");
 
-    let include = globset(&["**/*.rs"]);
-    let exclude = GlobSet::empty();
-    let filters = Filters {
-        include: &include,
-        exclude: &exclude,
-    };
+    let processed = Arc::new(AtomicUsize::new(0));
+    let processed_for_closure = Arc::clone(&processed);
+    let runner = ConcurrentRunner::new(4, move |_path: PathBuf, _cfg: &()| {
+        processed_for_closure.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    });
 
-    let mut yielded: Vec<PathBuf> = walk_dir_files(root, &filters)
-        .collect::<Result<Vec<_>, _>>()
-        .expect("no walkdir errors on a fresh tempdir");
-    yielded.sort();
+    let files_data = FilesData { paths: vec![a, b] };
+    runner.run((), files_data).expect("run should succeed");
 
-    let mut expected = vec![root.join("keep.rs"), root.join("sub/inner.rs")];
-    expected.sort();
-    assert_eq!(yielded, expected);
+    // Both regular files are dispatched — no glob filtering happens in
+    // the runner, so an entry's extension is irrelevant.
+    assert_eq!(processed.load(Ordering::SeqCst), 2);
 }
 
 #[test]
-fn walk_dir_files_excludes_hidden_directories() {
+fn run_skips_directories_and_missing_paths_without_walking() {
     let tmp = Builder::new()
-        .prefix("visible-hidden")
+        .prefix("visible-skip")
         .tempdir()
         .expect("tempdir");
     let root = tmp.path();
-    std::fs::write(root.join("keep.rs"), b"// kept").expect("write keep");
-    std::fs::create_dir(root.join(".hidden")).expect("mkdir hidden");
-    std::fs::write(root.join(".hidden/secret.rs"), b"// hidden").expect("write secret");
+    let file = root.join("keep.rs");
+    std::fs::write(&file, b"// keep").expect("write keep");
+    // A directory entry and a nested file under it: the runner must
+    // NOT descend into the directory (it is not a regular file), and
+    // must skip the non-existent path with a warning.
+    let subdir = root.join("sub");
+    std::fs::create_dir(&subdir).expect("mkdir sub");
+    std::fs::write(subdir.join("nested.rs"), b"// nested").expect("write nested");
+    let missing = root.join("does-not-exist.rs");
 
-    let include = globset(&["**/*.rs"]);
-    let exclude = GlobSet::empty();
-    let filters = Filters {
-        include: &include,
-        exclude: &exclude,
+    let processed = Arc::new(AtomicUsize::new(0));
+    let processed_for_closure = Arc::clone(&processed);
+    let runner = ConcurrentRunner::new(4, move |_path: PathBuf, _cfg: &()| {
+        processed_for_closure.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    });
+
+    let files_data = FilesData {
+        paths: vec![file, subdir, missing],
     };
+    runner.run((), files_data).expect("run should succeed");
 
-    let yielded: Vec<PathBuf> = walk_dir_files(root, &filters)
-        .collect::<Result<Vec<_>, _>>()
-        .expect("walkdir ok");
-    // `.hidden/secret.rs` must NOT appear; the hidden-dir filter is what
-    // makes `walk_dir_files` safe for use on `--paths .` with a workspace
-    // that has dotfile directories like `.git`.
-    assert_eq!(yielded, vec![root.join("keep.rs")]);
-}
-
-#[test]
-fn walk_dir_files_skips_directories_with_excluded_glob() {
-    let tmp = Builder::new()
-        .prefix("visible-exclude")
-        .tempdir()
-        .expect("tempdir");
-    let root = tmp.path();
-    std::fs::write(root.join("keep.rs"), b"// kept").expect("write keep");
-    std::fs::create_dir(root.join("target")).expect("mkdir target");
-    std::fs::write(root.join("target/gen.rs"), b"// generated").expect("write gen");
-
-    let include = globset(&["**/*.rs"]);
-    let exclude = globset(&["**/target/**"]);
-    let filters = Filters {
-        include: &include,
-        exclude: &exclude,
-    };
-
-    let yielded: Vec<PathBuf> = walk_dir_files(root, &filters)
-        .collect::<Result<Vec<_>, _>>()
-        .expect("walkdir ok");
-    assert_eq!(yielded, vec![root.join("keep.rs")]);
+    // Only the single regular file is processed: the directory is not
+    // recursed into (nested.rs is never dispatched) and the missing
+    // path is skipped.
+    assert_eq!(processed.load(Ordering::SeqCst), 1);
 }

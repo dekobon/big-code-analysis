@@ -39,9 +39,9 @@ use crate::thresholds::{
 use crate::{
     Action, CheckArgs, Cli, Command, Config, DiffBaselineArgs, ExemptionsArgs, GlobalOpts,
     InitArgs, ListMetricsArgs, NodesArgs, OutputFormat, PreprocArgs, PrintConfigFormat, ReportArgs,
-    StripCommentsArgs, StructuredArgs, Tier, die, die_io, legacy_hint, load_baseline,
-    load_preproc_data, load_threshold_config, read_exclude_patterns_from, run_walk, write_atomic,
-    write_stdout_or_die,
+    StripCommentsArgs, StructuredArgs, Tier, die, die_io, group_files_by_basename, legacy_hint,
+    load_baseline, load_preproc_data, load_threshold_config, read_exclude_patterns_from, run_walk,
+    write_atomic, write_stdout_or_die,
 };
 
 fn run_check(
@@ -1571,7 +1571,13 @@ fn run_command_preproc(globals: GlobalOpts, args: PreprocArgs) {
         // this command (the original code passed `None` here too).
         ..Config::new(Action::PreprocProduce, &globals, None)
     };
-    let all_files = run_walk(globals, cfg);
+    let paths = run_walk(globals, cfg);
+    // Group the analyzed file list by basename for cross-file
+    // `#include` resolution. Computing this from the same resolved
+    // list the workers processed (rather than the library's old
+    // directory-walk callback, which #489 left dead) is what restores
+    // `bca preproc` include resolution — see #495.
+    let all_files = group_files_by_basename(&paths);
 
     let mut data = Arc::try_unwrap(preproc_lock)
         .expect("all worker threads have joined; Arc refcount is 1")

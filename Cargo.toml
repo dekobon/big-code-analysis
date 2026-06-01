@@ -133,7 +133,6 @@ serde_json.workspace = true
 # compute stable per-violation fingerprints.
 sha2 = "=0.10.9"
 termcolor = "^1.2"
-walkdir = "^2.3"
 
 tree-sitter.workspace = true
 # Grammar crates are gated behind per-language Cargo features (see
@@ -244,6 +243,9 @@ jsonschema = "^0.46"
 tempfile = "^3.0"
 pretty_assertions = "^1.3"
 quick-xml = "^0.39"
+# Test-only: the integration corpus harness and the concurrent_files
+# unit tests walk fixture trees; production code no longer walks (#495).
+walkdir = "^2.3"
 
 [profile.dev.package.insta]
 opt-level = 3

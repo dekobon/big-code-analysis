@@ -382,6 +382,17 @@ loose ends that will be tightened at `2.0`:
   across `1.x` get a clean re-baseline note in the `2.0` entry, so
   consumers comparing across the major boundary have one diff to
   reason about rather than the union of every patch.
+- `FilesData` and `ConcurrentRunner` are reshaped into a terminal
+  file-set processor (#495): `FilesData` drops its `include` /
+  `exclude` `GlobSet` fields and becomes `FilesData { paths }` (a
+  resolved file list the runner processes without walking or
+  filtering), `ConcurrentRunner::run` returns `Result<(),
+  ConcurrentErrors>` (no `HashMap`), and the `set_proc_dir_paths` /
+  `set_proc_path` builder methods are removed. Callers resolve and
+  filter the file set themselves — making the caller's walk the single
+  filtering seam and eliminating the second, emitted-path-form-sensitive
+  library matcher that could otherwise re-inherit the path-form
+  dependence #488/#489 removed.
 
 `2.0` is not scheduled. We will cut it when the items above are
 ripe and the value-drift accumulated since `1.0` is worth the

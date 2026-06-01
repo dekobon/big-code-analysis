@@ -50,7 +50,7 @@ mod walk_seed;
 pub use commands::run;
 use dispatch::act_on_file;
 
-use std::collections::{HashMap, hash_map};
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fmt::Display;
 use std::io::{ErrorKind, Write};
@@ -1047,22 +1047,28 @@ fn build_exclude_globset(mut patterns: Vec<String>, from: Option<&Path>, flag: &
     mk_globset(patterns).unwrap_or_else(|e| die(e))
 }
 
-fn process_dir_path(all_files: &mut HashMap<String, Vec<PathBuf>>, path: &Path, cfg: &Config) {
-    if !matches!(cfg.action, Action::PreprocProduce) {
-        return;
+/// Group a resolved file list by basename into the
+/// `HashMap<basename, Vec<PathBuf>>` shape that
+/// [`big_code_analysis::fix_includes`] consumes to resolve cross-file
+/// `#include` directives. Computed from the same file list the workers
+/// analyzed, so the grouping always matches the analyzed set — this is
+/// what `bca preproc` lost when #489 made the library's directory-walk
+/// callback dead (see #495).
+fn group_files_by_basename(paths: &[PathBuf]) -> HashMap<String, Vec<PathBuf>> {
+    let mut all_files: HashMap<String, Vec<PathBuf>> = HashMap::new();
+    for path in paths {
+        // Skip non-UTF-8 basenames: the preproc include-resolution map
+        // (`guess_file`) keys on the UTF-8 file name, so a lossy key
+        // could never be matched by an `#include` directive anyway.
+        let Some(fname) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        all_files
+            .entry(fname.to_string())
+            .or_default()
+            .push(path.clone());
     }
-    let Some(fname) = path.file_name().and_then(|n| n.to_str()) else {
-        return;
-    };
-    let file_name = fname.to_string();
-    match all_files.entry(file_name) {
-        hash_map::Entry::Occupied(l) => {
-            l.into_mut().push(path.to_path_buf());
-        }
-        hash_map::Entry::Vacant(p) => {
-            p.insert(vec![path.to_path_buf()]);
-        }
-    }
+    all_files
 }
 
 fn resolve_language(typ: Option<&str>, action: &Action) -> Option<LANG> {
@@ -1264,7 +1270,7 @@ fn expand_seed_paths(
     out
 }
 
-fn run_walk(globals: GlobalOpts, cfg: Config) -> HashMap<String, Vec<PathBuf>> {
+fn run_walk(globals: GlobalOpts, cfg: Config) -> Vec<PathBuf> {
     let include = mk_globset(globals.include).unwrap_or_else(|e| die(e));
     let exclude = build_exclude_globset(
         globals.exclude,
@@ -1273,10 +1279,11 @@ fn run_walk(globals: GlobalOpts, cfg: Config) -> HashMap<String, Vec<PathBuf>> {
     );
     let num_jobs = globals.num_jobs.resolve();
     // The include/exclude filtering is applied here, anchored to each
-    // file's walk root (#489), so the resolved `paths` are already the
-    // final file set. Hand the library empty globsets to avoid a second,
-    // emitted-path-form-sensitive match that would re-introduce the very
-    // path-form dependence #488/#489 remove.
+    // file's walk root (#489), so the resolved `paths` are the final,
+    // terminal file set. The library runner processes that list as-is —
+    // it does no second walk and no second, emitted-path-form-sensitive
+    // glob match (the dead library globsets and re-walk were removed in
+    // #495). This anchored walk is the single filtering seam.
     let filters = WalkFilters {
         include: &include,
         exclude: &exclude,
@@ -1288,14 +1295,12 @@ fn run_walk(globals: GlobalOpts, cfg: Config) -> HashMap<String, Vec<PathBuf>> {
         &filters,
     );
     let files_data = FilesData {
-        include: GlobSet::empty(),
-        exclude: GlobSet::empty(),
-        paths,
+        paths: paths.clone(),
     };
     ConcurrentRunner::new(num_jobs, act_on_file)
-        .set_proc_dir_paths(process_dir_path)
         .run(cfg, files_data)
-        .unwrap_or_else(|e| die(format_args!("{e:?}")))
+        .unwrap_or_else(|e| die(format_args!("{e:?}")));
+    paths
 }
 
 /// Analyze the source tree rooted at `root` with `globals` (whose
