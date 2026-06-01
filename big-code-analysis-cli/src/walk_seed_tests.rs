@@ -182,13 +182,19 @@ fn anchor_against_seeds_lets_a_later_dir_seed_anchor_a_file_seed_path() {
 }
 
 #[test]
-fn anchor_against_seeds_passes_through_when_no_seed_contains_path() {
-    // First matching seed wins; an unrelated seed leaves the path as-is.
+fn anchor_against_seeds_skips_a_non_containing_seed_and_anchors_under_a_later_one() {
+    // A seed that does not contain the path is skipped; a later seed
+    // that does contain it anchors the path to the `./`-form.
     let seeds = vec![PathBuf::from("/other"), PathBuf::from("/abs/repo")];
     assert_eq!(
         anchor_against_seeds(&seeds, Path::new("/abs/repo/src/a.rs")),
         Path::new("./src/a.rs")
     );
+}
+
+#[test]
+fn anchor_against_seeds_passes_through_when_no_seed_contains_path() {
+    // No seed is a prefix of the path: returned unchanged.
     assert_eq!(
         anchor_against_seeds(&[PathBuf::from("/nope")], Path::new("/abs/repo/v.rs")),
         Path::new("/abs/repo/v.rs")
