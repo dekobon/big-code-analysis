@@ -225,6 +225,56 @@ fn manifest_excludes_apply_when_run_from_subdir() {
     );
 }
 
+/// Run `bca metrics` via an auto-discovered `bca.toml` that supplies
+/// `paths = ["."]` plus a `./`-anchored `include` glob, from `run_from`
+/// (a subdir below the manifest dir). `paths = ["."]` resolves to the
+/// manifest dir — an ancestor of `run_from` — so the walk root stays
+/// **absolute and above the CWD**, the genuine #489 trigger that
+/// `reanchor_seed` cannot collapse. This exercises the *include* side
+/// of the walk-root-anchored match the way only an above-CWD walk root
+/// can; a same-as-CWD absolute seed would reanchor to `.` and never
+/// reach the matcher in its absolute form.
+fn walked_via_manifest_include_from(fixture: &Path, run_from: &Path, include: &str) -> Vec<String> {
+    std::fs::write(
+        fixture.join("bca.toml"),
+        format!("paths = [\".\"]\ninclude = [\"{include}\"]\n"),
+    )
+    .unwrap();
+    let out = TempDir::new().unwrap();
+    cli(fixture)
+        .current_dir(run_from)
+        .args(["metrics", "-O", "json", "-o", out.path().to_str().unwrap()])
+        .assert()
+        .success();
+    let names = emitted_json(out.path());
+    std::fs::remove_file(fixture.join("bca.toml")).unwrap();
+    names
+}
+
+#[test]
+fn include_glob_is_anchored_to_walk_root_from_subdir() {
+    // The #489 fix moved both include *and* exclude matching to the
+    // walk-root-anchored `./`-relative form. A manifest `./src/**`
+    // include, with the walk root resolved to an *ancestor* of the CWD,
+    // must keep only `src/keep.py`. Pre-fix the absolute walk root made
+    // include match against the absolute emitted path, so a `./`-anchored
+    // include matched nothing and dropped *every* file — emitting an
+    // empty set. Anchoring to the walk root restores the intended keep.
+    let dir = TempDir::new().unwrap();
+    let fixture = dir.path().canonicalize().unwrap();
+    make_tree(&fixture);
+    let subdir = fixture.join("src");
+    assert!(subdir.is_dir(), "fixture must contain the src/ subdir");
+
+    let from_subdir = walked_via_manifest_include_from(&fixture, &subdir, "./src/**");
+    assert_eq!(
+        from_subdir,
+        vec!["keep.py.json".to_string()],
+        "a ./-anchored manifest --include must keep only src/ even when the \
+         walk root resolves above the CWD (#489)"
+    );
+}
+
 #[test]
 fn absolute_subdir_seed_still_excludes() {
     // A seed that is an absolute path to a *subdirectory* of the walk
