@@ -37,6 +37,17 @@ pub mod validators;
 /// bounded by fixed sentinels, the last test wins, replacing every
 /// earlier block (see #388).
 ///
+/// The diff-scope auto-detection vars (`diff.rs::auto_detect_base`)
+/// are scrubbed for the same reason: on a `pull_request` event GitHub
+/// sets `GITHUB_BASE_REF` (and a push sets `GITHUB_EVENT_BEFORE`), so a
+/// hermetic-tempdir `bca check` would auto-enable a `--since` scope,
+/// fail to resolve `origin/<base>` (the tempdir is not a git checkout),
+/// and emit a "proceeding without diff scope" warning to stderr —
+/// breaking every test that asserts clean stderr. This only surfaces on
+/// `pull_request` CI events (push runs leave `GITHUB_BASE_REF` unset),
+/// which is why it stayed latent until the first PR. A test that
+/// *wants* a diff scope sets the var explicitly after construction.
+///
 /// Call sites name their builder `cli()` (or `bin()` in
 /// `big-code-analysis-web`); each delegates to this helper so a
 /// future new env-leak only needs to be patched once.
@@ -44,6 +55,9 @@ pub mod validators;
 pub fn scrub_ci_env(cmd: &mut Command) -> &mut Command {
     cmd.env_remove("GITHUB_STEP_SUMMARY")
         .env_remove("GITHUB_ACTIONS")
+        .env_remove("GITHUB_BASE_REF")
+        .env_remove("BCA_DIFF_BASE")
+        .env_remove("GITHUB_EVENT_BEFORE")
 }
 
 /// Build a `bca` `Command` with CI-side env vars scrubbed. The
