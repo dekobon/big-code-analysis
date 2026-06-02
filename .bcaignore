@@ -28,3 +28,4 @@
 ./abuild-keys/**
 ./**/examples/**
 ./check-*.py
+./verify-*.py
