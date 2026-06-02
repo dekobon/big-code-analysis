@@ -3452,3 +3452,53 @@ does not) — here the node kind the dispatcher needs does not exist for that
 construct in that grammar at all.
 
 ---
+
+## 67. "Compute it once" is the wrong altitude when the consumers don't share the transform's parameters
+
+Collapsing N consumers that each transform the "same" value into a single
+shared computation is only sound when those consumers share the *parameters*
+of the transform. When they do not, the unified value is correct for one
+consumer and silently wrong (or lossy) for the rest — and the "duplication"
+you set out to remove was never duplication: it was N legitimately different
+transforms that merely looked alike.
+
+**The `WalkFile` output-name unification (attempted, then reverted; #497
+follow-up, preserved on branch `archive/walkfile-name-normalization`).**
+`bca` re-derived a file's canonical identity at four places — the
+`[check.exclude]` glob matcher, the baseline keyer, `--changed-only` scope
+filtering, and `bca diff` pairing — each through its own helper
+(`reanchor_seed`, `match_path_for`, `anchor_against_seeds`, and the `with_cwd`
+CWD swap). Four helpers answering "which file is this?" read as a textbook
+"compute it once at the walk seam" cleanup, so we collapsed them into a single
+canonical `name` (the path relative to the longest-common-ancestor of the
+seeds) stamped on every walked file. It compiled, passed the entire workspace
+suite and both self-scan tiers, and shipped **three silent correctness
+regressions**: single-file `bca diff --since <file>` reported every file as
+both added and removed; a subdirectory scope (`--paths src`) wrote baseline
+keys that lost the scope prefix (`src/foo.rs` → `foo.rs`), so baselines
+stopped suppressing; and `--changed-only` from a subdirectory dropped
+violations — a gate bypass. The cause: the consumers have **heterogeneous
+anchors** — exclude wants walk-root-relative, the baseline wants
+baseline-file-dir-relative, `--changed-only` resolves against the CWD, and
+`bca diff` wants tree-root-relative — and one LCA-anchored string is *lossy*:
+it drops the path segments between the analysis root and the file, so a
+consumer that resolves it against a *different* anchor can no longer recover
+the file's true location. The per-consumer re-anchoring was not redundant;
+each anchor was genuinely different. Full analysis:
+[`output_name_normalization_design.md`](output_name_normalization_design.md).
+
+**Lesson:** Before unifying N transforms of "the same" value, list each
+consumer's *parameters* — here, the anchor each path is interpreted against.
+If they differ, "compute it once" yields a value that round-trips for one
+consumer and silently corrupts the others; keep the transforms separate and
+share only the genuinely-identical sub-step (here, the lexical path
+resolution — never the anchoring). Two corollaries made this expensive to
+catch. (1) The regressions were *silent* — wrong keys and dropped violations,
+no crash, no failing test. (2) A *uniform* gate hid them: every CI path and
+the self-scan run `--paths .` from the repo root, the one configuration where
+all four anchors coincide, so the coupling stayed invisible until a review
+*varied the invocation shape* (subdir scope, single-file diff,
+run-from-a-subdirectory). When a refactor's correctness depends on a
+parameter, vary that parameter in the tests — not just the inputs.
+
+---
