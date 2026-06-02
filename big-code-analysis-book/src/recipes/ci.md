@@ -43,8 +43,11 @@ the [Quality reports recipe](quality-reports.md).
 `big-code-analysis` runs the recipes below against its own source on
 every push and PR. The workflow source —
 [`.github/workflows/pages.yml`](https://github.com/dekobon/big-code-analysis/blob/main/.github/workflows/pages.yml) —
-exercises the threshold gate, the baseline ratchet, and both report
-formats end-to-end against the workspace itself. The output sits on
+exercises the threshold gate, the baseline ratchet, both report
+formats, and a SARIF upload to GitHub Code Scanning end-to-end against
+the workspace itself. (The SARIF upload runs on same-repo pushes and
+PRs only; fork PRs skip it because the upload needs a write-scoped
+token, exactly as the clippy SARIF job does.) The output sits on
 GitHub Pages alongside this book:
 
 - HTML hotspot report:
