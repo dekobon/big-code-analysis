@@ -625,14 +625,14 @@ path = "big-code-analysis-cli/src/metric_diff.rs"
 qualified = "<file>"
 start_line = 1
 metric = "halstead.effort"
-value = 1579186.894855429
+value = 1578036.5821063574
 
 [[entry]]
 path = "big-code-analysis-cli/src/metric_diff.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nargs"
-value = 43.0
+value = 44.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/metric_diff.rs"
@@ -646,7 +646,7 @@ path = "big-code-analysis-cli/src/metric_diff.rs"
 qualified = "<file>"
 start_line = 1
 metric = "nom"
-value = 39.0
+value = 40.0
 
 [[entry]]
 path = "big-code-analysis-cli/src/metric_diff.rs"
