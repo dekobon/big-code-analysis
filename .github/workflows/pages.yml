@@ -156,6 +156,17 @@ jobs:
     # ceiling absorbs the worst-case "Cargo.lock churned + Swatinem
     # cache evicted" combo without killing useful runs.
     timeout-minutes: 30
+    # security-events:write lets the upload-sarif step publish bca's own
+    # self-scan offenders to GitHub code scanning (Security tab + PR
+    # annotations) — dogfooding the SARIF path we document for adopters
+    # in commands/check.md and recipes/ci.md. actions:read is required by
+    # upload-sarif on private/internal repos (harmless on public ones)
+    # and matches ci.yml's clippy job. The workflow-level default is
+    # contents:read.
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
     # The workspace-minus-vendored exclude list lives in `.bcaignore`
     # at the repo root and is wired in via `exclude_from` in the
     # auto-discovered `bca.toml` manifest, so the invocations below
@@ -261,6 +272,29 @@ jobs:
         run: make self-scan
         env:
           BCA_SINCE: origin/${{ github.base_ref || 'main' }}
+
+      # Dogfood bca's own SARIF writer: re-run the gate as a pure
+      # emitter (`--no-fail` keeps exit 0 regardless of offenders) so
+      # this step runs even when the gate above is red, and upload the
+      # result to Code Scanning below. Path selection, thresholds, and
+      # the baseline all come from the auto-discovered `bca.toml`
+      # manifest — same config the gate uses — so the published alerts
+      # match the gate's offender set. `if: always()` mirrors the report
+      # steps: the SARIF is most useful precisely when CI is red.
+      - name: Generate self-scan SARIF
+        if: always()
+        run: bca check --output-format sarif --no-fail --output bca.sarif
+
+      # Fork PRs get a read-only GITHUB_TOKEN without security-events
+      # scope, so the upload would error; skip it there (and when no
+      # SARIF was produced). `category: bca` keeps these alerts a
+      # distinct analysis from ci.yml's `category: clippy` upload.
+      - name: Upload self-scan SARIF to code scanning
+        if: always() && hashFiles('bca.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
+        with:
+          sarif_file: bca.sarif
+          category: bca
 
       - name: Upload reports artifact
         if: always()
