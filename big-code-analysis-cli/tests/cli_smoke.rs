@@ -230,7 +230,11 @@ fn preproc_resolves_cross_file_include_across_directory() {
     let dir = TempDir::new().unwrap();
     std::fs::create_dir(dir.path().join("sub")).unwrap();
     let main_c = dir.path().join("main.c");
-    let helper_h = dir.path().join("sub/helper.h");
+    // Join components separately so the path uses the OS separator: a
+    // literal `"sub/helper.h"` would leave a forward slash on Windows
+    // (mixed `...\sub/helper.h`) that never matches the walk-emitted,
+    // backslash-separated `indirect_includes` path.
+    let helper_h = dir.path().join("sub").join("helper.h");
     std::fs::write(
         &main_c,
         "#include \"helper.h\"\nint main(void){ return HELPER; }\n",

@@ -533,9 +533,15 @@ fn read_json(path: &Path) -> Result<Value, DiffError> {
 
 /// Convert a path into a stable string key, erroring on non-UTF-8 rather
 /// than lossily transcoding (identifier paths must round-trip).
+///
+/// The OS separator is normalized to `/` so a directory-set's relpath
+/// fallback key is platform-independent: a file at `nested/y.json` keys
+/// identically whether the walk ran on Unix or Windows (where
+/// `to_str()` would otherwise yield `nested\y.json`, breaking pairing
+/// against a `/`-keyed set and the documented `bca diff` contract).
 fn path_to_key(path: &Path) -> Result<String, DiffError> {
     path.to_str()
-        .map(str::to_string)
+        .map(|s| s.replace(std::path::MAIN_SEPARATOR, "/"))
         .ok_or_else(|| DiffError::NonUtf8Path {
             path: path.to_path_buf(),
         })
