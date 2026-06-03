@@ -2,8 +2,7 @@
 // Terminal per-metric dump serializer; the offenders are mechanical-writer
 // aggregation artifacts, not per-function logic complexity.
 
-use std::io::Write;
-use termcolor::{Color, ColorChoice, StandardStream, StandardStreamLock};
+use termcolor::{Color, ColorChoice, StandardStream, WriteColor};
 
 use crate::abc;
 use crate::cognitive;
@@ -62,7 +61,7 @@ fn dump_space(
     space: &FuncSpace,
     prefix: &str,
     last: bool,
-    stdout: &mut StandardStreamLock,
+    stdout: &mut dyn WriteColor,
 ) -> std::io::Result<()> {
     let (pref_child, pref) = if last { ("   ", "`- ") } else { ("|  ", "|- ") };
 
@@ -95,7 +94,7 @@ fn dump_metrics(
     metrics: &CodeMetrics,
     prefix: &str,
     last: bool,
-    stdout: &mut StandardStreamLock,
+    stdout: &mut dyn WriteColor,
 ) -> std::io::Result<()> {
     let (pref_child, pref) = if last { ("   ", "`- ") } else { ("|  ", "|- ") };
 
@@ -125,7 +124,7 @@ fn dump_cognitive(
     stats: &cognitive::Stats,
     prefix: &str,
     last: bool,
-    stdout: &mut StandardStreamLock,
+    stdout: &mut dyn WriteColor,
 ) -> std::io::Result<()> {
     let (pref_child, pref) = if last { ("   ", "`- ") } else { ("|  ", "|- ") };
 
@@ -145,7 +144,7 @@ fn dump_cyclomatic(
     stats: &cyclomatic::Stats,
     prefix: &str,
     last: bool,
-    stdout: &mut StandardStreamLock,
+    stdout: &mut dyn WriteColor,
 ) -> std::io::Result<()> {
     let (pref_child, pref) = if last { ("   ", "`- ") } else { ("|  ", "|- ") };
 
@@ -165,7 +164,7 @@ fn dump_halstead(
     stats: &halstead::Stats,
     prefix: &str,
     last: bool,
-    stdout: &mut StandardStreamLock,
+    stdout: &mut dyn WriteColor,
 ) -> std::io::Result<()> {
     let (pref_child, pref) = if last { ("   ", "`- ") } else { ("|  ", "|- ") };
 
@@ -204,7 +203,7 @@ fn dump_loc(
     stats: &loc::Stats,
     prefix: &str,
     last: bool,
-    stdout: &mut StandardStreamLock,
+    stdout: &mut dyn WriteColor,
 ) -> std::io::Result<()> {
     let (pref_child, pref) = if last { ("   ", "`- ") } else { ("|  ", "|- ") };
 
@@ -226,7 +225,7 @@ fn dump_nom(
     stats: &nom::Stats,
     prefix: &str,
     last: bool,
-    stdout: &mut StandardStreamLock,
+    stdout: &mut dyn WriteColor,
 ) -> std::io::Result<()> {
     let (pref_child, pref) = if last { ("   ", "`- ") } else { ("|  ", "|- ") };
 
@@ -237,8 +236,13 @@ fn dump_nom(
     writeln!(stdout, "nom")?;
 
     let prefix = format!("{prefix}{pref_child}");
-    dump_value("functions", stats.functions(), &prefix, false, stdout)?;
-    dump_value("closures", stats.closures(), &prefix, false, stdout)?;
+    // Use the subtree-aggregate counts (`*_sum`), matching the JSON
+    // serializer and `Display`. `functions()`/`closures()` are this
+    // space's *immediate* counts, which would not sum to the aggregate
+    // `total()` at any parent space (e.g. a Rust file whose functions all
+    // live inside `impl`/`mod` would print `functions: 0, total: N`).
+    dump_value("functions", stats.functions_sum(), &prefix, false, stdout)?;
+    dump_value("closures", stats.closures_sum(), &prefix, false, stdout)?;
     dump_value("total", stats.total(), &prefix, true, stdout)
 }
 
@@ -246,7 +250,7 @@ fn dump_tokens(
     stats: &tokens::Stats,
     prefix: &str,
     last: bool,
-    stdout: &mut StandardStreamLock,
+    stdout: &mut dyn WriteColor,
 ) -> std::io::Result<()> {
     let (pref_child, pref) = if last { ("   ", "`- ") } else { ("|  ", "|- ") };
 
@@ -267,7 +271,7 @@ fn dump_mi(
     stats: &mi::Stats,
     prefix: &str,
     last: bool,
-    stdout: &mut StandardStreamLock,
+    stdout: &mut dyn WriteColor,
 ) -> std::io::Result<()> {
     let (pref_child, pref) = if last { ("   ", "`- ") } else { ("|  ", "|- ") };
 
@@ -293,7 +297,7 @@ fn dump_nargs(
     stats: &nargs::Stats,
     prefix: &str,
     last: bool,
-    stdout: &mut StandardStreamLock,
+    stdout: &mut dyn WriteColor,
 ) -> std::io::Result<()> {
     let (pref_child, pref) = if last { ("   ", "`- ") } else { ("|  ", "|- ") };
 
@@ -304,8 +308,11 @@ fn dump_nargs(
     writeln!(stdout, "nargs")?;
 
     let prefix = format!("{prefix}{pref_child}");
-    dump_value("functions", stats.fn_args(), &prefix, false, stdout)?;
-    dump_value("closures", stats.closure_args(), &prefix, false, stdout)?;
+    // Subtree-aggregate counts (`*_sum`), matching the JSON serializer:
+    // `total`/`average` are already aggregates, so the per-space
+    // `fn_args()`/`closure_args()` would not sum to `total` at a parent.
+    dump_value("functions", stats.fn_args_sum(), &prefix, false, stdout)?;
+    dump_value("closures", stats.closure_args_sum(), &prefix, false, stdout)?;
     dump_value("total", stats.nargs_total(), &prefix, false, stdout)?;
     dump_value("average", stats.nargs_average(), &prefix, true, stdout)
 }
@@ -314,7 +321,7 @@ fn dump_nexits(
     stats: &exit::Stats,
     prefix: &str,
     last: bool,
-    stdout: &mut StandardStreamLock,
+    stdout: &mut dyn WriteColor,
 ) -> std::io::Result<()> {
     let pref = if last { "`- " } else { "|- " };
 
@@ -332,7 +339,7 @@ fn dump_abc(
     stats: &abc::Stats,
     prefix: &str,
     last: bool,
-    stdout: &mut StandardStreamLock,
+    stdout: &mut dyn WriteColor,
 ) -> std::io::Result<()> {
     let (pref_child, pref) = if last { ("   ", "`- ") } else { ("|  ", "|- ") };
 
@@ -360,7 +367,7 @@ fn dump_wmc(
     stats: &wmc::Stats,
     prefix: &str,
     last: bool,
-    stdout: &mut StandardStreamLock,
+    stdout: &mut dyn WriteColor,
 ) -> std::io::Result<()> {
     if stats.is_disabled() {
         return Ok(());
@@ -390,7 +397,7 @@ fn dump_npm(
     stats: &npm::Stats,
     prefix: &str,
     last: bool,
-    stdout: &mut StandardStreamLock,
+    stdout: &mut dyn WriteColor,
 ) -> std::io::Result<()> {
     if stats.is_disabled() {
         return Ok(());
@@ -421,7 +428,7 @@ fn dump_npa(
     stats: &npa::Stats,
     prefix: &str,
     last: bool,
-    stdout: &mut StandardStreamLock,
+    stdout: &mut dyn WriteColor,
 ) -> std::io::Result<()> {
     if stats.is_disabled() {
         return Ok(());
@@ -453,7 +460,7 @@ fn dump_value(
     val: f64,
     prefix: &str,
     last: bool,
-    stdout: &mut StandardStreamLock,
+    stdout: &mut dyn WriteColor,
 ) -> std::io::Result<()> {
     let pref = if last { "`- " } else { "|- " };
 
@@ -465,4 +472,57 @@ fn dump_value(
 
     color(stdout, Color::White)?;
     writeln!(stdout, "{val}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{LANG, MetricsOptions, Source, analyze};
+
+    /// Value printed after `{field}:` in the FIRST `{block}` metric block of
+    /// the dump — i.e. the root `Unit`'s, which is emitted before any child
+    /// space. `{val}` Display renders whole f64s without a decimal point, so
+    /// callers can compare against `"0"`.
+    fn root_block_field(out: &str, block: &str, field: &str) -> String {
+        let body = &out[out
+            .find(&format!("{block}\n"))
+            .expect("metric block present")..];
+        let at = body.find(&format!("{field}: ")).expect("field present") + field.len() + 2;
+        body[at..].lines().next().unwrap_or("").trim().to_owned()
+    }
+
+    /// Regression for the parent-space aggregate bug: `dump_nom` / `dump_nargs`
+    /// must print the SUBTREE-AGGREGATE counts (`functions_sum` / `fn_args_sum`,
+    /// matching the JSON serializer and `Display`), not the space's IMMEDIATE
+    /// counts — which are 0 at any parent whose functions all live in a nested
+    /// module/impl, and would not sum to the aggregate `total`.
+    #[test]
+    fn dump_nom_and_nargs_use_subtree_aggregates_at_parent_space() {
+        // The one function (with args) is nested in `mod m`, so the root Unit's
+        // immediate function/arg counts are 0 while the subtree aggregates are
+        // not — the exact shape that exposed the bug.
+        let space = analyze(
+            Source::new(
+                LANG::Rust,
+                b"mod m { fn a(x: i32, y: i32) -> i32 { x + y } }",
+            ),
+            MetricsOptions::default(),
+        )
+        .expect("snippet has a top-level FuncSpace");
+
+        let mut buf = termcolor::NoColor::new(Vec::new());
+        dump_space(&space, "", true, &mut buf).expect("dump to in-memory buffer");
+        let out = String::from_utf8(buf.into_inner()).expect("utf-8 dump");
+
+        assert_ne!(
+            root_block_field(&out, "nom", "functions"),
+            "0",
+            "root nom must print functions_sum (aggregate), not the immediate 0:\n{out}"
+        );
+        assert_ne!(
+            root_block_field(&out, "nargs", "functions"),
+            "0",
+            "root nargs must print fn_args_sum (aggregate), not the immediate 0:\n{out}"
+        );
+    }
 }
