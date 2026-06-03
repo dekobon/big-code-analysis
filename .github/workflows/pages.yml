@@ -282,17 +282,23 @@ jobs:
       # match the gate's offender set. `if: always()` mirrors the report
       # steps: the SARIF is most useful precisely when CI is red.
       #
-      # `--report-suppressed` surfaces the debt the gate tolerates —
-      # in-source `bca: suppress` markers and baseline-covered offenders —
-      # as SARIF `suppressions` entries, so Code Scanning shows them as
-      # suppressed (closed) alerts: visible for tracking without counting
-      # against the open-alert total. `--tier soft --headroom 0.95`
-      # matches the baseline's provenance so baseline-covered offenders
-      # below the hard limit (the cognitive entries) still appear.
+      # We deliberately DROP `--report-suppressed` here: GitHub code
+      # scanning does not honor the SARIF `suppressions` property
+      # natively (it is absent from GitHub's supported-SARIF subset), so
+      # offenders emitted as `suppressions` entries surface as *open*
+      # alerts anyway — the opposite of the intent. Without the flag the
+      # SARIF carries only genuinely-active offenders (those not silenced
+      # by an in-source `bca: suppress` marker or covered by the
+      # baseline); suppressed/baselined debt is tracked where it lives —
+      # the markers in source and `.bca-baseline.toml` — not as phantom
+      # Code Scanning alerts. `--tier soft --headroom 0.95` keeps the
+      # published alert set aligned with the soft (headroom) gate, so an
+      # unsuppressed function creeping into the 95-100% band shows up as
+      # an early warning before the hard gate trips.
       - name: Generate self-scan SARIF
         if: always()
         run: >-
-          bca check --output-format sarif --no-fail --report-suppressed
+          bca check --output-format sarif --no-fail
           --tier soft --headroom 0.95 --output bca.sarif
 
       # Fork PRs get a read-only GITHUB_TOKEN without security-events
