@@ -31,10 +31,13 @@ for historical reference.
   silenced function). Suppression is per-metric and folds the file's
   `suppress-file` scope into each function's own scope. `bca report
   --no-suppress` (or `[report] no_suppress = true` in `bca.toml`) opts
-  into the raw audit view that lists every offender. Advisory roll-ups
-  (the actionable summary, CC-stats note) intentionally keep counting
-  raw measurements. `SuppressionScope::merge` is now `pub` (additive) so
-  report consumers can fold scopes
+  into the raw audit view that lists every offender. The Actionable
+  Summary roll-up is the sole figure that intentionally keeps counting
+  raw measurements (a whole-codebase health indicator); every per-metric
+  hotspot caption — including the cyclomatic Average/Max/CC>10 note —
+  reflects the suppression-filtered set and is identical across the
+  Markdown and HTML reports. `SuppressionScope::merge` is now `pub`
+  (additive) so report consumers can fold scopes
   ([#501](https://github.com/dekobon/big-code-analysis/issues/501)).
 - `bca check --report-suppressed`: surface the debt the gate tolerates in
   the code-scan document instead of dropping it. Offenders silenced by an
@@ -859,6 +862,30 @@ for historical reference.
 
 ### Fixed
 
+- `bca report markdown|html`: the "Maintainability Index (lowest files)"
+  table no longer hides the worst files. `mi_visual_studio()` clamps a
+  negative MI formula to `0.0`, but the table filtered on
+  `mi_visual_studio > 0.0`, so a large, unmaintainable file scoring `0.0`
+  collided with the empty-file `0.0` and vanished from the very table meant
+  to surface it. The filter now mirrors `mi::Stats::inputs_are_empty`
+  (`halstead_volume > 0 && sloc > 0`): clamped-to-zero worst files appear,
+  while genuinely empty files stay excluded.
+- `bca report html`: the cyclomatic summary note (`Average CC | Max |
+  CC > 10 | CC > 20`) now reflects the suppression-filtered table it
+  captions, matching the Markdown report. It previously counted raw
+  measurements, so under the default suppression policy the note could
+  disagree with its own table (e.g. report `CC > 10: 1` above a table
+  showing none) and diverge from the Markdown rendering of the same data.
+  The raw, suppression-independent CC count remains in the Actionable
+  Summary roll-up.
+- Library `dump_root` (the metric tree dump): the `nom` and `nargs` blocks
+  printed each space's *immediate* `functions`/`closures` counts next to
+  the subtree-aggregate `total`, so the parts did not sum to the total at
+  any parent space (e.g. a Rust file whose functions all live inside
+  `impl`/`mod` printed `functions: 0, total: N`) and disagreed with the
+  JSON serializer. Both blocks now print the subtree-aggregate `*_sum`
+  counts, matching JSON, `Display`, and the sibling `cyclomatic`/`tokens`
+  blocks.
 - `bca diff --since <ref> <subdir>` no longer reports every file as both
   added and removed. The before side (a `git archive` of `<ref>`) is
   rooted at the repo top, but the positional was used as the after-side

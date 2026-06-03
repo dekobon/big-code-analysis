@@ -38,13 +38,12 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
-use big_code_analysis::{MetricKind, SpaceKind, SuppressionPolicy};
+use big_code_analysis::{SpaceKind, SuppressionPolicy};
 
-use crate::format_util::MetricScalar;
-use crate::markdown_report::{
-    FunctionSummary, is_class_like, mi_rating, sort_by_metric_asc, sort_by_metric_desc, thousands,
-    title_case,
+use crate::markdown_report::hotspot::{
+    self, ACTIONABLE_SUMMARY_INDEX, Align, Cell, Column, HotspotSpec, SPECS, Source,
 };
+use crate::markdown_report::{FunctionSummary, is_class_like, mi_rating, thousands, title_case};
 
 /// HTML-escape a string for safe interpolation into element text or
 /// double-quoted attribute values. Returns a borrowed `Cow` when the
@@ -210,18 +209,6 @@ rows.forEach(function(r){tbody.appendChild(r);});\
 })();\
 ";
 
-#[derive(Clone, Copy)]
-enum Align {
-    Left,
-    Right,
-}
-
-impl Align {
-    fn is_numeric(self) -> bool {
-        matches!(self, Self::Right)
-    }
-}
-
 // Multi-pattern tooltip strings shared by aliased headers
 // ("MI"/"Avg MI", "CC"/"Avg CC", "Cognitive"/"Avg Cognitive").
 const MI_TOOLTIP: &str = "Maintainability Index (Visual Studio scale, 0\u{2013}100): composite of Halstead volume, cyclomatic complexity, and SLOC; higher is more maintainable.";
@@ -289,281 +276,6 @@ fn header_tooltip(header: &str) -> Option<&'static str> {
         .find_map(|&(name, tip)| (name == header).then_some(tip))
 }
 
-#[derive(Clone, Copy)]
-enum SortDir {
-    Asc,
-    Desc,
-}
-
-/// One column of a hotspot table: its header text, alignment (which also
-/// drives the numeric-sort attribute), and a stateless projector from a
-/// [`FunctionSummary`] to its rendered cell string. `cell` is a `fn`
-/// pointer — every projector is capture-free — so a whole [`HotspotSpec`]
-/// is `const`-promotable.
-#[derive(Clone, Copy)]
-struct HotspotColumn {
-    header: &'static str,
-    align: Align,
-    cell: fn(&FunctionSummary) -> String,
-}
-
-/// Declarative description of one hotspot section: which summaries to
-/// keep, the metric to rank them by, the sort direction, and the column
-/// table to render. Capture-free `fn` pointers throughout keep every
-/// instance `const` (see the `*_HOTSPOT` tables below). The section
-/// title is *not* a field: only the MI section interpolates `top_n` into
-/// its heading, so it stays a runtime argument to [`emit_hotspot`] and
-/// the other eight specs need no per-call data.
-struct HotspotSpec {
-    keep: fn(&FunctionSummary) -> bool,
-    metric: fn(&FunctionSummary) -> f64,
-    dir: SortDir,
-    columns: &'static [HotspotColumn],
-    /// Which metric family this table ranks. When the report honors
-    /// suppression markers (the default), an entry is dropped if its
-    /// effective scope covers this kind — the same per-table filtering
-    /// the Markdown report applies (issue #501). `--no-suppress`
-    /// (`SuppressionPolicy::Ignore`) bypasses it.
-    metric_kind: MetricKind,
-}
-
-// Column descriptors shared verbatim across multiple hotspot specs.
-// Hoisted to `const` so a header/alignment/projector edit happens once
-// rather than across the eight-or-nine tables that reuse it. Each spec's
-// `columns` table mixes these with its own metric-specific columns.
-const COL_FUNCTION: HotspotColumn = HotspotColumn {
-    header: "Function",
-    align: Align::Left,
-    cell: |s| s.name.clone(),
-};
-const COL_FILE: HotspotColumn = HotspotColumn {
-    header: "File",
-    align: Align::Left,
-    cell: |s| s.file.clone(),
-};
-const COL_LINE: HotspotColumn = HotspotColumn {
-    header: "Line",
-    align: Align::Right,
-    cell: |s| s.start_line.to_string(),
-};
-const COL_CC: HotspotColumn = HotspotColumn {
-    header: "CC",
-    align: Align::Right,
-    cell: |s| MetricScalar(s.cyclomatic).to_string(),
-};
-const COL_COGNITIVE: HotspotColumn = HotspotColumn {
-    header: "Cognitive",
-    align: Align::Right,
-    cell: |s| MetricScalar(s.cognitive).to_string(),
-};
-const COL_SLOC: HotspotColumn = HotspotColumn {
-    header: "SLOC",
-    align: Align::Right,
-    cell: |s| thousands(s.sloc),
-};
-const COL_TOKENS: HotspotColumn = HotspotColumn {
-    header: "Tokens",
-    align: Align::Right,
-    cell: |s| thousands(s.tokens),
-};
-
-const MI_LOWEST_HOTSPOT: HotspotSpec = HotspotSpec {
-    keep: |s| s.mi_visual_studio > 0.0,
-    metric: |s| s.mi_visual_studio,
-    dir: SortDir::Asc,
-    metric_kind: MetricKind::Mi,
-    columns: &[
-        COL_FILE,
-        HotspotColumn {
-            header: "MI",
-            align: Align::Right,
-            cell: |s| format!("{:.1}", s.mi_visual_studio),
-        },
-        COL_SLOC,
-        COL_TOKENS,
-    ],
-};
-
-const CC_HOTSPOT: HotspotSpec = HotspotSpec {
-    keep: |s| s.cyclomatic > 0.0,
-    metric: |s| s.cyclomatic,
-    dir: SortDir::Desc,
-    metric_kind: MetricKind::Cyclomatic,
-    columns: &[
-        COL_FUNCTION,
-        COL_FILE,
-        COL_LINE,
-        COL_CC,
-        COL_COGNITIVE,
-        COL_SLOC,
-        COL_TOKENS,
-    ],
-};
-
-const COGNITIVE_HOTSPOT: HotspotSpec = HotspotSpec {
-    keep: |s| s.cognitive > 0.0,
-    metric: |s| s.cognitive,
-    dir: SortDir::Desc,
-    metric_kind: MetricKind::Cognitive,
-    columns: &[
-        COL_FUNCTION,
-        COL_FILE,
-        COL_LINE,
-        COL_COGNITIVE,
-        COL_CC,
-        COL_SLOC,
-        COL_TOKENS,
-    ],
-};
-
-const HALSTEAD_EFFORT_HOTSPOT: HotspotSpec = HotspotSpec {
-    keep: |s| s.halstead_effort > 0.0,
-    metric: |s| s.halstead_effort,
-    dir: SortDir::Desc,
-    metric_kind: MetricKind::Halstead,
-    columns: &[
-        COL_FUNCTION,
-        COL_FILE,
-        HotspotColumn {
-            header: "Effort",
-            align: Align::Right,
-            cell: |s| MetricScalar(s.halstead_effort).to_string(),
-        },
-        HotspotColumn {
-            header: "Volume",
-            align: Align::Right,
-            cell: |s| MetricScalar(s.halstead_volume).to_string(),
-        },
-        HotspotColumn {
-            header: "Est. Bugs",
-            align: Align::Right,
-            cell: |s| format!("{:.2}", s.halstead_bugs),
-        },
-        COL_SLOC,
-        COL_TOKENS,
-    ],
-};
-
-const LARGEST_BY_SLOC_HOTSPOT: HotspotSpec = HotspotSpec {
-    keep: |s| s.sloc > 0,
-    metric: |s| s.sloc as f64,
-    dir: SortDir::Desc,
-    metric_kind: MetricKind::Loc,
-    columns: &[
-        COL_FUNCTION,
-        COL_FILE,
-        COL_LINE,
-        COL_SLOC,
-        COL_TOKENS,
-        COL_CC,
-        COL_COGNITIVE,
-    ],
-};
-
-const MANY_PARAMS_HOTSPOT: HotspotSpec = HotspotSpec {
-    keep: |s| s.nargs > 3,
-    metric: |s| s.nargs as f64,
-    dir: SortDir::Desc,
-    metric_kind: MetricKind::Nargs,
-    columns: &[
-        COL_FUNCTION,
-        COL_FILE,
-        HotspotColumn {
-            header: "Args",
-            align: Align::Right,
-            cell: |s| s.nargs.to_string(),
-        },
-        COL_SLOC,
-        COL_TOKENS,
-    ],
-};
-
-// Sources from `entries` (all kinds), not `funcs`/`units`: class-likes
-// are filtered out of both buckets, so the WMC table must keep the
-// `is_class_like` predicate and draw from the full per-language slice.
-// The leading column reuses the function projector but relabels its
-// header "Class", so it stays an inline literal rather than COL_FUNCTION.
-const WMC_HOTSPOT: HotspotSpec = HotspotSpec {
-    keep: |s| is_class_like(s.kind) && s.wmc > 0.0,
-    metric: |s| s.wmc,
-    dir: SortDir::Desc,
-    metric_kind: MetricKind::Wmc,
-    columns: &[
-        HotspotColumn {
-            header: "Class",
-            align: Align::Left,
-            cell: |s| s.name.clone(),
-        },
-        COL_FILE,
-        COL_LINE,
-        HotspotColumn {
-            header: "WMC",
-            align: Align::Right,
-            cell: |s| MetricScalar(s.wmc).to_string(),
-        },
-        HotspotColumn {
-            header: "Methods",
-            align: Align::Right,
-            cell: |s| s.nom.to_string(),
-        },
-        HotspotColumn {
-            header: "NPA",
-            align: Align::Right,
-            cell: |s| MetricScalar(s.npa).to_string(),
-        },
-        HotspotColumn {
-            header: "NPM",
-            align: Align::Right,
-            cell: |s| MetricScalar(s.npm).to_string(),
-        },
-        COL_SLOC,
-        COL_TOKENS,
-    ],
-};
-
-// The exit-points table maps to `MetricKind::Exit` — the suppression
-// vocabulary's spelling of the threshold engine's `nexits` (matching
-// `MetricKind::for_threshold_name`'s `nexits → exit` alias), so a
-// `bca: suppress(exit)` marker silences it.
-const NEXITS_HOTSPOT: HotspotSpec = HotspotSpec {
-    keep: |s| s.nexits > 0,
-    metric: |s| s.nexits as f64,
-    dir: SortDir::Desc,
-    metric_kind: MetricKind::Exit,
-    columns: &[
-        COL_FUNCTION,
-        COL_FILE,
-        COL_LINE,
-        HotspotColumn {
-            header: "Exits",
-            align: Align::Right,
-            cell: |s| s.nexits.to_string(),
-        },
-        COL_CC,
-        COL_SLOC,
-        COL_TOKENS,
-    ],
-};
-
-const ABC_HOTSPOT: HotspotSpec = HotspotSpec {
-    keep: |s| s.abc > 0.0,
-    metric: |s| s.abc,
-    dir: SortDir::Desc,
-    metric_kind: MetricKind::Abc,
-    columns: &[
-        COL_FUNCTION,
-        COL_FILE,
-        COL_LINE,
-        HotspotColumn {
-            header: "ABC",
-            align: Align::Right,
-            cell: |s| format!("{:.1}", s.abc),
-        },
-        COL_SLOC,
-        COL_TOKENS,
-    ],
-};
-
 /// Write a `<table class="hotspot">` with one `<thead>` and one
 /// `<tbody>`. `aligns` controls per-cell text alignment AND the
 /// `data-numeric="1"` attribute that the inline sort handler reads to
@@ -602,12 +314,12 @@ fn write_table(out: &mut String, headers: &[&str], aligns: &[Align], rows: &[Vec
     let _ = out.write_str("</tbody>\n</table>\n");
 }
 
-/// Render a hotspot table from a [`HotspotSpec`]'s column descriptors.
-/// Builds the parallel `headers`/`aligns`/`rows` arrays from `columns`
-/// (with loops, not closures, so the helper stays free of nargs
-/// pressure) and delegates to [`write_table`] — keeping that function
-/// the single source of truth for hotspot-table bytes and escaping.
-fn write_hotspot_table(out: &mut String, columns: &[HotspotColumn], entries: &[&FunctionSummary]) {
+/// Render a hotspot table from the shared [`Column`] descriptors. Builds the
+/// parallel `headers`/`aligns`/`rows` arrays and delegates to [`write_table`],
+/// the single source of truth for table bytes and escaping. HTML escapes
+/// every cell uniformly, so the raw [`Cell`] payload (regardless of kind) is
+/// handed to `write_table`, whose `escape_html` runs exactly once per cell.
+fn write_hotspot_table(out: &mut String, columns: &[Column], entries: &[&FunctionSummary]) {
     let mut headers = Vec::with_capacity(columns.len());
     let mut aligns = Vec::with_capacity(columns.len());
     for col in columns {
@@ -618,45 +330,12 @@ fn write_hotspot_table(out: &mut String, columns: &[HotspotColumn], entries: &[&
     for s in entries {
         let mut row: Vec<String> = Vec::with_capacity(columns.len());
         for col in columns {
-            row.push((col.cell)(s));
+            let (Cell::Name(text) | Cell::Path(text) | Cell::Num(text)) = (col.cell)(s);
+            row.push(text);
         }
         rows.push(row);
     }
     write_table(out, &headers, &aligns, &rows);
-}
-
-/// Emit one hotspot section: filter `base` with `spec.keep`, sort by
-/// `spec.metric` in `spec.dir`, take the top `top_n`, write an
-/// `<h3>{title}</h3>` header followed by the column-driven table.
-/// Returns `true` if a table was emitted, so callers that need a
-/// trailing summary line (CC stats) can gate it on actual content.
-fn emit_hotspot(
-    out: &mut String,
-    title: &str,
-    base: &[&FunctionSummary],
-    top_n: usize,
-    spec: &HotspotSpec,
-    policy: SuppressionPolicy,
-) -> bool {
-    let mut entries: Vec<&FunctionSummary> = base
-        .iter()
-        .copied()
-        .filter(|s| (spec.keep)(s) && !s.is_hidden_for(spec.metric_kind, policy))
-        .collect();
-    if entries.is_empty() {
-        return false;
-    }
-    match spec.dir {
-        SortDir::Asc => sort_by_metric_asc(&mut entries, spec.metric),
-        SortDir::Desc => sort_by_metric_desc(&mut entries, spec.metric),
-    }
-    let count = entries.len().min(top_n);
-    // `title` is a trusted-source literal (section headings, including
-    // the pre-escaped `&gt;` entity in the many-parameters heading).
-    // Written raw — never `escape_html`-ed — to avoid double-escaping.
-    let _ = writeln!(out, "<h3>{title}</h3>");
-    write_hotspot_table(out, spec.columns, &entries[..count]);
-    true
 }
 
 /// Per-language grouping of summaries, keyed by `LANG::get_name()` and
@@ -981,77 +660,34 @@ fn write_language_summary(out: &mut String, units: &[&FunctionSummary]) {
     );
 }
 
-/// Cyclomatic stats for the note line under the CC hotspot table. Only
-/// functions with `cyclomatic > 0.0` contribute (mirroring the hotspot
-/// filter); `max` seeds with `NaN` so `f64::max` yields the first real
-/// value.
-struct CyclomaticStats {
-    sum: f64,
-    count: usize,
-    max: f64,
-    gt10: usize,
-    gt20: usize,
-}
-
-impl CyclomaticStats {
-    fn from_funcs(funcs: &[&FunctionSummary]) -> Self {
-        let mut s = Self {
-            sum: 0.0,
-            count: 0,
-            max: f64::NAN,
-            gt10: 0,
-            gt20: 0,
-        };
-        for f in funcs {
-            let c = f.cyclomatic;
-            if c > 0.0 {
-                s.sum += c;
-                s.count += 1;
-                s.max = f64::max(s.max, c);
-                s.gt10 += usize::from(c > 10.0);
-                s.gt20 += usize::from(c > 20.0);
-            }
-        }
-        s
-    }
-
-    fn avg(&self) -> f64 {
-        if self.count > 0 {
-            self.sum / self.count as f64
-        } else {
-            0.0
-        }
-    }
-}
-
-/// Emit the cyclomatic hotspot table followed by its summary note. The
-/// stats are computed first so the note can be gated on the table
-/// actually rendering — an empty `funcs` slice yields no table and no
-/// misleading `Average CC: 0.0` line.
-fn emit_cc_hotspot_with_stats(
+/// Emit one hotspot section: an `<h3>` heading followed by the column-driven
+/// table, from a shared [`HotspotSpec`] and its already-selected `rows`. The
+/// logical title is `escape_html`-ed here (e.g. the `>` in the many-parameters
+/// heading → `&gt;`); it is a no-op for the metachar-free titles.
+fn emit_html_section(
     out: &mut String,
-    funcs: &[&FunctionSummary],
+    spec: &HotspotSpec,
     top_n: usize,
-    policy: SuppressionPolicy,
+    rows: &[&FunctionSummary],
 ) {
-    let stats = CyclomaticStats::from_funcs(funcs);
-    if emit_hotspot(
+    let title = spec.title.render(top_n);
+    let _ = writeln!(out, "<h3>{}</h3>", escape_html(&title));
+    write_hotspot_table(out, spec.columns, rows);
+}
+
+/// The cyclomatic summary note under the CC hotspot table. A caption over the
+/// same suppression-filtered set the table shows (see [`hotspot::select_cc`]),
+/// matching the Markdown report; the raw, suppression-independent CC count
+/// lives in the Actionable Summary instead.
+fn emit_cc_note_html(out: &mut String, stats: &hotspot::CyclomaticStats) {
+    let _ = writeln!(
         out,
-        "Cyclomatic Complexity Hotspots",
-        funcs,
-        top_n,
-        &CC_HOTSPOT,
-        policy,
-    ) {
-        let _ = writeln!(
-            out,
-            "<p class=\"note\">Average CC: {:.1} | Max: {:.0} | CC &gt; 10: {} functions | CC &gt; 20: {} functions</p>",
-            stats.avg(),
-            stats.max,
-            stats.gt10,
-            stats.gt20,
-        );
-    }
+        "<p class=\"note\">Average CC: {:.1} | Max: {:.0} | CC &gt; 10: {} functions | CC &gt; 20: {} functions</p>",
+        stats.avg(),
+        stats.max,
+        stats.gt10,
+        stats.gt20,
+    );
 }
 
 /// Bucket counts behind the `<h3>Actionable Summary</h3>` block.
@@ -1148,74 +784,33 @@ fn write_language_section(
     let (units, funcs) = partition_by_kind(entries);
     write_language_summary(out, &units);
 
-    emit_hotspot(
-        out,
-        &format!("Maintainability Index (lowest files, top-{top_n})"),
-        &units,
-        top_n,
-        &MI_LOWEST_HOTSPOT,
-        policy,
-    );
-    emit_cc_hotspot_with_stats(out, &funcs, top_n, policy);
-    emit_hotspot(
-        out,
-        "Cognitive Complexity Hotspots",
-        &funcs,
-        top_n,
-        &COGNITIVE_HOTSPOT,
-        policy,
-    );
-    emit_hotspot(
-        out,
-        "Halstead Effort Hotspots",
-        &funcs,
-        top_n,
-        &HALSTEAD_EFFORT_HOTSPOT,
-        policy,
-    );
-    emit_hotspot(
-        out,
-        "Largest Functions by SLOC",
-        &funcs,
-        top_n,
-        &LARGEST_BY_SLOC_HOTSPOT,
-        policy,
-    );
-    emit_hotspot(
-        out,
-        "Functions With Many Parameters (&gt;3)",
-        &funcs,
-        top_n,
-        &MANY_PARAMS_HOTSPOT,
-        policy,
-    );
-    write_actionable_summary(out, &funcs);
-    // WMC sources `entries` (all kinds), not `funcs`: class-likes are
-    // excluded from both per-kind buckets.
-    emit_hotspot(
-        out,
-        "Class/Trait/Impl Hotspots (WMC)",
-        entries,
-        top_n,
-        &WMC_HOTSPOT,
-        policy,
-    );
-    emit_hotspot(
-        out,
-        "Functions with the most exit points (NEXITS)",
-        &funcs,
-        top_n,
-        &NEXITS_HOTSPOT,
-        policy,
-    );
-    emit_hotspot(
-        out,
-        "ABC Magnitude Hotspots",
-        &funcs,
-        top_n,
-        &ABC_HOTSPOT,
-        policy,
-    );
+    // Drive every hotspot section from the shared `SPECS` table so the HTML
+    // and Markdown reports cannot diverge in membership/order/suppression.
+    // The Actionable Summary (raw, format-specific) splices in at its fixed
+    // index; WMC draws from the full slice, MI from units, the rest from
+    // functions.
+    for (i, spec) in SPECS.iter().enumerate() {
+        if i == ACTIONABLE_SUMMARY_INDEX {
+            write_actionable_summary(out, &funcs);
+        }
+        let base: &[&FunctionSummary] = match spec.source {
+            Source::Units => &units,
+            Source::Funcs => &funcs,
+            Source::All => entries,
+        };
+        if spec.cc_note {
+            let (rows, stats) = hotspot::select_cc(spec, base, top_n, policy);
+            if !rows.is_empty() {
+                emit_html_section(out, spec, top_n, &rows);
+                emit_cc_note_html(out, &stats);
+            }
+        } else {
+            let rows = hotspot::select(spec, base, top_n, policy);
+            if !rows.is_empty() {
+                emit_html_section(out, spec, top_n, &rows);
+            }
+        }
+    }
 
     let _ = out.write_str("</section>\n");
 }
@@ -1245,7 +840,7 @@ mod validators_for_tests;
 mod tests {
     use super::validators_for_tests::assert_html_well_formed;
     use super::*;
-    use big_code_analysis::LANG;
+    use big_code_analysis::{LANG, MetricKind};
 
     fn make_summary(name: &str, file: &str, kind: SpaceKind, language: LANG) -> FunctionSummary {
         FunctionSummary {
@@ -1502,6 +1097,7 @@ mod tests {
 
     #[test]
     fn sort_by_metric_desc_handles_nan() {
+        use crate::markdown_report::sort_by_metric_desc;
         // The hotspot filters (`metric > 0.0`) drop NaN before it
         // reaches sort. This test bypasses the filters by calling the
         // sorter directly with a NaN-valued comparator, so a future
@@ -1749,6 +1345,42 @@ mod tests {
         );
     }
 
+    /// The cyclomatic summary note is a caption for its table: it tallies
+    /// the same suppression-filtered set, never a function the table omits,
+    /// and stays identical to the Markdown report. The raw CC count lives in
+    /// the Actionable Summary instead.
+    #[test]
+    fn cc_summary_note_excludes_suppressed_functions() {
+        use big_code_analysis::SuppressionScope;
+        use std::collections::BTreeSet;
+
+        let unit = make_summary("lib.rs", "src/lib.rs", SpaceKind::Unit, LANG::Rust);
+        let mut visible = make_summary("cool", "src/lib.rs", SpaceKind::Function, LANG::Rust);
+        visible.cyclomatic = 5.0;
+        let mut hot = make_summary("hot", "src/lib.rs", SpaceKind::Function, LANG::Rust);
+        hot.cyclomatic = 25.0;
+        hot.suppressed = SuppressionScope::Some(BTreeSet::from([MetricKind::Cyclomatic]));
+
+        let honored = generate_html_report(&[unit, visible, hot], 20, SuppressionPolicy::Honor);
+        let cc = html_section(&honored, "Cyclomatic Complexity Hotspots");
+
+        // The suppressed high-CC function is dropped from the table...
+        assert!(
+            !cc.contains(">hot<"),
+            "suppressed function must be omitted from the CC table:\n{cc}"
+        );
+        // ...so the note's tallies cover only the visible functions: nothing
+        // exceeds 10 and the max is 5, not the suppressed 25.
+        assert!(
+            cc.contains("CC &gt; 10: 0 functions"),
+            "note must not count the suppressed CC>10 function:\n{cc}"
+        );
+        assert!(
+            !cc.contains("Max: 25"),
+            "note max must reflect only visible functions, not the suppressed 25:\n{cc}"
+        );
+    }
+
     fn unit_clone(s: &FunctionSummary) -> FunctionSummary {
         let mut c = make_summary(&s.name, &s.file, s.kind, s.language);
         c.suppressed = s.suppressed.clone();
@@ -1776,6 +1408,19 @@ mod tests {
             .or_else(|| rest.find("</section>"))
             .unwrap_or(rest.len());
         &rest[..end]
+    }
+
+    /// Byte baseline for the whole HTML report over the shared rich,
+    /// all-sections fixture (top-N truncation, per-metric suppression, a
+    /// class-like). The hotspot-spec unification must leave this unchanged.
+    #[test]
+    fn snapshot_rich_report() {
+        let out = generate_html_report(
+            &crate::markdown_report::rich_fixture(),
+            5,
+            SuppressionPolicy::Honor,
+        );
+        insta::assert_snapshot!("html_report_rich", out);
     }
 
     #[test]

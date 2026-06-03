@@ -1,7 +1,9 @@
-// bca: suppress-file(halstead, loc, nargs, nom)
+// bca: suppress-file(halstead, loc, nargs, nom, exit)
 // Markdown report templating; thin per-language orchestrators delegating to
-// small write_* helpers. File-level halstead/loc and summed nargs/nom are
-// string-formatting-volume / many-fn aggregation artifacts.
+// small write_* helpers. File-level halstead/loc and summed nargs/nom/exit
+// are string-formatting-volume / many-fn aggregation artifacts (the large
+// in-file test module — rich fixture + cross-format checks — adds to the
+// summed exit count the same way it adds to the others).
 
 // Metric counts (token, function, branch, argument, etc.) are stored as
 // `usize` and crossed with `f64` averages, ratios, and Halstead scores
@@ -17,7 +19,13 @@
     clippy::too_many_lines
 )]
 
+pub(crate) mod hotspot;
 mod sections;
+
+// `Align` now lives in the format-neutral `hotspot` module; re-export it so
+// `sections`, the Markdown `write_table`, and their tests keep using `Align`
+// unchanged.
+pub(crate) use hotspot::Align;
 
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -224,30 +232,30 @@ pub(super) fn title_case(s: &str) -> String {
     result
 }
 
+/// Stable tie-break when the ranking metric is equal: file path, then start
+/// line, then name. Single source of truth shared by `sort_by_metric_asc`/
+/// `sort_by_metric_desc` and `hotspot::partial_top_n_desc`, so the partial-sort
+/// partition and the final sort agree on equal-metric rows (a divergence would
+/// silently change which rows survive top-N truncation).
+pub(crate) fn tiebreak(a: &FunctionSummary, b: &FunctionSummary) -> std::cmp::Ordering {
+    a.file
+        .cmp(&b.file)
+        .then_with(|| a.start_line.cmp(&b.start_line))
+        .then_with(|| a.name.cmp(&b.name))
+}
+
 pub(super) fn sort_by_metric_desc(
     items: &mut [&FunctionSummary],
     metric: impl Fn(&FunctionSummary) -> f64,
 ) {
-    items.sort_by(|a, b| {
-        metric(b)
-            .total_cmp(&metric(a))
-            .then_with(|| a.file.cmp(&b.file))
-            .then_with(|| a.start_line.cmp(&b.start_line))
-            .then_with(|| a.name.cmp(&b.name))
-    });
+    items.sort_by(|a, b| metric(b).total_cmp(&metric(a)).then_with(|| tiebreak(a, b)));
 }
 
 pub(super) fn sort_by_metric_asc(
     items: &mut [&FunctionSummary],
     metric: impl Fn(&FunctionSummary) -> f64,
 ) {
-    items.sort_by(|a, b| {
-        metric(a)
-            .total_cmp(&metric(b))
-            .then_with(|| a.file.cmp(&b.file))
-            .then_with(|| a.start_line.cmp(&b.start_line))
-            .then_with(|| a.name.cmp(&b.name))
-    });
+    items.sort_by(|a, b| metric(a).total_cmp(&metric(b)).then_with(|| tiebreak(a, b)));
 }
 
 pub(super) fn is_class_like(kind: SpaceKind) -> bool {
@@ -270,12 +278,6 @@ pub(super) fn mi_rating(mi: f64) -> &'static str {
     } else {
         "LOW"
     }
-}
-
-#[derive(Clone, Copy)]
-enum Align {
-    Left,
-    Right,
 }
 
 fn write_table(out: &mut String, headers: &[&str], aligns: &[Align], rows: &[Vec<String>]) {
@@ -345,6 +347,173 @@ fn push_separator(out: &mut String, align: Align, width: usize) {
     }
     out.push(' ');
     out.push('|');
+}
+
+/// Rich multi-language fixture exercising every report section, top-N
+/// truncation (>5 cyclomatic entries), per-metric suppression, and a
+/// class-like (WMC). Shared by the Markdown and HTML snapshot tests and
+/// the cross-format consistency test so all three cover the same paths.
+/// Lives here (not a `_tests.rs`) so the sibling `html_report` test module
+/// can reach it via `crate::markdown_report::rich_fixture()`.
+#[cfg(test)]
+pub(crate) fn rich_fixture() -> Vec<FunctionSummary> {
+    use big_code_analysis::{LANG, MetricKind, SpaceKind, SuppressionScope};
+    use std::collections::BTreeSet;
+
+    let base = |name: &str, file: &str, kind: SpaceKind, language: LANG, start_line: usize| {
+        FunctionSummary {
+            file: file.to_string(),
+            name: name.to_string(),
+            kind,
+            language,
+            suppressed: SuppressionScope::default(),
+            start_line,
+            end_line: start_line + 10,
+            sloc: 20,
+            ploc: 25,
+            lloc: 15,
+            cloc: 5,
+            tokens: 30,
+            cyclomatic: 0.0,
+            cognitive: 0.0,
+            halstead_volume: 100.0,
+            halstead_difficulty: 5.0,
+            halstead_effort: 0.0,
+            halstead_bugs: 0.0,
+            halstead_time: 28.0,
+            mi_original: 80.0,
+            mi_sei: 85.0,
+            mi_visual_studio: 50.0,
+            nargs: 0,
+            nexits: 0,
+            nom: 1,
+            abc: 0.0,
+            wmc: 0.0,
+            npa: 0.0,
+            npm: 0.0,
+        }
+    };
+
+    // Per-function metric tuple: (name, line, cc, cognitive, effort, sloc,
+    // tokens, nargs, nexits, abc). Volume = effort/2, bugs = cc/30.
+    let func = |file: &str,
+                lang: LANG,
+                row: (&str, usize, f64, f64, f64, usize, usize, usize, usize, f64)| {
+        let (name, line, cc, cog, effort, sloc, tokens, nargs, nexits, abc) = row;
+        let mut f = base(name, file, SpaceKind::Function, lang, line);
+        f.cyclomatic = cc;
+        f.cognitive = cog;
+        f.halstead_effort = effort;
+        f.halstead_volume = effort / 2.0;
+        f.halstead_bugs = cc / 30.0;
+        f.sloc = sloc;
+        f.ploc = sloc + 5;
+        f.tokens = tokens;
+        f.nargs = nargs;
+        f.nexits = nexits;
+        f.abc = abc;
+        f
+    };
+
+    let mut v = Vec::new();
+
+    // Rust units (Summary + MI table; MI keeps halstead_volume>0 && sloc>0).
+    let mut u_lib = base("lib.rs", "src/lib.rs", SpaceKind::Unit, LANG::Rust, 1);
+    u_lib.sloc = 200;
+    u_lib.ploc = 240;
+    u_lib.cloc = 20;
+    u_lib.tokens = 1500;
+    u_lib.halstead_volume = 8000.0;
+    u_lib.mi_visual_studio = 12.0;
+    v.push(u_lib);
+    let mut u_util = base("util.rs", "src/util.rs", SpaceKind::Unit, LANG::Rust, 1);
+    u_util.sloc = 80;
+    u_util.tokens = 600;
+    u_util.halstead_volume = 2000.0;
+    u_util.mi_visual_studio = 45.0;
+    v.push(u_util);
+
+    // Seven Rust functions, descending cyclomatic → top-5 truncates.
+    for row in [
+        (
+            "process_request",
+            10,
+            25.0,
+            30.0,
+            9000.0,
+            150,
+            900,
+            6,
+            4,
+            22.0,
+        ),
+        (
+            "validate_input",
+            40,
+            20.0,
+            24.0,
+            7000.0,
+            120,
+            700,
+            2,
+            2,
+            18.0,
+        ),
+        ("parse_config", 70, 15.0, 18.0, 5000.0, 90, 500, 5, 3, 14.0),
+        ("handle_event", 100, 12.0, 14.0, 3000.0, 70, 400, 2, 6, 10.0),
+        ("compute_score", 130, 8.0, 9.0, 1500.0, 40, 200, 4, 1, 6.0),
+        ("format_output", 160, 5.0, 4.0, 800.0, 25, 120, 1, 1, 4.0),
+        ("tiny_helper", 190, 3.0, 2.0, 300.0, 12, 50, 0, 1, 2.0),
+    ] {
+        v.push(func("src/lib.rs", LANG::Rust, row));
+    }
+
+    // Suppressed for Cyclomatic only: dropped from the CC table + note, but
+    // still present in Cognitive/Halstead/etc. and the raw Actionable Summary.
+    let mut secret = func(
+        "src/lib.rs",
+        LANG::Rust,
+        (
+            "secret_internal",
+            220,
+            99.0,
+            80.0,
+            20000.0,
+            300,
+            2000,
+            8,
+            10,
+            50.0,
+        ),
+    );
+    secret.suppressed = SuppressionScope::Some(BTreeSet::from([MetricKind::Cyclomatic]));
+    v.push(secret);
+
+    // Rust class-like (WMC table; drawn from the full all-kinds slice).
+    let mut widget = base("Widget", "src/lib.rs", SpaceKind::Struct, LANG::Rust, 250);
+    widget.wmc = 40.0;
+    widget.nom = 8;
+    widget.npa = 2.0;
+    widget.npm = 6.0;
+    widget.sloc = 180;
+    widget.tokens = 1100;
+    v.push(widget);
+
+    // Python unit + functions.
+    let mut u_main = base("main.py", "src/main.py", SpaceKind::Unit, LANG::Python, 1);
+    u_main.sloc = 120;
+    u_main.tokens = 800;
+    u_main.halstead_volume = 3000.0;
+    u_main.mi_visual_studio = 28.0;
+    v.push(u_main);
+    for row in [
+        ("main", 10, 10.0, 12.0, 2000.0, 60, 300, 3, 2, 9.0),
+        ("load_data", 40, 7.0, 6.0, 1200.0, 35, 180, 4, 2, 7.0),
+    ] {
+        v.push(func("src/main.py", LANG::Python, row));
+    }
+
+    v
 }
 
 pub(crate) fn generate_report(
@@ -554,18 +723,35 @@ fn write_language_section(
     let _ = writeln!(out, "\n## {display_name}\n");
 
     let (units, funcs) = sections::split_units_and_functions(entries);
-
     sections::write_summary(out, &units);
-    sections::write_mi_lowest(out, &units, top_n, policy);
-    sections::write_cyclomatic_hotspots(out, &funcs, top_n, policy);
-    sections::write_cognitive_hotspots(out, &funcs, top_n, policy);
-    sections::write_halstead_hotspots(out, &funcs, top_n, policy);
-    sections::write_largest_by_sloc(out, &funcs, top_n, policy);
-    sections::write_many_params(out, &funcs, top_n, policy);
-    sections::write_actionable_summary(out, &funcs);
-    sections::write_wmc_hotspots(out, entries, top_n, policy);
-    sections::write_nexits_hotspots(out, &funcs, top_n, policy);
-    sections::write_abc_hotspots(out, &funcs, top_n, policy);
+
+    // Drive every hotspot section from the shared `SPECS` table (the same
+    // table the HTML report uses) so the two formats cannot diverge in
+    // membership/order/suppression. The Actionable Summary (raw,
+    // format-specific) splices in at its fixed index; WMC draws from the
+    // full slice, MI from units, the rest from functions.
+    for (i, spec) in hotspot::SPECS.iter().enumerate() {
+        if i == hotspot::ACTIONABLE_SUMMARY_INDEX {
+            sections::write_actionable_summary(out, &funcs);
+        }
+        let base: &[&FunctionSummary] = match spec.source {
+            hotspot::Source::Units => &units,
+            hotspot::Source::Funcs => &funcs,
+            hotspot::Source::All => entries,
+        };
+        if spec.cc_note {
+            let (rows, stats) = hotspot::select_cc(spec, base, top_n, policy);
+            if !rows.is_empty() {
+                sections::emit_section_md(out, spec, top_n, &rows);
+                sections::emit_cc_note_md(out, &stats);
+            }
+        } else {
+            let rows = hotspot::select(spec, base, top_n, policy);
+            if !rows.is_empty() {
+                sections::emit_section_md(out, spec, top_n, &rows);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -645,6 +831,142 @@ mod tests {
             wmc: 3.0,
             npa: 0.0,
             npm: 0.0,
+        }
+    }
+
+    /// Byte baseline for the whole Markdown report over the rich,
+    /// all-sections fixture (top-N truncation, per-metric suppression, a
+    /// class-like). The hotspot-spec unification must leave this unchanged.
+    #[test]
+    fn snapshot_rich_report() {
+        let out = generate_report(&rich_fixture(), 5, SuppressionPolicy::Honor);
+        insta::assert_snapshot!("markdown_report_rich", out);
+    }
+
+    /// First-column cell values of a Markdown report section, in row order
+    /// (header + separator skipped, identifier backticks stripped). A section
+    /// title repeats once per language, so this gathers the rows of **every**
+    /// occurrence — the cross-format check must cover all languages (e.g. the
+    /// Rust block where suppression/truncation happen), not just the first.
+    fn md_section_first_column(report: &str, title: &str) -> Vec<String> {
+        let needle = format!("### {title}\n");
+        let mut names = Vec::new();
+        let mut rest = report;
+        while let Some(pos) = rest.find(&needle) {
+            rest = &rest[pos + needle.len()..];
+            let mut header_seen = false;
+            for line in rest.lines() {
+                let line = line.trim();
+                if line.is_empty() {
+                    if header_seen {
+                        break; // blank line ends this block's table
+                    }
+                    continue;
+                }
+                if !line.starts_with('|') {
+                    break; // note / next heading ends this block
+                }
+                let first = line
+                    .trim_start_matches('|')
+                    .split('|')
+                    .next()
+                    .unwrap_or("")
+                    .trim();
+                if first.chars().all(|c| matches!(c, '-' | ':')) {
+                    continue; // separator row
+                }
+                if !header_seen {
+                    header_seen = true; // column-header row
+                    continue;
+                }
+                names.push(first.trim_matches('`').to_string());
+            }
+        }
+        names
+    }
+
+    /// First-column `<td>` text of a HTML report section, in row order,
+    /// across **every** occurrence of the title (one per language) — matching
+    /// the all-occurrences behaviour of [`md_section_first_column`].
+    fn html_section_first_column(report: &str, title: &str) -> Vec<String> {
+        let needle = format!("<h3>{title}</h3>");
+        let mut names = Vec::new();
+        let mut rest = report;
+        while let Some(pos) = rest.find(&needle) {
+            rest = &rest[pos + needle.len()..];
+            let end = rest
+                .find("<h3>")
+                .or_else(|| rest.find("</section>"))
+                .unwrap_or(rest.len());
+            for row in rest[..end].split("<tr>").skip(1) {
+                // First `<td …>text</td>`: split past `<td`, past the tag's
+                // `>`, then take the text before `</td>`. Header rows carry
+                // `<th>`, so they match nothing. (Cell text is `escape_html`-ed,
+                // so the only raw `>` is the tag close.)
+                if let Some((_, after_td)) = row.split_once("<td")
+                    && let Some((_, cell)) = after_td.split_once('>')
+                    && let Some((text, _)) = cell.split_once("</td>")
+                {
+                    names.push(text.to_string());
+                }
+            }
+        }
+        names
+    }
+
+    /// The durable "same data" guarantee: the Markdown and HTML reports must
+    /// list the identical rows, in the identical order, in every hotspot
+    /// section — including the per-metric suppression (the rich fixture's
+    /// `secret_internal` is suppressed for cyclomatic) and top-N truncation.
+    #[test]
+    fn html_and_markdown_report_identical_section_membership() {
+        use crate::html_report::generate_html_report;
+        let fixture = rich_fixture();
+        let md = generate_report(&fixture, 5, SuppressionPolicy::Honor);
+        let html = generate_html_report(&fixture, 5, SuppressionPolicy::Honor);
+
+        // (Markdown title, HTML title) — they differ only in `>` escaping.
+        let sections = [
+            (
+                "Maintainability Index (lowest files, top-5)",
+                "Maintainability Index (lowest files, top-5)",
+            ),
+            (
+                "Cyclomatic Complexity Hotspots",
+                "Cyclomatic Complexity Hotspots",
+            ),
+            (
+                "Cognitive Complexity Hotspots",
+                "Cognitive Complexity Hotspots",
+            ),
+            ("Halstead Effort Hotspots", "Halstead Effort Hotspots"),
+            ("Largest Functions by SLOC", "Largest Functions by SLOC"),
+            (
+                "Functions With Many Parameters (>3)",
+                "Functions With Many Parameters (&gt;3)",
+            ),
+            (
+                "Class/Trait/Impl Hotspots (WMC)",
+                "Class/Trait/Impl Hotspots (WMC)",
+            ),
+            (
+                "Functions with the most exit points (NEXITS)",
+                "Functions with the most exit points (NEXITS)",
+            ),
+            ("ABC Magnitude Hotspots", "ABC Magnitude Hotspots"),
+        ];
+
+        for (md_title, html_title) in sections {
+            let md_names = md_section_first_column(&md, md_title);
+            let html_names = html_section_first_column(&html, html_title);
+            assert_eq!(
+                md_names, html_names,
+                "section '{md_title}': Markdown and HTML must list identical rows in identical order"
+            );
+            assert!(
+                !md_names.is_empty(),
+                "section '{md_title}' should be populated by the rich fixture"
+            );
         }
     }
 

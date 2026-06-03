@@ -131,6 +131,31 @@ alongside `SLOC` so two complementary size proxies are visible per row.
    - *ABC Magnitude Hotspots* — functions sorted descending by ABC
      metric magnitude.
 
+## Format consistency
+
+The Markdown and HTML reports are two renderings of one underlying data
+model — they always present the **same data**. Every shared figure
+(project and per-language summaries, hotspot table membership, and each
+hotspot caption such as the cyclomatic Average / Max / CC > 10 note) is
+computed once and rendered by both, so a single run produces identical
+numbers whether you emit `--format markdown` or `--format html`.
+
+Suppression is applied uniformly across **every** output, not just the
+reports. A function silenced for a metric — via an in-source marker or
+the baseline — is dropped from `bca check`'s offender formats
+(`code-climate`, `sarif`, `checkstyle`, `tty`, `json`) and from the
+matching report hotspot table alike. The CodeClimate, SARIF, and
+Checkstyle documents are themselves three renderings of one offender
+set, so they agree by construction; the reports honour the same
+per-metric suppression decisions.
+
+The single deliberate exception is the **Actionable Summary**, a
+whole-codebase health indicator that intentionally counts raw
+measurements regardless of suppression — silencing a function in one
+metric's hotspot table does not erase it from that aggregate concern
+count. Every other figure, including each hotspot table's caption,
+reflects the suppression-filtered set.
+
 ## HTML format
 
 `bca report html` emits a single self-contained HTML page covering the
