@@ -134,14 +134,15 @@ fn run_check(
         provenance,
         args.report_suppressed,
     );
-    // Split the report-only suppressed debt (in-source markers + baseline-
-    // covered offenders, present only under `--report-suppressed`) from the
-    // active offenders. Suppressed debt is surfaced in the code-scan
+    // Split the report-only suppressed debt — in-source markers
+    // (`v.suppressed`) plus baseline-covered offenders
+    // (`Coverage::Covered`), present only under `--report-suppressed` — from
+    // the active offenders. Suppressed debt is surfaced in the code-scan
     // document but never reaches the gate: exit code, stderr stream, and
     // remediation are all driven by `active` alone. The default path leaves
     // `suppressed` empty, so behaviour is byte-for-byte unchanged.
-    let (active, suppressed): (Vec<_>, Vec<_>) = pairs.into_iter().partition(|(v, coverage)| {
-        !v.suppressed && !matches!(coverage, Some(Coverage::Covered { .. }))
+    let (suppressed, active): (Vec<_>, Vec<_>) = pairs.into_iter().partition(|(v, coverage)| {
+        v.suppressed || matches!(coverage, Some(Coverage::Covered { .. }))
     });
     let active = apply_changed_only(active, scope.as_ref(), args.changed_only);
     let any_violations = !active.is_empty();
