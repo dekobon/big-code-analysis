@@ -1492,10 +1492,23 @@ mod tests {
         func.halstead_effort = 0.0;
         func.suppressed = SuppressionScope::Some(BTreeSet::from([MetricKind::Exit]));
 
-        let report = generate_report(&[unit, func], 20, SuppressionPolicy::Honor);
+        let summaries = vec![unit, func];
+        const NEXITS_HEADER: &str = "### Functions with the most exit points (NEXITS)";
+
+        let honored = generate_report(&summaries, 20, SuppressionPolicy::Honor);
         assert!(
-            !report.contains("### Functions with the most exit points (NEXITS)"),
-            "exit-suppressed function must be omitted from the NEXITS table:\n{report}"
+            !honored.contains(NEXITS_HEADER),
+            "exit-suppressed function must be omitted from the NEXITS table:\n{honored}"
+        );
+
+        // Positive control: the only thing keeping the table empty is the
+        // suppression. Under --no-suppress the same function (nexits = 5)
+        // is a hotspot and the table renders — so the absence above is
+        // attributable to the exit-alias filter, not to a missing hotspot.
+        let bypassed = generate_report(&summaries, 20, SuppressionPolicy::Ignore);
+        assert!(
+            bypassed.contains(NEXITS_HEADER),
+            "--no-suppress must restore the exit-suppressed function:\n{bypassed}"
         );
     }
 
