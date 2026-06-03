@@ -5,6 +5,39 @@ information from source code. Each command **may** include parameters
 specific to the task it performs. Below, we describe the core types
 of commands available in **bca**.
 
+## Installation
+
+The `bca` command-line tool is available as a pip-installable wheel.
+The **distribution name is `big-code-analysis-cli`** and the installed
+**command is `bca`** — the two differ deliberately (the `bca` name on
+PyPI belongs to an unrelated project, and `big-code-analysis` is this
+project's importable *library* bindings):
+
+```bash
+pip install big-code-analysis-cli   # installs the `bca` command on PATH
+bca --version
+```
+
+This drops the compiled `bca` binary onto your `PATH` the way
+`pip install ruff` gives you the `ruff` command — no Rust toolchain
+required. The wheel carries the full `all-languages` grammar set, so
+every [supported language](../languages.md) works out of the box. A
+single `py3-none-<platform>` wheel covers every CPython 3.x (and PyPy)
+on that platform; prebuilt wheels ship for Linux (`manylinux_2_28`
+`x86_64` / `aarch64`), macOS (`x86_64` / `arm64`), and Windows
+(`x86_64`). On any other platform `pip` falls back to a source build,
+which needs a Rust toolchain.
+
+This is the binary CLI, distinct from the importable
+[Python bindings](../python/installation.md)
+(`pip install big-code-analysis`). Other install paths — Homebrew,
+`.deb` / `.rpm` / `.apk` packages, prebuilt release archives, or
+`cargo install big-code-analysis-cli` — are described in the
+repository README.
+
+The wheel build and publish matrix is defined in
+[`.github/workflows/python-cli-wheels.yml`](https://github.com/dekobon/big-code-analysis/blob/main/.github/workflows/python-cli-wheels.yml).
+
 ## Metrics
 
 Metrics provide quantitative measures about source code, which can help in:

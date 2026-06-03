@@ -21,3 +21,13 @@ big-code-analysis-py/python/big_code_analysis/_native*.so
 # tracking policy and the regenerate workflow (`make py-relock`).
 *.pyc
 abuild-keys/
+
+# CLI pip-wheel build artefacts. `python-cli-wheels.yml` stages the
+# generated TPL, a copy of the workspace LICENSE, and the `man/` pages
+# into the CLI crate directory and builds wheels under `dist/` there;
+# none of those staged copies are source and must not be checked in
+# (the canonical originals live at the repo root / `man/`).
+big-code-analysis-cli/dist/
+big-code-analysis-cli/LICENSE
+big-code-analysis-cli/THIRD-PARTY-LICENSES-bca.md
+big-code-analysis-cli/man/
