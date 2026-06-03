@@ -1,3 +1,7 @@
+// bca: suppress-file(halstead, nargs, exit)
+// Rust `cfg(...)` mini-parser; the offenders are many-fn aggregation
+// artifacts, not per-function logic complexity (cognitive/cyclomatic enforced).
+
 //! Ad-hoc parser for Rust `cfg(...)` attribute predicates.
 //!
 //! Determines whether a Rust attribute body marks the annotated item as

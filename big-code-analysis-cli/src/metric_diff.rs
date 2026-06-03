@@ -1,3 +1,8 @@
+// bca: suppress-file(halstead, nargs, exit, nom)
+// Mechanical per-metric struct diff (`from_sets` builds it field by field);
+// the offenders are many-fn / impl-aggregate artifacts, not per-function
+// logic complexity (cognitive/cyclomatic stay enforced).
+
 //! Per-metric structured diff between two `bca metrics -O json` runs
 //! (issue #487). Replaces the legacy grammar-bump glue chain — the
 //! external `json-minimal-tests` binary plus `split-minimal-tests.py` —

@@ -1,3 +1,7 @@
+// bca: suppress-file(halstead)
+// Single-source-of-truth metric catalog table; file-level halstead is a
+// table-size aggregation artifact, not per-function logic complexity.
+
 //! Single source of truth for the metric catalog.
 //!
 //! Before this module existed, the same set of offender metric ids was

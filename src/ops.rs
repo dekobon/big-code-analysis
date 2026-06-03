@@ -1,3 +1,7 @@
+// bca: suppress-file(halstead, loc, nargs, nom)
+// Per-language operator-extraction dispatch; the offenders are arm-count
+// and many-fn aggregation artifacts, not per-function logic complexity.
+
 // Per-language metric and AST modules deliberately consume the macro-
 // generated tree-sitter token enums via `use crate::*` and `use Foo::*`
 // inside match expressions — explicit imports would list dozens of

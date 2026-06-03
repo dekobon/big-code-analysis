@@ -1,3 +1,9 @@
+// bca: suppress-file(halstead, nargs, exit, nom)
+// Per-language `compute` impls are flat `match node.kind()` dispatch and
+// the `Stats` serde impls are mechanical writers; these offenders are
+// arm-count / many-fn aggregation artifacts, not per-function logic
+// complexity (cognitive stays enforced).
+
 // Per-language metric and AST modules deliberately consume the macro-
 // generated tree-sitter token enums via `use crate::*` and `use Foo::*`
 // inside match expressions — explicit imports would list dozens of

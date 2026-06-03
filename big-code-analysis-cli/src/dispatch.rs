@@ -1,3 +1,8 @@
+// bca: suppress-file(halstead, nargs, exit)
+// Per-subcommand dispatch fns; the offenders are many-fn / early-return
+// aggregation artifacts, not per-function logic complexity
+// (cognitive/cyclomatic stay enforced).
+
 //! Per-file dispatch for the `bca` walker.
 //!
 //! `act_on_file` is the entry point: it runs the shared pre-dispatch

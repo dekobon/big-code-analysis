@@ -1,3 +1,7 @@
+// bca: suppress-file(halstead, nargs, exit)
+// CSV serializer over the FuncSpace tree; the offenders are mechanical-writer
+// aggregation artifacts, not per-function logic complexity.
+
 //! CSV writer for [`FuncSpace`] trees.
 //!
 //! Emits one row per space (function, class, struct, unit, etc.),

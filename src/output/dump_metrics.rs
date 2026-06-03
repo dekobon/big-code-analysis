@@ -1,3 +1,7 @@
+// bca: suppress-file(halstead, nargs, exit)
+// Terminal per-metric dump serializer; the offenders are mechanical-writer
+// aggregation artifacts, not per-function logic complexity.
+
 use std::io::Write;
 use termcolor::{Color, ColorChoice, StandardStream, StandardStreamLock};
 

@@ -1,3 +1,8 @@
+// bca: suppress-file(halstead, nargs)
+// `bca exemptions` report assembly; the offenders are many-fn /
+// impl-aggregate artifacts, not per-function logic complexity
+// (cognitive/cyclomatic stay enforced).
+
 //! `bca exemptions` — a unified audit of everything the `bca check`
 //! gate skips (issue #386).
 //!

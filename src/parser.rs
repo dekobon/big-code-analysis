@@ -1,3 +1,7 @@
+// bca: suppress-file(halstead, nargs)
+// Parser plumbing plus per-language filter tables; the offenders are
+// many-fn aggregation artifacts, not per-function logic complexity.
+
 // Per-language metric and AST modules deliberately consume the macro-
 // generated tree-sitter token enums via `use crate::*` and `use Foo::*`
 // inside match expressions — explicit imports would list dozens of

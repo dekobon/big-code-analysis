@@ -1,3 +1,7 @@
+// bca: suppress-file(halstead)
+// `OffenderRecord` shape + builders; file-level halstead is a many-fn
+// aggregation artifact, not per-function logic complexity.
+
 //! Offender records consumed by CI/IDE output formats.
 //!
 //! [`OffenderRecord`] is the minimal shape every CI/IDE output format

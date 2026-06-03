@@ -1,3 +1,7 @@
+// bca: suppress-file(halstead, nargs)
+// SARIF serializer; the offenders are mechanical-writer and many-fn
+// aggregation artifacts, not per-function logic complexity.
+
 //! SARIF 2.1.0 writer for [`OffenderRecord`] batches.
 //!
 //! SARIF (Static Analysis Results Interchange Format) is the OASIS

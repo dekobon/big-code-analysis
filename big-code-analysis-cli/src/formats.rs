@@ -1,3 +1,8 @@
+// bca: suppress-file(halstead, nargs, exit, nom)
+// Output-format selection / writer plumbing; the offenders are many-fn
+// aggregation artifacts, not per-function logic complexity
+// (cognitive/cyclomatic stay enforced).
+
 #![allow(clippy::needless_pass_by_value)]
 
 use std::fs::{File, create_dir_all};

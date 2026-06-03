@@ -1,3 +1,8 @@
+// bca: suppress-file(halstead, nargs)
+// Language-name / enum mapping helpers; file-level halstead and summed
+// nargs are many-fn aggregation artifacts. (`lang_to_name`'s cyclomatic — a
+// flat `match` over every LANG variant — is suppressed per-function below.)
+
 //! Language detection helpers exposed to Python.
 //!
 //! These thin wrappers reuse the upstream `LANG` enum and its
@@ -42,6 +47,9 @@ use crate::analysis::AnalysisError;
 /// - All other variants use their variant name lowercased
 ///   (`Rust` → `"rust"`, `Java` → `"java"`, …).
 pub(crate) fn lang_to_name(lang: LANG) -> &'static str {
+    // bca: suppress(cyclomatic)
+    // Flat `match lang { … }` over every LANG variant — cyclomatic is
+    // arm count, not branching logic.
     match lang {
         LANG::Bash => "bash",
         LANG::Ccomment => "ccomment",

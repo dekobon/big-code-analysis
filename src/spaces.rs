@@ -1,3 +1,8 @@
+// bca: suppress-file(halstead, loc, nargs, exit, nom)
+// FuncSpace construction helpers plus the `CodeMetrics` serde / `Display`
+// impls; the offenders are mechanical-writer and many-fn aggregation
+// artifacts, not per-function logic complexity (cognitive/cyclomatic enforced).
+
 // Per-language metric and AST modules deliberately consume the macro-
 // generated tree-sitter token enums via `use crate::*` and `use Foo::*`
 // inside match expressions — explicit imports would list dozens of

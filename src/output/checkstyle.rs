@@ -1,3 +1,7 @@
+// bca: suppress-file(halstead, exit)
+// Checkstyle XML serializer; file-level halstead and the serializer `nexits`
+// are mechanical-writer aggregation artifacts, not logic complexity.
+
 //! Checkstyle 4.3 XML writer for [`OffenderRecord`] batches.
 //!
 //! Checkstyle is the de-facto interchange format for Jenkins, SonarQube,

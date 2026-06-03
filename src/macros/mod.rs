@@ -1,3 +1,8 @@
+// bca: suppress-file(halstead, loc)
+// `macro_rules!` definitions that generate the per-language structure;
+// file-level halstead/loc are macro-expansion aggregation artifacts, not
+// per-function logic complexity.
+
 // `get_language!` is invoked only from feature-gated arms in `mk_lang!`
 // (one arm per `LANG::*` variant whose per-language Cargo feature is
 // enabled). A build with `--no-default-features` and no language

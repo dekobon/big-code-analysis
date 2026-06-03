@@ -1,3 +1,7 @@
+// bca: suppress-file(halstead, nargs)
+// Compiler-warning line serializers; the offenders are mechanical-writer
+// aggregation artifacts, not per-function logic complexity.
+
 //! Compiler-warning line writers for [`OffenderRecord`] batches.
 //!
 //! Editor- and CI-annotator-friendly inline warnings: one offender per

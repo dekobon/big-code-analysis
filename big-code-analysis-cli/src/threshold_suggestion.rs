@@ -1,3 +1,8 @@
+// bca: suppress-file(halstead, nargs, exit)
+// Edit-distance "did you mean?" suggester; halstead is arithmetic volume and
+// the rest are many-fn aggregation artifacts. No cognitive/cyclomatic offender
+// here — those stay enforced.
+
 //! "Did you mean?" suggester for the unknown-`--threshold` /
 //! `[thresholds]`-key error.
 //!

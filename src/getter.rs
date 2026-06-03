@@ -1,3 +1,8 @@
+// bca: suppress-file(halstead, loc, nargs, exit, nom, wmc)
+// Per-language Getter impls (`get_op_type`, `get_func_space_name`) are
+// flat `match node.kind()` dispatch tables; the offenders are arm-count
+// and many-fn aggregation artifacts, not per-function logic complexity.
+
 // Per-language metric and AST modules deliberately consume the macro-
 // generated tree-sitter token enums via `use crate::*` and `use Foo::*`
 // inside match expressions — explicit imports would list dozens of
