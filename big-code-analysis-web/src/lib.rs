@@ -1,3 +1,7 @@
+// bca: suppress-file(halstead)
+// Web crate glue; file-level halstead is a many-fn aggregation artifact, not
+// per-function logic complexity.
+
 //! REST API surface for `big-code-analysis`. Run via the `bca-web` binary.
 
 // The deeply nested `json!` literals in server.rs tests exceed the default

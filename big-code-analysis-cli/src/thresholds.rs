@@ -1,3 +1,8 @@
+// bca: suppress-file(halstead, loc, nargs, exit, nom)
+// Threshold-table parse/eval + Violation/ThresholdSet types; the offenders are
+// parse-table volume, many-fn, and impl-aggregate artifacts, not per-function
+// logic complexity (cognitive/cyclomatic stay enforced).
+
 //! Threshold engine for `bca check`.
 //!
 //! Maps stable metric names (the same set surfaced by `bca list-metrics`,

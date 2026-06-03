@@ -1,3 +1,8 @@
+// bca: suppress-file(halstead, nargs, exit, abc)
+// Actix server setup + handlers; the file-aggregate halstead/nargs/exit and the
+// route-registration closure's abc (one `.service()`/`.route()` per endpoint) are
+// declarative many-fn aggregation artifacts, not per-function logic complexity.
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};

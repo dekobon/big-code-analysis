@@ -1,3 +1,8 @@
+// bca: suppress-file(halstead, loc, nargs, exit, nom)
+// Baseline TOML parse/serialize + entry-matching; the offenders are
+// parse-table volume, many-fn, and impl-aggregate artifacts, not
+// per-function logic complexity (cognitive/cyclomatic stay enforced).
+
 //! Baseline file for `bca check`: external record of currently-known
 //! threshold offenders that the check is allowed to ignore until the
 //! team gets around to fixing them. Companion to (not substitute for)

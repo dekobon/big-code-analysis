@@ -1,3 +1,9 @@
+// bca: suppress-file(halstead, loc, nargs, exit, nom)
+// CLI command orchestration: top-level subcommand dispatch plus many
+// config-passing / scaffolding fns. The offenders are many-fn / arg-passing /
+// aggregation artifacts. (`run`'s cyclomatic — flat subcommand dispatch — is
+// suppressed per-function below; cognitive stays enforced.)
+
 //! Top-level command dispatch for the `bca` CLI.
 //!
 //! Owns the public `run()` entry point (called by `bca`'s `main` and
@@ -1334,6 +1340,9 @@ fn write_footer_row(
 /// inside another process, use the [`big_code_analysis`] library crate
 /// directly instead of going through this entry point.
 pub fn run() {
+    // bca: suppress(cyclomatic)
+    // Flat top-level subcommand dispatch (one arm per `Command` variant) —
+    // cyclomatic is arm count, not nested branching; cognitive stays enforced.
     let (mut cli, num_jobs_from_cli) = parse_cli_with_legacy_hint();
 
     // Auto-discover a `bca.toml` manifest (unless `--no-config`) and

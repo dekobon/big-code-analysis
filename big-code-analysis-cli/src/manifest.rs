@@ -1,3 +1,8 @@
+// bca: suppress-file(halstead, nargs, exit)
+// bca.toml manifest load/merge; the offenders are many-fn / impl-aggregate
+// artifacts. (`merge_check`'s cyclomatic — flat field-by-field config merge —
+// is suppressed per-function below; cognitive stays enforced.)
+
 //! `bca.toml` manifest discovery and merge (issue #374).
 //!
 //! Consolidates the flags every local-gate recipe used to thread
@@ -246,6 +251,9 @@ impl Manifest {
     /// Merge check-only options (`baseline`, `baseline_line_tolerance`,
     /// `baseline_fuzzy_match`, `headroom`) into `args`. CLI values win.
     pub(crate) fn merge_check(&self, args: &mut CheckArgs) {
+        // bca: suppress(cyclomatic)
+        // Flat field-by-field config merge (`if args.x.is_none() { … }` per
+        // key) — cyclomatic is guard count, not nested branching.
         // A manifest baseline must not be applied when the user is
         // *writing* one — `--baseline` and `--write-baseline` are
         // mutually exclusive, and clap's check ran before this merge.

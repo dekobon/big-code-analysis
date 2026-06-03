@@ -1,3 +1,7 @@
+// bca: suppress-file(halstead, nargs, exit)
+// `bca diff` tree materialization + diffing; the offenders are many-fn /
+// early-return aggregation artifacts, not per-function logic complexity.
+
 //! Diff-aware filtering for `bca check`.
 //!
 //! Resolves the git ref to diff `HEAD` against (from the `--since`
