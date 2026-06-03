@@ -23,6 +23,19 @@ for historical reference.
 
 ### Added
 
+- `bca report markdown|html` now honors in-source suppression markers
+  (`bca: suppress`, `bca: suppress-file`, `#lizard forgives`) **by
+  default**, omitting a function from a metric's hotspot table when that
+  metric is suppressed for it — matching `bca check` and the SARIF
+  emitter (the report previously listed raw values and re-surfaced every
+  silenced function). Suppression is per-metric and folds the file's
+  `suppress-file` scope into each function's own scope. `bca report
+  --no-suppress` (or `[report] no_suppress = true` in `bca.toml`) opts
+  into the raw audit view that lists every offender. Advisory roll-ups
+  (the actionable summary, CC-stats note) intentionally keep counting
+  raw measurements. `SuppressionScope::merge` is now `pub` (additive) so
+  report consumers can fold scopes
+  ([#501](https://github.com/dekobon/big-code-analysis/issues/501)).
 - `bca check --report-suppressed`: surface the debt the gate tolerates in
   the code-scan document instead of dropping it. Offenders silenced by an
   in-source `bca: suppress` marker or covered by the baseline stay out of
@@ -423,6 +436,13 @@ for historical reference.
 
 ### Changed
 
+- Python bindings: `lang_to_name` now delegates to `LANG::get_name()`
+  for all but three lookup-token overrides (`Cpp` → `"cpp"`, `Csharp` →
+  `"csharp"`, `Tsx` → `"tsx"`), collapsing a 22-arm hand-maintained
+  table that duplicated the upstream CLI display names. The Python-facing
+  `language` identifiers are byte-identical for every variant; this only
+  removes drift risk between the facade and the CLI display names
+  ([#500](https://github.com/dekobon/big-code-analysis/issues/500)).
 - **(breaking)** `FilesData` and `ConcurrentRunner` are reshaped into a
   terminal file-set processor: `FilesData` drops its `include` /
   `exclude` `GlobSet` fields (now just `FilesData { paths }`),
