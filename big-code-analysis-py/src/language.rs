@@ -30,10 +30,10 @@ use crate::analysis::AnalysisError;
 ///   `language=` lookup token; the facade exposes `"cpp"`.
 /// - `Csharp`: `get_name()` returns `"c#"`; the facade exposes
 ///   `"csharp"`.
-/// - `Tsx`: `get_name()` returns `"typescript"`, colliding with
-///   `Typescript`'s display name; the facade exposes `"tsx"` so the
-///   two TypeScript variants stay distinct lookup keys (TSX via
-///   `.tsx`, TypeScript via `.ts`).
+/// - `Tsx`: `get_name()` returns `"typescript"` for *both* `Tsx` and
+///   `Typescript`, so without an override the two would collapse to
+///   one lookup key. The override exposes `"tsx"`, making them
+///   distinct (TSX via `.tsx`, TypeScript via `.ts`).
 ///
 /// Every other variant delegates to `get_name()` unchanged. Notably
 /// `Mozjs` and `Javascript` both report `"javascript"` upstream:
@@ -405,6 +405,7 @@ mod tests {
         // turns an accidental upstream display rename into a test
         // failure rather than a silent Python-API drift.
         const OVERRIDES: [LANG; 3] = [LANG::Cpp, LANG::Csharp, LANG::Tsx];
+        let mut checked = 0;
         for lang in public_languages() {
             if OVERRIDES.contains(&lang) {
                 continue;
@@ -414,6 +415,14 @@ mod tests {
                 lang.get_name(),
                 "non-override variant {lang:?} must mirror get_name()"
             );
+            checked += 1;
         }
+        // Guard against a vacuous pass: if `public_languages()` ever
+        // shrank to nothing (or to only the overrides), the loop above
+        // would assert nothing yet still report green.
+        assert!(
+            checked > 0,
+            "parity loop exercised no non-override variants"
+        );
     }
 }
