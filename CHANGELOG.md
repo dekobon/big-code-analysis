@@ -23,6 +23,20 @@ for historical reference.
 
 ### Added
 
+- The `bca` CLI is now pip-installable. `pip install big-code-analysis-cli`
+  drops the compiled `bca` binary onto your `PATH` (no Rust toolchain
+  required), the way `pip install ruff` installs the `ruff` command. The
+  PyPI **distribution name is `big-code-analysis-cli`** while the installed
+  **command stays `bca`** — distinct from the importable library bindings
+  published as `big-code-analysis`. A new
+  [`python-cli-wheels.yml`](.github/workflows/python-cli-wheels.yml)
+  workflow builds `-b bin` wheels for Linux (`manylinux_2_28` `x86_64` /
+  `aarch64`), macOS (`x86_64` / `arm64`), and Windows (`x86_64`),
+  smoke-tests each, and publishes to PyPI via Trusted Publishing in
+  lockstep with the workspace version. Each wheel carries the full
+  `all-languages` grammar set and bundles the per-binary
+  `THIRD-PARTY-LICENSES-bca.md` + `LICENSE` (in `.dist-info/licenses/`)
+  and the `bca` man pages. (#408)
 - `bca report markdown|html` now honors in-source suppression markers
   (`bca: suppress`, `bca: suppress-file`, `#lizard forgives`) **by
   default**, omitting a function from a metric's hotspot table when that

@@ -9,9 +9,38 @@ aggregated reports, AST dumps, node lookups, and more.
 
 ## Installation
 
+### From PyPI (pip)
+
+The fastest path on Linux, macOS, and Windows — no Rust toolchain
+required:
+
+```sh
+pip install big-code-analysis-cli   # installs the `bca` command on PATH
+bca --version
+```
+
+Note the deliberate split between the **distribution name** and the
+**command name**: you `pip install big-code-analysis-cli`, but the
+installed executable is `bca`. The `bca` name on PyPI belongs to an
+unrelated project, and `big-code-analysis` is this project's importable
+*library* bindings (`pip install big-code-analysis` — a different
+deliverable). The wheel ships the full `all-languages` grammar set; a
+single `py3-none-<platform>` wheel covers every CPython 3.x (and PyPy)
+on that platform. Prebuilt wheels are published for Linux
+(`manylinux_2_28` `x86_64` / `aarch64`), macOS (`x86_64` / `arm64`), and
+Windows (`x86_64`); other platforms fall back to a source build.
+
+### From crates.io (cargo)
+
+```sh
+cargo install big-code-analysis-cli
+```
+
+### From source
+
 ```sh
 cd big-code-analysis-cli/
-cargo build
+cargo build --release
 ```
 
 ## Usage

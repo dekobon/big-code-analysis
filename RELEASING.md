@@ -639,6 +639,15 @@ turns into a foot-gun on the *next* release.
 - [ ] **`python-wheels` PR label.** Create the label (see the
       Python wheels section) so contributors can opt PRs into the
       wheel matrix.
+- [ ] **PyPI Trusted Publisher and `pypi-cli` GH environment (CLI
+      wheel).** Claim `big-code-analysis-cli` on PyPI via the
+      pending-publisher flow, registering a TP for workflow
+      `python-cli-wheels.yml` + environment `pypi-cli`, and create the
+      `pypi-cli` GitHub environment. See [CLI wheels
+      (PyPI)](#cli-wheels-pypi).
+- [ ] **`python-cli-wheels` PR label.** Create the label (see the CLI
+      wheels section) so contributors can opt PRs into the CLI wheel
+      matrix.
 - [ ] **Shared Homebrew tap reachable.** Confirm
       `dekobon/homebrew-tap` exists and the configured PAT can push to
       it. The release workflow appends `Formula/big-code-analysis.rb`
@@ -799,7 +808,88 @@ into a production-shaped flow.
 The wheel pipeline ships Linux only (x86_64 + aarch64). macOS and
 Windows wheels are tracked separately under
 [#103](https://github.com/dekobon/big-code-analysis/issues/103)'s
-"Out of scope" section.
+"Out of scope" section. (This Linux-only scope is for the *library*
+bindings wheel above; the **CLI** `bca` wheel — see below — does ship
+macOS and Windows.)
+
+## CLI wheels (PyPI)
+
+The `bca` command-line tool ships as its own pip-installable
+distribution via `.github/workflows/python-cli-wheels.yml`, separate
+from both `release.yml` (crates.io / native packages) and
+`python-wheels.yml` (the library bindings). All three trigger on the
+same `v[0-9]*` tag push and run in parallel; a failure in one does not
+block the others.
+
+This is a `maturin -b bin` wheel: the compiled `bca` binary is packaged
+as a console script, so `pip install big-code-analysis-cli` drops `bca`
+onto the user's `PATH`. Key differences from the library wheel:
+
+- **No abi3 / no per-Python matrix.** A bin wheel is tagged
+  `py3-none-<platform>`; one wheel per (OS, arch) covers every CPython
+  3.x and PyPy. The matrix is per-platform, not per-Python-version.
+- **Distribution name `big-code-analysis-cli`, command `bca`.** The
+  installed command intentionally differs from the dist name (the `bca`
+  name on PyPI is taken; `big-code-analysis` is the library bindings).
+- **Full grammar set is inherited from the crate** (`all-languages`, via
+  #252) — no `[tool.maturin] features` wiring.
+- **Wider platform matrix:** Linux `manylinux_2_28` (`x86_64` /
+  `aarch64`), macOS (`x86_64` / `arm64`), Windows (`x86_64`).
+- **Compliance artefacts ride in the wheel:** the per-binary
+  `THIRD-PARTY-LICENSES-bca.md` (cargo-about) and `LICENSE` land in
+  `.dist-info/licenses/`; the `bca` man pages are bundled; maturin emits
+  a CycloneDX SBOM into `.dist-info/sboms/`.
+
+### One-time PyPI setup
+
+Mirror the library-wheel setup above, with CLI-specific values:
+
+1. **Claim the project name** at
+   `https://pypi.org/project/big-code-analysis-cli/` (the
+   pending-publisher flow reserves the name in the same step as the TP
+   registration). The name was confirmed available when #408 was filed.
+
+2. **Register a Trusted Publisher** at
+   `https://pypi.org/manage/account/publishing/` with:
+
+   - PyPI Project Name: `big-code-analysis-cli`.
+   - Owner: `dekobon`.
+   - Repository name: `big-code-analysis`.
+   - Workflow filename: `python-cli-wheels.yml` (basename only).
+   - Environment name: `pypi-cli`.
+
+   `pypi-cli` is intentionally distinct from the library's `pypi`
+   environment and the crates.io `release` environment so each
+   registry/project's OIDC `environment` claim is unambiguous.
+
+3. **Create the `pypi-cli` GitHub Environment** (Settings →
+   Environments → New environment → `pypi-cli`) before the first `v*`
+   tag if you want a manual approval gate on the first publish — GitHub
+   auto-creates a referenced-but-undefined environment with no
+   protection rules otherwise.
+
+4. **Create the `python-cli-wheels` PR label** so contributors can opt a
+   PR into the wheel matrix (Rust-only PRs that merely brush a
+   path-filter neighbour skip it):
+
+   ```bash
+   gh label create python-cli-wheels \
+     --color 1d76db \
+     --description "PR opts in to the bca CLI wheel CI matrix"
+   ```
+
+   Tag pushes and `workflow_dispatch` runs ignore the label.
+
+5. **First tagged release validates the path**, exactly as for the
+   library wheel — Trusted Publishing cannot be rehearsed via
+   `workflow_dispatch`.
+
+### Version coupling
+
+`big-code-analysis-cli` inherits its version from
+`[workspace.package] version` (`version.workspace = true`), and its
+`pyproject.toml` reads the same value at build time (`dynamic =
+["version"]`). No separate version field to maintain.
 
 ## Rotating the minisign key
 
