@@ -34,7 +34,9 @@ use std::str::FromStr;
 use serde::Deserialize;
 
 use crate::thresholds::{ParsedThresholds, split_thresholds_table};
-use crate::{CheckArgs, ExemptionsArgs, GlobalOpts, NumJobs, die, die_io, read_utf8_file};
+use crate::{
+    CheckArgs, ExemptionsArgs, GlobalOpts, NumJobs, ReportArgs, die, die_io, read_utf8_file,
+};
 
 /// Filename discovered by convention at (or above) the working directory.
 const MANIFEST_FILE: &str = "bca.toml";
@@ -60,6 +62,7 @@ const KNOWN_KEYS: &[&str] = &[
     "headroom",
     "thresholds",
     "check",
+    "report",
 ];
 
 /// A parsed `bca.toml` plus the directory it was found in.
@@ -105,6 +108,22 @@ struct RawManifest {
     /// reported.
     #[serde(default)]
     check: RawCheck,
+    /// The `[report]` table (#501): options for the aggregated
+    /// `bca report markdown|html` hotspot tables.
+    #[serde(default)]
+    report: RawReport,
+}
+
+/// Typed view of the `[report]` table (#501). Mirrors the `bca report`
+/// CLI flags; the CLI value wins when both are present.
+#[derive(Debug, Default, Deserialize)]
+struct RawReport {
+    /// When `true`, the aggregated report includes functions silenced by
+    /// in-source suppression markers (the raw audit view). Mirrors
+    /// `--no-suppress`, which ORs on top (a bare CLI flag can only
+    /// enable, never disable). Absent / `false` honors markers — the
+    /// default that matches `bca check` and the SARIF emitter.
+    no_suppress: Option<bool>,
 }
 
 /// Typed view of the `[check]` table (#378). Both keys mirror a CLI
@@ -338,6 +357,18 @@ impl Manifest {
             && let Some(exclude_from) = &self.raw.check.exclude_from
         {
             args.check_exclude_from = Some(self.resolve(exclude_from));
+        }
+    }
+
+    /// Merge `[report]` options into `args` (#501). A bare
+    /// `--no-suppress` flag (clap `bool`) cannot represent "unset", so
+    /// the manifest can only *enable* the audit view; it never overrides
+    /// an explicit CLI opt-in. OR the two sources, mirroring
+    /// `baseline_fuzzy_match` and `[check] exit_codes` in
+    /// [`Self::merge_check`].
+    pub(crate) fn merge_report(&self, args: &mut ReportArgs) {
+        if self.raw.report.no_suppress == Some(true) {
+            args.no_suppress = true;
         }
     }
 

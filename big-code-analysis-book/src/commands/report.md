@@ -37,7 +37,35 @@ bca --paths /path/to/project report markdown --output report.md
 | --- | --- | --- |
 | `--top N` | 20 | Maximum entries per hotspot table. |
 | `--strip-prefix PATH` | *(empty)* | Prefix removed from file paths. |
+| `--no-suppress` | *(off)* | Include functions silenced by in-source suppression markers (raw audit view). |
 | `-o, --output FILE` | *(stdout)* | Output file. Parent directory must exist. |
+
+## Suppression markers
+
+By default, `bca report markdown|html` **honours** in-source suppression
+markers — the same `// bca: suppress`, `// bca: suppress-file`, and
+`#lizard forgives` comments that [`bca check`](check.md) and the SARIF
+emitter respect (see [Suppression](suppression.md)). A function is
+omitted from a metric's hotspot table when that metric is suppressed for
+it, so the published report agrees with the threshold gate instead of
+re-surfacing every silenced offender.
+
+Suppression is per-metric: a `// bca: suppress(cyclomatic)` marker drops
+the function from the Cyclomatic table only — it still appears in the
+Cognitive, Halstead, and other tables. A bare `// bca: suppress` (or
+`// bca: suppress-file`) covers every metric.
+
+Pass `--no-suppress` for the raw audit view that lists every offender
+regardless of markers. The setting can also be pinned in the
+[`bca.toml` manifest](check.md):
+
+```toml
+[report]
+no_suppress = true
+```
+
+The CLI flag wins; a bare `--no-suppress` can force the audit view on,
+but the manifest never forces it off.
 
 ## Examples
 

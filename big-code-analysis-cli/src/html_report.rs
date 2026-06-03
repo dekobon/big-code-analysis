@@ -38,7 +38,7 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
-use big_code_analysis::SpaceKind;
+use big_code_analysis::{MetricKind, SpaceKind, SuppressionPolicy};
 
 use crate::format_util::MetricScalar;
 use crate::markdown_report::{
@@ -319,6 +319,12 @@ struct HotspotSpec {
     metric: fn(&FunctionSummary) -> f64,
     dir: SortDir,
     columns: &'static [HotspotColumn],
+    /// Which metric family this table ranks. When the report honors
+    /// suppression markers (the default), an entry is dropped if its
+    /// effective scope covers this kind — the same per-table filtering
+    /// the Markdown report applies (issue #501). `--no-suppress`
+    /// (`SuppressionPolicy::Ignore`) bypasses it.
+    metric_kind: MetricKind,
 }
 
 // Column descriptors shared verbatim across multiple hotspot specs.
@@ -365,6 +371,7 @@ const MI_LOWEST_HOTSPOT: HotspotSpec = HotspotSpec {
     keep: |s| s.mi_visual_studio > 0.0,
     metric: |s| s.mi_visual_studio,
     dir: SortDir::Asc,
+    metric_kind: MetricKind::Mi,
     columns: &[
         COL_FILE,
         HotspotColumn {
@@ -381,6 +388,7 @@ const CC_HOTSPOT: HotspotSpec = HotspotSpec {
     keep: |s| s.cyclomatic > 0.0,
     metric: |s| s.cyclomatic,
     dir: SortDir::Desc,
+    metric_kind: MetricKind::Cyclomatic,
     columns: &[
         COL_FUNCTION,
         COL_FILE,
@@ -396,6 +404,7 @@ const COGNITIVE_HOTSPOT: HotspotSpec = HotspotSpec {
     keep: |s| s.cognitive > 0.0,
     metric: |s| s.cognitive,
     dir: SortDir::Desc,
+    metric_kind: MetricKind::Cognitive,
     columns: &[
         COL_FUNCTION,
         COL_FILE,
@@ -411,6 +420,7 @@ const HALSTEAD_EFFORT_HOTSPOT: HotspotSpec = HotspotSpec {
     keep: |s| s.halstead_effort > 0.0,
     metric: |s| s.halstead_effort,
     dir: SortDir::Desc,
+    metric_kind: MetricKind::Halstead,
     columns: &[
         COL_FUNCTION,
         COL_FILE,
@@ -438,6 +448,7 @@ const LARGEST_BY_SLOC_HOTSPOT: HotspotSpec = HotspotSpec {
     keep: |s| s.sloc > 0,
     metric: |s| s.sloc as f64,
     dir: SortDir::Desc,
+    metric_kind: MetricKind::Loc,
     columns: &[
         COL_FUNCTION,
         COL_FILE,
@@ -453,6 +464,7 @@ const MANY_PARAMS_HOTSPOT: HotspotSpec = HotspotSpec {
     keep: |s| s.nargs > 3,
     metric: |s| s.nargs as f64,
     dir: SortDir::Desc,
+    metric_kind: MetricKind::Nargs,
     columns: &[
         COL_FUNCTION,
         COL_FILE,
@@ -475,6 +487,7 @@ const WMC_HOTSPOT: HotspotSpec = HotspotSpec {
     keep: |s| is_class_like(s.kind) && s.wmc > 0.0,
     metric: |s| s.wmc,
     dir: SortDir::Desc,
+    metric_kind: MetricKind::Wmc,
     columns: &[
         HotspotColumn {
             header: "Class",
@@ -508,10 +521,15 @@ const WMC_HOTSPOT: HotspotSpec = HotspotSpec {
     ],
 };
 
+// The exit-points table maps to `MetricKind::Exit` — the suppression
+// vocabulary's spelling of the threshold engine's `nexits` (matching
+// `MetricKind::for_threshold_name`'s `nexits → exit` alias), so a
+// `bca: suppress(exit)` marker silences it.
 const NEXITS_HOTSPOT: HotspotSpec = HotspotSpec {
     keep: |s| s.nexits > 0,
     metric: |s| s.nexits as f64,
     dir: SortDir::Desc,
+    metric_kind: MetricKind::Exit,
     columns: &[
         COL_FUNCTION,
         COL_FILE,
@@ -531,6 +549,7 @@ const ABC_HOTSPOT: HotspotSpec = HotspotSpec {
     keep: |s| s.abc > 0.0,
     metric: |s| s.abc,
     dir: SortDir::Desc,
+    metric_kind: MetricKind::Abc,
     columns: &[
         COL_FUNCTION,
         COL_FILE,
@@ -617,9 +636,13 @@ fn emit_hotspot(
     base: &[&FunctionSummary],
     top_n: usize,
     spec: &HotspotSpec,
+    policy: SuppressionPolicy,
 ) -> bool {
-    let mut entries: Vec<&FunctionSummary> =
-        base.iter().copied().filter(|s| (spec.keep)(s)).collect();
+    let mut entries: Vec<&FunctionSummary> = base
+        .iter()
+        .copied()
+        .filter(|s| (spec.keep)(s) && !s.is_hidden_for(spec.metric_kind, policy))
+        .collect();
     if entries.is_empty() {
         return false;
     }
@@ -838,7 +861,11 @@ fn write_html_tail(out: &mut String) {
 /// Produce a self-contained HTML quality-metrics report from the
 /// collected summaries. `top_n` controls how many entries appear in
 /// each hotspot table.
-pub(crate) fn generate_html_report(summaries: &[FunctionSummary], top_n: usize) -> String {
+pub(crate) fn generate_html_report(
+    summaries: &[FunctionSummary],
+    top_n: usize,
+    policy: SuppressionPolicy,
+) -> String {
     // Each summary contributes at most one row across all hotspot
     // tables (sections × top_n is bounded), but the per-language
     // overview table plus the inline CSS/JS already costs a few KB of
@@ -854,7 +881,7 @@ pub(crate) fn generate_html_report(summaries: &[FunctionSummary], top_n: usize) 
     if !by_lang.is_empty() {
         write_overview_table(&mut out, &by_lang);
         for (&lang_name, lang_summaries) in &by_lang {
-            write_language_section(&mut out, lang_name, lang_summaries, top_n);
+            write_language_section(&mut out, lang_name, lang_summaries, top_n, policy);
         }
     }
     write_html_tail(&mut out);
@@ -1001,7 +1028,12 @@ impl CyclomaticStats {
 /// stats are computed first so the note can be gated on the table
 /// actually rendering — an empty `funcs` slice yields no table and no
 /// misleading `Average CC: 0.0` line.
-fn emit_cc_hotspot_with_stats(out: &mut String, funcs: &[&FunctionSummary], top_n: usize) {
+fn emit_cc_hotspot_with_stats(
+    out: &mut String,
+    funcs: &[&FunctionSummary],
+    top_n: usize,
+    policy: SuppressionPolicy,
+) {
     let stats = CyclomaticStats::from_funcs(funcs);
     if emit_hotspot(
         out,
@@ -1009,6 +1041,7 @@ fn emit_cc_hotspot_with_stats(out: &mut String, funcs: &[&FunctionSummary], top_
         funcs,
         top_n,
         &CC_HOTSPOT,
+        policy,
     ) {
         let _ = writeln!(
             out,
@@ -1109,6 +1142,7 @@ fn write_language_section(
     lang_name: &str,
     entries: &[&FunctionSummary],
     top_n: usize,
+    policy: SuppressionPolicy,
 ) {
     write_language_header(out, lang_name);
     let (units, funcs) = partition_by_kind(entries);
@@ -1120,14 +1154,16 @@ fn write_language_section(
         &units,
         top_n,
         &MI_LOWEST_HOTSPOT,
+        policy,
     );
-    emit_cc_hotspot_with_stats(out, &funcs, top_n);
+    emit_cc_hotspot_with_stats(out, &funcs, top_n, policy);
     emit_hotspot(
         out,
         "Cognitive Complexity Hotspots",
         &funcs,
         top_n,
         &COGNITIVE_HOTSPOT,
+        policy,
     );
     emit_hotspot(
         out,
@@ -1135,6 +1171,7 @@ fn write_language_section(
         &funcs,
         top_n,
         &HALSTEAD_EFFORT_HOTSPOT,
+        policy,
     );
     emit_hotspot(
         out,
@@ -1142,6 +1179,7 @@ fn write_language_section(
         &funcs,
         top_n,
         &LARGEST_BY_SLOC_HOTSPOT,
+        policy,
     );
     emit_hotspot(
         out,
@@ -1149,6 +1187,7 @@ fn write_language_section(
         &funcs,
         top_n,
         &MANY_PARAMS_HOTSPOT,
+        policy,
     );
     write_actionable_summary(out, &funcs);
     // WMC sources `entries` (all kinds), not `funcs`: class-likes are
@@ -1159,6 +1198,7 @@ fn write_language_section(
         entries,
         top_n,
         &WMC_HOTSPOT,
+        policy,
     );
     emit_hotspot(
         out,
@@ -1166,8 +1206,16 @@ fn write_language_section(
         &funcs,
         top_n,
         &NEXITS_HOTSPOT,
+        policy,
     );
-    emit_hotspot(out, "ABC Magnitude Hotspots", &funcs, top_n, &ABC_HOTSPOT);
+    emit_hotspot(
+        out,
+        "ABC Magnitude Hotspots",
+        &funcs,
+        top_n,
+        &ABC_HOTSPOT,
+        policy,
+    );
 
     let _ = out.write_str("</section>\n");
 }
@@ -1205,6 +1253,7 @@ mod tests {
             name: name.to_string(),
             kind,
             language,
+            suppressed: big_code_analysis::SuppressionScope::default(),
             start_line: 1,
             end_line: 10,
             sloc: 20,
@@ -1271,7 +1320,7 @@ mod tests {
 
     #[test]
     fn empty_summaries_emit_no_tables() {
-        let out = generate_html_report(&[], 20);
+        let out = generate_html_report(&[], 20, SuppressionPolicy::Honor);
         assert!(out.contains("<h1>Code Quality Metrics Summary</h1>"));
         assert!(!out.contains("<table"));
         assert_html_well_formed(&out);
@@ -1279,7 +1328,7 @@ mod tests {
 
     #[test]
     fn js_handler_binds_all_hotspot_tables() {
-        let out = generate_html_report(&[], 20);
+        let out = generate_html_report(&[], 20, SuppressionPolicy::Honor);
         assert!(
             out.contains("document.querySelectorAll('table.hotspot')"),
             "JS sort handler must bind to every hotspot table by class, not by id"
@@ -1318,7 +1367,7 @@ mod tests {
             s.tokens = 1_500_000 * (i + 1);
             summaries.push(s);
         }
-        let out = generate_html_report(&summaries, 5);
+        let out = generate_html_report(&summaries, 5, SuppressionPolicy::Honor);
         assert!(
             out.contains(">10,000<") && out.contains(">1,500,000<"),
             "expected thousands-formatted cells in output"
@@ -1327,7 +1376,7 @@ mod tests {
 
     #[test]
     fn single_language_well_formed() {
-        let out = generate_html_report(&rust_fixture(), 20);
+        let out = generate_html_report(&rust_fixture(), 20, SuppressionPolicy::Honor);
         assert!(out.contains("<h2>Rust</h2>"));
         assert!(out.contains("class=\"hotspot\""));
         assert_html_well_formed(&out);
@@ -1335,7 +1384,7 @@ mod tests {
 
     #[test]
     fn two_language_well_formed_and_alphabetical() {
-        let out = generate_html_report(&two_lang_fixture(), 20);
+        let out = generate_html_report(&two_lang_fixture(), 20, SuppressionPolicy::Honor);
         assert!(out.contains("<h2>Python</h2>"));
         assert!(out.contains("<h2>Rust</h2>"));
         let py = out.find("<h2>Python</h2>").expect("python heading");
@@ -1353,7 +1402,7 @@ mod tests {
         summaries[1].name = "<script>alert(1)</script>".to_string();
         summaries[1].file = "a&b\"c'd<e>".to_string();
 
-        let out = generate_html_report(&summaries, 20);
+        let out = generate_html_report(&summaries, 20, SuppressionPolicy::Honor);
         assert!(
             !out.contains("<script>alert(1)"),
             "raw <script> payload must not appear in output"
@@ -1385,7 +1434,7 @@ mod tests {
             summaries.push(s);
         }
 
-        let out = generate_html_report(&summaries, 5);
+        let out = generate_html_report(&summaries, 5, SuppressionPolicy::Honor);
         let cc_section = out
             .split_once("<h3>Cyclomatic Complexity Hotspots</h3>")
             .expect("cyclomatic section present")
@@ -1414,7 +1463,7 @@ mod tests {
             make_summary("lib.rs", "src/lib.rs", SpaceKind::Unit, LANG::Rust),
             make_summary("Widget", "src/lib.rs", SpaceKind::Class, LANG::Rust),
         ];
-        let out = generate_html_report(&entries, 20);
+        let out = generate_html_report(&entries, 20, SuppressionPolicy::Honor);
         let wmc_table = out
             .split_once("<h3>Class/Trait/Impl Hotspots (WMC)</h3>")
             .expect("WMC section present even with no functions")
@@ -1432,8 +1481,8 @@ mod tests {
     #[test]
     fn output_is_byte_deterministic() {
         let s = two_lang_fixture();
-        let a = generate_html_report(&s, 20);
-        let b = generate_html_report(&s, 20);
+        let a = generate_html_report(&s, 20, SuppressionPolicy::Honor);
+        let b = generate_html_report(&s, 20, SuppressionPolicy::Honor);
         assert_eq!(a, b, "renderer must be byte-deterministic across runs");
     }
 
@@ -1447,7 +1496,7 @@ mod tests {
         let mut summaries = rust_fixture();
         summaries[1].cyclomatic = f64::NAN;
         summaries[2].cyclomatic = 5.0;
-        let out = generate_html_report(&summaries, 20);
+        let out = generate_html_report(&summaries, 20, SuppressionPolicy::Honor);
         assert_html_well_formed(&out);
     }
 
@@ -1492,7 +1541,7 @@ mod tests {
         // The "Args" table is gated on nargs > 3; bump one function so
         // the section actually renders.
         summaries[1].nargs = 5;
-        let out = generate_html_report(&summaries, 20);
+        let out = generate_html_report(&summaries, 20, SuppressionPolicy::Honor);
 
         // Drive the loop from the catalogue itself so a new tooltip
         // arm is required to appear in real output without anyone
@@ -1583,7 +1632,7 @@ mod tests {
             make_summary("App.tsx", "src/App.tsx", SpaceKind::Unit, LANG::Tsx),
             make_summary("render", "src/App.tsx", SpaceKind::Function, LANG::Tsx),
         ];
-        let out = generate_html_report(&entries, 5);
+        let out = generate_html_report(&entries, 5, SuppressionPolicy::Honor);
         assert!(
             out.contains("<section class=\"lang-section lang-typescript\">"),
             "Tsx must reuse the typescript palette class"
@@ -1594,7 +1643,7 @@ mod tests {
 
     #[test]
     fn per_language_sections_carry_palette_class() {
-        let out = generate_html_report(&two_lang_fixture(), 5);
+        let out = generate_html_report(&two_lang_fixture(), 5, SuppressionPolicy::Honor);
         assert!(
             out.contains("<section class=\"lang-section lang-rust\"><h2>Rust</h2>"),
             "Rust section must carry stable lang-rust palette class"
@@ -1624,7 +1673,7 @@ mod tests {
 
     #[test]
     fn overview_table_and_actionable_summary_not_tinted() {
-        let out = generate_html_report(&two_lang_fixture(), 5);
+        let out = generate_html_report(&two_lang_fixture(), 5, SuppressionPolicy::Honor);
         // The per-language overview heading + table must not sit
         // inside a `<section class="lang-section …">`. We verify
         // structurally: the prefix from the start of the document
@@ -1660,9 +1709,78 @@ mod tests {
         assert!(!out.contains("lang-section lang-other"));
     }
 
+    /// Honoring suppression markers drops a function from its metric's
+    /// HTML hotspot table by default, and `--no-suppress` re-includes it.
+    /// Mirrors the markdown-side coverage for the parallel HTML renderer
+    /// (issue #501).
+    #[test]
+    fn suppression_honored_by_default_and_bypassed_by_no_suppress() {
+        use big_code_analysis::SuppressionScope;
+        use std::collections::BTreeSet;
+        let unit = make_summary("lib.rs", "src/lib.rs", SpaceKind::Unit, LANG::Rust);
+        let mut func = make_summary("hot", "src/lib.rs", SpaceKind::Function, LANG::Rust);
+        func.cyclomatic = 25.0;
+        func.cognitive = 18.0;
+        func.suppressed = SuppressionScope::Some(BTreeSet::from([MetricKind::Cyclomatic]));
+
+        let honored = generate_html_report(
+            &[unit_clone(&unit), func_clone(&func)],
+            20,
+            SuppressionPolicy::Honor,
+        );
+        // The CC table must not list the suppressed function, but the
+        // cognitive table (a different metric) still does.
+        let cc = html_section(&honored, "Cyclomatic Complexity Hotspots");
+        assert!(
+            !cc.contains(">hot<"),
+            "suppressed function must be omitted from the CC table:\n{cc}"
+        );
+        let cog = html_section(&honored, "Cognitive Complexity Hotspots");
+        assert!(
+            cog.contains(">hot<"),
+            "function suppressed only for cyclomatic stays in the Cognitive table:\n{cog}"
+        );
+
+        let audit = generate_html_report(&[unit, func], 20, SuppressionPolicy::Ignore);
+        let cc_audit = html_section(&audit, "Cyclomatic Complexity Hotspots");
+        assert!(
+            cc_audit.contains(">hot<"),
+            "--no-suppress must include the suppressed function:\n{cc_audit}"
+        );
+    }
+
+    fn unit_clone(s: &FunctionSummary) -> FunctionSummary {
+        let mut c = make_summary(&s.name, &s.file, s.kind, s.language);
+        c.suppressed = s.suppressed.clone();
+        c
+    }
+    fn func_clone(s: &FunctionSummary) -> FunctionSummary {
+        let mut c = make_summary(&s.name, &s.file, s.kind, s.language);
+        c.cyclomatic = s.cyclomatic;
+        c.cognitive = s.cognitive;
+        c.suppressed = s.suppressed.clone();
+        c
+    }
+
+    /// Slice the rendered HTML from `<h3>{title}</h3>` to the next `<h3>`
+    /// (or `</section>`), so a per-table membership check does not match a
+    /// name in a sibling table.
+    fn html_section<'a>(html: &'a str, title: &str) -> &'a str {
+        let needle = format!("<h3>{title}</h3>");
+        let Some(start) = html.find(&needle) else {
+            return "";
+        };
+        let rest = &html[start + needle.len()..];
+        let end = rest
+            .find("<h3>")
+            .or_else(|| rest.find("</section>"))
+            .unwrap_or(rest.len());
+        &rest[..end]
+    }
+
     #[test]
     fn snapshot_two_lang_report() {
-        let out = generate_html_report(&two_lang_fixture(), 5);
+        let out = generate_html_report(&two_lang_fixture(), 5, SuppressionPolicy::Honor);
         insta::assert_snapshot!("html_report_two_lang", out);
     }
 }

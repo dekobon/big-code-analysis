@@ -4,9 +4,12 @@ In-source suppression markers silence threshold violations without
 editing the offending function or excluding the file from the walk.
 Drop a marker in any comment in the source file and `bca check`
 treats the covered metrics as if they were within limits for that
-scope. Metric computation is unaffected — raw `bca metrics` /
-`bca report` output still reports every number. Suppression is a
-threshold-check concern only.
+scope. Metric computation is unaffected — raw `bca metrics` output
+still reports every number. Suppression is a measurement-display
+concern: `bca check` drops the covered violations from the gate, and
+`bca report markdown|html` omits the covered functions from the
+matching hotspot tables by default (pass `bca report --no-suppress`
+for the raw audit view — see [report](report.md)).
 
 Markers exist for the cases editing the code is not an option:
 generated-style legacy modules awaiting rewrite, accepted exceptions
@@ -179,9 +182,10 @@ offender list:
 bca --paths src/ check --no-suppress
 ```
 
-The flag has no effect on metric values themselves: raw
-`bca metrics` / `bca report` output already ignores markers, since
-suppression is a threshold-check concern only.
+The flag has no effect on metric values themselves: raw `bca metrics`
+output always reports every number. `bca report markdown|html` honours
+markers in its hotspot tables by default and accepts its own
+[`--no-suppress`](report.md) flag for the same raw audit view.
 
 ## Surfacing suppressed debt (`--report-suppressed`)
 

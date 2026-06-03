@@ -17,6 +17,7 @@ fn summary(name: &str, file: &str, start_line: usize, metric: f64) -> FunctionSu
         name: name.to_string(),
         kind: SpaceKind::Function,
         language: LANG::Rust,
+        suppressed: big_code_analysis::SuppressionScope::default(),
         start_line,
         end_line: start_line + 10,
         sloc: metric as usize,

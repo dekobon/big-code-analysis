@@ -13,7 +13,7 @@
 
 use std::fmt::Write as _;
 
-use big_code_analysis::SpaceKind;
+use big_code_analysis::{MetricKind, SpaceKind, SuppressionPolicy};
 
 use super::{
     Align, FunctionSummary, escape_cell, escape_name, is_class_like, mi_rating, sort_by_metric_asc,
@@ -57,10 +57,15 @@ pub(super) fn write_summary(out: &mut String, units: &[&FunctionSummary]) {
     let _ = writeln!(out, "Average MI: {avg_mi:.1} ({rating})");
 }
 
-pub(super) fn write_mi_lowest(out: &mut String, units: &[&FunctionSummary], top_n: usize) {
+pub(super) fn write_mi_lowest(
+    out: &mut String,
+    units: &[&FunctionSummary],
+    top_n: usize,
+    policy: SuppressionPolicy,
+) {
     let mut mi_entries: Vec<&FunctionSummary> = units
         .iter()
-        .filter(|s| s.mi_visual_studio > 0.0)
+        .filter(|s| s.mi_visual_studio > 0.0 && !s.is_hidden_for(MetricKind::Mi, policy))
         .copied()
         .collect();
     if mi_entries.is_empty() {
@@ -96,10 +101,11 @@ pub(super) fn write_cyclomatic_hotspots(
     out: &mut String,
     funcs: &[&FunctionSummary],
     top_n: usize,
+    policy: SuppressionPolicy,
 ) {
     let mut cc_entries: Vec<&FunctionSummary> = funcs
         .iter()
-        .filter(|s| s.cyclomatic > 0.0)
+        .filter(|s| s.cyclomatic > 0.0 && !s.is_hidden_for(MetricKind::Cyclomatic, policy))
         .copied()
         .collect();
     if cc_entries.is_empty() {
@@ -250,8 +256,18 @@ where
     Some(filtered)
 }
 
-pub(super) fn write_cognitive_hotspots(out: &mut String, funcs: &[&FunctionSummary], top_n: usize) {
-    let Some(entries) = top_n_desc(funcs, top_n, |s| s.cognitive > 0.0, |s| s.cognitive) else {
+pub(super) fn write_cognitive_hotspots(
+    out: &mut String,
+    funcs: &[&FunctionSummary],
+    top_n: usize,
+    policy: SuppressionPolicy,
+) {
+    let Some(entries) = top_n_desc(
+        funcs,
+        top_n,
+        |s| s.cognitive > 0.0 && !s.is_hidden_for(MetricKind::Cognitive, policy),
+        |s| s.cognitive,
+    ) else {
         return;
     };
 
@@ -294,11 +310,16 @@ pub(super) fn write_cognitive_hotspots(out: &mut String, funcs: &[&FunctionSumma
     );
 }
 
-pub(super) fn write_halstead_hotspots(out: &mut String, funcs: &[&FunctionSummary], top_n: usize) {
+pub(super) fn write_halstead_hotspots(
+    out: &mut String,
+    funcs: &[&FunctionSummary],
+    top_n: usize,
+    policy: SuppressionPolicy,
+) {
     let Some(entries) = top_n_desc(
         funcs,
         top_n,
-        |s| s.halstead_effort > 0.0,
+        |s| s.halstead_effort > 0.0 && !s.is_hidden_for(MetricKind::Halstead, policy),
         |s| s.halstead_effort,
     ) else {
         return;
@@ -343,8 +364,18 @@ pub(super) fn write_halstead_hotspots(out: &mut String, funcs: &[&FunctionSummar
     );
 }
 
-pub(super) fn write_largest_by_sloc(out: &mut String, funcs: &[&FunctionSummary], top_n: usize) {
-    let Some(entries) = top_n_desc(funcs, top_n, |s| s.sloc > 0, |s| s.sloc as f64) else {
+pub(super) fn write_largest_by_sloc(
+    out: &mut String,
+    funcs: &[&FunctionSummary],
+    top_n: usize,
+    policy: SuppressionPolicy,
+) {
+    let Some(entries) = top_n_desc(
+        funcs,
+        top_n,
+        |s| s.sloc > 0 && !s.is_hidden_for(MetricKind::Loc, policy),
+        |s| s.sloc as f64,
+    ) else {
         return;
     };
 
@@ -387,8 +418,18 @@ pub(super) fn write_largest_by_sloc(out: &mut String, funcs: &[&FunctionSummary]
     );
 }
 
-pub(super) fn write_many_params(out: &mut String, funcs: &[&FunctionSummary], top_n: usize) {
-    let Some(entries) = top_n_desc(funcs, top_n, |s| s.nargs > 3, |s| s.nargs as f64) else {
+pub(super) fn write_many_params(
+    out: &mut String,
+    funcs: &[&FunctionSummary],
+    top_n: usize,
+    policy: SuppressionPolicy,
+) {
+    let Some(entries) = top_n_desc(
+        funcs,
+        top_n,
+        |s| s.nargs > 3 && !s.is_hidden_for(MetricKind::Nargs, policy),
+        |s| s.nargs as f64,
+    ) else {
         return;
     };
 
@@ -464,11 +505,16 @@ pub(super) fn write_actionable_summary(out: &mut String, funcs: &[&FunctionSumma
     }
 }
 
-pub(super) fn write_wmc_hotspots(out: &mut String, entries: &[&FunctionSummary], top_n: usize) {
+pub(super) fn write_wmc_hotspots(
+    out: &mut String,
+    entries: &[&FunctionSummary],
+    top_n: usize,
+    policy: SuppressionPolicy,
+) {
     let Some(classes) = top_n_desc(
         entries,
         top_n,
-        |s| is_class_like(s.kind) && s.wmc > 0.0,
+        |s| is_class_like(s.kind) && s.wmc > 0.0 && !s.is_hidden_for(MetricKind::Wmc, policy),
         |s| s.wmc,
     ) else {
         return;
@@ -511,8 +557,22 @@ pub(super) fn write_wmc_hotspots(out: &mut String, entries: &[&FunctionSummary],
     );
 }
 
-pub(super) fn write_nexits_hotspots(out: &mut String, funcs: &[&FunctionSummary], top_n: usize) {
-    let Some(entries) = top_n_desc(funcs, top_n, |s| s.nexits > 0, |s| s.nexits as f64) else {
+pub(super) fn write_nexits_hotspots(
+    out: &mut String,
+    funcs: &[&FunctionSummary],
+    top_n: usize,
+    policy: SuppressionPolicy,
+) {
+    // The exit-points table maps to `MetricKind::Exit`: a
+    // `bca: suppress(exit)` marker (the suppression vocabulary's spelling
+    // of the threshold engine's `nexits`) silences it, matching
+    // `MetricKind::for_threshold_name`'s `nexits → exit` alias.
+    let Some(entries) = top_n_desc(
+        funcs,
+        top_n,
+        |s| s.nexits > 0 && !s.is_hidden_for(MetricKind::Exit, policy),
+        |s| s.nexits as f64,
+    ) else {
         return;
     };
 
@@ -547,8 +607,18 @@ pub(super) fn write_nexits_hotspots(out: &mut String, funcs: &[&FunctionSummary]
     );
 }
 
-pub(super) fn write_abc_hotspots(out: &mut String, funcs: &[&FunctionSummary], top_n: usize) {
-    let Some(entries) = top_n_desc(funcs, top_n, |s| s.abc > 0.0, |s| s.abc) else {
+pub(super) fn write_abc_hotspots(
+    out: &mut String,
+    funcs: &[&FunctionSummary],
+    top_n: usize,
+    policy: SuppressionPolicy,
+) {
+    let Some(entries) = top_n_desc(
+        funcs,
+        top_n,
+        |s| s.abc > 0.0 && !s.is_hidden_for(MetricKind::Abc, policy),
+        |s| s.abc,
+    ) else {
         return;
     };
 

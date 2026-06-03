@@ -22,7 +22,9 @@ mod sections;
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
-use big_code_analysis::{FuncSpace, LANG, SpaceKind};
+use big_code_analysis::{
+    FuncSpace, LANG, MetricKind, SpaceKind, SuppressionPolicy, SuppressionScope,
+};
 
 /// Compact per-function/class metric record for the markdown report pipeline.
 #[derive(Debug)]
@@ -31,6 +33,14 @@ pub(crate) struct FunctionSummary {
     pub name: String,
     pub kind: SpaceKind,
     pub language: LANG,
+    /// Effective suppression scope for this space: the enclosing file's
+    /// `suppress-file` scope merged with the space's own `bca: suppress`
+    /// markers. A hotspot table omits this entry when the table's
+    /// [`MetricKind`] is covered here and the report honors markers
+    /// (the default; `--no-suppress` opts back in). Mirrors the gate's
+    /// `ThresholdSet::evaluate_with_policy` logic so the published report
+    /// agrees with `bca check` and the SARIF emitter (issue #501).
+    pub suppressed: SuppressionScope,
     pub start_line: usize,
     #[allow(dead_code)]
     pub end_line: usize,
@@ -61,6 +71,23 @@ pub(crate) struct FunctionSummary {
     pub wmc: f64,
     pub npa: f64,
     pub npm: f64,
+}
+
+impl FunctionSummary {
+    /// Whether this entry should be hidden from the hotspot table for
+    /// `kind` under `policy`.
+    ///
+    /// Under [`SuppressionPolicy::Honor`] (the report default) an entry
+    /// is hidden when its effective scope covers `kind` — i.e. a
+    /// `bca: suppress(<kind>)` marker on the function, or a
+    /// `bca: suppress-file(<kind>)` marker anywhere in the file, folded
+    /// into [`Self::suppressed`] by [`extract_summaries`]. Under
+    /// [`SuppressionPolicy::Ignore`] (`--no-suppress`) nothing is hidden,
+    /// giving the raw audit view. Mirrors the gate's per-metric check in
+    /// `ThresholdSet::evaluate_with_policy` (issue #501).
+    pub(crate) fn is_hidden_for(&self, kind: MetricKind, policy: SuppressionPolicy) -> bool {
+        matches!(policy, SuppressionPolicy::Honor) && self.suppressed.covers(kind)
+    }
 }
 
 /// Extract [`FunctionSummary`] records from a [`FuncSpace`] tree in
@@ -95,6 +122,13 @@ fn extract_summaries_inner(
     language: LANG,
     out: &mut Vec<FunctionSummary>,
 ) {
+    // The root space IS the top-level `Unit`; its `suppressed` scope
+    // carries any `bca: suppress-file` markers, which apply to every
+    // function in the file. Capture it once so each summary's effective
+    // scope is `file_scope ∪ own_scope` — the same union the threshold
+    // gate forms in `ThresholdSet::evaluate_with_policy` (issue #501).
+    let file_scope = &space.suppressed;
+
     // Iterative pre-order walk over the FuncSpace tree. Children are
     // pushed in reverse so `pop()` visits them in source order — this
     // produces the same FunctionSummary ordering as the prior recursive
@@ -102,11 +136,14 @@ fn extract_summaries_inner(
     let mut stack: Vec<&FuncSpace> = vec![space];
     while let Some(current) = stack.pop() {
         let m = &current.metrics;
+        let mut suppressed = file_scope.clone();
+        suppressed.merge(&current.suppressed);
         out.push(FunctionSummary {
             file: display_file.to_string(),
             name: current.name.clone().unwrap_or_default(),
             kind: current.kind,
             language,
+            suppressed,
             start_line: current.start_line,
             end_line: current.end_line,
             sloc: m.loc.sloc() as usize,
@@ -310,7 +347,11 @@ fn push_separator(out: &mut String, align: Align, width: usize) {
     out.push('|');
 }
 
-pub(crate) fn generate_report(summaries: &[FunctionSummary], top_n: usize) -> String {
+pub(crate) fn generate_report(
+    summaries: &[FunctionSummary],
+    top_n: usize,
+    policy: SuppressionPolicy,
+) -> String {
     let mut out = String::new();
 
     // Group by language display name (BTreeMap → deterministic alphabetical order).
@@ -326,7 +367,7 @@ pub(crate) fn generate_report(summaries: &[FunctionSummary], top_n: usize) -> St
     write_per_language_overview(&mut out, &by_lang);
 
     for (&lang_name, lang_summaries) in &by_lang {
-        write_language_section(&mut out, lang_name, lang_summaries, top_n);
+        write_language_section(&mut out, lang_name, lang_summaries, top_n, policy);
     }
 
     out
@@ -507,6 +548,7 @@ fn write_language_section(
     lang_name: &str,
     entries: &[&FunctionSummary],
     top_n: usize,
+    policy: SuppressionPolicy,
 ) {
     let display_name = title_case(lang_name);
     let _ = writeln!(out, "\n## {display_name}\n");
@@ -514,16 +556,16 @@ fn write_language_section(
     let (units, funcs) = sections::split_units_and_functions(entries);
 
     sections::write_summary(out, &units);
-    sections::write_mi_lowest(out, &units, top_n);
-    sections::write_cyclomatic_hotspots(out, &funcs, top_n);
-    sections::write_cognitive_hotspots(out, &funcs, top_n);
-    sections::write_halstead_hotspots(out, &funcs, top_n);
-    sections::write_largest_by_sloc(out, &funcs, top_n);
-    sections::write_many_params(out, &funcs, top_n);
+    sections::write_mi_lowest(out, &units, top_n, policy);
+    sections::write_cyclomatic_hotspots(out, &funcs, top_n, policy);
+    sections::write_cognitive_hotspots(out, &funcs, top_n, policy);
+    sections::write_halstead_hotspots(out, &funcs, top_n, policy);
+    sections::write_largest_by_sloc(out, &funcs, top_n, policy);
+    sections::write_many_params(out, &funcs, top_n, policy);
     sections::write_actionable_summary(out, &funcs);
-    sections::write_wmc_hotspots(out, entries, top_n);
-    sections::write_nexits_hotspots(out, &funcs, top_n);
-    sections::write_abc_hotspots(out, &funcs, top_n);
+    sections::write_wmc_hotspots(out, entries, top_n, policy);
+    sections::write_nexits_hotspots(out, &funcs, top_n, policy);
+    sections::write_abc_hotspots(out, &funcs, top_n, policy);
 }
 
 #[cfg(test)]
@@ -578,6 +620,7 @@ mod tests {
             name: name.to_string(),
             kind,
             language,
+            suppressed: big_code_analysis::SuppressionScope::default(),
             start_line: 1,
             end_line: 10,
             sloc: 20,
@@ -757,7 +800,7 @@ mod tests {
             make_summary("main.py", "main.py", SpaceKind::Unit, LANG::Python),
             make_summary("run", "main.py", SpaceKind::Function, LANG::Python),
         ];
-        let report = generate_report(&summaries, 20);
+        let report = generate_report(&summaries, 20, SuppressionPolicy::Honor);
 
         assert!(report.contains("## Rust"), "missing Rust section header");
         assert!(
@@ -795,7 +838,7 @@ mod tests {
         func.halstead_volume = 0.0;
         func.halstead_bugs = 0.0;
 
-        let report = generate_report(&[unit, func], 20);
+        let report = generate_report(&[unit, func], 20, SuppressionPolicy::Honor);
         assert!(
             !report.contains("### Halstead Effort Hotspots"),
             "Halstead section should be omitted"
@@ -825,7 +868,7 @@ mod tests {
             f.sloc = (i + 1) * 5;
             summaries.push(f);
         }
-        let report = generate_report(&summaries, 5);
+        let report = generate_report(&summaries, 5, SuppressionPolicy::Honor);
 
         // Count data rows (lines starting with "| `") in each section.
         let sections = [
@@ -865,8 +908,8 @@ mod tests {
             make_summary("main.py", "main.py", SpaceKind::Unit, LANG::Python),
             make_summary("run", "main.py", SpaceKind::Function, LANG::Python),
         ];
-        let a = generate_report(&summaries, 10);
-        let b = generate_report(&summaries, 10);
+        let a = generate_report(&summaries, 10, SuppressionPolicy::Honor);
+        let b = generate_report(&summaries, 10, SuppressionPolicy::Honor);
         assert_eq!(a, b, "report must be byte-equal across runs");
     }
 
@@ -875,7 +918,7 @@ mod tests {
         let mut f = make_summary("foo|bar", "dir/a|b.rs", SpaceKind::Function, LANG::Rust);
         f.cyclomatic = 5.0;
         let unit = make_summary("a|b.rs", "dir/a|b.rs", SpaceKind::Unit, LANG::Rust);
-        let report = generate_report(&[unit, f], 20);
+        let report = generate_report(&[unit, f], 20, SuppressionPolicy::Honor);
         // The pipe inside the name must be escaped.
         assert!(
             report.contains("foo\\|bar"),
@@ -892,7 +935,7 @@ mod tests {
         let mut f = make_summary("foo`bar", "src/lib.rs", SpaceKind::Function, LANG::Rust);
         f.cyclomatic = 5.0;
         let unit = make_summary("lib.rs", "src/lib.rs", SpaceKind::Unit, LANG::Rust);
-        let report = generate_report(&[unit, f], 20);
+        let report = generate_report(&[unit, f], 20, SuppressionPolicy::Honor);
         // Backtick in a name is replaced with modifier letter grave accent.
         assert!(
             report.contains("foo\u{02CB}bar"),
@@ -909,7 +952,7 @@ mod tests {
         f.cognitive = f64::NAN;
         f.halstead_effort = f64::NAN;
         // Must not panic.
-        let report = generate_report(&[unit, f], 20);
+        let report = generate_report(&[unit, f], 20, SuppressionPolicy::Honor);
         assert!(report.contains("# Code Quality Metrics Summary"));
     }
 
@@ -951,7 +994,7 @@ mod tests {
 
     #[test]
     fn empty_input() {
-        let report = generate_report(&[], 20);
+        let report = generate_report(&[], 20, SuppressionPolicy::Honor);
         assert!(report.contains("**Files analyzed:** 0"));
         assert!(report.contains("**Functions/methods:** 0"));
         // No per-language sections.
@@ -1083,7 +1126,7 @@ mod tests {
             make_summary("lib.rs", "src/lib.rs", SpaceKind::Unit, LANG::Rust),
             make_summary("f", "src/lib.rs", SpaceKind::Function, LANG::Rust),
         ];
-        let report = generate_report(&summaries, 20);
+        let report = generate_report(&summaries, 20, SuppressionPolicy::Honor);
         assert!(
             report.contains("No major quality concerns detected."),
             "clean codebase should show no-concerns message"
@@ -1100,7 +1143,7 @@ mod tests {
         f.nargs = 5;
         f.halstead_bugs = 2.0;
 
-        let report = generate_report(&[unit, f], 20);
+        let report = generate_report(&[unit, f], 20, SuppressionPolicy::Honor);
         assert!(report.contains("functions with CC > 10"));
         assert!(report.contains("functions with cognitive complexity > 15"));
         assert!(report.contains("functions with SLOC > 100"));
@@ -1115,7 +1158,7 @@ mod tests {
         let mut unit_bad = make_summary("bad.rs", "bad.rs", SpaceKind::Unit, LANG::Rust);
         unit_bad.mi_visual_studio = 15.0;
 
-        let report = generate_report(&[unit_good, unit_bad], 20);
+        let report = generate_report(&[unit_good, unit_bad], 20, SuppressionPolicy::Honor);
         // The bad file should appear first in the MI table.
         let mi_section = report
             .find("### Maintainability Index")
@@ -1142,7 +1185,7 @@ mod tests {
         cls.sloc = 80;
         let func = make_summary("f", "src/lib.rs", SpaceKind::Function, LANG::Rust);
 
-        let report = generate_report(&[unit, cls, func], 20);
+        let report = generate_report(&[unit, cls, func], 20, SuppressionPolicy::Honor);
         assert!(
             report.contains("### Class/Trait/Impl Hotspots (WMC)"),
             "WMC section should be present when class-kind summaries exist"
@@ -1165,7 +1208,7 @@ mod tests {
         let unit = make_summary("lib.rs", "src/lib.rs", SpaceKind::Unit, LANG::Rust);
         let func = make_summary("f", "src/lib.rs", SpaceKind::Function, LANG::Rust);
 
-        let report = generate_report(&[unit, func], 20);
+        let report = generate_report(&[unit, func], 20, SuppressionPolicy::Honor);
         assert!(
             !report.contains("### Class/Trait/Impl Hotspots (WMC)"),
             "WMC section should be absent when no class-kind summaries exist"
@@ -1180,7 +1223,7 @@ mod tests {
         func.cyclomatic = 7.0;
         func.sloc = 40;
 
-        let report = generate_report(&[unit, func], 20);
+        let report = generate_report(&[unit, func], 20, SuppressionPolicy::Honor);
         assert!(
             report.contains("### Functions with the most exit points (NEXITS)"),
             "NEXITS section should be present when functions have exits > 0"
@@ -1203,7 +1246,7 @@ mod tests {
         func.abc = 15.5;
         func.sloc = 35;
 
-        let report = generate_report(&[unit, func], 20);
+        let report = generate_report(&[unit, func], 20, SuppressionPolicy::Honor);
         assert!(
             report.contains("### ABC Magnitude Hotspots"),
             "ABC section should be present when functions have abc > 0"
@@ -1253,7 +1296,7 @@ mod tests {
             f.start_line = 200 + i;
             summaries.push(f);
         }
-        let report = generate_report(&summaries, 3);
+        let report = generate_report(&summaries, 3, SuppressionPolicy::Honor);
 
         let sections = [
             "### Class/Trait/Impl Hotspots (WMC)",
@@ -1296,7 +1339,7 @@ mod tests {
         cls.wmc = 6.0;
         cls.tokens = 99;
 
-        let report = generate_report(&[unit, func, cls], 20);
+        let report = generate_report(&[unit, func, cls], 20, SuppressionPolicy::Honor);
 
         for header in [
             "### Maintainability Index",
@@ -1345,7 +1388,7 @@ mod tests {
         func.nexits = 2;
         func.abc = 0.0;
 
-        let report = generate_report(&[unit, func], 20);
+        let report = generate_report(&[unit, func], 20, SuppressionPolicy::Honor);
         assert!(
             report.contains("### Functions with the most exit points (NEXITS)"),
             "NEXITS section should be present"
@@ -1354,5 +1397,165 @@ mod tests {
             !report.contains("### ABC Magnitude Hotspots"),
             "ABC section should be absent when all abc values are 0"
         );
+    }
+
+    // ── suppression-marker honoring (issue #501) ───────────────────
+
+    use std::collections::BTreeSet;
+
+    /// A `bca: suppress(cyclomatic)` marker on the function-local scope
+    /// must drop it from the Cyclomatic table by default while leaving it
+    /// in the Cognitive table — per-metric, not all-or-nothing.
+    #[test]
+    fn function_scope_suppression_drops_only_its_metric_table() {
+        let unit = make_summary("lib.rs", "src/lib.rs", SpaceKind::Unit, LANG::Rust);
+        let mut func = make_summary("hot", "src/lib.rs", SpaceKind::Function, LANG::Rust);
+        func.cyclomatic = 25.0;
+        func.cognitive = 18.0;
+        func.suppressed = SuppressionScope::Some(BTreeSet::from([MetricKind::Cyclomatic]));
+
+        let report = generate_report(&[unit, func], 20, SuppressionPolicy::Honor);
+
+        let cc = section_body(&report, "### Cyclomatic Complexity Hotspots");
+        assert!(
+            !cc.contains("`hot`"),
+            "suppressed function must be omitted from the Cyclomatic table:\n{cc}"
+        );
+        let cog = section_body(&report, "### Cognitive Complexity Hotspots");
+        assert!(
+            cog.contains("`hot`"),
+            "function suppressed only for cyclomatic must still appear in Cognitive:\n{cog}"
+        );
+    }
+
+    /// `--no-suppress` (SuppressionPolicy::Ignore) re-includes the same
+    /// function in its suppressed metric's table — the audit view.
+    #[test]
+    fn no_suppress_policy_includes_suppressed_function() {
+        let unit = make_summary("lib.rs", "src/lib.rs", SpaceKind::Unit, LANG::Rust);
+        let mut func = make_summary("hot", "src/lib.rs", SpaceKind::Function, LANG::Rust);
+        func.cyclomatic = 25.0;
+        func.suppressed = SuppressionScope::Some(BTreeSet::from([MetricKind::Cyclomatic]));
+
+        let report = generate_report(&[unit, func], 20, SuppressionPolicy::Ignore);
+        let cc = section_body(&report, "### Cyclomatic Complexity Hotspots");
+        assert!(
+            cc.contains("`hot`"),
+            "--no-suppress must include the suppressed function:\n{cc}"
+        );
+    }
+
+    /// A whole-file `bca: suppress-file` (scope `All`) lives on the Unit
+    /// and is folded into every function by `extract_summaries`; here we
+    /// simulate the merged effect on a function summary and confirm it is
+    /// dropped from a hotspot table by default.
+    #[test]
+    fn file_scope_suppression_all_drops_function_from_table() {
+        let unit = make_summary("lib.rs", "src/lib.rs", SpaceKind::Unit, LANG::Rust);
+        let mut func = make_summary("hot", "src/lib.rs", SpaceKind::Function, LANG::Rust);
+        func.cyclomatic = 25.0;
+        func.cognitive = 18.0;
+        // `suppress-file` (no metric list) is `All`; extract_summaries
+        // merges it onto each function's effective scope.
+        func.suppressed = SuppressionScope::All;
+
+        let report = generate_report(&[unit, func], 20, SuppressionPolicy::Honor);
+        let cc = section_body(&report, "### Cyclomatic Complexity Hotspots");
+        assert!(
+            !cc.contains("`hot`"),
+            "file-scoped suppress-all must hide the function from every table:\n{cc}"
+        );
+        assert!(
+            !report.contains("### Cognitive Complexity Hotspots"),
+            "with the only function suppressed, the Cognitive section is empty/absent"
+        );
+
+        let report_audit = generate_report(&[unit2(), func_all()], 20, SuppressionPolicy::Ignore);
+        let cc_audit = section_body(&report_audit, "### Cyclomatic Complexity Hotspots");
+        assert!(
+            cc_audit.contains("`hot`"),
+            "--no-suppress must include the file-suppressed function:\n{cc_audit}"
+        );
+    }
+
+    /// The `exit` MetricKind aliases the `nexits` hotspot table: a
+    /// `bca: suppress(exit)` marker must drop the function from the
+    /// NEXITS table (matching `MetricKind::for_threshold_name`'s alias).
+    #[test]
+    fn exit_suppression_drops_function_from_nexits_table() {
+        let unit = make_summary("lib.rs", "src/lib.rs", SpaceKind::Unit, LANG::Rust);
+        let mut func = make_summary("multi_exit", "src/lib.rs", SpaceKind::Function, LANG::Rust);
+        func.nexits = 5;
+        func.cyclomatic = 0.0;
+        func.cognitive = 0.0;
+        func.abc = 0.0;
+        func.halstead_effort = 0.0;
+        func.suppressed = SuppressionScope::Some(BTreeSet::from([MetricKind::Exit]));
+
+        let report = generate_report(&[unit, func], 20, SuppressionPolicy::Honor);
+        assert!(
+            !report.contains("### Functions with the most exit points (NEXITS)"),
+            "exit-suppressed function must be omitted from the NEXITS table:\n{report}"
+        );
+    }
+
+    /// `extract_summaries` must fold the Unit's `suppress-file` scope into
+    /// every descendant function's effective `suppressed` scope.
+    #[test]
+    fn extract_summaries_folds_file_scope_into_functions() {
+        let mut root = make_space("root.rs", SpaceKind::Unit, 1, 20);
+        root.suppressed = SuppressionScope::Some(BTreeSet::from([MetricKind::Halstead]));
+        let mut func = make_space("f", SpaceKind::Function, 2, 8);
+        func.suppressed = SuppressionScope::Some(BTreeSet::from([MetricKind::Cyclomatic]));
+        root.spaces.push(func);
+
+        let mut out = Vec::new();
+        extract_summaries(&root, "root.rs", LANG::Rust, "", &mut out);
+        assert_eq!(out.len(), 2);
+        // out[1] is the function (pre-order: root then child). Its
+        // effective scope is the union of the file scope (halstead) and
+        // its own scope (cyclomatic).
+        let f = &out[1];
+        assert_eq!(f.name, "f");
+        assert!(
+            f.suppressed.covers(MetricKind::Halstead),
+            "file scope merged"
+        );
+        assert!(
+            f.suppressed.covers(MetricKind::Cyclomatic),
+            "own scope kept"
+        );
+        assert!(
+            !f.suppressed.covers(MetricKind::Cognitive),
+            "unrelated metric untouched"
+        );
+    }
+
+    /// Helpers for `file_scope_suppression_all_drops_function_from_table`'s
+    /// audit-view assertion (the first pair is moved by value into the
+    /// honor-view report).
+    fn unit2() -> FunctionSummary {
+        make_summary("lib.rs", "src/lib.rs", SpaceKind::Unit, LANG::Rust)
+    }
+    fn func_all() -> FunctionSummary {
+        let mut func = make_summary("hot", "src/lib.rs", SpaceKind::Function, LANG::Rust);
+        func.cyclomatic = 25.0;
+        func.suppressed = SuppressionScope::All;
+        func
+    }
+
+    /// Slice the rendered report from `header` to the next `##`/`###`
+    /// heading (or end), so a per-section membership assertion does not
+    /// accidentally match a name appearing in a different table.
+    fn section_body<'a>(report: &'a str, header: &str) -> &'a str {
+        let Some(start) = report.find(header) else {
+            return "";
+        };
+        let rest = &report[start..];
+        let end = rest[1..]
+            .find("\n## ")
+            .or_else(|| rest[1..].find("\n### "))
+            .map_or(rest.len(), |p| p + 1);
+        &rest[..end]
     }
 }

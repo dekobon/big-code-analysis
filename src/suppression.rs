@@ -238,8 +238,9 @@ impl SuppressionScope {
 
     /// Merge `other` into `self`. `All` absorbs everything; otherwise
     /// the two sets union. Used when multiple markers stack on the
-    /// same function or file.
-    pub(crate) fn merge(&mut self, other: &SuppressionScope) {
+    /// same function or file, and by report consumers to fold a file's
+    /// `suppress-file` scope into each function's own scope (issue #501).
+    pub fn merge(&mut self, other: &SuppressionScope) {
         match (&mut *self, other) {
             (Self::All, _) => {}
             (slot, Self::All) => *slot = Self::All,

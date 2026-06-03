@@ -203,3 +203,53 @@ fn known_keys_covers_cyclomatic_count_try() {
         "cyclomatic_count_try is consumed but flagged as unknown"
     );
 }
+
+/// The `[report]` table (#501) must be on the allowlist; otherwise the
+/// typed parse honors it while `warn_unknown_keys` prints a misleading
+/// "ignoring unrecognized key `report`" warning.
+#[test]
+fn known_keys_covers_report_table() {
+    let text = "[report]\nno_suppress = true\n";
+    let raw: RawManifest = toml::from_str(text).expect("typed parse");
+    assert_eq!(raw.report.no_suppress, Some(true));
+    assert!(
+        unknown_top_level_keys(text).is_empty(),
+        "[report] is consumed but flagged as unknown"
+    );
+}
+
+/// `[report] no_suppress = true` enables the audit view when the CLI
+/// did not pass `--no-suppress`; a bare CLI flag can still force it on,
+/// but the manifest never forces it off (OR semantics, like
+/// `baseline_fuzzy_match`).
+#[test]
+fn merge_report_enables_no_suppress_from_manifest() {
+    let m = manifest(
+        toml::from_str("[report]\nno_suppress = true\n").expect("parse"),
+    );
+    let mut args = report_args(false);
+    m.merge_report(&mut args);
+    assert!(args.no_suppress, "manifest must enable the audit view");
+
+    // Absent / false manifest key leaves an explicit CLI opt-in intact
+    // and does not turn a default-honor run into audit.
+    let m_default = manifest(RawManifest::default());
+    let mut honor = report_args(false);
+    m_default.merge_report(&mut honor);
+    assert!(!honor.no_suppress, "default honors markers");
+    let mut already_on = report_args(true);
+    m_default.merge_report(&mut already_on);
+    assert!(already_on.no_suppress, "CLI opt-in survives empty manifest");
+}
+
+/// Build a `ReportArgs` for merge tests with the given `no_suppress`
+/// flag; other fields take their non-interesting defaults.
+fn report_args(no_suppress: bool) -> ReportArgs {
+    ReportArgs {
+        format: crate::formats::ReportFormat::Markdown,
+        output: None,
+        top: 20,
+        strip_prefix: String::new(),
+        no_suppress,
+    }
+}
