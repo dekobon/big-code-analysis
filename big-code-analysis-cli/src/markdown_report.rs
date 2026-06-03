@@ -1483,6 +1483,7 @@ mod tests {
     /// NEXITS table (matching `MetricKind::for_threshold_name`'s alias).
     #[test]
     fn exit_suppression_drops_function_from_nexits_table() {
+        const NEXITS_HEADER: &str = "### Functions with the most exit points (NEXITS)";
         let unit = make_summary("lib.rs", "src/lib.rs", SpaceKind::Unit, LANG::Rust);
         let mut func = make_summary("multi_exit", "src/lib.rs", SpaceKind::Function, LANG::Rust);
         func.nexits = 5;
@@ -1493,7 +1494,6 @@ mod tests {
         func.suppressed = SuppressionScope::Some(BTreeSet::from([MetricKind::Exit]));
 
         let summaries = vec![unit, func];
-        const NEXITS_HEADER: &str = "### Functions with the most exit points (NEXITS)";
 
         let honored = generate_report(&summaries, 20, SuppressionPolicy::Honor);
         assert!(
