@@ -148,19 +148,13 @@ pub fn write_sarif_with_suppressed<W: Write>(
     // BTreeSet so the rules array is deterministic (alphabetical by id).
     let mut rule_ids: BTreeSet<&str> = BTreeSet::new();
 
-    collect_results(active, None, &mut results, &mut rule_ids);
-    collect_results(
-        in_source,
-        Some(SuppressionOrigin::InSource),
-        &mut results,
-        &mut rule_ids,
-    );
-    collect_results(
-        baseline,
-        Some(SuppressionOrigin::Baseline),
-        &mut results,
-        &mut rule_ids,
-    );
+    for (offenders, origin) in [
+        (active, None),
+        (in_source, Some(SuppressionOrigin::InSource)),
+        (baseline, Some(SuppressionOrigin::Baseline)),
+    ] {
+        collect_results(offenders, origin, &mut results, &mut rule_ids);
+    }
 
     let rules: Vec<Rule<'_>> = rule_ids
         .iter()

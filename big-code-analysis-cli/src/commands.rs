@@ -939,22 +939,18 @@ fn emit_check_results(
             .into_iter()
             .map(|(v, _)| violation_to_offender(v))
             .collect();
-        // `--report-suppressed` only the SARIF format can represent
-        // suppression; route active + suppressed offenders through the
-        // suppression-aware writer there. For every other format (and the
-        // default no-suppressed case) fall back to the plain dump so output
-        // is byte-for-byte unchanged.
-        if !suppressed.is_empty() && matches!(fmt, check_format::AggregatedFormat::Sarif) {
-            check_format::dump_sarif_with_suppressed(
-                &offenders,
-                suppressed,
-                args.output.as_deref(),
-            )
-            .unwrap_or_else(|e| die(format_args!("failed to write {}: {e}", fmt.name())));
+        // Only the SARIF format can represent suppression, so route active +
+        // suppressed offenders through the suppression-aware writer there. For
+        // every other format (and the default no-suppressed case) fall back to
+        // the plain dump so output is byte-for-byte unchanged.
+        let written = if !suppressed.is_empty()
+            && matches!(fmt, check_format::AggregatedFormat::Sarif)
+        {
+            check_format::dump_sarif_with_suppressed(&offenders, suppressed, args.output.as_deref())
         } else {
             fmt.dump(&offenders, args.output.as_deref())
-                .unwrap_or_else(|e| die(format_args!("failed to write {}: {e}", fmt.name())));
-        }
+        };
+        written.unwrap_or_else(|e| die(format_args!("failed to write {}: {e}", fmt.name())));
     }
 }
 
