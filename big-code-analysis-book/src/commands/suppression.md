@@ -201,11 +201,19 @@ bca check --output-format sarif --no-fail --report-suppressed \
 
 Offenders silenced by an in-source marker or covered by the baseline are
 emitted into the SARIF document with a SARIF `suppressions` entry —
-`kind: "inSource"` for markers, `kind: "external"` for the baseline. GitHub
-Code Scanning renders these as *suppressed (closed)* alerts: the debt stays
-visible for tracking, but it does not count against the open-alert total
-and never fails the gate (exit code and the human stderr stream are
-unaffected).
+`kind: "inSource"` for markers, `kind: "external"` for the baseline. The
+suppression never fails the gate (exit code and the human stderr stream are
+unaffected); the `suppressions` entry lets downstream tooling tell
+suppressed debt apart from active offenders.
+
+> **GitHub Code Scanning caveat.** GitHub does **not** honor the SARIF
+> `suppressions` property natively — it ingests suppressed results as
+> *open* alerts, not closed ones. To dismiss them on the Security tab you
+> need a follow-up step such as the
+> [`advanced-security/dismiss-alerts`](https://github.com/advanced-security/dismiss-alerts)
+> action, which reads `suppressions[]` and dismisses the matching alerts.
+> If you only want active offenders to appear, omit `--report-suppressed`
+> from the upload (this repo's own Pages workflow does exactly that).
 
 Notes:
 
