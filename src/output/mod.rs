@@ -21,7 +21,7 @@ pub mod csv;
 pub use csv::{CSV_EXTENSION, CSV_HEADER, write_csv};
 
 pub mod sarif;
-pub use sarif::write_sarif;
+pub use sarif::{write_sarif, write_sarif_with_suppressed};
 
 pub mod code_climate;
 pub use code_climate::write_code_climate;

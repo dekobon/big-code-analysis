@@ -183,6 +183,36 @@ The flag has no effect on metric values themselves: raw
 `bca metrics` / `bca report` output already ignores markers, since
 suppression is a threshold-check concern only.
 
+## Surfacing suppressed debt (`--report-suppressed`)
+
+Suppression keeps an offender out of the gate, which also keeps it out of
+the `--output-format` document — so a suppressed module disappears from the
+code-scan report entirely. `bca check --report-suppressed` puts it back, as
+*suppressed* rather than active:
+
+```bash
+bca check --output-format sarif --no-fail --report-suppressed \
+    --tier soft --headroom 0.95 --output bca.sarif
+```
+
+Offenders silenced by an in-source marker or covered by the baseline are
+emitted into the SARIF document with a SARIF `suppressions` entry —
+`kind: "inSource"` for markers, `kind: "external"` for the baseline. GitHub
+Code Scanning renders these as *suppressed (closed)* alerts: the debt stays
+visible for tracking, but it does not count against the open-alert total
+and never fails the gate (exit code and the human stderr stream are
+unaffected).
+
+Notes:
+
+- Only the SARIF format represents suppression; other `--output-format`
+  values ignore the flag and emit the active offenders alone.
+- Pair it with `--tier soft --headroom 0.95` (matching your baseline's
+  provenance) so baseline-covered offenders that sit below the hard limit
+  still appear.
+- Mutually exclusive with `--no-suppress` (which un-silences markers to
+  show the raw offender list) and `--write-baseline`.
+
 ## Auditing exemptions (`bca exemptions`)
 
 `--no-suppress` shows you the offenders a marker *silences*, but not

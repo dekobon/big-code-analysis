@@ -1,6 +1,7 @@
-// bca: suppress-file(halstead, nargs)
+// bca: suppress-file(halstead, nargs, nom)
 // SARIF serializer; the offenders are mechanical-writer and many-fn
-// aggregation artifacts, not per-function logic complexity.
+// aggregation artifacts (one small Serialize struct / writer per SARIF
+// node), not per-function logic complexity.
 
 //! SARIF 2.1.0 writer for [`OffenderRecord`] batches.
 //!
@@ -114,44 +115,52 @@ fn hex_digit(nibble: u8) -> char {
 /// Returns any [`io::Error`] produced by `writer` while emitting the
 /// SARIF JSON document, or a `serde_json::Error` (mapped to `io::Error`
 /// via `io::Error::other`) if a record cannot be serialised.
-pub fn write_sarif<W: Write>(offenders: &[OffenderRecord], mut writer: W) -> io::Result<()> {
-    let mut results: Vec<SarifResult<'_>> = Vec::with_capacity(offenders.len());
+pub fn write_sarif<W: Write>(offenders: &[OffenderRecord], writer: W) -> io::Result<()> {
+    write_sarif_with_suppressed(offenders, &[], &[], writer)
+}
+
+/// Write a SARIF 2.1.0 document that also surfaces *suppressed* offenders.
+///
+/// `active` offenders are emitted as ordinary results (open findings).
+/// `in_source` and `baseline` offenders are emitted with a SARIF
+/// `suppressions` entry (`kind: "inSource"` and `kind: "external"`
+/// respectively) so consumers such as GitHub Code Scanning render them as
+/// suppressed/closed alerts rather than active findings — the debt stays
+/// visible without counting against the open-alert total. This backs
+/// `bca check --report-suppressed`, which keeps suppression-marker and
+/// baseline-covered offenders out of the gate yet records them in the
+/// code-scan report.
+///
+/// `write_sarif` is the `active`-only special case.
+///
+/// # Errors
+///
+/// Same contract as [`write_sarif`]: any [`io::Error`] from `writer`, or a
+/// serialisation failure mapped to `io::Error`.
+pub fn write_sarif_with_suppressed<W: Write>(
+    active: &[OffenderRecord],
+    in_source: &[OffenderRecord],
+    baseline: &[OffenderRecord],
+    mut writer: W,
+) -> io::Result<()> {
+    let mut results: Vec<SarifResult<'_>> =
+        Vec::with_capacity(active.len() + in_source.len() + baseline.len());
     // BTreeSet so the rules array is deterministic (alphabetical by id).
     let mut rule_ids: BTreeSet<&str> = BTreeSet::new();
 
-    for record in offenders {
-        let Some(path_str) = warn_non_utf8_path("SARIF", &record.path) else {
-            continue;
-        };
-        rule_ids.insert(record.metric.as_str());
-
-        let logical_locations = record.function.as_deref().map(|name| {
-            vec![LogicalLocation {
-                fully_qualified_name: name,
-            }]
-        });
-
-        results.push(SarifResult {
-            rule_id: &record.metric,
-            level: record.severity.as_str(),
-            message: Message {
-                text: record.default_message(),
-            },
-            locations: vec![Location {
-                physical_location: PhysicalLocation {
-                    artifact_location: ArtifactLocation {
-                        uri: path_to_uri_reference(path_str),
-                    },
-                    region: Region {
-                        start_line: record.start_line.max(1),
-                        end_line: Some(record.end_line.max(record.start_line.max(1))),
-                        start_column: record.start_col,
-                    },
-                },
-                logical_locations,
-            }],
-        });
-    }
+    collect_results(active, None, &mut results, &mut rule_ids);
+    collect_results(
+        in_source,
+        Some(SuppressionOrigin::InSource),
+        &mut results,
+        &mut rule_ids,
+    );
+    collect_results(
+        baseline,
+        Some(SuppressionOrigin::Baseline),
+        &mut results,
+        &mut rule_ids,
+    );
 
     let rules: Vec<Rule<'_>> = rule_ids
         .iter()
@@ -184,6 +193,87 @@ pub fn write_sarif<W: Write>(offenders: &[OffenderRecord], mut writer: W) -> io:
     // newline; add one so the output is POSIX-friendly and snapshot
     // diffs stay clean.
     writer.write_all(b"\n")
+}
+
+/// Append one [`SarifResult`] per offender in `offenders`, tagging each
+/// with `origin` (when `Some`) via the SARIF `suppressions` property.
+/// Non-UTF-8 paths are skipped with a warning (SARIF `uri` must be UTF-8).
+fn collect_results<'a>(
+    offenders: &'a [OffenderRecord],
+    origin: Option<SuppressionOrigin>,
+    results: &mut Vec<SarifResult<'a>>,
+    rule_ids: &mut BTreeSet<&'a str>,
+) {
+    for record in offenders {
+        let Some(path_str) = warn_non_utf8_path("SARIF", &record.path) else {
+            continue;
+        };
+        rule_ids.insert(record.metric.as_str());
+
+        let logical_locations = record.function.as_deref().map(|name| {
+            vec![LogicalLocation {
+                fully_qualified_name: name,
+            }]
+        });
+
+        results.push(SarifResult {
+            rule_id: &record.metric,
+            level: record.severity.as_str(),
+            message: Message {
+                text: record.default_message(),
+            },
+            locations: vec![Location {
+                physical_location: PhysicalLocation {
+                    artifact_location: ArtifactLocation {
+                        uri: path_to_uri_reference(path_str),
+                    },
+                    region: Region {
+                        start_line: record.start_line.max(1),
+                        end_line: Some(record.end_line.max(record.start_line.max(1))),
+                        start_column: record.start_col,
+                    },
+                },
+                logical_locations,
+            }],
+            suppressions: origin.map(|o| {
+                vec![Suppression {
+                    kind: o.sarif_kind(),
+                    justification: o.justification(&record.metric),
+                }]
+            }),
+        });
+    }
+}
+
+/// Why a surfaced offender is exempt from the `bca check` gate, mapped to a
+/// SARIF `suppressions[].kind`. Emitted by [`write_sarif_with_suppressed`]
+/// so suppressed debt appears as a *closed* code-scan alert.
+#[derive(Debug, Clone, Copy)]
+enum SuppressionOrigin {
+    /// Silenced by an in-source `bca: suppress` / `suppress-file` marker.
+    InSource,
+    /// Within a recorded `.bca-baseline.toml` entry.
+    Baseline,
+}
+
+impl SuppressionOrigin {
+    /// SARIF 2.1.0 `suppressions[].kind`: `inSource` for source markers,
+    /// `external` for the out-of-band baseline file.
+    fn sarif_kind(self) -> &'static str {
+        match self {
+            Self::InSource => "inSource",
+            Self::Baseline => "external",
+        }
+    }
+
+    fn justification(self, metric: &str) -> String {
+        match self {
+            Self::InSource => {
+                format!("metric '{metric}' silenced by an in-source bca suppression marker")
+            }
+            Self::Baseline => format!("metric '{metric}' within the recorded bca baseline"),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -231,6 +321,20 @@ struct SarifResult<'a> {
     level: &'static str,
     message: Message,
     locations: Vec<Location<'a>>,
+    /// SARIF `suppressions`: present (non-empty) marks the result as a
+    /// suppressed/closed alert. Elided for active findings so existing
+    /// `write_sarif` output is byte-for-byte unchanged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    suppressions: Option<Vec<Suppression>>,
+}
+
+/// One SARIF 2.1.0 `suppressions` entry. A non-empty `suppressions` array
+/// tells consumers the result is suppressed; `kind` distinguishes in-source
+/// markers (`inSource`) from the external baseline file (`external`).
+#[derive(Serialize)]
+struct Suppression {
+    kind: &'static str,
+    justification: String,
 }
 
 #[derive(Serialize)]
@@ -352,6 +456,66 @@ mod tests {
         let rule = &v["runs"][0]["tool"]["driver"]["rules"][0];
         assert_eq!(rule["id"], "cyclomatic");
         assert!(rule["shortDescription"]["text"].is_string());
+    }
+
+    #[test]
+    fn write_sarif_omits_suppressions_for_active_results() {
+        // The active-only `write_sarif` path must never emit a
+        // `suppressions` key, so existing Code Scanning output (and
+        // snapshot consumers) stay byte-for-byte unchanged.
+        let out = render(&[rec("src/foo.rs", "cyclomatic", 17.0, 15.0)]);
+        assert!(
+            !out.contains("suppressions"),
+            "active result must not carry a suppressions array:\n{out}"
+        );
+    }
+
+    #[test]
+    fn suppressed_offenders_carry_suppressions_with_kind() {
+        let active = vec![rec("src/active.rs", "cyclomatic", 17.0, 15.0)];
+        let in_source = vec![rec("src/marked.rs", "halstead.effort", 9e4, 5e4)];
+        let baseline = vec![rec("src/legacy.rs", "cognitive", 26.0, 25.0)];
+
+        let mut buf = Vec::new();
+        write_sarif_with_suppressed(&active, &in_source, &baseline, &mut buf)
+            .expect("writing to Vec is infallible");
+        let v: serde_json::Value =
+            serde_json::from_str(&String::from_utf8(buf).expect("utf8")).expect("valid JSON");
+        let results = v["runs"][0]["results"].as_array().expect("array");
+        assert_eq!(results.len(), 3);
+
+        // Active result: no suppressions key (open finding).
+        let active_r = results
+            .iter()
+            .find(|r| {
+                r["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] == "src/active.rs"
+            })
+            .expect("active result present");
+        assert!(active_r.get("suppressions").is_none());
+
+        // In-source marker → kind "inSource".
+        let marked = results
+            .iter()
+            .find(|r| {
+                r["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] == "src/marked.rs"
+            })
+            .expect("in-source result present");
+        assert_eq!(marked["suppressions"][0]["kind"], "inSource");
+        assert!(
+            marked["suppressions"][0]["justification"]
+                .as_str()
+                .expect("justification string")
+                .contains("in-source")
+        );
+
+        // Baseline-covered → kind "external".
+        let legacy = results
+            .iter()
+            .find(|r| {
+                r["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] == "src/legacy.rs"
+            })
+            .expect("baseline result present");
+        assert_eq!(legacy["suppressions"][0]["kind"], "external");
     }
 
     #[test]

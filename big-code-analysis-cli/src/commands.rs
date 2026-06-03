@@ -132,22 +132,38 @@ fn run_check(
             .unwrap_or(baseline::DEFAULT_LINE_TOLERANCE),
         args.baseline_fuzzy_match,
         provenance,
+        args.report_suppressed,
     );
-    let pairs = apply_changed_only(pairs, scope.as_ref(), args.changed_only);
-    let any_violations = !pairs.is_empty();
-    // Categorise the kept violations for the exit-code contract (#385)
-    // before `emit_check_results` consumes `pairs`.
-    let outcome = classify_check_outcome(&pairs, args.tier, &hard_limits);
+    // Split the report-only suppressed debt (in-source markers + baseline-
+    // covered offenders, present only under `--report-suppressed`) from the
+    // active offenders. Suppressed debt is surfaced in the code-scan
+    // document but never reaches the gate: exit code, stderr stream, and
+    // remediation are all driven by `active` alone. The default path leaves
+    // `suppressed` empty, so behaviour is byte-for-byte unchanged.
+    let (active, suppressed): (Vec<_>, Vec<_>) = pairs.into_iter().partition(|(v, coverage)| {
+        !v.suppressed && !matches!(coverage, Some(Coverage::Covered { .. }))
+    });
+    let active = apply_changed_only(active, scope.as_ref(), args.changed_only);
+    let any_violations = !active.is_empty();
+    // Categorise the active violations for the exit-code contract (#385)
+    // before `emit_check_results` consumes them.
+    let outcome = classify_check_outcome(&active, args.tier, &hard_limits);
     // Build the remediation block ONLY when we have something to
-    // remediate. Empty pairs (clean run) get no trailing block —
+    // remediate. Empty active set (clean run) gets no trailing block —
     // there is no baseline to refresh and no artifact worth pointing
-    // at.
+    // at. Suppressed debt is informational and never remediated here.
     let remediation = if any_violations {
         format_remediation_block(&globals_for_remediation, &args)
     } else {
         None
     };
-    emit_check_results(pairs, &args, scope.as_ref(), remediation.as_deref());
+    emit_check_results(
+        active,
+        suppressed,
+        &args,
+        scope.as_ref(),
+        remediation.as_deref(),
+    );
 
     // `--no-fail` always forces exit 0; otherwise map the outcome to the
     // process exit code (tiered when `--strict-exit-codes` is set, the
@@ -545,6 +561,7 @@ fn run_check_walk(
         check_tx: Some(Mutex::new(tx)),
         files_dispatched: Some(Arc::clone(&files_dispatched)),
         suppression_policy: SuppressionPolicy::from_no_suppress(args.no_suppress),
+        report_suppressed: args.report_suppressed,
         // Compute body hashes during the walk only when fuzzy matching
         // is requested — whether for a `--baseline` read or to populate
         // `body_hash` in a `--write-baseline` write.
@@ -676,6 +693,7 @@ fn filter_by_baseline(
     tolerance: usize,
     fuzzy: bool,
     provenance: baseline::Provenance,
+    keep_covered: bool,
 ) -> Vec<(Violation, Option<Coverage>)> {
     let Some(path) = baseline_path else {
         return violations.into_iter().map(|v| (v, None)).collect();
@@ -692,7 +710,11 @@ fn filter_by_baseline(
     let kept: Vec<_> = violations
         .into_iter()
         .filter_map(|v| match baseline.classify(&v) {
-            Coverage::Covered { .. } => None,
+            // `--report-suppressed` keeps baseline-covered offenders (tagged
+            // `Covered`) so they can be surfaced as `external` suppressions
+            // in the document; the split in `run_check` keeps them out of the
+            // gate. The default path still drops them entirely.
+            Coverage::Covered { .. } if !keep_covered => None,
             c => Some((v, Some(c))),
         })
         .collect();
@@ -856,6 +878,7 @@ fn apply_changed_only_inner(
 
 fn emit_check_results(
     pairs: Vec<(Violation, Option<Coverage>)>,
+    suppressed: Vec<(Violation, Option<Coverage>)>,
     args: &CheckArgs,
     scope: Option<&diff::DiffScope>,
     remediation: Option<&str>,
@@ -916,8 +939,22 @@ fn emit_check_results(
             .into_iter()
             .map(|(v, _)| violation_to_offender(v))
             .collect();
-        fmt.dump(&offenders, args.output.as_deref())
+        // `--report-suppressed` only the SARIF format can represent
+        // suppression; route active + suppressed offenders through the
+        // suppression-aware writer there. For every other format (and the
+        // default no-suppressed case) fall back to the plain dump so output
+        // is byte-for-byte unchanged.
+        if !suppressed.is_empty() && matches!(fmt, check_format::AggregatedFormat::Sarif) {
+            check_format::dump_sarif_with_suppressed(
+                &offenders,
+                suppressed,
+                args.output.as_deref(),
+            )
             .unwrap_or_else(|e| die(format_args!("failed to write {}: {e}", fmt.name())));
+        } else {
+            fmt.dump(&offenders, args.output.as_deref())
+                .unwrap_or_else(|e| die(format_args!("failed to write {}: {e}", fmt.name())));
+        }
     }
 }
 
@@ -1811,6 +1848,7 @@ fn run_command_init(globals: GlobalOpts, args: InitArgs, preproc: Option<Arc<Pre
             config: Some(manifest_path.clone()),
             no_fail: false,
             no_suppress: false,
+            report_suppressed: false,
             output_format: None,
             output: None,
             baseline: None,

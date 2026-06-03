@@ -19,6 +19,7 @@ fn violation(path: &str, function: &str, value: f64, limit: f64) -> Violation {
         value,
         limit,
         body_hash: None,
+        suppressed: false,
     }
 }
 
@@ -326,6 +327,7 @@ fn base_check_args() -> CheckArgs {
         config: None,
         no_fail: false,
         no_suppress: false,
+        report_suppressed: false,
         output_format: None,
         output: None,
         baseline: None,

@@ -23,6 +23,21 @@ for historical reference.
 
 ### Added
 
+- `bca check --report-suppressed`: surface the debt the gate tolerates in
+  the code-scan document instead of dropping it. Offenders silenced by an
+  in-source `bca: suppress` marker or covered by the baseline stay out of
+  the gate (exit code and human stream unchanged) but are emitted into the
+  `--output-format sarif` document carrying a SARIF `suppressions` entry
+  (`kind: "inSource"` for markers, `"external"` for the baseline) — GitHub
+  Code Scanning renders them as suppressed (closed) alerts so the debt
+  stays visible without counting against the open-alert total. Only the
+  SARIF format represents suppression; the flag is mutually exclusive with
+  `--no-suppress` and `--write-baseline`. The repo's own Pages workflow
+  opts in so the published self-scan alerts include the suppressed debt.
+- Library: new `write_sarif_with_suppressed(active, in_source, baseline,
+  writer)` writer that emits SARIF `suppressions` entries for suppressed
+  offenders. `write_sarif` is unchanged (the active-only special case),
+  so existing output is byte-for-byte identical.
 - `bca diff`: compare two `bca metrics -O json` runs (single JSON files
   or directory trees), bucketing per-file metric deltas by metric in
   `tty` / `markdown` / `json` form, with `--min-change` and `--metric`

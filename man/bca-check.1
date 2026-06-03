@@ -4,7 +4,7 @@
 .SH NAME
 bca\-check \- Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed". `\-\-strict\-exit\-codes` opts into tiered codes (2\-5) that split the violation case by severity
 .SH SYNOPSIS
-\fBbca\-check\fR [\fB\-\-threshold\fR] [\fB\-\-config\fR] [\fB\-\-no\-fail\fR] [\fB\-\-no\-suppress\fR] [\fB\-O\fR|\fB\-\-output\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-baseline\fR] [\fB\-\-write\-baseline\fR] [\fB\-\-no\-summary\fR] [\fB\-\-since\fR] [\fB\-\-changed\-only\fR] [\fB\-\-github\-annotations\fR] [\fB\-\-summary\-file\fR] [\fB\-\-no\-remediation\fR] [\fB\-\-print\-effective\-config\fR] [\fB\-\-headroom\fR] [\fB\-\-tier\fR] [\fB\-\-strict\-exit\-codes\fR] [\fB\-\-baseline\-line\-tolerance\fR] [\fB\-\-baseline\-fuzzy\-match\fR] [\fB\-\-check\-exclude\fR] [\fB\-\-check\-exclude\-from\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+\fBbca\-check\fR [\fB\-\-threshold\fR] [\fB\-\-config\fR] [\fB\-\-no\-fail\fR] [\fB\-\-no\-suppress\fR] [\fB\-\-report\-suppressed\fR] [\fB\-O\fR|\fB\-\-output\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-baseline\fR] [\fB\-\-write\-baseline\fR] [\fB\-\-no\-summary\fR] [\fB\-\-since\fR] [\fB\-\-changed\-only\fR] [\fB\-\-github\-annotations\fR] [\fB\-\-summary\-file\fR] [\fB\-\-no\-remediation\fR] [\fB\-\-print\-effective\-config\fR] [\fB\-\-headroom\fR] [\fB\-\-tier\fR] [\fB\-\-strict\-exit\-codes\fR] [\fB\-\-baseline\-line\-tolerance\fR] [\fB\-\-baseline\-fuzzy\-match\fR] [\fB\-\-check\-exclude\fR] [\fB\-\-check\-exclude\-from\fR] [\fB\-h\fR|\fB\-\-help\fR] 
 .SH DESCRIPTION
 Check per\-function metrics against thresholds. Exits 2 when any threshold is exceeded; reserve exit 1 for tool errors so CI can distinguish "metric regression" from "tool crashed". `\-\-strict\-exit\-codes` opts into tiered codes (2\-5) that split the violation case by severity
 .SH OPTIONS
@@ -22,6 +22,9 @@ Print offenders to stderr but exit 0 even when thresholds are exceeded. Useful w
 .TP
 \fB\-\-no\-suppress\fR
 Ignore in\-source suppression markers (`bca: suppress`, `#lizard forgives`, etc.). Every threshold violation is reported regardless of comment\-based silencers. CI auditors pass this to see the raw, un\-silenced offender list
+.TP
+\fB\-\-report\-suppressed\fR
+Surface suppressed debt in the offender document instead of dropping it. Offenders silenced by an in\-source `bca: suppress` marker or covered by the baseline are still kept out of the gate (exit code and human stream are unaffected), but are emitted into the `\-\-output\-format sarif` document carrying a SARIF `suppressions` entry — GitHub Code Scanning renders them as suppressed (closed) alerts so the debt stays visible. Only the SARIF format represents suppression; other formats ignore the flag. Mutually exclusive with `\-\-no\-suppress` (which un\-silences markers) and `\-\-write\-baseline`
 .TP
 \fB\-O\fR, \fB\-\-output\-format\fR \fI<OUTPUT_FORMAT>\fR
 CI/IDE document format for offender records (Checkstyle 4.3 XML, SARIF 2.1.0 JSON, GitLab Code Climate JSON, clang/GCC warning lines, MSVC warning lines). When omitted, only the human\-readable stderr stream is emitted; the exit\-code contract is unaffected

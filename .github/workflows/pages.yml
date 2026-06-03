@@ -281,9 +281,19 @@ jobs:
       # manifest — same config the gate uses — so the published alerts
       # match the gate's offender set. `if: always()` mirrors the report
       # steps: the SARIF is most useful precisely when CI is red.
+      #
+      # `--report-suppressed` surfaces the debt the gate tolerates —
+      # in-source `bca: suppress` markers and baseline-covered offenders —
+      # as SARIF `suppressions` entries, so Code Scanning shows them as
+      # suppressed (closed) alerts: visible for tracking without counting
+      # against the open-alert total. `--tier soft --headroom 0.95`
+      # matches the baseline's provenance so baseline-covered offenders
+      # below the hard limit (the cognitive entries) still appear.
       - name: Generate self-scan SARIF
         if: always()
-        run: bca check --output-format sarif --no-fail --output bca.sarif
+        run: >-
+          bca check --output-format sarif --no-fail --report-suppressed
+          --tier soft --headroom 0.95 --output bca.sarif
 
       # Fork PRs get a read-only GITHUB_TOKEN without security-events
       # scope, so the upload would error; skip it there (and when no

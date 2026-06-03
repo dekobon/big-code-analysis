@@ -436,6 +436,18 @@ struct CheckArgs {
     /// pass this to see the raw, un-silenced offender list.
     #[clap(long = "no-suppress")]
     no_suppress: bool,
+    /// Surface suppressed debt in the offender document instead of
+    /// dropping it. Offenders silenced by an in-source `bca: suppress`
+    /// marker or covered by the baseline are still kept out of the gate
+    /// (exit code and human stream are unaffected), but are emitted into
+    /// the `--output-format sarif` document carrying a SARIF
+    /// `suppressions` entry — GitHub Code Scanning renders them as
+    /// suppressed (closed) alerts so the debt stays visible. Only the
+    /// SARIF format represents suppression; other formats ignore the
+    /// flag. Mutually exclusive with `--no-suppress` (which un-silences
+    /// markers) and `--write-baseline`.
+    #[clap(long = "report-suppressed", conflicts_with_all = ["no_suppress", "write_baseline"])]
+    report_suppressed: bool,
     /// CI/IDE document format for offender records (Checkstyle 4.3 XML,
     /// SARIF 2.1.0 JSON, GitLab Code Climate JSON, clang/GCC warning
     /// lines, MSVC warning lines). When omitted, only the
@@ -961,6 +973,11 @@ struct Config {
     /// other action so the new code path is invisible to existing
     /// flows. Flipped to `Ignore` by `--no-suppress`.
     suppression_policy: SuppressionPolicy,
+    /// When true (set by `bca check --report-suppressed`), marker-suppressed
+    /// offenders are kept and tagged rather than dropped, so the code-scan
+    /// document can surface them as suppressed alerts. They still never reach
+    /// the gate or exit code. Defaults off for every action.
+    report_suppressed: bool,
     warning: bool,
     /// When true, files whose head matches a generated-code marker are
     /// skipped before parsing. Defaults on; flipped off by
@@ -1017,6 +1034,7 @@ impl Config {
             exemptions_tx: None,
             files_dispatched: None,
             suppression_policy: SuppressionPolicy::Honor,
+            report_suppressed: false,
             warning: globals.warning,
             skip_generated: !globals.no_skip_generated,
             report_skipped: globals.report_skipped,

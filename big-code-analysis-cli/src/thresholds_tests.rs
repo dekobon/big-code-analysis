@@ -227,6 +227,7 @@ fn violation_display_is_stable() {
         value: 17.0,
         limit: 15.0,
         body_hash: None,
+        suppressed: false,
     };
     assert_eq!(
         v.to_string(),
@@ -245,6 +246,7 @@ fn violation_display_keeps_fractional_precision() {
         value: 12.5,
         limit: 10.0,
         body_hash: None,
+        suppressed: false,
     };
     assert!(v.to_string().contains("= 12.5"), "{v}");
     assert!(v.to_string().contains("limit 10)"), "{v}");
@@ -278,6 +280,7 @@ fn violation_path_preserves_non_utf8_bytes() {
         value: 5.0,
         limit: 1.0,
         body_hash: None,
+        suppressed: false,
     };
 
     // Raw bytes round-trip identically — no lossy substitution.
@@ -331,11 +334,40 @@ fn honor_policy_suppresses_matching_function_scope() {
         Path::new("fixture.rs"),
         &s,
         SuppressionPolicy::Honor,
+        false,
         &mut out,
     );
     assert!(
         out.is_empty(),
         "matching function-scoped marker should silence, got {out:?}",
+    );
+}
+
+#[test]
+fn report_suppressed_keeps_marked_violation_tagged() {
+    // With `report_suppressed = true`, a marker-covered violation is NOT
+    // dropped: it is emitted with `suppressed = true` so the code-scan
+    // document can surface it as a suppressed alert. Mirrors
+    // `honor_policy_suppresses_matching_function_scope` but flips the
+    // report flag — the only difference that should matter.
+    let mut out = Vec::new();
+    let s = space(
+        "noisy",
+        SpaceKind::Function,
+        only_func_scope(MetricKind::Cyclomatic),
+    );
+    threshold_set("cyclomatic", 0.0).evaluate_with_policy(
+        Path::new("fixture.rs"),
+        &s,
+        SuppressionPolicy::Honor,
+        true,
+        &mut out,
+    );
+    assert_eq!(out.len(), 1, "report_suppressed should keep the offender");
+    assert!(
+        out[0].suppressed,
+        "kept offender must be tagged suppressed, got {:?}",
+        out[0],
     );
 }
 
@@ -353,6 +385,7 @@ fn honor_policy_emits_for_non_matching_metric() {
         Path::new("fixture.rs"),
         &s,
         SuppressionPolicy::Honor,
+        false,
         &mut out,
     );
     assert_eq!(out.len(), 1, "expected one violation; got {out:?}");
@@ -373,6 +406,7 @@ fn ignore_policy_emits_despite_matching_marker() {
         Path::new("fixture.rs"),
         &s,
         SuppressionPolicy::Ignore,
+        false,
         &mut out,
     );
     assert_eq!(out.len(), 1, "expected one violation; got {out:?}");
@@ -399,6 +433,7 @@ fn file_scope_silences_nested_function() {
         Path::new("fixture.rs"),
         &unit,
         SuppressionPolicy::Honor,
+        false,
         &mut out,
     );
     assert!(
@@ -436,6 +471,7 @@ fn tokens_threshold_never_suppressed() {
         Path::new("fixture.rs"),
         &s,
         SuppressionPolicy::Honor,
+        false,
         &mut out,
     );
     assert_eq!(
@@ -469,6 +505,7 @@ fn evaluate_stamps_qualified_symbols_through_container_chain() {
         Path::new("src/foo.rs"),
         &unit,
         SuppressionPolicy::Ignore,
+        false,
         &mut out,
     );
     let names: Vec<&str> = out.iter().map(|v| v.function.as_str()).collect();
@@ -494,6 +531,7 @@ fn evaluate_anonymous_space_uses_line_qualified_symbol() {
         Path::new("src/foo.rs"),
         &closure,
         SuppressionPolicy::Ignore,
+        false,
         &mut out,
     );
     assert_eq!(out.len(), 1, "{out:?}");
@@ -512,6 +550,7 @@ fn sample_violation() -> Violation {
         value: 30.0,
         limit: 10.0,
         body_hash: None,
+        suppressed: false,
     }
 }
 

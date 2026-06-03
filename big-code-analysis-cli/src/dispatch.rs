@@ -342,7 +342,13 @@ fn dispatch_check_file(
         // serialization decide their own lossy strategy at the output
         // boundary; the threshold pipeline itself stays byte-faithful.
         let mut violations = Vec::new();
-        set.evaluate_with_policy(&path, &space, cfg.suppression_policy, &mut violations);
+        set.evaluate_with_policy(
+            &path,
+            &space,
+            cfg.suppression_policy,
+            cfg.report_suppressed,
+            &mut violations,
+        );
         if let Some(src) = &source_for_hash {
             // Stamp each offender with a normalised body digest so the
             // baseline can match a renamed-but-unchanged function. The
@@ -493,6 +499,7 @@ mod tests {
             exemptions_tx: None,
             files_dispatched: None,
             suppression_policy: SuppressionPolicy::Honor,
+            report_suppressed: false,
             warning: false,
             skip_generated: true,
             report_skipped: false,

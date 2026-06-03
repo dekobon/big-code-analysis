@@ -422,6 +422,14 @@ pub(crate) struct Violation {
     /// `None` otherwise. Used as the last-resort baseline matcher when
     /// the qualified symbol changed (a rename that kept the body shape).
     pub(crate) body_hash: Option<u64>,
+    /// `true` when an in-source `bca: suppress` / `suppress-file` marker
+    /// covers this metric and `--report-suppressed` kept the violation for
+    /// the report instead of dropping it. Suppressed violations never count
+    /// toward the gate, the exit code, or the human stderr stream — they are
+    /// only surfaced in the code-scan document (SARIF `suppressions`). Always
+    /// `false` under the default policy (suppressed offenders are dropped)
+    /// and under `--no-suppress` (markers ignored, so nothing is suppressed).
+    pub(crate) suppressed: bool,
 }
 
 impl Violation {
@@ -686,6 +694,7 @@ impl ThresholdSet {
         path: &Path,
         space: &FuncSpace,
         policy: SuppressionPolicy,
+        report_suppressed: bool,
         out: &mut Vec<Violation>,
     ) {
         // The top-level Unit's `suppressed` carries every `allow-file`
@@ -718,10 +727,18 @@ impl ThresholdSet {
                 if value <= *limit {
                     continue;
                 }
-                if honor
-                    && let Some(kind) = MetricKind::for_threshold_name(extractor.name)
-                    && (file_scope.covers(kind) || current.suppressed.covers(kind))
-                {
+                // A metric is suppressed when policy honors markers and an
+                // applicable file- or function-scope marker covers it.
+                // Normally such offenders are dropped (never reach the
+                // gate). Under `--report-suppressed` they are kept and
+                // tagged so the code-scan document can surface them as
+                // suppressed alerts — but they still never count toward the
+                // gate or exit code (see `Violation::suppressed`).
+                let suppressed = honor
+                    && MetricKind::for_threshold_name(extractor.name).is_some_and(|kind| {
+                        file_scope.covers(kind) || current.suppressed.covers(kind)
+                    });
+                if suppressed && !report_suppressed {
                     continue;
                 }
                 out.push(Violation {
@@ -733,6 +750,7 @@ impl ThresholdSet {
                     value,
                     limit: *limit,
                     body_hash: None,
+                    suppressed,
                 });
             }
             // Children inherit this space's qualified symbol as their

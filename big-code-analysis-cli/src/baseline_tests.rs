@@ -18,6 +18,7 @@ fn v(path: &str, function: &str, start_line: usize, metric: &'static str, value:
         value,
         limit: 1.0,
         body_hash: None,
+        suppressed: false,
     }
 }
 
@@ -32,6 +33,7 @@ fn v_hashed(
 ) -> Violation {
     Violation {
         body_hash: Some(body_hash),
+        suppressed: false,
         ..v(path, function, start_line, metric, value)
     }
 }
@@ -714,6 +716,7 @@ fn from_str_defensive_anchor_normalization() {
             value: 5.0,
             limit: 1.0,
             body_hash: None,
+            suppressed: false,
         }),
         Coverage::Covered { recorded } if recorded == 5.0
     ));
@@ -963,6 +966,7 @@ fn baseline_covers_distinguishes_non_utf8_paths() {
         value: 5.0,
         limit: 1.0,
         body_hash: None,
+        suppressed: false,
     };
     let violation_b = Violation {
         path: path_b,
@@ -973,6 +977,7 @@ fn baseline_covers_distinguishes_non_utf8_paths() {
         value: 5.0,
         limit: 1.0,
         body_hash: None,
+        suppressed: false,
     };
 
     // Baseline contains only `path_a`. classify(violation_b) would

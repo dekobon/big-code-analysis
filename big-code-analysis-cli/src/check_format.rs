@@ -35,7 +35,7 @@ use clap::ValueEnum;
 
 use big_code_analysis::{
     OffenderRecord, write_checkstyle, write_clang_warning, write_code_climate, write_msvc_warning,
-    write_sarif,
+    write_sarif, write_sarif_with_suppressed,
 };
 
 use crate::baseline::Coverage;
@@ -94,6 +94,34 @@ impl AggregatedFormat {
             }
         }
     }
+}
+
+/// Write a SARIF document that surfaces suppressed debt alongside the
+/// active offenders (`bca check --report-suppressed`).
+///
+/// `active` offenders are emitted as open findings. The `suppressed` pairs
+/// are split by origin: an in-source-marker offender ([`Violation::suppressed`])
+/// is reported with SARIF `kind: "inSource"`; a baseline-covered offender
+/// ([`Coverage::Covered`]) with `kind: "external"`. A violation that is both
+/// marker-suppressed and baseline-covered is attributed to the in-source
+/// marker (the stronger, source-local signal) so it is reported once.
+pub(crate) fn dump_sarif_with_suppressed(
+    active: &[OffenderRecord],
+    suppressed: Vec<(Violation, Option<Coverage>)>,
+    output_path: Option<&Path>,
+) -> std::io::Result<()> {
+    let mut in_source = Vec::new();
+    let mut baseline = Vec::new();
+    for (v, coverage) in suppressed {
+        if v.suppressed {
+            in_source.push(violation_to_offender(v));
+        } else if matches!(coverage, Some(Coverage::Covered { .. })) {
+            baseline.push(violation_to_offender(v));
+        }
+    }
+    write_to_path_or_stdout(output_path, |w| {
+        write_sarif_with_suppressed(active, &in_source, &baseline, w)
+    })
 }
 
 /// Default annotation cap per metric. GitHub Actions surfaces at most
@@ -533,6 +561,10 @@ pub(crate) fn violation_to_offender(v: Violation) -> OffenderRecord {
         // The body hash is an internal baseline-matching aid, not part
         // of the serialized offender record.
         body_hash: _,
+        // Suppression status is consumed by the SARIF `suppressions`
+        // routing in `dump_sarif_with_suppressed` before this conversion;
+        // it is not a field on the serialized offender record.
+        suppressed: _,
     } = v;
     OffenderRecord {
         path,
@@ -584,6 +616,7 @@ mod tests {
             value: 5.0,
             limit: 1.0,
             body_hash: None,
+            suppressed: false,
         }
     }
 
@@ -628,6 +661,7 @@ mod tests {
             value: 5.0,
             limit: 1.0,
             body_hash: None,
+            suppressed: false,
         };
         let offender = violation_to_offender(v);
         assert_eq!(offender.path, path);
@@ -646,6 +680,7 @@ mod tests {
             value: 17.0,
             limit: 5.0,
             body_hash: None,
+            suppressed: false,
         }
     }
 
@@ -786,6 +821,7 @@ mod tests {
             value: 17.0,
             limit: 5.0,
             body_hash: None,
+            suppressed: false,
         };
         let mut buf = Vec::new();
         write_github_annotations(&mut buf, std::iter::once(&v), DEFAULT_GITHUB_ANNOTATION_CAP)
@@ -853,6 +889,7 @@ mod tests {
             value: 17.0,
             limit: 5.0,
             body_hash: None,
+            suppressed: false,
         };
         let mut buf = Vec::new();
         write_github_annotations(&mut buf, std::iter::once(&v), DEFAULT_GITHUB_ANNOTATION_CAP)
