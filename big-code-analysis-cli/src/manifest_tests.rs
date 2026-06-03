@@ -224,9 +224,7 @@ fn known_keys_covers_report_table() {
 /// `baseline_fuzzy_match`).
 #[test]
 fn merge_report_enables_no_suppress_from_manifest() {
-    let m = manifest(
-        toml::from_str("[report]\nno_suppress = true\n").expect("parse"),
-    );
+    let m = manifest(toml::from_str("[report]\nno_suppress = true\n").expect("parse"));
     let mut args = report_args(false);
     m.merge_report(&mut args);
     assert!(args.no_suppress, "manifest must enable the audit view");
