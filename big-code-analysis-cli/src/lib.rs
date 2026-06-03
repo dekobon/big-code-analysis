@@ -384,6 +384,14 @@ struct ReportArgs {
     /// Path prefix to strip from displayed file paths.
     #[clap(long, default_value = "")]
     strip_prefix: String,
+    /// Include functions silenced by in-source suppression markers
+    /// (`bca: suppress`, `bca: suppress-file`, `#lizard forgives`) in the
+    /// hotspot tables. By default the report honors these markers and
+    /// omits a function from a metric's hotspot table when that metric is
+    /// suppressed for it — matching `bca check` and the SARIF emitter.
+    /// Pass this for the raw audit view that lists every offender.
+    #[clap(long = "no-suppress")]
+    no_suppress: bool,
 }
 
 #[derive(Args, Debug)]

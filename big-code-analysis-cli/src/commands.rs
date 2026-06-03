@@ -1422,7 +1422,9 @@ pub fn run() {
         Command::Functions => run_command_functions(cli.globals, preproc),
         Command::Metrics(args) => run_command_metrics(cli.globals, args, preproc),
         Command::Ops(args) => run_command_ops(cli.globals, args, preproc),
-        Command::Report(args) => run_command_report(cli.globals, args, preproc),
+        Command::Report(args) => {
+            run_command_report(cli.globals, args, manifest.as_ref(), preproc);
+        }
         Command::Find(args) => run_command_find(cli.globals, args, preproc),
         Command::Count(args) => run_command_count(cli.globals, args, preproc),
         Command::StripComments(args) => run_command_strip_comments(cli.globals, args, preproc),
@@ -1563,7 +1565,16 @@ fn run_command_ops(
     run_walk(globals, cfg);
 }
 
-fn run_command_report(globals: GlobalOpts, args: ReportArgs, preproc: Option<Arc<PreprocResults>>) {
+fn run_command_report(
+    globals: GlobalOpts,
+    mut args: ReportArgs,
+    manifest: Option<&Manifest>,
+    preproc: Option<Arc<PreprocResults>>,
+) {
+    if let Some(m) = manifest {
+        m.merge_report(&mut args);
+    }
+    let policy = SuppressionPolicy::from_no_suppress(args.no_suppress);
     if let Some(ref output) = args.output {
         if output.exists() && output.is_dir() {
             die("--output must be a file path for `report`");
@@ -1590,8 +1601,8 @@ fn run_command_report(globals: GlobalOpts, args: ReportArgs, preproc: Option<Arc
     // All worker threads have joined, so `rx.into_iter()` terminates.
     let summaries: Vec<FunctionSummary> = rx.into_iter().collect();
     let report = match args.format {
-        ReportFormat::Markdown => generate_report(&summaries, args.top as usize),
-        ReportFormat::Html => generate_html_report(&summaries, args.top as usize),
+        ReportFormat::Markdown => generate_report(&summaries, args.top as usize, policy),
+        ReportFormat::Html => generate_html_report(&summaries, args.top as usize, policy),
     };
     if let Some(ref output_path) = args.output {
         std::fs::write(output_path, &report)
@@ -1739,6 +1750,16 @@ nargs = 7
 nexits = 5
 abc = 50
 wmc = 60
+
+# Aggregated-report options for `bca report markdown|html` (#501). By
+# default the report honours in-source suppression markers
+# (`bca: suppress`, `bca: suppress-file`, `#lizard forgives`) and omits a
+# function from a metric's hotspot table when that metric is suppressed
+# for it — matching `bca check` and the SARIF emitter. Uncomment to opt
+# into the raw audit view that lists every offender (equivalent to
+# `bca report --no-suppress`).
+# [report]
+# no_suppress = true
 ";
 
 /// Canonical contents of a freshly-scaffolded `.bcaignore`. The
