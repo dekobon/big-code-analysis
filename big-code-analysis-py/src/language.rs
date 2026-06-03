@@ -1,7 +1,6 @@
 // bca: suppress-file(halstead, nargs)
 // Language-name / enum mapping helpers; file-level halstead and summed
-// nargs are many-fn aggregation artifacts. (`lang_to_name`'s cyclomatic — a
-// flat `match` over every LANG variant — is suppressed per-function below.)
+// nargs are many-fn aggregation artifacts.
 
 //! Language detection helpers exposed to Python.
 //!
@@ -23,61 +22,31 @@ use crate::analysis::AnalysisError;
 
 /// Returns the Python-facing language identifier for `lang`.
 ///
-/// The upstream `LANG::get_name` returns a *display* name shared
-/// across variants — both `LANG::Tsx` and `LANG::Typescript` report
-/// `"typescript"`, both `LANG::Mozjs` and `LANG::Javascript` report
-/// `"javascript"` — which makes it ambiguous as a *lookup* key when
-/// two variants would round-trip differently through
-/// `parse_language_name`. The Python bindings disambiguate by
-/// preferring the upstream display name when only one variant in a
-/// display group is actually reachable (no helper-variant collision),
-/// and falling back to the lowercase Rust variant name otherwise:
+/// The rule is: use the upstream CLI display name
+/// ([`LANG::get_name`]), except for three tokens that are unusable as
+/// `parse_language_name` lookup identifiers and are overridden here:
 ///
-/// - `Mozjs` is exposed as `"javascript"` — matches the CLI's
-///   `"language"` field on every `.js` / `.jsm` / `.mjs` / `.jsx`
-///   file. `LANG::Javascript` exists as a placeholder for a future
-///   strict-ECMAScript dispatch but has no registered extensions
-///   and is filtered out by [`public_languages`], so the shared
-///   `"javascript"` name is unambiguous from the Python API.
-/// - `Tsx` and `Typescript` get distinct variant names (`"tsx"`,
-///   `"typescript"`) because both are reachable (TSX via `.tsx`
-///   files, TypeScript via `.ts`) and the CLI display collision
-///   would lose information at the API boundary.
-/// - `Csharp` is exposed as `"csharp"`.
-/// - All other variants use their variant name lowercased
-///   (`Rust` → `"rust"`, `Java` → `"java"`, …).
+/// - `Cpp`: `get_name()` returns `"c/c++"`, which is not a valid
+///   `language=` lookup token; the facade exposes `"cpp"`.
+/// - `Csharp`: `get_name()` returns `"c#"`; the facade exposes
+///   `"csharp"`.
+/// - `Tsx`: `get_name()` returns `"typescript"`, colliding with
+///   `Typescript`'s display name; the facade exposes `"tsx"` so the
+///   two TypeScript variants stay distinct lookup keys (TSX via
+///   `.tsx`, TypeScript via `.ts`).
+///
+/// Every other variant delegates to `get_name()` unchanged. Notably
+/// `Mozjs` and `Javascript` both report `"javascript"` upstream:
+/// `Mozjs` is the reachable `.js` / `.jsm` / `.mjs` / `.jsx` variant,
+/// while `Javascript` has no registered extensions and is filtered
+/// out by [`public_languages`], so the shared name is unambiguous
+/// from the Python API.
 pub(crate) fn lang_to_name(lang: LANG) -> &'static str {
-    // bca: suppress(cyclomatic)
-    // Flat `match lang { … }` over every LANG variant — cyclomatic is
-    // arm count, not branching logic.
     match lang {
-        LANG::Bash => "bash",
-        LANG::Ccomment => "ccomment",
         LANG::Cpp => "cpp",
         LANG::Csharp => "csharp",
-        LANG::Elixir => "elixir",
-        LANG::Go => "go",
-        LANG::Groovy => "groovy",
-        LANG::Irules => "irules",
-        LANG::Java => "java",
-        // `Javascript` has no extensions and is filtered out of
-        // `public_languages`, so this arm is never reached through
-        // the Python API — but the match must stay exhaustive, and
-        // grouping the two `"javascript"` variants together documents
-        // the intentional CLI-name alias and keeps clippy
-        // (`match_same_arms`) quiet.
-        LANG::Javascript | LANG::Mozjs => "javascript",
-        LANG::Kotlin => "kotlin",
-        LANG::Lua => "lua",
-        LANG::Perl => "perl",
-        LANG::Php => "php",
-        LANG::Preproc => "preproc",
-        LANG::Python => "python",
-        LANG::Ruby => "ruby",
-        LANG::Rust => "rust",
-        LANG::Tcl => "tcl",
         LANG::Tsx => "tsx",
-        LANG::Typescript => "typescript",
+        other => other.get_name(),
     }
 }
 
@@ -415,5 +384,36 @@ mod tests {
         // them and get nonsense metrics back.
         assert!(parse_language_name("ccomment").is_none());
         assert!(parse_language_name("preproc").is_none());
+    }
+
+    #[test]
+    fn lang_to_name_overrides_cpp_and_csharp() {
+        // Pin the two overrides that no other test fixes. Upstream
+        // `get_name()` returns "c/c++" / "c#", neither of which is a
+        // usable `parse_language_name` lookup token. Test-via-revert:
+        // deleting the matching override arm makes `get_name()`'s value
+        // leak through and fails these assertions.
+        assert_eq!(lang_to_name(LANG::Cpp), "cpp");
+        assert_eq!(lang_to_name(LANG::Csharp), "csharp");
+    }
+
+    #[test]
+    fn lang_to_name_delegates_to_get_name_outside_overrides() {
+        // Parity contract: every public variant EXCEPT the three
+        // identifier/collision overrides exposes exactly the upstream
+        // CLI display name. This makes the delegation explicit and
+        // turns an accidental upstream display rename into a test
+        // failure rather than a silent Python-API drift.
+        const OVERRIDES: [LANG; 3] = [LANG::Cpp, LANG::Csharp, LANG::Tsx];
+        for lang in public_languages() {
+            if OVERRIDES.contains(&lang) {
+                continue;
+            }
+            assert_eq!(
+                lang_to_name(lang),
+                lang.get_name(),
+                "non-override variant {lang:?} must mirror get_name()"
+            );
+        }
     }
 }
