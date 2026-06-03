@@ -460,6 +460,14 @@ pub(super) fn write_many_params(
     );
 }
 
+/// Emits the advisory "functions over threshold" roll-up.
+///
+/// Unlike the per-metric hotspot tables, this summary intentionally
+/// counts raw measurements regardless of suppression policy: it is a
+/// whole-codebase health indicator, not a gate, so a `bca: suppress`
+/// marker that silences a function in one metric's hotspot table does
+/// not erase it from the aggregate concern count (#501). It therefore
+/// takes no [`SuppressionPolicy`].
 pub(super) fn write_actionable_summary(out: &mut String, funcs: &[&FunctionSummary]) {
     let (cc_gt10, cog_gt15, sloc_gt100, nargs_gt3, bugs_gt1) = funcs.iter().fold(
         (0usize, 0usize, 0usize, 0usize, 0usize),
