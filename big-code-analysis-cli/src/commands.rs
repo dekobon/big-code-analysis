@@ -134,6 +134,13 @@ fn run_check(
         provenance,
         args.report_suppressed,
     );
+    // Apply `--changed-only` diff-scope filtering to ALL offenders before
+    // splitting, so the suppressed set surfaced in the report respects the
+    // touched-file scope exactly as the active set does — otherwise
+    // `--changed-only --report-suppressed` would leak suppressed debt from
+    // files outside the diff. With `--report-suppressed` off this is the
+    // original pre-feature ordering (filter, then everything is active).
+    let pairs = apply_changed_only(pairs, scope.as_ref(), args.changed_only);
     // Split the report-only suppressed debt — in-source markers
     // (`v.suppressed`) plus baseline-covered offenders
     // (`Coverage::Covered`), present only under `--report-suppressed` — from
@@ -144,7 +151,6 @@ fn run_check(
     let (suppressed, active): (Vec<_>, Vec<_>) = pairs.into_iter().partition(|(v, coverage)| {
         v.suppressed || matches!(coverage, Some(Coverage::Covered { .. }))
     });
-    let active = apply_changed_only(active, scope.as_ref(), args.changed_only);
     let any_violations = !active.is_empty();
     // Categorise the active violations for the exit-code contract (#385)
     // before `emit_check_results` consumes them.
