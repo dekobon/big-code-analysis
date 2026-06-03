@@ -41,12 +41,14 @@ for historical reference.
   in-source `bca: suppress` marker or covered by the baseline stay out of
   the gate (exit code and human stream unchanged) but are emitted into the
   `--output-format sarif` document carrying a SARIF `suppressions` entry
-  (`kind: "inSource"` for markers, `"external"` for the baseline) — GitHub
-  Code Scanning renders them as suppressed (closed) alerts so the debt
-  stays visible without counting against the open-alert total. Only the
+  (`kind: "inSource"` for markers, `"external"` for the baseline). Only the
   SARIF format represents suppression; the flag is mutually exclusive with
-  `--no-suppress` and `--write-baseline`. The repo's own Pages workflow
-  opts in so the published self-scan alerts include the suppressed debt.
+  `--no-suppress` and `--write-baseline`. Note: GitHub code scanning does
+  not honor the SARIF `suppressions` property natively — it ingests such
+  results as *open* alerts — so this flag targets downstream tooling that
+  reads suppressions (e.g. the `advanced-security/dismiss-alerts` action).
+  The repo's own Pages workflow does not pass it; its Code Scanning upload
+  carries active offenders only.
 - Library: new `write_sarif_with_suppressed(active, in_source, baseline,
   writer)` writer that emits SARIF `suppressions` entries for suppressed
   offenders. `write_sarif` is unchanged (the active-only special case),
