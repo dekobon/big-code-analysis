@@ -23,6 +23,13 @@ for historical reference.
 
 ### Added
 
+- `LANG` now derives `Hash` and implements `Display` (its `get_name()`
+  string) and `FromStr` (parsing that canonical name; case-sensitive, error
+  type `ParseLangError`). Aliased display names (`javascript`, `typescript`)
+  parse to the first-declared variant (`Mozjs`, `Tsx`). `Serialize` / `Ord`
+  are deferred to the 2.0 bump
+  ([#508](https://github.com/dekobon/big-code-analysis/issues/508)).
+
 - The `bca` CLI is now pip-installable. `pip install big-code-analysis-cli`
   drops the compiled `bca` binary onto your `PATH` (no Rust toolchain
   required), the way `pip install ruff` installs the `ruff` command. The
@@ -484,6 +491,39 @@ for historical reference.
     (The separate per-function divisor re-baseline, #512, is deferred
     to its own change so it can be made self-contained rather than
     coupling `cyclomatic` to `nom`.)
+- `guess_language` now returns `(Option<LANG>, &'static str)` instead of
+  `(Option<LANG>, &'a str)` with an unbound output lifetime, making the
+  honest type explicit and removing a latent-unsoundness trap (every return
+  path was already `&'static`). Source-compatible for normal callers
+  (return-lifetime widening is covariant)
+  ([#506](https://github.com/dekobon/big-code-analysis/issues/506)).
+- perf(node): `has_sibling` no longer heap-allocates a `TreeCursor` per
+  call — it reuses the allocation-free sibling walk introduced in #217,
+  eliminating the missed allocation on the JS/TS arrow-function
+  closure-classification hot path
+  ([#521](https://github.com/dekobon/big-code-analysis/issues/521)).
+- perf(spaces): the AST walker now computes a node's space kind lazily —
+  only when the node is promoted to a function space or the `Loc` metric is
+  selected — avoiding a wasted per-node source-text scan (notably Elixir's
+  per-`Call` keyword scan) when the result would go unused. No metric
+  values change
+  ([#522](https://github.com/dekobon/big-code-analysis/issues/522)).
+- refactor(node): `Node::children()` drives termination off the cursor
+  alone (struct iterator `Children`), eliminating latent duplicate-node
+  padding if `child_count()` and the cursor sibling walk ever desync;
+  `ExactSizeIterator` retained, no metric-value or public-API change
+  ([#523](https://github.com/dekobon/big-code-analysis/issues/523)).
+- build(deps): exact-pin `tree-sitter-kotlin-ng` to `=1.1.0` to match every
+  sibling grammar, and guard the root vs `enums/` external grammar-pin
+  lockstep via `check-versions.py` so future drift fails fast in
+  pre-commit / CI (resolved version unchanged)
+  ([#524](https://github.com/dekobon/big-code-analysis/issues/524)).
+- build(deps): drop the `num` meta-crate from the library's direct
+  dependencies (its sole use, `num::FromPrimitive::from_u16`, now goes
+  through the already-present `num-traits` re-export) and hoist `csv` /
+  `tempfile` into `[workspace.dependencies]`; no behavioral change
+  ([#525](https://github.com/dekobon/big-code-analysis/issues/525)).
+
 - Python bindings: `lang_to_name` now delegates to `LANG::get_name()`
   for all but three lookup-token overrides (`Cpp` → `"cpp"`, `Csharp` →
   `"csharp"`, `Tsx` → `"tsx"`), collapsing a 22-arm hand-maintained
@@ -904,6 +944,24 @@ for historical reference.
   being compile-only.
 
 ### Fixed
+
+- `bca-web` routes now accept `Content-Type` variants such as
+  `application/json; charset=utf-8`, `APPLICATION/JSON`, and parameterised
+  `application/octet-stream` by matching the parsed media-type essence
+  instead of an exact header string; a content-type mismatch on a known
+  endpoint now returns a diagnostic `415` instead of a bodyless `404`
+  ([#515](https://github.com/dekobon/big-code-analysis/issues/515)).
+- `bca check --threshold` and `bca diff --metric` now accept each other's
+  metric-name spelling (`sloc` ↔ `loc.sloc`, `halstead.volume` ↔
+  `halstead`), normalising internally via a shared catalog-derived alias
+  map; ambiguous bare family heads (`halstead`, `mi`) are rejected with a
+  "did you mean" hint
+  ([#514](https://github.com/dekobon/big-code-analysis/issues/514)).
+- docs: corrected the Supported Languages chapter and deb/rpm package
+  descriptions to match the actual `LANG` variants — removed phantom `C` /
+  `Mozcpp` entries, labelled the internal `Ccomment` / `Preproc` helpers,
+  and added the previously-omitted Elixir, Groovy, iRules, Ruby, and Mozjs
+  ([#526](https://github.com/dekobon/big-code-analysis/issues/526)).
 
 - `bca report markdown|html`: the "Maintainability Index (lowest files)"
   table no longer hides the worst files. `mi_visual_studio()` clamps a
