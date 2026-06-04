@@ -120,6 +120,9 @@ pub use crate::langs::{
     RustParser, TclCode, TclParser, TsxCode, TsxParser, TypescriptCode, TypescriptParser, action,
     analyze_dispatch, get_from_emacs_mode, get_from_ext, get_ops, metrics_from_tree,
 };
+// `ParseLangError` is the `FromStr` error for `LANG`; it is defined in
+// the `mk_lang!` macro layer (`crate::macros`) rather than `crate::langs`.
+pub use crate::macros::ParseLangError;
 // The path-positional `get_function_spaces*` shims are `#[deprecated]`
 // at their definition sites; re-exporting them at the crate root keeps
 // the previously-globbed surface intact, scoped with

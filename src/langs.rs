@@ -422,6 +422,94 @@ mod tests {
         }
     }
 
+    // `Display` must agree with `get_name` for every variant — the
+    // impl delegates to it, so this pins that contract against future
+    // refactors that might diverge the two.
+    #[test]
+    fn display_matches_get_name_for_every_variant() {
+        for lang in LANG::into_enum_iter() {
+            assert_eq!(lang.to_string(), lang.get_name());
+        }
+    }
+
+    // `Display` -> `FromStr` round-trip. Because several variants share
+    // a display name (Mozjs/Javascript -> "javascript",
+    // Tsx/Typescript -> "typescript"), parsing back is not guaranteed
+    // to return the *same* variant, but it must return one whose name
+    // matches — i.e. the round-trip preserves the display name.
+    #[test]
+    fn display_fromstr_round_trip_preserves_name() {
+        use std::str::FromStr;
+        for lang in LANG::into_enum_iter() {
+            let parsed = LANG::from_str(lang.get_name())
+                .unwrap_or_else(|e| panic!("{} failed to parse back: {e}", lang.get_name()));
+            assert_eq!(
+                parsed.get_name(),
+                lang.get_name(),
+                "{} round-tripped to a differently-named variant {:?}",
+                lang.get_name(),
+                parsed,
+            );
+        }
+    }
+
+    // Aliased display names resolve to the first variant declared with
+    // that name in this file: "javascript" -> Javascript? No — Mozjs is
+    // declared first, so the canonical sibling is the earliest in the
+    // `mk_langs!` list. Pin the documented resolution so a reorder of
+    // the macro invocation is a deliberate, test-visible change.
+    #[test]
+    fn aliased_names_resolve_to_first_declared_variant() {
+        use std::str::FromStr;
+        // Mozjs precedes Javascript in `mk_langs!`.
+        assert_eq!(LANG::from_str("javascript"), Ok(LANG::Mozjs));
+        // Tsx precedes Typescript in `mk_langs!`.
+        assert_eq!(LANG::from_str("typescript"), Ok(LANG::Tsx));
+    }
+
+    // The `Cpp` and `Csharp` variants carry punctuation in their
+    // display names ("c/c++", "c#"); `FromStr` must accept exactly what
+    // `Display` emits, including the punctuation.
+    #[test]
+    fn punctuated_display_names_round_trip() {
+        use std::str::FromStr;
+        assert_eq!(LANG::Cpp.to_string(), "c/c++");
+        assert_eq!(LANG::from_str("c/c++"), Ok(LANG::Cpp));
+        assert_eq!(LANG::Csharp.to_string(), "c#");
+        assert_eq!(LANG::from_str("c#"), Ok(LANG::Csharp));
+    }
+
+    // Unknown / mis-cased input is rejected; matching is case-sensitive,
+    // mirroring `Metric`'s `FromStr`.
+    #[test]
+    fn fromstr_rejects_unknown_and_miscased() {
+        use std::str::FromStr;
+        assert!(LANG::from_str("Rust").is_err());
+        assert!(LANG::from_str("klingon").is_err());
+        assert!(LANG::from_str("").is_err());
+        // The error carries the offending input verbatim.
+        let err = LANG::from_str("klingon").unwrap_err();
+        assert!(err.to_string().contains("klingon"));
+    }
+
+    // `Hash` (+ `Eq`) lets `LANG` key a `HashMap` / populate a
+    // `HashSet` — the headline use case from issue #508.
+    #[test]
+    fn lang_is_usable_as_hash_key() {
+        use std::collections::{HashMap, HashSet};
+        let mut set = HashSet::new();
+        for lang in LANG::into_enum_iter() {
+            assert!(set.insert(lang), "{} inserted twice", lang.get_name());
+        }
+        assert_eq!(set.len(), LANG::into_enum_iter().count());
+
+        let mut map = HashMap::new();
+        map.insert(LANG::Rust, "rs");
+        map.insert(LANG::Python, "py");
+        assert_eq!(map.get(&LANG::Rust), Some(&"rs"));
+        assert_eq!(map.get(&LANG::Cpp), None);
+    }
+
     // The error variant carries the originating `LANG` so callers
     // can distinguish "X is disabled" from "Y is disabled" in a
     // mixed batch. Verifies the `Display` impl mentions the

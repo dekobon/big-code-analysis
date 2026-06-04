@@ -127,7 +127,7 @@ macro_rules! mk_lang {
         /// variants surface at runtime as
         /// [`crate::MetricsError::LanguageDisabled`] from every entry
         /// point that returns a `Result`.
-        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
         pub enum LANG {
             $(
                 #[doc = $description]
@@ -237,8 +237,76 @@ macro_rules! mk_lang {
                 self.get_ts_language()
             }
         }
+
+        /// Renders the language's canonical display name, identical to
+        /// [`LANG::get_name`].
+        ///
+        /// Several variants intentionally share a name (e.g. `Mozjs`
+        /// and `Javascript` both render `javascript`; `Tsx` and
+        /// `Typescript` both render `typescript`), so `Display` is not
+        /// injective. Parsing such a name back with [`std::str::FromStr`]
+        /// yields the first variant declared with that name in
+        /// `src/langs.rs`, not necessarily the original variant.
+        impl ::std::fmt::Display for LANG {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                f.write_str(self.get_name())
+            }
+        }
+
+        /// Parses a [`LANG`] from its [`Display`](std::fmt::Display)
+        /// spelling (the [`LANG::get_name`] string, e.g. `"rust"`,
+        /// `"c/c++"`, `"c#"`).
+        ///
+        /// Matching is case-sensitive and exact, mirroring
+        /// [`Metric`](crate::Metric)'s `FromStr`: only the canonical
+        /// lowercase name is accepted. File extensions and emacs modes
+        /// are deliberately *not* accepted here — use
+        /// [`get_from_ext`](crate::get_from_ext) /
+        /// [`get_from_emacs_mode`](crate::get_from_emacs_mode) for those.
+        ///
+        /// Names shared by multiple variants resolve to the first
+        /// variant declared with that name in `src/langs.rs`
+        /// (`javascript` → `Mozjs`, `typescript` → `Tsx`), so a
+        /// `Display` → `FromStr` round-trip preserves the name but may
+        /// collapse aliased variants onto that first-declared sibling.
+        impl ::std::str::FromStr for LANG {
+            type Err = $crate::macros::ParseLangError;
+
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                LANG::into_enum_iter()
+                    .find(|lang| lang.get_name() == s)
+                    .ok_or_else(|| $crate::macros::ParseLangError::new(s))
+            }
+        }
     };
 }
+
+/// Error returned by [`LANG`](crate::LANG)'s
+/// [`FromStr`](std::str::FromStr) impl when the input is not a
+/// recognised language name.
+///
+/// Holds the offending input verbatim so wrapper layers can format
+/// their own user-facing message; mirrors
+/// [`ParseMetricError`](crate::ParseMetricError).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseLangError(String);
+
+impl ParseLangError {
+    // Constructor kept `pub(crate)` so the macro-generated `FromStr`
+    // impl in `src/langs.rs` can build the error without exposing the
+    // private field across module boundaries.
+    pub(crate) fn new(input: &str) -> Self {
+        Self(input.to_owned())
+    }
+}
+
+impl ::std::fmt::Display for ParseLangError {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        write!(f, "unknown language: {}", self.0)
+    }
+}
+
+impl ::std::error::Error for ParseLangError {}
 
 macro_rules! mk_action {
     ( $( ($feature:literal, $camel:ident, $parser:ident) ),* ) => {
