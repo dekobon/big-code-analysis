@@ -776,7 +776,7 @@ impl Cognitive for GroovyCode {
     ) {
         use Groovy::*;
 
-        let (mut nesting, depth, lambda) = get_nesting_from_map(node, nesting_map);
+        let (mut nesting, depth, mut lambda) = get_nesting_from_map(node, nesting_map);
 
         match node.kind_id().into() {
             IfStatement if !Self::is_else_if(node) => {
@@ -815,6 +815,16 @@ impl Cognitive for GroovyCode {
             // missing consequence (closes #246).
             ElvisExpression => {
                 compute_booleans_with(node, stats, |id| matches!(id.into(), QMARKCOLON));
+            }
+            // Groovy closures are first-class (`list.each { … }`,
+            // `def c = { … }`); control flow nested inside one must pay
+            // the same lambda-nesting surcharge as Java's
+            // `LambdaExpression`, so the byte-equivalent construct scores
+            // identically across languages (lesson #11). The grammar node
+            // is `Groovy::Closure` — also recognized by `is_closure` and
+            // the `nargs` `closure_parameters` path.
+            Closure => {
+                lambda += 1;
             }
             _ => {}
         }
@@ -8034,6 +8044,63 @@ end",
                 assert_eq!(metric.cognitive.cognitive_sum(), 5.0);
             },
         );
+    }
+
+    #[test]
+    fn groovy_cognitive_closure_body_counts_lambda_nesting() {
+        // #519: control flow inside a Groovy closure must pay the same
+        // lambda-nesting surcharge as Java's `LambdaExpression`, so the
+        // byte-equivalent construct scores identically across languages
+        // (lesson #11). The byte-for-byte Java equivalent
+        // (`list.forEach(item -> { if (a) { while (b) {} } })`) also
+        // reports cognitive sum 5.0.
+        //
+        // Test-via-revert (.claude/rules/testing.md): removing the
+        // `Closure => { lambda += 1; }` arm drops this to 3.0 — the
+        // missing +2 lambda surcharge on the nested `if`/`while`.
+        check_metrics::<GroovyParser>(
+            "class X {
+                static void f(java.util.List list, boolean a, boolean b) {
+                    list.each { if (a) { while (b) {} } }
+                }
+            }",
+            "foo.groovy",
+            |metric| {
+                // closure(lambda=1) -> if at nesting=1(+2)
+                // -> while at nesting=2(+3) = 5
+                assert_eq!(metric.cognitive.cognitive_sum(), 5.0);
+            },
+        );
+    }
+
+    #[test]
+    fn groovy_cognitive_top_level_typed_method_parity() {
+        // Regression for the upstream grammar defect
+        // tree-sitter-groovy#20, fixed in =0.2.2: a top-level method
+        // with an explicit return type whose body contained a `;`
+        // (e.g. a C-style `for`) misparsed into identifier + call +
+        // standalone closure, so it was not recognized as a function and
+        // its body brace-block was a `Closure` — which the new lambda arm
+        // would have spuriously surcharged. Post-fix the typed form must
+        // parse as a real method and score identically to the `def` form.
+        let typed = "void f(int n) {
+            for (int i = 0; i < n; i++) {
+                if (i > 0) { }
+            }
+        }";
+        let untyped = "def f(int n) {
+            for (int i = 0; i < n; i++) {
+                if (i > 0) { }
+            }
+        }";
+        // for(+1) + if at nesting=1(+2) = 3; no lambda surcharge because
+        // the body is a `block`, not a misparsed `Closure`.
+        check_metrics::<GroovyParser>(typed, "foo.groovy", |metric| {
+            assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+        });
+        check_metrics::<GroovyParser>(untyped, "foo.groovy", |metric| {
+            assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+        });
     }
 
     #[test]

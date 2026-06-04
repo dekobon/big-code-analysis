@@ -945,6 +945,26 @@ for historical reference.
 
 ### Fixed
 
+- Groovy cognitive complexity now applies a lambda-nesting surcharge to
+  control flow inside a closure (`list.each { … }`, `def c = { … }`),
+  matching Java's `LambdaExpression` and every other closure-bearing
+  language. Previously a closure body scored strictly lower than the
+  byte-equivalent construct elsewhere, violating cross-language parity;
+  e.g. `list.each { if (a) { while (b) {} } }` now reports cognitive sum
+  `5.0`, the same as the equivalent Java lambda. Metric values for Groovy
+  closures with nested control flow increase
+  ([#519](https://github.com/dekobon/big-code-analysis/issues/519)).
+- Bumped the `dekobon-tree-sitter-groovy` grammar pin to `=0.2.2`, which
+  fixes an upstream parse defect
+  ([tree-sitter-groovy#20](https://github.com/dekobon/tree-sitter-groovy/issues/20)):
+  a top-level method with an explicit return type whose body contained a
+  `;` (e.g. a C-style `for`) previously misparsed into an identifier,
+  call, and standalone closure — it was not recognised as a function, so
+  its cyclomatic / nargs / nom / cognitive metrics were all wrong. Such
+  methods now parse correctly. The grammar's anonymous-token node IDs
+  shifted (a `;` terminator was added), so the generated `Groovy` enum
+  in `src/languages/language_groovy.rs` was regenerated to stay aligned
+  ([#519](https://github.com/dekobon/big-code-analysis/issues/519)).
 - `bca-web` routes now accept `Content-Type` variants such as
   `application/json; charset=utf-8`, `APPLICATION/JSON`, and parameterised
   `application/octet-stream` by matching the parsed media-type essence
