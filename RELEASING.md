@@ -606,11 +606,15 @@ Signed artefacts, SBOMs, and SLSA provenance still publish normally,
 so a pre-release is a full test of everything except the external
 pushes.
 
-The two PyPI wheel workflows follow the same policy: a `-rc` / `-beta`
-/ `-alpha` tag still builds and smoke-tests every wheel but **skips the
-PyPI publish step**, so a pre-release never lands a wheel on PyPI. The
-crates.io and PyPI postures stay aligned — one tag cannot publish a
-prerelease to one registry while skipping the other.
+Both PyPI wheel workflows still **build and smoke-test** every wheel on
+a pre-release tag but **skip the PyPI publish step**, so a pre-release
+never lands a wheel on PyPI. The CLI wheel (`python-cli-wheels.yml`)
+skips publish for *any* hyphenated suffix — `!contains(github.ref,
+'-')`, matching `release.yml`'s `*-*` prerelease rule exactly; the
+library wheel (`python-wheels.yml`) skips the recognised `-rc` /
+`-beta` / `-alpha` suffixes. For the suffixes this project actually
+uses (above), all three pipelines stay aligned — one tag cannot publish
+a prerelease to one registry while skipping another.
 
 ## Post-release verification
 
