@@ -80,6 +80,12 @@ env:
   CARGO_NET_RETRY: 10
   RUSTUP_MAX_RETRIES: 10
   PYTHON_VERSION_HOST: "3.12"
+  # Pinned toolchain so the macOS / Windows wheel binaries (built on the
+  # host, outside maturin's manylinux container) are reproducible from a
+  # tag rather than tracking a floating `stable`. Matches release.yml's
+  # RUST_TOOLCHAIN; the Linux legs build inside the 2_28 container with
+  # its own toolchain, unaffected by this value.
+  RUST_TOOLCHAIN: "1.94.0"
   # cargo-about renders the per-binary TPL; pinned to the version
   # release.yml uses so the deb/rpm/archive/wheel TPLs are byte-identical
   # for a given tag.
@@ -110,11 +116,14 @@ jobs:
           - target: x86_64-apple-darwin
             runs-on: macos-latest
             manylinux: "auto"
-            wheel_tag: macosx
+            # Glob (the macOS minor version varies) so the verify step
+            # below distinguishes x86_64 from arm64 — a bare `macosx`
+            # would accept a wrong-arch wheel from a cross-build slip.
+            wheel_tag: 'macosx_*_x86_64'
           - target: aarch64-apple-darwin
             runs-on: macos-latest
             manylinux: "auto"
-            wheel_tag: macosx
+            wheel_tag: 'macosx_*_arm64'
           - target: x86_64-pc-windows-msvc
             runs-on: windows-latest
             manylinux: "auto"
@@ -139,7 +148,7 @@ jobs:
       # arm64 macOS runner) without a full target install.
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable tip
         with:
-          toolchain: stable
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.target }}
 
       - name: Install cargo-about
@@ -196,8 +205,11 @@ jobs:
       # PyPI upload time. A bin wheel must be `py3-none-<platform>`: the
       # `py3-none` segment proves it was not built as a per-version
       # extension wheel (the most plausible regression if the pyproject
-      # bindings key were lost), and `${{ matrix.wheel_tag }}` proves the
-      # platform tag matches this leg.
+      # bindings key were lost), and `${{ matrix.wheel_tag }}` (which
+      # carries the architecture, e.g. `macosx_*_x86_64`) proves the
+      # platform AND arch match this leg — so a cross-build that silently
+      # emitted the host arch fails here rather than only at the publish
+      # job's inventory.
       - name: Verify wheel is py3-none / ${{ matrix.wheel_tag }}
         shell: bash
         working-directory: big-code-analysis-cli
@@ -213,8 +225,12 @@ jobs:
             exit 1
           fi
           name=$(basename "${all[0]}")
+          # WHEEL_TAG is matrix-controlled and may contain a `*` glob
+          # (the macOS minor version varies), so it is intentionally
+          # unquoted here to act as a case pattern, not a literal.
+          # shellcheck disable=SC2254
           case "$name" in
-            *-py3-none-*"${WHEEL_TAG}"*.whl) : ;;
+            *-py3-none-*${WHEEL_TAG}*.whl) : ;;
             *)
               echo "::error::wheel '$name' is not py3-none-*${WHEEL_TAG}*"
               exit 1
@@ -265,8 +281,9 @@ jobs:
           path: big-code-analysis-cli/dist/*.tar.gz
           if-no-files-found: error
 
-  # Install each wheel into a clean venv on a runner of the matching
-  # platform and exercise the binary end-to-end. The acceptance criteria
+  # Install each wheel into a fresh runner Python environment on a runner
+  # of the matching platform and exercise the binary end-to-end. The
+  # acceptance criteria
   # (#408) require `bca --version` and a parse that proves the
   # `all-languages` grammar set shipped. The x86_64-apple-darwin wheel is
   # cross-built on the arm64 macOS runner and cannot be executed here
@@ -300,14 +317,14 @@ jobs:
           name: cli-wheels-${{ matrix.target }}
           path: dist
 
-      # Resolve the expected version from the workspace Cargo.toml so the
-      # assertion is not hard-coded — the wheel version is dynamic
-      # (maturin reads `version.workspace = true`), and this check proves
-      # the published binary reports the same lockstep version.
       - name: Install wheel + assert bca on PATH
         shell: bash
         env:
           PYTHONUNBUFFERED: "1"
+          # On a tag push this is the release version (`vX.Y.Z`); empty
+          # on PR / workflow_dispatch runs, where there is no tag to
+          # compare against.
+          EXPECTED_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: |
           set -euo pipefail
           ls -la dist/
@@ -316,9 +333,23 @@ jobs:
           # whose platform tag does not match this runner) fail loudly
           # rather than silently installing a stale published version.
           python -m pip install --no-index --find-links=dist big-code-analysis-cli
-          # The console script lands in the venv/Scripts dir on PATH.
-          bca --version
-          bca list-metrics names | head -n1
+          # The console script lands in the setup-python interpreter's
+          # scripts dir, which is on PATH. Capture the version rather than
+          # piping to `head` (a `| head -n1` would SIGPIPE the producer
+          # under pipefail — see release.yml's note).
+          ver_out=$(bca --version)
+          echo "$ver_out"
+          # On a tag build, prove the binary reports the lockstep release
+          # version (maturin reads `version.workspace = true`, so the
+          # wheel version must equal the tag minus its leading `v`).
+          if [[ -n "$EXPECTED_TAG" ]]; then
+            want="${EXPECTED_TAG#v}"
+            case "$ver_out" in
+              *"$want"*) : ;;
+              *) echo "::error::bca --version '$ver_out' does not contain tag version $want"; exit 1 ;;
+            esac
+          fi
+          bca list-metrics names >/dev/null
           # Parse two unrelated languages to prove the all-languages
           # grammar set is compiled in, not just the host language.
           printf 'def add(a, b):\n    if a > b:\n        return a\n    return b\n' > smoke.py
@@ -352,21 +383,22 @@ jobs:
           || contains(needs.*.result, 'skipped')
         run: exit 1
 
-  # PyPI publish — only on a numeric `v*` tag push. Prerelease tags
-  # (`-rc`/`-beta`/`-alpha`) are skipped to stay aligned with
-  # release.yml's crates.io policy and python-wheels.yml. The Trusted
-  # Publisher for `big-code-analysis-cli` must be registered on PyPI
-  # (repo + this workflow filename + the `pypi-cli` environment) before
-  # the first tagged release.
+  # PyPI publish — only on a numeric `v*` tag push with NO pre-release
+  # suffix. `!contains(github.ref, '-')` mirrors release.yml's prerelease
+  # rule exactly (it classifies any tag matching `*-*` as a prerelease
+  # and skips the crates.io publish), so a single tag cannot land a
+  # prerelease on PyPI while skipping crates.io. A release tag
+  # (`refs/tags/v1.2.0`) has no hyphen; any suffix (`-rc1`, `-beta2`,
+  # `-pre1`, …) does. The Trusted Publisher for `big-code-analysis-cli`
+  # must be registered on PyPI (repo + this workflow filename + the
+  # `pypi-cli` environment) before the first tagged release.
   publish:
     name: publish to PyPI
     needs: [build, sdist, smoke-test]
     if: >-
       github.event_name == 'push'
       && startsWith(github.ref, 'refs/tags/v')
-      && !contains(github.ref, '-rc')
-      && !contains(github.ref, '-beta')
-      && !contains(github.ref, '-alpha')
+      && !contains(github.ref, '-')
     runs-on: ubuntu-latest
     environment:
       name: pypi-cli
