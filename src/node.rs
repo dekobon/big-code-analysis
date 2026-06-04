@@ -129,13 +129,22 @@ impl<'a> Node<'a> {
         self.0.parent().map(Node)
     }
 
+    /// Returns `true` if this node's parent has any direct child with
+    /// the given grammar `kind_id` (the parent's children include this
+    /// node itself, so a self-match counts). Delegates to [`wraps_any`]
+    /// on the parent so the scan reuses the allocation-free `child(0)` +
+    /// `next_sibling()` walk rather than `children(&mut parent.walk())`,
+    /// which heap-allocates a `TreeCursor` per call. This sits on the
+    /// JS/TS arrow-function closure-classification hot path
+    /// (`check_if_arrow_func!`), the same path #217 optimized for
+    /// `wraps_any` / `is_child` but missed here. See #521.
+    ///
+    /// [`wraps_any`]: Self::wraps_any
     #[inline]
     pub(crate) fn has_sibling(&self, id: u16) -> bool {
-        self.0.parent().is_some_and(|parent| {
-            parent
-                .children(&mut parent.walk())
-                .any(|child| child.kind_id() == id)
-        })
+        self.0
+            .parent()
+            .is_some_and(|parent| Node(parent).wraps_any(&[id]))
     }
 
     pub(crate) fn previous_sibling(&self) -> Option<Node<'a>> {
@@ -358,6 +367,80 @@ impl<'a> Search<'a> for Node<'a> {
     fn act_on_child(&self, action: &mut dyn FnMut(&Node<'a>)) {
         for child in self.children() {
             action(&child);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::langs::MozjsCode;
+
+    /// The cursor-free [`Node::has_sibling`] (issue #521) must yield the
+    /// exact same result as the original `parent.children(&mut
+    /// parent.walk()).any(...)` form for every node and every kind in a
+    /// real tree: same child set (named + anonymous), same order, same
+    /// short-circuit. Comparing against the literal old logic node-by-node
+    /// proves equivalence without hardcoding grammar `kind_id`s.
+    fn old_has_sibling(node: OtherNode, id: u16) -> bool {
+        node.parent().is_some_and(|parent| {
+            parent
+                .children(&mut parent.walk())
+                .any(|child| child.kind_id() == id)
+        })
+    }
+
+    #[test]
+    fn has_sibling_matches_cursor_iterator_form() {
+        // Arrow functions exercise the `check_if_arrow_func!` call site
+        // that motivated #521 (PropertyIdentifier siblings on the JS/TS
+        // closure-classification hot path).
+        let code = b"const o = { m: (a) => a + 1, n: function () {} }; foo.bar();";
+        let tree = Tree::new::<MozjsCode>(code);
+        let ts_tree = tree.as_ts_tree();
+
+        // Collect the grammar kinds that actually occur, so the
+        // equivalence check covers present-sibling (true) cases.
+        let mut kinds = std::collections::BTreeSet::new();
+        let mut stack = vec![ts_tree.root_node()];
+        while let Some(n) = stack.pop() {
+            kinds.insert(n.kind_id());
+            let mut child = n.child(0);
+            while let Some(c) = child {
+                stack.push(c);
+                child = c.next_sibling();
+            }
+        }
+        // Include an id that does not occur anywhere for absent-sibling
+        // (false) coverage.
+        let absent_id = u16::MAX;
+
+        let mut stack = vec![ts_tree.root_node()];
+        while let Some(n) = stack.pop() {
+            let wrapped = Node(n);
+            for &id in kinds.iter().chain(std::iter::once(&absent_id)) {
+                assert_eq!(
+                    wrapped.has_sibling(id),
+                    old_has_sibling(n, id),
+                    "has_sibling diverged from cursor-iterator form at node kind {} for id {id}",
+                    n.kind(),
+                );
+            }
+            let mut child = n.child(0);
+            while let Some(c) = child {
+                stack.push(c);
+                child = c.next_sibling();
+            }
+        }
+
+        // No-parent node (root) always reports no sibling.
+        let root = Node(ts_tree.root_node());
+        assert!(!root.has_sibling(absent_id));
+        for &id in &kinds {
+            assert!(
+                !root.has_sibling(id),
+                "root node has no parent → no sibling"
+            );
         }
     }
 }
