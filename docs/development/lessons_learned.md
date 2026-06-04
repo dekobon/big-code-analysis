@@ -134,12 +134,52 @@ the named clause node in each pair (the 200-range IDs), avoiding
 both pitfalls — a useful template for any future grammar that
 exposes the same paired shape.
 
-**Lesson:** After bumping any tree-sitter grammar pin in `Cargo.toml`,
-run `rg 'Lang::([A-Za-z]+)\b' src/getter.rs src/checker.rs
-src/alterator.rs src/spaces.rs src/metrics/` against
-the regenerated `language_<lang>.rs` and confirm every numeric-suffix
-variant of every matched rule is either explicitly listed or
-explicitly excluded with a comment. Mutation tests (or simple
+**A grammar bump can renumber anonymous-token IDs while every named
+node and the variant *set* stay stable** (#519, `ada17475`).
+tree-sitter-groovy v0.2.2 wired up a `;` statement terminator,
+inserting a new anonymous token at kind_id 2. That moved `SEMI` from
+13 to 2 and pushed the block of anonymous tokens that had occupied
+ids 2–12 — `Shebang`, `COMMA`, `COLON`, `LBRACE`, `RBRACE`, `If`,
+`LPAREN`, `RPAREN`, `Else`, `While`, `For` — each up by one (to
+3–13). Crucially, only ids 2–13 reshuffled: the *named* nodes (ids
+151+: `method_declaration`, `closure`, `block`), the operator tokens
+(`QMARKCOLON = 100`, `AMPAMP = 122`, `PIPEPIPE = 123`), and the
+variant *set* were all untouched, so the aliasing sweep above finds
+nothing wrong. But the **stale** `language_groovy.rs` still claimed
+`Else = 10`, while the live grammar now uses 10 = `)` and 11 = `else`.
+Cognitive's Groovy impl dispatches on the `else` *keyword token* (the
+grammar inlines it rather than emitting an `else_clause` node), so
+against the bumped grammar the stale enum fired the `Else` arm on
+every `)` and missed every real `else`.
+
+This was **not** silent. Four existing Groovy cognitive tests go red
+under the stale-enum-against-new-grammar combination (e.g.
+`groovy_cognitive_nested_else_if` inflates 5.0 → 10.0,
+`groovy_cognitive_if_inside_else_block_is_not_else_if` 4.0 → 6.0) —
+`cargo test` catches the shift loudly the moment a fixture exercises
+a renumbered token. The danger is not that the drift hides from the
+suite; it is that the *named*-node IDs look stable, which tempts you
+to skip the regeneration step and assume a behaviour change is your
+own bug. (The first hint here was a `bca dump` showing `{;:2}` where
+the enum said `Shebang = 2`, which is what prompted the regeneration
+before the bad enum was ever committed.) Named-node stability is *not*
+evidence the IDs held: inserting one terminal renumbers the whole
+anonymous block after it.
+
+**Lesson:** After bumping any tree-sitter grammar pin, regenerate the
+enum *first* — bump both manifests in lockstep (root `Cargo.toml` and
+`enums/Cargo.toml`; the excluded `enums` crate cannot inherit the
+workspace pin) and run `cargo run --manifest-path ./enums/Cargo.toml
+-- -lrust -o ./src/languages`. Then `rg 'Lang::([A-Za-z]+)\b'
+src/getter.rs src/checker.rs src/alterator.rs src/spaces.rs
+src/metrics/` against the regenerated `language_<lang>.rs` and confirm
+every numeric-suffix variant of every matched rule is either
+explicitly listed or excluded with a comment. The test suite is a
+strong net — it caught the `else` shift above — but its coverage of
+anonymous tokens is uneven, so a renumbered token that no fixture
+exercises can still slip through; treat regeneration as a reflex, not
+a fallback, and spot-check a known anonymous token with `bca dump` to
+confirm its live id matches the enum. Mutation tests (or simple
 positive tests covering each token form) pin coverage and catch the
 next aliased variant the moment it appears. When in doubt, prefer
 matching by `node.kind()` string (one comparison) over enumerating
