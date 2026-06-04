@@ -11,7 +11,7 @@
 //! extension matching and the shebang / emacs-mode fallback the
 //! `bca` CLI walker uses. The forward lookup (variant → name) is
 //! owned by [`lang_to_name`] in this module: the upstream
-//! `LANG::get_name` returns a display string shared across variants
+//! `LANG::name` returns a display string shared across variants
 //! (both `Tsx` and `Typescript` report `"typescript"`), so the
 //! Python facade carries its own variant-keyed name table to keep
 //! the two disambiguated.
@@ -25,19 +25,19 @@ use crate::analysis::AnalysisError;
 /// Returns the Python-facing language identifier for `lang`.
 ///
 /// The rule is: use the upstream CLI display name
-/// ([`LANG::get_name`]), except for three tokens that are unusable as
+/// ([`LANG::name`]), except for three tokens that are unusable as
 /// `parse_language_name` lookup identifiers and are overridden here:
 ///
-/// - `Cpp`: `get_name()` returns `"c/c++"`, which is not a valid
+/// - `Cpp`: `name()` returns `"c/c++"`, which is not a valid
 ///   `language=` lookup token; the facade exposes `"cpp"`.
-/// - `Csharp`: `get_name()` returns `"c#"`; the facade exposes
+/// - `Csharp`: `name()` returns `"c#"`; the facade exposes
 ///   `"csharp"`.
-/// - `Tsx`: `get_name()` returns `"typescript"` for *both* `Tsx` and
+/// - `Tsx`: `name()` returns `"typescript"` for *both* `Tsx` and
 ///   `Typescript`, so without an override the two would collapse to
 ///   one lookup key. The override exposes `"tsx"`, making them
 ///   distinct (TSX via `.tsx`, TypeScript via `.ts`).
 ///
-/// Every other variant delegates to `get_name()` unchanged. Notably
+/// Every other variant delegates to `name()` unchanged. Notably
 /// `Mozjs` and `Javascript` both report `"javascript"` upstream:
 /// `Mozjs` is the reachable `.js` / `.jsm` / `.mjs` / `.jsx` variant,
 /// while `Javascript` has no registered extensions and is filtered
@@ -48,7 +48,7 @@ pub(crate) fn lang_to_name(lang: LANG) -> &'static str {
         LANG::Cpp => "cpp",
         LANG::Csharp => "csharp",
         LANG::Tsx => "tsx",
-        other => other.get_name(),
+        other => other.name(),
     }
 }
 
@@ -89,7 +89,7 @@ pub(crate) fn language_for_file(path: &Path) -> Result<Option<&'static str>, Ana
 /// `language` argument would let callers route arbitrary source
 /// through the C-preprocessing pipeline.
 fn public_languages() -> impl Iterator<Item = LANG> {
-    LANG::into_enum_iter().filter(|lang| !lang.get_extensions().is_empty())
+    LANG::into_enum_iter().filter(|lang| !lang.extensions().is_empty())
 }
 
 /// Returns the supported language names, in declaration order.
@@ -125,7 +125,7 @@ pub(crate) fn supported_languages() -> Vec<&'static str> {
 /// round-trip is by extension *plus* I/O, not by string shape
 /// alone).
 pub(crate) fn language_extensions(name: &str) -> Option<Vec<&'static str>> {
-    parse_language_name(name).map(|lang| lang.get_extensions().to_vec())
+    parse_language_name(name).map(|lang| lang.extensions().to_vec())
 }
 
 /// Resolve a user-supplied language name (as accepted by
@@ -178,7 +178,7 @@ mod tests {
     fn language_for_file_recognises_js_as_javascript() {
         // CLI parity: `bca metrics --output-format json foo.js`
         // reports `"language": "javascript"` (via
-        // `Mozjs.get_name()`). The bindings must round-trip the
+        // `Mozjs.name()`). The bindings must round-trip the
         // same string so a user reading the CLI output and feeding
         // it back through `analyze_source` does not hit
         // UnsupportedLanguageError.
@@ -310,7 +310,7 @@ mod tests {
 
     #[test]
     fn tsx_and_typescript_are_distinct_python_identifiers() {
-        // Upstream `LANG::get_name` returns "typescript" for both
+        // Upstream `LANG::name` returns "typescript" for both
         // `Tsx` and `Typescript`, which would collide as a lookup
         // key. The Python bindings carry their own variant-keyed
         // name table to keep them disambiguated.
@@ -378,7 +378,7 @@ mod tests {
 
     #[test]
     fn parse_language_name_rejects_internal_helper_variants() {
-        // `Ccomment` and `Preproc` are reachable via `LANG::get_name`
+        // `Ccomment` and `Preproc` are reachable via `LANG::name`
         // / the variant name table but exist only to support the
         // internal C/C++ preprocessing pipeline. The Python facade
         // must refuse to expose them via the explicit-language path —
@@ -391,9 +391,9 @@ mod tests {
     #[test]
     fn lang_to_name_overrides_cpp_and_csharp() {
         // Pin the two overrides that no other test fixes. Upstream
-        // `get_name()` returns "c/c++" / "c#", neither of which is a
+        // `name()` returns "c/c++" / "c#", neither of which is a
         // usable `parse_language_name` lookup token. Test-via-revert:
-        // deleting the matching override arm makes `get_name()`'s value
+        // deleting the matching override arm makes `name()`'s value
         // leak through and fails these assertions.
         assert_eq!(lang_to_name(LANG::Cpp), "cpp");
         assert_eq!(lang_to_name(LANG::Csharp), "csharp");
@@ -414,8 +414,8 @@ mod tests {
             }
             assert_eq!(
                 lang_to_name(lang),
-                lang.get_name(),
-                "non-override variant {lang:?} must mirror get_name()"
+                lang.name(),
+                "non-override variant {lang:?} must mirror name()"
             );
             checked += 1;
         }

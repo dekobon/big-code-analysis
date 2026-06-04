@@ -36,8 +36,8 @@ use crate::traits::*;
 /// Counts the types of nodes specified in the input slice
 /// and the number of nodes in a code.
 pub fn count<T: ParserTrait>(parser: &T, filters: &[String]) -> (usize, usize) {
-    let filters = parser.get_filters(filters);
-    let node = parser.get_root();
+    let filters = parser.filters(filters);
+    let node = parser.root();
     let mut cursor = node.cursor();
     let mut stack = Vec::new();
     let mut good = 0;

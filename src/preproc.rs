@@ -323,10 +323,10 @@ fn strip_include_quotes(code: &[u8], start: usize, end: usize) -> Option<&str> {
 ///
 /// [`PreprocResults`]: struct.PreprocResults.html
 pub fn preprocess(parser: &PreprocParser, path: &Path, results: &mut PreprocResults) {
-    let node = parser.get_root();
+    let node = parser.root();
     let mut cursor = node.cursor();
     let mut stack = Vec::new();
-    let code = parser.get_code();
+    let code = parser.code();
     let mut file_result = PreprocFile::default();
 
     stack.push(node);

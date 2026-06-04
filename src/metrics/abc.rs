@@ -3792,7 +3792,7 @@ mod tests {
     // promotes the hidden rule to a concrete emitted node will fail
     // loudly instead of silently changing the metric (lesson 34).
     fn ast_has_kind_id<P: ParserTrait>(parser: &P, target: u16) -> bool {
-        let mut stack = vec![parser.get_root()];
+        let mut stack = vec![parser.root()];
         while let Some(node) = stack.pop() {
             if node.kind_id() == target {
                 return true;

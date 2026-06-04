@@ -192,7 +192,7 @@ fn from_tree_sitter_walks_supplied_tree_not_a_reparse() {
     parser
         .set_language(
             &LANG::Rust
-                .get_tree_sitter_language()
+                .tree_sitter_language()
                 .expect("rust feature enabled"),
         )
         .expect("rust grammar compatible");
@@ -229,7 +229,7 @@ fn from_tree_sitter_adopts_caller_built_tree() {
     parser
         .set_language(
             &LANG::Rust
-                .get_tree_sitter_language()
+                .tree_sitter_language()
                 .expect("rust feature enabled"),
         )
         .expect("rust grammar compatible");
@@ -295,14 +295,14 @@ fn ast_from_tree_sitter_returns_language_disabled_for_off_feature() {
     // the tree, so it is fine to hand it a tree built from an enabled
     // grammar (Rust here). This exercises the `Err(LanguageDisabled)`
     // arm of `ast_from_tree_dispatch` directly, instead of the proxy
-    // assertion on `LANG::get_tree_sitter_language` that an earlier
+    // assertion on `LANG::tree_sitter_language` that an earlier
     // version of this test used.
     let source = b"fn f() {}".to_vec();
     let mut parser = tree_sitter::Parser::new();
     parser
         .set_language(
             &LANG::Rust
-                .get_tree_sitter_language()
+                .tree_sitter_language()
                 .expect("rust feature enabled"),
         )
         .expect("rust grammar compatible");

@@ -1771,7 +1771,7 @@ mod tests {
         bytes.push(b'\n');
         let parser = PerlParser::new(bytes, &path, None);
         assert!(
-            !parser.get_root().has_error(),
+            !parser.root().has_error(),
             "tree-sitter-perl returned an error tree for snippet:\n{source}"
         );
     }

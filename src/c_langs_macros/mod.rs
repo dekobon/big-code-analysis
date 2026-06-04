@@ -26,7 +26,7 @@ mod tests {
         for (n, sample) in samples.iter().enumerate() {
             let v_sample = sample.as_bytes().to_vec();
             let parser = CppParser::new(v_sample.clone(), &path, None);
-            let root = parser.get_root();
+            let root = parser.root();
             if debug || root.has_error() {
                 eprintln!("Sample (CPP) {n}: {sample}");
                 dump_node(&v_sample, &root, -1, None, None).unwrap();

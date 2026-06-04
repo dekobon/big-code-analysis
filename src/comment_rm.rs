@@ -26,7 +26,7 @@ const CR: [u8; 8192] = [b'\n'; 8192];
 #[doc(hidden)]
 /// Removes comments from a code.
 pub fn rm_comments<T: ParserTrait>(parser: &T) -> Option<Vec<u8>> {
-    let node = parser.get_root();
+    let node = parser.root();
     let mut stack = Vec::new();
     let mut cursor = node.cursor();
     let mut spans = Vec::new();
@@ -34,8 +34,7 @@ pub fn rm_comments<T: ParserTrait>(parser: &T) -> Option<Vec<u8>> {
     stack.push(node);
 
     while let Some(node) = stack.pop() {
-        if T::Checker::is_comment(&node) && !T::Checker::is_useful_comment(&node, parser.get_code())
-        {
+        if T::Checker::is_comment(&node) && !T::Checker::is_useful_comment(&node, parser.code()) {
             let lines = node.end_row() - node.start_row();
             spans.push((node.start_byte(), node.end_byte(), lines));
         } else {
@@ -51,7 +50,7 @@ pub fn rm_comments<T: ParserTrait>(parser: &T) -> Option<Vec<u8>> {
         }
     }
     if !spans.is_empty() {
-        Some(remove_from_code(parser.get_code(), spans))
+        Some(remove_from_code(parser.code(), spans))
     } else {
         None
     }

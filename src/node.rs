@@ -41,7 +41,7 @@ impl Tree {
         // the feature is off the dispatcher returns
         // `Err(LanguageDisabled)` before we get here, so
         // `get_ts_language` is provably `Ok` at this call site.
-        let language = T::get_lang().get_ts_language().expect(
+        let language = T::lang().get_ts_language().expect(
             "invariant: dispatcher cfg-gates this call behind the per-language Cargo feature",
         );
         parser

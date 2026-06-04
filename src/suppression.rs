@@ -624,13 +624,13 @@ pub struct SuppressionMarker {
 #[doc(hidden)]
 #[must_use]
 pub fn suppression_markers<T: ParserTrait>(parser: &T) -> Vec<SuppressionMarker> {
-    let code = parser.get_code();
+    let code = parser.code();
     let mut markers = Vec::new();
     // Explicit-stack DFS (not recursion) so a pathologically deep AST
     // cannot overflow the call stack. Each frame carries the nearest
     // enclosing function name, borrowed from `code`, so child nodes
     // inherit it without re-deriving.
-    let mut stack: Vec<(Node<'_>, Option<&str>)> = vec![(parser.get_root(), None)];
+    let mut stack: Vec<(Node<'_>, Option<&str>)> = vec![(parser.root(), None)];
     while let Some((node, enclosing)) = stack.pop() {
         if T::Checker::is_comment(&node)
             && let Some(text) = node.utf8_text(code)

@@ -333,24 +333,24 @@ mod tests {
             assert!(
                 lang.is_enabled(),
                 "{} should be enabled under the default `all-languages` feature set",
-                lang.get_name(),
+                lang.name(),
             );
         }
     }
 
     // Smoke test for the `LanguageDisabled` contract on a build
     // without the `javascript` feature: every dispatch entry point
-    // (here, `get_tree_sitter_language`) must hand back
+    // (here, `tree_sitter_language`) must hand back
     // `Err(LanguageDisabled(LANG::Javascript))`. Gated on
     // `not(feature = "javascript")` so it only runs in a feature-
     // subset build where the language is actually disabled — the
     // `all-languages` default would have `is_enabled` return true
-    // and `get_tree_sitter_language` succeed.
+    // and `tree_sitter_language` succeed.
     #[cfg(not(feature = "javascript"))]
     #[test]
     fn disabled_language_dispatch_returns_language_disabled() {
         assert!(!LANG::Javascript.is_enabled());
-        match LANG::Javascript.get_tree_sitter_language() {
+        match LANG::Javascript.tree_sitter_language() {
             Err(MetricsError::LanguageDisabled(LANG::Javascript)) => {}
             other => panic!(
                 "expected Err(LanguageDisabled(Javascript)) for disabled `javascript` feature, got {other:?}",
@@ -358,7 +358,7 @@ mod tests {
         }
     }
 
-    // `is_enabled` and `get_tree_sitter_language` must agree: a
+    // `is_enabled` and `tree_sitter_language` must agree: a
     // variant that reports itself enabled must hand back a usable
     // `Language`, never `Err(LanguageDisabled)`. The pairing exists
     // so callers that branch on `is_enabled` (rather than match on
@@ -366,12 +366,12 @@ mod tests {
     #[test]
     fn is_enabled_matches_get_tree_sitter_language() {
         for lang in LANG::into_enum_iter() {
-            let lookup = lang.get_tree_sitter_language();
+            let lookup = lang.tree_sitter_language();
             assert_eq!(
                 lang.is_enabled(),
                 lookup.is_ok(),
-                "{} disagrees: is_enabled={}, get_tree_sitter_language={:?}",
-                lang.get_name(),
+                "{} disagrees: is_enabled={}, tree_sitter_language={:?}",
+                lang.name(),
                 lang.is_enabled(),
                 lookup.map(|_| "Ok"),
             );
@@ -407,7 +407,7 @@ mod tests {
                         panic!(
                             "{} on input {:?} unexpectedly returned {err:?}; \
                              EmptyRoot is documented as not produced today",
-                            lang.get_name(),
+                            lang.name(),
                             String::from_utf8_lossy(src),
                         )
                     });
@@ -415,20 +415,20 @@ mod tests {
                     space.kind,
                     SpaceKind::Unit,
                     "{} on input {:?} produced a non-Unit top-level FuncSpace",
-                    lang.get_name(),
+                    lang.name(),
                     String::from_utf8_lossy(src),
                 );
             }
         }
     }
 
-    // `Display` must agree with `get_name` for every variant — the
+    // `Display` must agree with `name` for every variant — the
     // impl delegates to it, so this pins that contract against future
     // refactors that might diverge the two.
     #[test]
     fn display_matches_get_name_for_every_variant() {
         for lang in LANG::into_enum_iter() {
-            assert_eq!(lang.to_string(), lang.get_name());
+            assert_eq!(lang.to_string(), lang.name());
         }
     }
 
@@ -441,13 +441,13 @@ mod tests {
     fn display_fromstr_round_trip_preserves_name() {
         use std::str::FromStr;
         for lang in LANG::into_enum_iter() {
-            let parsed = LANG::from_str(lang.get_name())
-                .unwrap_or_else(|e| panic!("{} failed to parse back: {e}", lang.get_name()));
+            let parsed = LANG::from_str(lang.name())
+                .unwrap_or_else(|e| panic!("{} failed to parse back: {e}", lang.name()));
             assert_eq!(
-                parsed.get_name(),
-                lang.get_name(),
+                parsed.name(),
+                lang.name(),
                 "{} round-tripped to a differently-named variant {:?}",
-                lang.get_name(),
+                lang.name(),
                 parsed,
             );
         }
@@ -499,7 +499,7 @@ mod tests {
         use std::collections::{HashMap, HashSet};
         let mut set = HashSet::new();
         for lang in LANG::into_enum_iter() {
-            assert!(set.insert(lang), "{} inserted twice", lang.get_name());
+            assert!(set.insert(lang), "{} inserted twice", lang.name());
         }
         assert_eq!(set.len(), LANG::into_enum_iter().count());
 

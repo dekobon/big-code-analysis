@@ -119,7 +119,7 @@ feature set; selecting a [`LANG`] variant whose feature is off
 returns `Err(MetricsError::LanguageDisabled(LANG))` from every
 dispatch entry point (`analyze`, `metrics_from_tree`, `action`,
 `get_ops`, the deprecated `get_function_spaces*` shims, and
-`LANG::get_tree_sitter_language`). The set of compiled-in variants
+`LANG::tree_sitter_language`). The set of compiled-in variants
 is queryable via `LANG::is_enabled`.
 
 ## Building

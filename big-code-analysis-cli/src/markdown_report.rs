@@ -545,7 +545,7 @@ pub(crate) fn generate_report(
 fn group_by_language(summaries: &[FunctionSummary]) -> BTreeMap<&str, Vec<&FunctionSummary>> {
     let mut map = BTreeMap::<&str, Vec<&FunctionSummary>>::new();
     for s in summaries {
-        map.entry(s.language.get_name()).or_default().push(s);
+        map.entry(s.language.name()).or_default().push(s);
     }
     map
 }

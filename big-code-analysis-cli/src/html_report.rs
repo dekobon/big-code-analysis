@@ -138,13 +138,13 @@ table.hotspot tr:nth-child(even) td{background:#fafafa}\
 table.hotspot td.numeric{text-align:right;font-variant-numeric:tabular-nums}\
 ";
 
-/// `LANG::get_name()` -> CSS class suffix table. The renderer uses
+/// `LANG::name()` -> CSS class suffix table. The renderer uses
 /// every entry here; `language_palette_classes_have_css` walks
 /// [`INLINE_CSS`] to confirm both the light and dark rules exist for
 /// each suffix, so adding a row without the matching CSS fails the
 /// suite. `"other"` is the neutral fallback for any name not listed.
 ///
-/// Names match production output of [`big_code_analysis::LANG::get_name`]
+/// Names match production output of [`big_code_analysis::LANG::name`]
 /// (see `src/langs.rs`); aliases like `LANG::Tsx`/`Mozjs` already
 /// collapse to `"typescript"`/`"javascript"` upstream.
 const LANGUAGE_PALETTE: &[(&str, &str)] = &[
@@ -338,7 +338,7 @@ fn write_hotspot_table(out: &mut String, columns: &[Column], entries: &[&Functio
     write_table(out, &headers, &aligns, &rows);
 }
 
-/// Per-language grouping of summaries, keyed by `LANG::get_name()` and
+/// Per-language grouping of summaries, keyed by `LANG::name()` and
 /// ordered alphabetically (so the report sections are deterministic).
 type LangGroups<'a> = BTreeMap<&'a str, Vec<&'a FunctionSummary>>;
 
@@ -348,7 +348,7 @@ type LangGroups<'a> = BTreeMap<&'a str, Vec<&'a FunctionSummary>>;
 fn group_by_language(summaries: &[FunctionSummary]) -> LangGroups<'_> {
     let mut map = LangGroups::new();
     for s in summaries {
-        map.entry(s.language.get_name()).or_default().push(s);
+        map.entry(s.language.name()).or_default().push(s);
     }
     map
 }
@@ -1220,7 +1220,7 @@ mod tests {
 
     #[test]
     fn tsx_section_uses_typescript_palette() {
-        // `LANG::Tsx::get_name() == "typescript"`, so a TSX-only walk
+        // `LANG::Tsx::name() == "typescript"`, so a TSX-only walk
         // must end up tinted as typescript — not as a fabricated
         // `lang-tsx` (no such CSS rule any more) and not as the
         // neutral `lang-other` fallback.

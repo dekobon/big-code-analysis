@@ -182,7 +182,7 @@ async fn ast_parser(
             span: payload.span,
         };
         let result = run_parse(&config, move || {
-            action::<AstCallback>(&language, buf, Path::new(""), None, cfg).expect(FEATURES_PINNED)
+            action::<AstCallback>(language, buf, Path::new(""), None, cfg).expect(FEATURES_PINNED)
         })
         .await?;
         Ok(HttpResponse::Ok().json(result))
@@ -206,7 +206,7 @@ async fn comment_removal_json(
         let cfg = WebCommentCfg { id: payload.id };
         let language = comment_language(language);
         let result = run_parse(&config, move || {
-            action::<WebCommentCallback>(&language, buf, Path::new(""), None, cfg)
+            action::<WebCommentCallback>(language, buf, Path::new(""), None, cfg)
                 .expect(FEATURES_PINNED)
         })
         .await?;
@@ -231,7 +231,7 @@ async fn comment_removal_plain(
         let language = comment_language(language);
         let cfg = WebCommentCfg { id: String::new() };
         let res = run_parse(&config, move || {
-            action::<WebCommentCallback>(&language, buf, Path::new(""), None, cfg)
+            action::<WebCommentCallback>(language, buf, Path::new(""), None, cfg)
                 .expect(FEATURES_PINNED)
         })
         .await?;
@@ -266,7 +266,7 @@ async fn metrics_json(
         // request payload and chain `.with_exclude_tests(...)` here.
         let cfg = WebMetricsCfg::new(payload.id, path, payload.unit, name.to_string());
         let result = run_parse(&config, move || {
-            action::<WebMetricsCallback>(&language, buf, Path::new(""), None, cfg)
+            action::<WebMetricsCallback>(language, buf, Path::new(""), None, cfg)
                 .expect(FEATURES_PINNED)
         })
         .await?;
@@ -297,7 +297,7 @@ async fn metrics_plain(
         // Same `exclude_tests` rationale as the JSON variant above.
         let cfg = WebMetricsCfg::new(String::new(), path, unit, name.to_string());
         let result = run_parse(&config, move || {
-            action::<WebMetricsCallback>(&language, buf, Path::new(""), None, cfg)
+            action::<WebMetricsCallback>(language, buf, Path::new(""), None, cfg)
                 .expect(FEATURES_PINNED)
         })
         .await?;
@@ -320,7 +320,7 @@ async fn function_json(
     if let Some(language) = language {
         let cfg = WebFunctionCfg { id: payload.id };
         let result = run_parse(&config, move || {
-            action::<WebFunctionCallback>(&language, buf, Path::new(""), None, cfg)
+            action::<WebFunctionCallback>(language, buf, Path::new(""), None, cfg)
                 .expect(FEATURES_PINNED)
         })
         .await?;
@@ -344,7 +344,7 @@ async fn function_plain(
     if let Some(language) = language {
         let cfg = WebFunctionCfg { id: String::new() };
         let result = run_parse(&config, move || {
-            action::<WebFunctionCallback>(&language, buf, Path::new(""), None, cfg)
+            action::<WebFunctionCallback>(language, buf, Path::new(""), None, cfg)
                 .expect(FEATURES_PINNED)
         })
         .await?;

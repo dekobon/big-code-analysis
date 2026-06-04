@@ -110,7 +110,7 @@ let mut parser = tree_sitter::Parser::new();
 parser
     .set_language(
         &LANG::Rust
-            .get_tree_sitter_language()
+            .tree_sitter_language()
             .expect("rust feature enabled"),
     )
     .expect("rust grammar compatible");
@@ -124,12 +124,12 @@ let _ = ast.metrics(MetricsOptions::default()).expect("walker succeeds");
 ```
 
 The tree must have been produced from `code` with the grammar returned
-by [`LANG::get_tree_sitter_language`][lang_grammar] for `lang`; a
+by [`LANG::tree_sitter_language`][lang_grammar] for `lang`; a
 mismatch is not `unsafe`, but the metric walker matches on tree-sitter
 `kind_id` values that come from the language's enum, so values from a
 different grammar yield nonsensical results.
 
-[lang_grammar]: https://docs.rs/big-code-analysis/*/big_code_analysis/enum.LANG.html#method.get_tree_sitter_language
+[lang_grammar]: https://docs.rs/big-code-analysis/*/big_code_analysis/enum.LANG.html#method.tree_sitter_language
 
 ## C++ preprocessor
 

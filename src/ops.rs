@@ -162,7 +162,7 @@ fn finalize<T: ParserTrait>(state_stack: &mut Vec<State>, diff_level: usize) {
 
 // Hidden from rustdoc because the signature exposes `ParserTrait`,
 // which is `#[doc(hidden)]` per issue #256. The non-generic
-// `get_ops(&LANG, ...)` entry point is the documented surface.
+// `get_ops(LANG, ...)` entry point is the documented surface.
 #[doc(hidden)]
 /// Retrieves all the operators and operands of a code.
 ///
@@ -198,8 +198,8 @@ pub fn operands_and_operators<'a, T: ParserTrait>(
     parser: &'a T,
     path: &'a Path,
 ) -> Result<Ops, MetricsError> {
-    let code = parser.get_code();
-    let node = parser.get_root();
+    let code = parser.code();
+    let node = parser.root();
     let mut cursor = node.cursor();
     let mut stack = Vec::new();
     let mut children = Vec::new();
@@ -321,7 +321,7 @@ mod tests {
         let path = PathBuf::from(file);
         let mut trimmed_bytes = source.trim_end().trim_matches('\n').as_bytes().to_vec();
         trimmed_bytes.push(b'\n');
-        let ops = get_ops(&lang, trimmed_bytes, &path, None).unwrap();
+        let ops = get_ops(lang, trimmed_bytes, &path, None).unwrap();
 
         let mut operators_str: Vec<&str> = ops.operators.iter().map(AsRef::as_ref).collect();
         let mut operands_str: Vec<&str> = ops.operands.iter().map(AsRef::as_ref).collect();
@@ -841,7 +841,7 @@ mod tests {
             "test premise broken: path must be non-UTF-8 for this test to be meaningful"
         );
 
-        let ops = get_ops(&LANG::Python, b"a = 1\n".to_vec(), &path, None)
+        let ops = get_ops(LANG::Python, b"a = 1\n".to_vec(), &path, None)
             .expect("get_ops must yield a top-level Ops");
 
         let name = ops
@@ -867,7 +867,7 @@ mod tests {
     #[test]
     fn utf8_path_does_not_set_name_was_lossy() {
         let path = PathBuf::from("foo.py");
-        let ops = get_ops(&LANG::Python, b"a = 1\n".to_vec(), &path, None)
+        let ops = get_ops(LANG::Python, b"a = 1\n".to_vec(), &path, None)
             .expect("get_ops must yield a top-level Ops");
         assert!(
             !ops.name_was_lossy,

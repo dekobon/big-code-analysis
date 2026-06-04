@@ -110,7 +110,7 @@ fn get_fake_code<T: LanguageInfo>(
     pr: Option<Arc<PreprocResults>>,
 ) -> Option<Vec<u8>> {
     if let Some(pr) = pr {
-        match T::get_lang() {
+        match T::lang() {
             LANG::Cpp => {
                 let macros = get_macros(path, &pr.files);
                 c_macro::replace(code, &macros)
@@ -177,23 +177,23 @@ impl<
     }
 
     #[inline]
-    fn get_language(&self) -> LANG {
-        T::get_lang()
+    fn language(&self) -> LANG {
+        T::lang()
     }
 
     #[inline]
-    fn get_root(&self) -> Node<'_> {
+    fn root(&self) -> Node<'_> {
         self.tree.get_root()
     }
 
     #[inline]
-    fn get_code(&self) -> &[u8] {
+    fn code(&self) -> &[u8] {
         &self.code
     }
 
-    fn get_filters(&self, filters: &[String]) -> Filter {
+    fn filters(&self, requested: &[String]) -> Filter {
         let mut res: Vec<Box<FilterFn>> = Vec::new();
-        for f in filters {
+        for f in requested {
             let f = f.as_str();
             match f {
                 "all" => res.push(Box::new(|_: &Node| -> bool { true })),
@@ -257,7 +257,7 @@ impl<
     ///
     /// The supplied `tree` must have been produced from `code` with
     /// the tree-sitter language matching `T` — typically obtained
-    /// via [`crate::LANG::get_tree_sitter_language`]. A mismatch is
+    /// via [`crate::LANG::tree_sitter_language`]. A mismatch is
     /// not `unsafe`, but metric values will be nonsensical because
     /// the tree's `kind_id` values will not correspond to the per-
     /// language enum the metric `compute` functions match on.
@@ -277,7 +277,7 @@ impl<
     /// surface; the stable spelling of this accessor is
     /// [`crate::Ast::as_tree_sitter`].
     #[must_use]
-    pub fn get_ts_tree(&self) -> &tree_sitter::Tree {
+    pub fn ts_tree(&self) -> &tree_sitter::Tree {
         self.tree.as_ts_tree()
     }
 }

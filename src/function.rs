@@ -50,8 +50,8 @@ pub struct FunctionSpan {
 ///
 /// [`FunctionSpan`]: struct.FunctionSpan.html
 pub fn function<T: ParserTrait>(parser: &T) -> Vec<FunctionSpan> {
-    let root = parser.get_root();
-    let code = parser.get_code();
+    let root = parser.root();
+    let code = parser.code();
     let mut spans = Vec::new();
     root.act_on_node(&mut |n| {
         if T::Checker::is_func(n) {

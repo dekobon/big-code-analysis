@@ -515,7 +515,7 @@ mod tests {
         let code = b"char c = '\xff';";
         let path = PathBuf::from("test.c");
         let parser = CppParser::new(code.to_vec(), &path, None);
-        let root = parser.get_root();
+        let root = parser.root();
         let (text, _) = CppCode::get_text_span(&root, code, false, true);
         assert!(
             text.contains('\u{FFFD}'),

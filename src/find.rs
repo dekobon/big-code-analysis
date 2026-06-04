@@ -41,8 +41,8 @@ pub fn find<'a, T: ParserTrait>(
     parser: &'a T,
     filters: &[String],
 ) -> Result<Vec<Node<'a>>, MetricsError> {
-    let filters = parser.get_filters(filters);
-    let node = parser.get_root();
+    let filters = parser.filters(filters);
+    let node = parser.root();
     let mut cursor = node.cursor();
     let mut stack = Vec::new();
     let mut good = Vec::new();
@@ -105,7 +105,7 @@ impl Callback for Find {
         {
             println!("In file {}", cfg.path.display());
             for node in good {
-                dump_node(parser.get_code(), &node, 1, cfg.line_start, cfg.line_end)?;
+                dump_node(parser.code(), &node, 1, cfg.line_start, cfg.line_end)?;
             }
             println!();
         }

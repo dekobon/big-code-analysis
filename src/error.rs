@@ -89,7 +89,7 @@ pub enum MetricsError {
     /// Produced by every dispatch entry point
     /// ([`crate::analyze`], [`crate::metrics_from_tree`],
     /// [`crate::action`], [`crate::get_ops`], the deprecated
-    /// `get_function_spaces*` shims, and [`crate::LANG::get_tree_sitter_language`])
+    /// `get_function_spaces*` shims, and [`crate::LANG::tree_sitter_language`])
     /// when the caller selects a [`LANG`] variant whose per-language
     /// Cargo feature is not enabled in the current build — see the
     /// `[features]` table in the root `Cargo.toml` for the list.
@@ -129,11 +129,7 @@ impl std::fmt::Display for MetricsError {
                 f.write_str("no top-level FuncSpace could be produced from the source AST")
             }
             Self::LanguageDisabled(lang) => {
-                write!(
-                    f,
-                    "language {} is not enabled in this build",
-                    lang.get_name()
-                )
+                write!(f, "language {} is not enabled in this build", lang.name())
             }
             Self::NonUtf8Path => f.write_str("path is not valid UTF-8"),
             Self::ParseHasErrors => f.write_str("tree-sitter parse tree contains syntax errors"),

@@ -158,9 +158,9 @@ macro_rules! mk_lang {
             /// ```
             /// use big_code_analysis::LANG;
             ///
-            /// println!("{}", LANG::Rust.get_name());
+            /// println!("{}", LANG::Rust.name());
             /// ```
-            pub fn get_name(&self) -> &'static str {
+            pub fn name(&self) -> &'static str {
                 match self {
                     $(
                         LANG::$camel => $display,
@@ -173,7 +173,7 @@ macro_rules! mk_lang {
             ///
             /// Returns `false` for variants whose per-language Cargo
             /// feature is disabled; calling
-            /// [`Self::get_tree_sitter_language`], [`crate::analyze`],
+            /// [`Self::tree_sitter_language`], [`crate::analyze`],
             /// or any other dispatcher with such a variant will
             /// return [`crate::MetricsError::LanguageDisabled`].
             #[must_use]
@@ -192,7 +192,7 @@ macro_rules! mk_lang {
             // or `Err(LanguageDisabled)` when the matching Cargo
             // feature is off. This is the internal entry point used
             // by `Tree::new` to construct a parser; the public
-            // counterpart is `get_tree_sitter_language`.
+            // counterpart is `tree_sitter_language`.
             pub(crate) fn get_ts_language(&self) -> Result<Language, crate::MetricsError> {
                 match self {
                     $(
@@ -231,15 +231,15 @@ macro_rules! mk_lang {
             /// ```
             /// use big_code_analysis::LANG;
             ///
-            /// let _lang = LANG::Rust.get_tree_sitter_language().expect("rust feature enabled");
+            /// let _lang = LANG::Rust.tree_sitter_language().expect("rust feature enabled");
             /// ```
-            pub fn get_tree_sitter_language(&self) -> Result<::tree_sitter::Language, crate::MetricsError> {
+            pub fn tree_sitter_language(&self) -> Result<::tree_sitter::Language, crate::MetricsError> {
                 self.get_ts_language()
             }
         }
 
         /// Renders the language's canonical display name, identical to
-        /// [`LANG::get_name`].
+        /// [`LANG::name`].
         ///
         /// Several variants intentionally share a name (e.g. `Mozjs`
         /// and `Javascript` both render `javascript`; `Tsx` and
@@ -249,12 +249,12 @@ macro_rules! mk_lang {
         /// `src/langs.rs`, not necessarily the original variant.
         impl ::std::fmt::Display for LANG {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-                f.write_str(self.get_name())
+                f.write_str(self.name())
             }
         }
 
         /// Parses a [`LANG`] from its [`Display`](std::fmt::Display)
-        /// spelling (the [`LANG::get_name`] string, e.g. `"rust"`,
+        /// spelling (the [`LANG::name`] string, e.g. `"rust"`,
         /// `"c/c++"`, `"c#"`).
         ///
         /// Matching is case-sensitive and exact, mirroring
@@ -274,7 +274,7 @@ macro_rules! mk_lang {
 
             fn from_str(s: &str) -> Result<Self, Self::Err> {
                 LANG::into_enum_iter()
-                    .find(|lang| lang.get_name() == s)
+                    .find(|lang| lang.name() == s)
                     .ok_or_else(|| $crate::macros::ParseLangError::new(s))
             }
         }
@@ -341,13 +341,13 @@ macro_rules! mk_action {
         /// // Configuration options used by the function which computes the metrics
         /// let cfg = MetricsCfg::new(path);
         ///
-        /// action::<Metrics>(&language, source_as_vec, &cfg.path.clone(), None, cfg)
+        /// action::<Metrics>(language, source_as_vec, &cfg.path.clone(), None, cfg)
         ///     .expect("cpp feature enabled");
         /// ```
         ///
         /// [`Callback`]: trait.Callback.html
         #[inline]
-        pub fn action<T: Callback>(lang: &LANG, source: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>, cfg: T::Cfg) -> Result<T::Res, MetricsError> {
+        pub fn action<T: Callback>(lang: LANG, source: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>, cfg: T::Cfg) -> Result<T::Res, MetricsError> {
             match lang {
                 $(
                     #[cfg(feature = $feature)]
@@ -358,7 +358,7 @@ macro_rules! mk_action {
                     #[cfg(not(feature = $feature))]
                     LANG::$camel => {
                         let _ = (source, path, pr, cfg);
-                        Err(MetricsError::LanguageDisabled(*lang))
+                        Err(MetricsError::LanguageDisabled(lang))
                     },
                 )*
             }
@@ -390,7 +390,7 @@ macro_rules! mk_action {
         /// let source_as_vec = source_code.as_bytes().to_vec();
         ///
         /// # #[allow(deprecated)]
-        /// get_function_spaces(&language, source_as_vec, &path, None).unwrap();
+        /// get_function_spaces(language, source_as_vec, &path, None).unwrap();
         /// ```
         ///
         /// # Errors
@@ -405,7 +405,7 @@ macro_rules! mk_action {
             note = "Use `analyze(Source::new(lang, &code).with_name(Some(name)), MetricsOptions::default())` instead — the path-positional shim derives the top-level FuncSpace name via lossy UTF-8 conversion."
         )]
         #[inline]
-        pub fn get_function_spaces(lang: &LANG, source: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>) -> Result<FuncSpace, MetricsError> {
+        pub fn get_function_spaces(lang: LANG, source: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>) -> Result<FuncSpace, MetricsError> {
             #[allow(deprecated)]
             match lang {
                 $(
@@ -417,7 +417,7 @@ macro_rules! mk_action {
                     #[cfg(not(feature = $feature))]
                     LANG::$camel => {
                         let _ = (source, path, pr);
-                        Err(MetricsError::LanguageDisabled(*lang))
+                        Err(MetricsError::LanguageDisabled(lang))
                     },
                 )*
             }
@@ -491,7 +491,7 @@ macro_rules! mk_action {
                 match self {
                     $(
                         #[cfg(feature = $feature)]
-                        AstInner::$camel(parser) => parser.get_code(),
+                        AstInner::$camel(parser) => parser.code(),
                     )*
                     #[cfg(not(any( $( feature = $feature ),* )))]
                     _ => match *self {},
@@ -502,7 +502,7 @@ macro_rules! mk_action {
                 match self {
                     $(
                         #[cfg(feature = $feature)]
-                        AstInner::$camel(parser) => parser.get_ts_tree(),
+                        AstInner::$camel(parser) => parser.ts_tree(),
                     )*
                     #[cfg(not(any( $( feature = $feature ),* )))]
                     _ => match *self {},
@@ -602,7 +602,7 @@ macro_rules! mk_action {
         /// let options = MetricsOptions::default().with_exclude_tests(true);
         ///
         /// # #[allow(deprecated)]
-        /// get_function_spaces_with_options(&language, source_as_vec, &path, None, options).unwrap();
+        /// get_function_spaces_with_options(language, source_as_vec, &path, None, options).unwrap();
         /// ```
         ///
         /// # Errors
@@ -617,7 +617,7 @@ macro_rules! mk_action {
             note = "Use `analyze(Source::new(lang, &code).with_name(Some(name)), options)` instead — the path-positional shim derives the top-level FuncSpace name via lossy UTF-8 conversion."
         )]
         #[inline]
-        pub fn get_function_spaces_with_options(lang: &LANG, source: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>, options: MetricsOptions) -> Result<FuncSpace, MetricsError> {
+        pub fn get_function_spaces_with_options(lang: LANG, source: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>, options: MetricsOptions) -> Result<FuncSpace, MetricsError> {
             #[allow(deprecated)]
             match lang {
                 $(
@@ -629,7 +629,7 @@ macro_rules! mk_action {
                     #[cfg(not(feature = $feature))]
                     LANG::$camel => {
                         let _ = (source, path, pr, options);
-                        Err(MetricsError::LanguageDisabled(*lang))
+                        Err(MetricsError::LanguageDisabled(lang))
                     },
                 )*
             }
@@ -644,7 +644,7 @@ macro_rules! mk_action {
         /// reparsing) and wants the metric walker to share that
         /// parse. The supplied `tree` must have been produced from
         /// `source` with the [`tree_sitter::Language`] returned by
-        /// [`LANG::get_tree_sitter_language`] for `lang`; a mismatch
+        /// [`LANG::tree_sitter_language`] for `lang`; a mismatch
         /// is not `unsafe` but yields nonsensical metric values.
         ///
         /// Equivalent to [`get_function_spaces_with_options`] on the
@@ -669,7 +669,7 @@ macro_rules! mk_action {
         /// parser
         ///     .set_language(
         ///         &LANG::Rust
-        ///             .get_tree_sitter_language()
+        ///             .tree_sitter_language()
         ///             .expect("rust feature enabled"),
         ///     )
         ///     .expect("rust grammar pinned to a compatible version");
@@ -678,7 +678,7 @@ macro_rules! mk_action {
         ///     .expect("parser has a language set");
         ///
         /// let from_tree = metrics_from_tree(
-        ///     &LANG::Rust,
+        ///     LANG::Rust,
         ///     tree,
         ///     source.clone(),
         ///     &path,
@@ -688,7 +688,7 @@ macro_rules! mk_action {
         /// .unwrap();
         /// # #[allow(deprecated)]
         /// let from_bytes =
-        ///     get_function_spaces(&LANG::Rust, source, &path, None).unwrap();
+        ///     get_function_spaces(LANG::Rust, source, &path, None).unwrap();
         ///
         /// assert_eq!(
         ///     from_tree.metrics.cyclomatic.cyclomatic_sum(),
@@ -705,7 +705,7 @@ macro_rules! mk_action {
         /// it today — see the variant doc.
         #[inline]
         pub fn metrics_from_tree(
-            lang: &LANG,
+            lang: LANG,
             tree: ::tree_sitter::Tree,
             source: Vec<u8>,
             path: &Path,
@@ -726,7 +726,7 @@ macro_rules! mk_action {
             // [`crate::Ast::from_tree_sitter`], which carries an
             // explicit `name: Option<String>` end-to-end.
             let name = Some(path.to_string_lossy().into_owned());
-            ast_from_tree_dispatch(*lang, tree, source)?.run_metrics(name, options)
+            ast_from_tree_dispatch(lang, tree, source)?.run_metrics(name, options)
         }
 
         /// Returns all operators and operands of each space in a code.
@@ -746,7 +746,7 @@ macro_rules! mk_action {
         /// let path = PathBuf::from("foo.c");
         /// let source_as_vec = source_code.as_bytes().to_vec();
         ///
-        /// get_ops(&language, source_as_vec, &path, None).unwrap();
+        /// get_ops(language, source_as_vec, &path, None).unwrap();
         /// # }
         /// ```
         ///
@@ -758,7 +758,7 @@ macro_rules! mk_action {
         /// for forward compatibility, but the walker does not produce
         /// it today — see the variant doc.
         #[inline]
-        pub fn get_ops(lang: &LANG, source: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>) -> Result<Ops, MetricsError> {
+        pub fn get_ops(lang: LANG, source: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>) -> Result<Ops, MetricsError> {
             match lang {
                 $(
                     #[cfg(feature = $feature)]
@@ -769,7 +769,7 @@ macro_rules! mk_action {
                     #[cfg(not(feature = $feature))]
                     LANG::$camel => {
                         let _ = (source, path, pr);
-                        Err(MetricsError::LanguageDisabled(*lang))
+                        Err(MetricsError::LanguageDisabled(lang))
                     },
                 )*
             }
@@ -814,10 +814,10 @@ macro_rules! mk_extensions {
             /// ```
             /// use big_code_analysis::LANG;
             ///
-            /// assert!(LANG::Rust.get_extensions().contains(&"rs"));
+            /// assert!(LANG::Rust.extensions().contains(&"rs"));
             /// ```
             #[must_use]
-            pub fn get_extensions(&self) -> &'static [&'static str] {
+            pub fn extensions(&self) -> &'static [&'static str] {
                 match self {
                     $(
                         LANG::$camel => &[ $( stringify!($ext), )* ],
@@ -866,11 +866,11 @@ macro_rules! mk_code {
             impl LanguageInfo for $code {
                 type BaseLang = $camel;
 
-                fn get_lang() -> LANG {
+                fn lang() -> LANG {
                     LANG::$camel
                 }
 
-                fn get_lang_name() -> &'static str {
+                fn lang_name() -> &'static str {
                     $docname
                 }
             }

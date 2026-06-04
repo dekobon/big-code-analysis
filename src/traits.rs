@@ -57,9 +57,9 @@ pub trait LanguageInfo {
     type BaseLang;
 
     /// Returns the workspace-level [`LANG`] variant for this code tag.
-    fn get_lang() -> LANG;
+    fn lang() -> LANG;
     /// Returns the human-readable language name for this code tag.
-    fn get_lang_name() -> &'static str;
+    fn lang_name() -> &'static str;
 }
 
 // Internal language-dispatch trait kept `pub` so the macro-generated
@@ -90,10 +90,10 @@ pub trait ParserTrait {
     type Tokens: Tokens;
 
     fn new(code: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>) -> Self;
-    fn get_language(&self) -> LANG;
-    fn get_root(&self) -> Node<'_>;
-    fn get_code(&self) -> &[u8];
-    fn get_filters(&self, filters: &[String]) -> Filter;
+    fn language(&self) -> LANG;
+    fn root(&self) -> Node<'_>;
+    fn code(&self) -> &[u8];
+    fn filters(&self, requested: &[String]) -> Filter;
 }
 
 pub(crate) trait Search<'a> {

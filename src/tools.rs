@@ -435,27 +435,27 @@ pub fn guess_language<P: AsRef<Path>>(buf: &[u8], path: P) -> (Option<LANG>, &'s
             if lang_ext == lang_mode {
                 (
                     Some(lang_mode),
-                    fake::get_true(&ext, &mode).unwrap_or_else(|| lang_mode.get_name()),
+                    fake::get_true(&ext, &mode).unwrap_or_else(|| lang_mode.name()),
                 )
             } else {
                 // we should probably rely on extension here
-                (Some(lang_ext), lang_ext.get_name())
+                (Some(lang_ext), lang_ext.name())
             }
         } else {
             (
                 Some(lang_ext),
-                fake::get_true(&ext, &mode).unwrap_or_else(|| lang_ext.get_name()),
+                fake::get_true(&ext, &mode).unwrap_or_else(|| lang_ext.name()),
             )
         }
     } else if let Some(lang_mode) = from_mode {
         (
             Some(lang_mode),
-            fake::get_true(&ext, &mode).unwrap_or_else(|| lang_mode.get_name()),
+            fake::get_true(&ext, &mode).unwrap_or_else(|| lang_mode.name()),
         )
     } else if let Some(lang_shebang) = get_shebang_lang(buf) {
         (
             Some(lang_shebang),
-            fake::get_true(&ext, &mode).unwrap_or_else(|| lang_shebang.get_name()),
+            fake::get_true(&ext, &mode).unwrap_or_else(|| lang_shebang.name()),
         )
     } else {
         (None, fake::get_true(&ext, &mode).unwrap_or_default())

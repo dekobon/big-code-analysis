@@ -36,7 +36,7 @@ use crate::traits::*;
 /// parser
 ///     .set_language(
 ///         &LANG::Cpp
-///             .get_tree_sitter_language()
+///             .tree_sitter_language()
 ///             .expect("cpp feature enabled"),
 ///     )
 ///     .expect("cpp grammar pinned to a compatible version");
@@ -248,8 +248,8 @@ impl Callback for Dump {
 
     fn call<T: ParserTrait>(cfg: Self::Cfg, parser: &T) -> Self::Res {
         dump_node(
-            parser.get_code(),
-            &parser.get_root(),
+            parser.code(),
+            &parser.root(),
             -1,
             cfg.line_start,
             cfg.line_end,
@@ -284,7 +284,7 @@ mod tests {
         let code = b"char c = '\xff';";
         let path = PathBuf::from("test.c");
         let parser = CppParser::new(code.to_vec(), &path, None);
-        let root = parser.get_root();
+        let root = parser.root();
         assert!(dump_node(code, &root, -1, None, None).is_ok());
     }
 
@@ -315,7 +315,7 @@ mod tests {
     fn branch_glyphs_root_is_flush_left_regardless_of_last() {
         let code = b"int a = 42;\n";
         let parser = CppParser::new(code.to_vec(), &PathBuf::from("t.c"), None);
-        let root = parser.get_root();
+        let root = parser.root();
         // The root has no parent: empty prefixes whatever `last` says.
         assert_eq!(branch_glyphs(&root, true), ("", ""));
         assert_eq!(branch_glyphs(&root, false), ("", ""));
@@ -336,7 +336,7 @@ mod tests {
         // ANSI). Expected values were captured from the pre-split code.
         let code = b"int a = 42;\n";
         let parser = CppParser::new(code.to_vec(), &PathBuf::from("t.c"), None);
-        let root = parser.get_root();
+        let root = parser.root();
 
         let no_start: Option<usize> = None;
         let no_end: Option<usize> = None;
@@ -371,7 +371,7 @@ mod tests {
         // exercising `line_in_range` end to end through the walk.
         let code = b"int a = 1;\nint b = 2;\n";
         let parser = CppParser::new(code.to_vec(), &PathBuf::from("t.c"), None);
-        let root = parser.get_root();
+        let root = parser.root();
 
         let start: Option<usize> = Some(2);
         let end: Option<usize> = Some(2);
@@ -408,7 +408,7 @@ mod tests {
         // decrement in `dump_children` guards — pin it explicitly.
         let code = b"int a = 42;\n";
         let parser = CppParser::new(code.to_vec(), &PathBuf::from("t.c"), None);
-        let root = parser.get_root();
+        let root = parser.root();
         let no_start: Option<usize> = None;
         let no_end: Option<usize> = None;
 

@@ -163,7 +163,7 @@ fn ast_callback_produces_serializable_tree() {
         span: payload.span,
     };
     let response = action::<AstCallback>(
-        &LANG::Rust,
+        LANG::Rust,
         payload.code.into_bytes(),
         &PathBuf::from(&payload.file_name),
         None,

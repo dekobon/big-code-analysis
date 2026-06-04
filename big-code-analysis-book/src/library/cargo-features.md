@@ -83,7 +83,7 @@ disabled state as `Err(MetricsError::LanguageDisabled(LANG))`:
 - [`action`]
 - [`get_ops`]
 - [`get_function_spaces`] / [`get_function_spaces_with_options`] (deprecated)
-- [`LANG::get_tree_sitter_language`] — this returns
+- [`LANG::tree_sitter_language`] — this returns
   `Result<tree_sitter::Language, MetricsError>` (changed in 0.0.26)
   rather than the previous `Language`
 
@@ -121,4 +121,4 @@ default feature set will be flagged in the changelog under
 [`get_ops`]: https://docs.rs/big-code-analysis/latest/big_code_analysis/fn.get_ops.html
 [`get_function_spaces`]: https://docs.rs/big-code-analysis/latest/big_code_analysis/fn.get_function_spaces.html
 [`get_function_spaces_with_options`]: https://docs.rs/big-code-analysis/latest/big_code_analysis/fn.get_function_spaces_with_options.html
-[`LANG::get_tree_sitter_language`]: https://docs.rs/big-code-analysis/latest/big_code_analysis/enum.LANG.html#method.get_tree_sitter_language
+[`LANG::tree_sitter_language`]: https://docs.rs/big-code-analysis/latest/big_code_analysis/enum.LANG.html#method.tree_sitter_language

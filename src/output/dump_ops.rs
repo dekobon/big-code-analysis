@@ -31,7 +31,7 @@ use crate::tools::{color, intense_color};
 ///
 /// // Retrieve all operands and operators via the non-generic
 /// // `get_ops` entry point.
-/// let ops = get_ops(&LANG::Cpp, source_as_vec, &path, None).unwrap();
+/// let ops = get_ops(LANG::Cpp, source_as_vec, &path, None).unwrap();
 ///
 /// // Dump all operands and operators
 /// dump_ops(&ops).unwrap();

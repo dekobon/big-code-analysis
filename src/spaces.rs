@@ -737,7 +737,7 @@ impl Ast {
     ///
     /// The supplied `tree` must have been produced from `code` with the
     /// [`tree_sitter::Language`] returned by
-    /// [`LANG::get_tree_sitter_language`] for `lang`; a mismatch is not
+    /// [`LANG::tree_sitter_language`] for `lang`; a mismatch is not
     /// `unsafe` but yields nonsensical metric values.
     ///
     /// # Errors
@@ -1121,8 +1121,8 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
     // behaviour byte-for-byte.
     let diagnostic_path = name.as_deref().unwrap_or("<input>");
     let selected = options.metrics;
-    let code = parser.get_code();
-    let node = parser.get_root();
+    let code = parser.code();
+    let node = parser.root();
     let mut cursor = node.cursor();
     let mut stack = Vec::new();
     let mut children = Vec::new();
@@ -1545,7 +1545,7 @@ mod tests {
         let source = "int the_func(int x) { return x; }\n";
         let path = std::path::PathBuf::from("fd.cc");
         let parser = CppParser::new(source.as_bytes().to_vec(), &path, None);
-        let root = parser.get_root();
+        let root = parser.root();
 
         // Walk for any `FunctionDefinition*` variant (FD/FD2/FD3/FD4)
         // so the test stays valid if a future grammar bump starts
@@ -1616,7 +1616,7 @@ mod tests {
         // this snippet — otherwise the synthetic-Unit code path is not
         // exercised by this test.
         assert!(
-            parser.get_root().0.is_error(),
+            parser.root().0.is_error(),
             "test premise broken: grammar must yield ERROR root for this snippet"
         );
 
@@ -1664,7 +1664,7 @@ mod tests {
     ///
     /// Tests that need to exercise the synthetic-Unit wrapper itself
     /// (i.e., the path triggered by an `ERROR`-root parse) must also
-    /// assert `parser.get_root().0.is_error()` before calling this
+    /// assert `parser.root().0.is_error()` before calling this
     /// helper. See `cpp_error_root_yields_unit_top_level_space` and
     /// `lua_partial_input_yields_synthetic_unit_wrapper` — those two
     /// are the only tests in the corpus that today exercise the
@@ -1708,7 +1708,7 @@ mod tests {
         let path = std::path::PathBuf::from(filename);
         let parser = P::new(source.as_bytes().to_vec(), &path, None);
         assert!(
-            parser.get_root().0.is_error(),
+            parser.root().0.is_error(),
             "test premise broken: grammar must yield ERROR root for {filename:?}",
         );
         assert_top_level_space_is_unit_contract::<P>(source, filename);

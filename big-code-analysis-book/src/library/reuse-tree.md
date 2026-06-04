@@ -64,7 +64,7 @@ let source = source_code.as_bytes().to_vec();
 // matches the one the metric walker was compiled against.
 let mut parser = tree_sitter::Parser::new();
 parser
-    .set_language(&LANG::Rust.get_tree_sitter_language())
+    .set_language(&LANG::Rust.tree_sitter_language())
     .expect("rust grammar pinned to a compatible version");
 let tree = parser
     .parse(&source, None)
@@ -94,12 +94,12 @@ assert_eq!(
 
 The same shape works for any [`LANG`][lang] variant — pass the
 matching grammar to `tree_sitter::Parser::set_language` (via
-[`LANG::get_tree_sitter_language`][lang_grammar]) and the metric
+[`LANG::tree_sitter_language`][lang_grammar]) and the metric
 walker will produce the same `FuncSpace` it would have produced
 from bytes.
 
 [lang]: https://docs.rs/big-code-analysis/*/big_code_analysis/enum.LANG.html
-[lang_grammar]: https://docs.rs/big-code-analysis/*/big_code_analysis/enum.LANG.html#method.get_tree_sitter_language
+[lang_grammar]: https://docs.rs/big-code-analysis/*/big_code_analysis/enum.LANG.html#method.tree_sitter_language
 
 ## Lower-level: `Parser::from_tree` (internal)
 

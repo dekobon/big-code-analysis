@@ -128,7 +128,7 @@ fn dispatch_dump(
     // The CLI pins the library's `all-languages` feature, so
     // `LanguageDisabled` from `action::<T>` is unreachable; the
     // `expect` documents that invariant.
-    action::<Dump>(&language, source, &path, pr, dump_cfg).expect(FEATURES_PINNED)
+    action::<Dump>(language, source, &path, pr, dump_cfg).expect(FEATURES_PINNED)
 }
 
 #[allow(deprecated)]
@@ -143,7 +143,7 @@ fn dispatch_metrics(
 ) -> std::io::Result<()> {
     if let Some(fmt) = format {
         if let Ok(space) =
-            get_function_spaces_with_options(&language, source, &path, pr, cfg.metrics_options())
+            get_function_spaces_with_options(language, source, &path, pr, cfg.metrics_options())
         {
             match fmt.dispatch() {
                 MetricsDispatch::Generic(g) => {
@@ -158,7 +158,7 @@ fn dispatch_metrics(
     } else {
         let metrics_cfg = MetricsCfg::new(path).with_options(cfg.metrics_options());
         let path = metrics_cfg.path.clone();
-        action::<Metrics>(&language, source, &path, pr, metrics_cfg).expect(FEATURES_PINNED)
+        action::<Metrics>(language, source, &path, pr, metrics_cfg).expect(FEATURES_PINNED)
     }
 }
 
@@ -173,7 +173,7 @@ fn dispatch_ops(
     pretty: bool,
 ) -> std::io::Result<()> {
     if let Some(fmt) = format {
-        if let Ok(ops) = get_ops(&language, source, &path, pr) {
+        if let Ok(ops) = get_ops(language, source, &path, pr) {
             // CSV is rejected upstream in `run()` for the Ops command,
             // so the dispatch here is always Generic. The match is
             // still exhaustive to keep the compiler honest if that
@@ -189,7 +189,7 @@ fn dispatch_ops(
     } else {
         let ops_cfg = OpsCfg { path };
         let path = ops_cfg.path.clone();
-        action::<OpsCode>(&language, source, &path, pr, ops_cfg).expect(FEATURES_PINNED)
+        action::<OpsCode>(language, source, &path, pr, ops_cfg).expect(FEATURES_PINNED)
     }
 }
 
@@ -210,7 +210,7 @@ fn dispatch_strip_comments(
     } else {
         language
     };
-    action::<CommentRm>(&lang, source, &path, pr, comment_cfg).expect(FEATURES_PINNED)
+    action::<CommentRm>(lang, source, &path, pr, comment_cfg).expect(FEATURES_PINNED)
 }
 
 #[allow(deprecated)]
@@ -221,7 +221,7 @@ fn dispatch_functions(
     pr: Option<Arc<PreprocResults>>,
 ) -> std::io::Result<()> {
     let fn_cfg = FunctionCfg { path: path.clone() };
-    action::<Function>(&language, source, &path, pr, fn_cfg).expect(FEATURES_PINNED)
+    action::<Function>(language, source, &path, pr, fn_cfg).expect(FEATURES_PINNED)
 }
 
 #[allow(deprecated)]
@@ -239,7 +239,7 @@ fn dispatch_find(
         line_start: cfg.line_start,
         line_end: cfg.line_end,
     };
-    action::<Find>(&language, source, &path, pr, find_cfg).expect(FEATURES_PINNED)
+    action::<Find>(language, source, &path, pr, find_cfg).expect(FEATURES_PINNED)
 }
 
 #[allow(deprecated)]
@@ -259,7 +259,7 @@ fn dispatch_count(
         filters: Arc::clone(filters),
         stats,
     };
-    action::<Count>(&language, source, &path, pr, count_cfg).expect(FEATURES_PINNED)
+    action::<Count>(language, source, &path, pr, count_cfg).expect(FEATURES_PINNED)
 }
 
 // Returns Result<()> for dispatch-table uniformity with sibling
@@ -274,7 +274,7 @@ fn dispatch_report(
     cfg: &Config,
 ) -> std::io::Result<()> {
     if let Ok(space) =
-        get_function_spaces_with_options(&language, source, &path, pr, cfg.metrics_options())
+        get_function_spaces_with_options(language, source, &path, pr, cfg.metrics_options())
         && let Some(ref tx) = cfg.markdown_tx
         && !matches!(language, LANG::Preproc | LANG::Ccomment)
     {
@@ -333,7 +333,7 @@ fn dispatch_check_file(
     // by users who opted in via `--baseline-fuzzy-match`.
     let source_for_hash = cfg.fuzzy_baseline.then(|| source.clone());
     if let Ok(space) =
-        get_function_spaces_with_options(&language, source, &path, pr, cfg.metrics_options())
+        get_function_spaces_with_options(language, source, &path, pr, cfg.metrics_options())
         && let (Some(set), Some(tx)) = (cfg.threshold_set.as_ref(), cfg.check_tx.as_ref())
         && !matches!(language, LANG::Preproc | LANG::Ccomment)
     {
@@ -420,7 +420,7 @@ fn dispatch_exemptions(
         return Ok(());
     };
     let markers =
-        action::<SuppressionScan>(&language, source, &path, pr, ()).expect(FEATURES_PINNED);
+        action::<SuppressionScan>(language, source, &path, pr, ()).expect(FEATURES_PINNED);
     // Empty files are the dominant case (most source carries no
     // markers); skip the channel send and the per-file allocation when
     // there is nothing to report.

@@ -238,7 +238,7 @@ impl From<big_code_analysis::MetricsError> for AnalysisError {
             // but the grammar is not in the build).
             MetricsError::LanguageDisabled(lang) => Self::UnsupportedLanguage(format!(
                 "language {} is recognised but its grammar was not compiled into this build",
-                lang.get_name()
+                lang.name()
             )),
             // `EmptyRoot` is reserved upstream (no walker emits it
             // today) and `ParseHasErrors` is reserved for a future
@@ -355,7 +355,7 @@ pub(crate) fn analyze_path(
     }
     // `guess_language` returns a `(Option<LANG>, &str)` tuple — we
     // only care about the variant; the display name is recovered
-    // downstream from `LANG::get_name` via the metric serialiser.
+    // downstream from `LANG::name` via the metric serialiser.
     let lang = guess_language(&code, path).0.ok_or_else(|| {
         AnalysisError::UnsupportedLanguage(format!(
             "no language registered for path {}",

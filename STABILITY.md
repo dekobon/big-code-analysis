@@ -49,7 +49,7 @@ section.
     `src/langs.rs`; the macro itself lives in `src/macros.rs`) —
     variants are additive. Adding a new variant in a minor bump is
     allowed; renaming or removing one is a `2.0` break. Derives
-    `Hash` and implements `Display` (the `get_name` string) and
+    `Hash` and implements `Display` (the `name` string) and
     `FromStr` (parsing that same canonical name; error type
     `ParseLangError`). Names shared by aliased variants
     (`javascript`, `typescript`) parse back to the first variant
@@ -198,7 +198,7 @@ reach the raw tree-sitter surface.
   minor bump on our side and will move every type in this module.
   Treat the re-exported API as value-not-stable in the same sense
   the rest of this document means it.
-- **`LANG::get_tree_sitter_language`** returns the
+- **`LANG::tree_sitter_language`** returns the
   `tree_sitter::Language` paired with each enum variant, wrapped in
   `Result<…, MetricsError>` so feature-gated builds can report
   `Err(MetricsError::LanguageDisabled(_))` when the matching

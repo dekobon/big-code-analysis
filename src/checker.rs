@@ -1980,7 +1980,7 @@ mod tests {
     }
 
     // `count`'s filter parser accepts a numeric string as a `kind_id` match
-    // (parser.rs `get_filters`), so `has_kind` reuses the same primitive.
+    // (parser.rs `filters`), so `has_kind` reuses the same primitive.
     fn has_kind(source: &str, kind_id: u16) -> bool {
         count(&parse(source), &[kind_id.to_string()]).0 > 0
     }
@@ -2108,7 +2108,7 @@ mod tests {
     // Used to confirm an alias kind actually surfaces in a real parse
     // before asserting it routes through `is_string`.
     fn ast_has_kind_id<P: ParserTrait>(parser: &P, target: u16) -> bool {
-        let mut stack = vec![parser.get_root()];
+        let mut stack = vec![parser.root()];
         while let Some(node) = stack.pop() {
             if node.kind_id() == target {
                 return true;
@@ -2131,7 +2131,7 @@ mod tests {
         target: u16,
         is_string: F,
     ) -> usize {
-        let mut stack = vec![parser.get_root()];
+        let mut stack = vec![parser.root()];
         let mut hits = 0;
         while let Some(node) = stack.pop() {
             if node.kind_id() == target && is_string(&node) {
@@ -2249,7 +2249,7 @@ mod tests {
     // specific node out of the parse tree without depending on the
     // `count` helper above.
     fn find_first_kind<P: ParserTrait>(parser: &P, target: u16) -> Option<Node<'_>> {
-        let mut stack = vec![parser.get_root()];
+        let mut stack = vec![parser.root()];
         while let Some(node) = stack.pop() {
             if node.kind_id() == target {
                 return Some(node);
@@ -2273,7 +2273,7 @@ mod tests {
     fn rust_outer_attr_on_mod_is_test_only() {
         let src = "#[cfg(test)]\nmod tests {\n    fn t() {}\n}\n";
         let parser = RustParser::new(src.as_bytes().to_vec(), &PathBuf::from("test.rs"), None);
-        let code = parser.get_code();
+        let code = parser.code();
         let node = find_first_kind(&parser, Rust::ModItem as u16).expect("mod_item");
 
         assert!(rust_item_is_test_only(&node, code));
@@ -2291,7 +2291,7 @@ mod tests {
     fn rust_inner_attr_in_mod_is_test_only() {
         let src = "mod tests {\n    #![cfg(test)]\n    fn t() {}\n}\n";
         let parser = RustParser::new(src.as_bytes().to_vec(), &PathBuf::from("test.rs"), None);
-        let code = parser.get_code();
+        let code = parser.code();
         let node = find_first_kind(&parser, Rust::ModItem as u16).expect("mod_item");
 
         assert!(rust_item_is_test_only(&node, code));
@@ -2304,7 +2304,7 @@ mod tests {
     fn rust_plain_item_is_not_test_only() {
         let src = "fn foo() {}\n";
         let parser = RustParser::new(src.as_bytes().to_vec(), &PathBuf::from("test.rs"), None);
-        let code = parser.get_code();
+        let code = parser.code();
         let node = find_first_kind(&parser, Rust::FunctionItem as u16).expect("function_item");
 
         assert!(!rust_item_is_test_only(&node, code));
@@ -2405,7 +2405,7 @@ mod tests {
     // distinguish the outer if from the inner one in an `else: if` chain.
     fn find_all_kinds<P: ParserTrait>(parser: &P, target: u16) -> Vec<Node<'_>> {
         let mut out = Vec::new();
-        let mut stack = vec![parser.get_root()];
+        let mut stack = vec![parser.root()];
         while let Some(node) = stack.pop() {
             if node.kind_id() == target {
                 out.push(node);

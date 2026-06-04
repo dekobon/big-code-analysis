@@ -240,13 +240,13 @@ fn guess_language_name_outlives_input_buffer() {
     // The returned name is `&'static str`: it must remain valid after
     // the owned input buffer is dropped. This pins the honest lifetime
     // (issue #506) — the name borrows from static tables / literals
-    // (`get_name()`, `fake::get_true`), never from `buf`.
+    // (`name()`, `fake::get_true`), never from `buf`.
     let name: &'static str = {
         let buf: Vec<u8> = b"// -*- foo: bar; mode: Objective-C++; hello: world\n".to_vec();
         let (lang, name) = guess_language(&buf, "foo.mm");
         assert_eq!(lang, Some(LANG::Cpp));
         // `name` is the `fake::get_true` override, NOT derivable from
-        // `LANG::get_name()` — which is why the tuple's second element
+        // `LANG::name()` — which is why the tuple's second element
         // cannot simply be dropped in favour of the `LANG`.
         name
     };

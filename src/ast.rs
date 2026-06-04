@@ -134,8 +134,8 @@ fn build<T: ParserTrait>(parser: &T, span: bool, comment: bool) -> Option<AstNod
         next_child_index: usize,
     }
 
-    let code = parser.get_code();
-    let root = parser.get_root();
+    let code = parser.code();
+    let root = parser.root();
     let mut stack: Vec<Frame<'_>> = vec![Frame {
         node: root,
         field: None,
