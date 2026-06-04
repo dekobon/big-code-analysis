@@ -48,6 +48,10 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::format_util::MetricScalar;
+// Single source of truth for the one expanded family lives in
+// `metric_alias`; importing it keeps diff bucketing and `--metric`
+// aliasing from drifting apart.
+use crate::metric_alias::EXPANDED_FAMILY;
 
 /// JSON key under which each per-file document nests its metric values.
 const METRICS_KEY: &str = "metrics";
@@ -55,11 +59,6 @@ const METRICS_KEY: &str = "metrics";
 /// JSON key carrying a per-file document's display name (used as the
 /// pairing identity when a single file — not a directory — is diffed).
 const NAME_KEY: &str = "name";
-
-/// Family name whose rows expand into distinct buckets (the only family
-/// `list-metrics` does not surface under its own name). Every other
-/// family contributes a single bucket named after the family.
-const EXPANDED_FAMILY: &str = "loc";
 
 /// Error surfaced while loading or diffing the two metric-output sets.
 /// Rendered by the caller as a tool error (exit 1); the diff itself

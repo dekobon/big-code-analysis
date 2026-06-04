@@ -1285,3 +1285,26 @@ async fn test_web_unknown_url_still_404() {
     let body = test::read_body(resp).await;
     assert_eq!(String::from_utf8_lossy(&body), "Not found");
 }
+
+#[actix_rt::test]
+async fn test_web_wrong_method_on_known_endpoint_yields_405() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    // A wrong HTTP method on a known POST-only endpoint is a method
+    // error, not a content-type error: the default service must return
+    // 405, distinguishable from the 415 a wrong/missing Content-Type
+    // gets and the 404 an unknown URL gets.
+    let req = test::TestRequest::get().uri("/metrics").to_request();
+
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
+    let body = test::read_body(resp).await;
+    assert!(
+        String::from_utf8_lossy(&body).contains("POST"),
+        "405 body should name the accepted method"
+    );
+}

@@ -144,7 +144,7 @@ impl<'a> Node<'a> {
     pub(crate) fn has_sibling(&self, id: u16) -> bool {
         self.0
             .parent()
-            .is_some_and(|parent| Node(parent).wraps_any(&[id]))
+            .is_some_and(|parent| Node(parent).is_child(id))
     }
 
     pub(crate) fn previous_sibling(&self) -> Option<Node<'a>> {
@@ -229,8 +229,10 @@ impl<'a> Node<'a> {
             // `child_count` is the authoritative length for the
             // `ExactSizeIterator` contract; for well-formed trees it
             // equals the cursor sibling walk, so the reported length
-            // and the emitted data agree.
-            remaining: self.child_count(),
+            // and the emitted data agree. A childless node (`done`
+            // already set) reports `0` so the empty iterator's length
+            // matches its (lack of) data.
+            remaining: if done { 0 } else { self.child_count() },
         }
     }
 
@@ -349,7 +351,17 @@ impl<'a> Iterator for Children<'a> {
         // The cursor is the single source of truth for termination:
         // once there is no next sibling this yield is the last one.
         self.done = !self.cursor.goto_next_sibling();
-        self.remaining = self.remaining.saturating_sub(1);
+        // Keep the advertised length consistent with termination: when
+        // the cursor stops, nothing remains. For well-formed trees this
+        // equals `child_count - emitted`; if the cursor walk and
+        // `child_count` ever disagree, this still honors the
+        // `ExactSizeIterator` contract (`len() == 0` exactly at
+        // exhaustion) rather than reporting a phantom remainder.
+        self.remaining = if self.done {
+            0
+        } else {
+            self.remaining.saturating_sub(1)
+        };
         Some(result)
     }
 

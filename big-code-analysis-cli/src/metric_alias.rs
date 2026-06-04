@@ -39,7 +39,11 @@ use big_code_analysis::metric_catalog::METRICS;
 /// buckets surface directly (`loc.sloc` -> `sloc`). Every other family's
 /// `diff` bucket is the family name, so a dotted id there collapses to
 /// its family (`halstead.volume` -> `halstead`).
-const EXPANDED_FAMILY: &str = "loc";
+///
+/// Single source of truth for the one expanded family;
+/// [`metric_diff`](crate::metric_diff) imports it so the alias layer and
+/// the diff bucketing cannot drift apart.
+pub(crate) const EXPANDED_FAMILY: &str = "loc";
 
 /// Normalize a `diff --metric` bucket name into the dotted id
 /// `check --threshold` understands.

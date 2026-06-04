@@ -469,15 +469,22 @@ fn configure_routes(cfg: &mut web::ServiceConfig) {
 
 /// Fallback handler for requests that match no guarded route.
 ///
-/// Returns `415 Unsupported Media Type` with a diagnostic body when the
-/// URL is a known endpoint (so a wrong/missing `Content-Type` is
-/// distinguishable from a wrong URL), and a plain `404` otherwise.
+/// For a known endpoint, distinguishes *why* it fell through: a wrong
+/// HTTP method gets `405 Method Not Allowed` (these endpoints are
+/// `POST`-only), while a `POST` carrying the wrong/missing
+/// `Content-Type` gets a diagnostic `415 Unsupported Media Type`. A URL
+/// that is not a known endpoint gets a plain `404`, so a content-type
+/// problem, a method problem, and a wrong URL are each distinguishable.
 async fn unmatched_route(req: actix_web::HttpRequest) -> HttpResponse {
     if GUARDED_POST_PATHS.contains(&req.path()) {
-        HttpResponse::UnsupportedMediaType().body(
-            "Unsupported or missing Content-Type. Send 'application/json' \
-             or 'application/octet-stream' (a charset parameter is allowed).",
-        )
+        if req.method() == actix_web::http::Method::POST {
+            HttpResponse::UnsupportedMediaType().body(
+                "Unsupported or missing Content-Type. Send 'application/json' \
+                 or 'application/octet-stream' (a charset parameter is allowed).",
+            )
+        } else {
+            HttpResponse::MethodNotAllowed().body("Method not allowed. This endpoint accepts POST.")
+        }
     } else {
         HttpResponse::NotFound().body("Not found")
     }
