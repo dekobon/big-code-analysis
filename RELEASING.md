@@ -86,6 +86,23 @@ If any stage fails, nothing downstream runs. `publish` and
 repo; they run in parallel so a crates.io failure does not block the
 GitHub Release's `verify` step (and vice versa).
 
+The **same `v*` tag push also triggers two independent PyPI wheel
+workflows** that are *not* part of `release.yml` and run fully in
+parallel with it (a failure in one does not block the others):
+
+- **`python-wheels.yml`** publishes the importable library bindings
+  (`big-code-analysis`) — an abi3 extension wheel. See
+  [Python wheels (PyPI)](#python-wheels-pypi).
+- **`python-cli-wheels.yml`** publishes the `bca` command-line tool
+  (`big-code-analysis-cli`) — a `-b bin` wheel that drops `bca` onto
+  `PATH`. See [CLI wheels (PyPI)](#cli-wheels-pypi).
+
+Both read the workspace version (`dynamic = ["version"]`), so they
+publish in lockstep with the crates above on every bump — no separate
+version step. Their one-time Trusted-Publisher setup is in the
+[Post-public-release checklist](#post-public-release-checklist); after
+that they fire automatically on each tag.
+
 ## Defer-and-gate state for public publication
 
 The repository is staging for a future public release. Until the
@@ -550,14 +567,24 @@ git tag -a v1.2.0 -m "v1.2.0"
 git push origin v1.2.0
 ```
 
-That's it — the push of the tag triggers `release.yml`. Watch it in
-the Actions tab:
+That's it — the push of the tag triggers `release.yml` **and** the two
+PyPI wheel workflows (`python-wheels.yml` for the library bindings,
+`python-cli-wheels.yml` for the `bca` CLI), all in parallel. Watch all
+three in the Actions tab:
 
 ```bash
 gh run watch
-# or
+# or, per workflow:
 gh run list --workflow=Release
+gh run list --workflow="Python wheels"
+gh run list --workflow="Python CLI wheels"
 ```
+
+The wheel workflows publish to PyPI automatically once their one-time
+Trusted Publishers are registered (see the
+[Post-public-release checklist](#post-public-release-checklist)); no
+per-release action beyond the tag is needed. Confirm both wheels landed
+in [Post-release verification](#post-release-verification).
 
 ## Cutting a pre-release
 
@@ -578,6 +605,12 @@ Use this for any version that should not reach package managers.
 Signed artefacts, SBOMs, and SLSA provenance still publish normally,
 so a pre-release is a full test of everything except the external
 pushes.
+
+The two PyPI wheel workflows follow the same policy: a `-rc` / `-beta`
+/ `-alpha` tag still builds and smoke-tests every wheel but **skips the
+PyPI publish step**, so a pre-release never lands a wheel on PyPI. The
+crates.io and PyPI postures stay aligned — one tag cannot publish a
+prerelease to one registry while skipping the other.
 
 ## Post-release verification
 
@@ -611,6 +644,24 @@ once the corresponding gating variable is on):
   `Formula/big-code-analysis.rb`.
 - Scoop bucket: new commit on `dekobon/scoop-bucket` touching
   `bucket/big-code-analysis.json`.
+
+Confirm both PyPI wheels published at the new version (these ship on
+every tag once their Trusted Publishers are registered). Either check
+the project pages — <https://pypi.org/project/big-code-analysis/> and
+<https://pypi.org/project/big-code-analysis-cli/> — or verify the CLI
+end-to-end from a clean environment:
+
+```bash
+VERSION=0.1.0
+python -m venv /tmp/bca-rel && . /tmp/bca-rel/bin/activate
+# Library bindings (importable module):
+pip install "big-code-analysis==${VERSION}"
+python -c "import big_code_analysis as bca; print(bca.__version__)"
+# CLI tool (drops `bca` on PATH):
+pip install "big-code-analysis-cli==${VERSION}"
+bca --version   # must print the tagged version
+deactivate
+```
 
 ## Post-public-release checklist
 
