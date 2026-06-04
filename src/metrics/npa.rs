@@ -60,11 +60,11 @@ impl Serialize for Stats {
         st.serialize_field("interfaces", &self.interface_npa_sum())?;
         st.serialize_field("class_attributes", &self.class_na_sum())?;
         st.serialize_field("interface_attributes", &self.interface_na_sum())?;
-        st.serialize_field("classes_average", &self.class_cda())?;
-        st.serialize_field("interfaces_average", &self.interface_cda())?;
+        st.serialize_field("class_cda", &self.class_cda())?;
+        st.serialize_field("interface_cda", &self.interface_cda())?;
         st.serialize_field("total", &self.total_npa())?;
         st.serialize_field("total_attributes", &self.total_na())?;
-        st.serialize_field("average", &self.total_cda())?;
+        st.serialize_field("cda", &self.total_cda())?;
         st.end()
     }
 }
@@ -73,7 +73,7 @@ impl fmt::Display for Stats {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "classes: {}, interfaces: {}, class_attributes: {}, interface_attributes: {}, classes_average: {}, interfaces_average: {}, total: {}, total_attributes: {}, average: {}",
+            "classes: {}, interfaces: {}, class_attributes: {}, interface_attributes: {}, class_cda: {}, interface_cda: {}, total: {}, total_attributes: {}, cda: {}",
             self.class_npa_sum(),
             self.interface_npa_sum(),
             self.class_na_sum(),
@@ -2025,11 +2025,11 @@ mod tests {
                   "interfaces": 0.0,
                   "class_attributes": 16.0,
                   "interface_attributes": 0.0,
-                  "classes_average": 0.5,
-                  "interfaces_average": 0.0,
+                  "class_cda": 0.5,
+                  "interface_cda": 0.0,
                   "total": 8.0,
                   "total_attributes": 16.0,
-                  "average": 0.5
+                  "cda": 0.5
                 }
                 "#
                 );
@@ -2068,11 +2068,11 @@ mod tests {
                   "interfaces": 0.0,
                   "class_attributes": 40.0,
                   "interface_attributes": 0.0,
-                  "classes_average": 0.5,
-                  "interfaces_average": 0.0,
+                  "class_cda": 0.5,
+                  "interface_cda": 0.0,
                   "total": 20.0,
                   "total_attributes": 40.0,
-                  "average": 0.5
+                  "cda": 0.5
                 }
                 "#
                 );
@@ -2111,11 +2111,11 @@ mod tests {
                   "interfaces": 0.0,
                   "class_attributes": 40.0,
                   "interface_attributes": 0.0,
-                  "classes_average": 0.5,
-                  "interfaces_average": 0.0,
+                  "class_cda": 0.5,
+                  "interface_cda": 0.0,
                   "total": 20.0,
                   "total_attributes": 40.0,
-                  "average": 0.5
+                  "cda": 0.5
                 }
                 "#
                 );
@@ -2154,11 +2154,11 @@ mod tests {
                   "interfaces": 0.0,
                   "class_attributes": 40.0,
                   "interface_attributes": 0.0,
-                  "classes_average": 0.5,
-                  "interfaces_average": 0.0,
+                  "class_cda": 0.5,
+                  "interface_cda": 0.0,
                   "total": 20.0,
                   "total_attributes": 40.0,
-                  "average": 0.5
+                  "cda": 0.5
                 }
                 "#
                 );
@@ -2193,11 +2193,11 @@ mod tests {
                   "interfaces": 0.0,
                   "class_attributes": 24.0,
                   "interface_attributes": 0.0,
-                  "classes_average": 0.5,
-                  "interfaces_average": 0.0,
+                  "class_cda": 0.5,
+                  "interface_cda": 0.0,
                   "total": 12.0,
                   "total_attributes": 24.0,
-                  "average": 0.5
+                  "cda": 0.5
                 }
                 "#
                 );
@@ -2483,11 +2483,11 @@ mod tests {
                   "interfaces": 0.0,
                   "class_attributes": 18.0,
                   "interface_attributes": 0.0,
-                  "classes_average": 0.5,
-                  "interfaces_average": 0.0,
+                  "class_cda": 0.5,
+                  "interface_cda": 0.0,
                   "total": 9.0,
                   "total_attributes": 18.0,
-                  "average": 0.5
+                  "cda": 0.5
                 }
                 "#
                 );
@@ -2526,11 +2526,11 @@ mod tests {
                   "interfaces": 0.0,
                   "class_attributes": 16.0,
                   "interface_attributes": 0.0,
-                  "classes_average": 0.625,
-                  "interfaces_average": 0.0,
+                  "class_cda": 0.625,
+                  "interface_cda": 0.0,
                   "total": 10.0,
                   "total_attributes": 16.0,
-                  "average": 0.625
+                  "cda": 0.625
                 }
                 "#
                 );
@@ -2561,11 +2561,11 @@ mod tests {
                   "interfaces": 0.0,
                   "class_attributes": 6.0,
                   "interface_attributes": 0.0,
-                  "classes_average": 0.5,
-                  "interfaces_average": 0.0,
+                  "class_cda": 0.5,
+                  "interface_cda": 0.0,
                   "total": 3.0,
                   "total_attributes": 6.0,
-                  "average": 0.5
+                  "cda": 0.5
                 }
                 "#
                 );
@@ -2595,11 +2595,11 @@ mod tests {
                   "interfaces": 0.0,
                   "class_attributes": 3.0,
                   "interface_attributes": 0.0,
-                  "classes_average": 1.0,
-                  "interfaces_average": 0.0,
+                  "class_cda": 1.0,
+                  "interface_cda": 0.0,
                   "total": 3.0,
                   "total_attributes": 3.0,
-                  "average": 1.0
+                  "cda": 1.0
                 }
                 "#
                 );
@@ -2634,11 +2634,11 @@ mod tests {
                   "interfaces": 0.0,
                   "class_attributes": 3.0,
                   "interface_attributes": 0.0,
-                  "classes_average": 1.0,
-                  "interfaces_average": 0.0,
+                  "class_cda": 1.0,
+                  "interface_cda": 0.0,
                   "total": 3.0,
                   "total_attributes": 3.0,
-                  "average": 1.0
+                  "cda": 1.0
                 }
                 "#
                 );
@@ -2676,11 +2676,11 @@ mod tests {
                   "interfaces": 0.0,
                   "class_attributes": 5.0,
                   "interface_attributes": 0.0,
-                  "classes_average": 0.6,
-                  "interfaces_average": 0.0,
+                  "class_cda": 0.6,
+                  "interface_cda": 0.0,
                   "total": 3.0,
                   "total_attributes": 5.0,
-                  "average": 0.6
+                  "cda": 0.6
                 }
                 "#
                 );
@@ -2706,11 +2706,11 @@ mod tests {
                   "interfaces": 3.0,
                   "class_attributes": 0.0,
                   "interface_attributes": 3.0,
-                  "classes_average": 0.0,
-                  "interfaces_average": 1.0,
+                  "class_cda": 0.0,
+                  "interface_cda": 1.0,
                   "total": 3.0,
                   "total_attributes": 3.0,
-                  "average": 1.0
+                  "cda": 1.0
                 }
                 "#
                 );

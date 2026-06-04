@@ -17,10 +17,9 @@ look like.
 
 The sqlite schema is built dynamically from the keys present in the
 flattened rows so it survives the addition of new metrics without an
-editing pass. Halstead's ``N1`` / ``N2`` aggregates collide with
-their ``n1`` / ``n2`` siblings under sqlite's case-insensitive
-column matching — the same explicit rename ``flat_records.py``
-uses is applied here, kept in lockstep deliberately.
+editing pass. The flattened keys are dotted, case-distinct names, so
+they map directly onto sqlite columns (quoted to carry the dot) with
+no renaming.
 """
 
 from __future__ import annotations
@@ -33,21 +32,6 @@ from contextlib import closing
 from pathlib import Path
 
 import big_code_analysis as bca
-
-# Halstead exposes both `n1` (distinct operators) and `N1`
-# (total operators); sqlite identifiers are case-insensitive, so
-# both columns collapse onto the same name. Rewrite the uppercase
-# totals to a distinct column so neither side gets clobbered.
-# Kept in lockstep with `flat_records.py` — the workaround is
-# load-bearing under sqlite, not a stylistic choice.
-_RENAME_FOR_SQLITE: dict[str, str] = {
-    "halstead.N1": "halstead.total_1",
-    "halstead.N2": "halstead.total_2",
-}
-
-
-def _safe_column(key: str) -> str:
-    return _RENAME_FOR_SQLITE.get(key, key)
 
 
 def discover_sources(root: Path) -> list[Path]:
@@ -143,10 +127,7 @@ def run(
                 print(f"  skip {path}: looks generated")
                 continue
             analyzed += 1
-            flat_rows.extend(
-                {_safe_column(k): v for k, v in record.items()}
-                for record in bca.flatten_spaces(result)
-            )
+            flat_rows.extend(dict(record) for record in bca.flatten_spaces(result))
     else:
         batch = bca.analyze_batch([str(p) for p in inputs])
         for path, batch_result in zip(inputs, batch, strict=True):
@@ -155,10 +136,7 @@ def run(
                 print(f"  skip {path}: ({batch_result.error_kind}) {batch_result.error}")
                 continue
             analyzed += 1
-            flat_rows.extend(
-                {_safe_column(k): v for k, v in record.items()}
-                for record in bca.flatten_spaces(batch_result)
-            )
+            flat_rows.extend(dict(record) for record in bca.flatten_spaces(batch_result))
 
     inserted = _persist(db_path, flat_rows)
     top = _top_n_cyclomatic(db_path, top_n)

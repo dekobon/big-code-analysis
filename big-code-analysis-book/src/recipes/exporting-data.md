@@ -116,7 +116,7 @@ Combine streamed JSON output with `jq` to extract one value per file:
 
 ```bash
 bca -p src/ metrics -O json \
-  | jq -c '{file: .name, mi: .metrics.mi.mi_visual_studio}'
+  | jq -c '{file: .name, mi: .metrics.mi.visual_studio}'
 ```
 
 The same idea works for any metric — `cyclomatic.sum`,

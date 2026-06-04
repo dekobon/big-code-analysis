@@ -93,28 +93,26 @@ def test_flat_records(tmp_path: Path) -> None:
     assert rows >= 1
     assert db_path.exists()
 
-    # Defensive: confirm the SQLite case-insensitivity workaround
-    # actually preserves both Halstead totals (`N1`/`N2`) and the
-    # distinct-operator/operand counts (`n1`/`n2`). If either rename
-    # regresses, the renamed column collapses onto its lowercase
-    # sibling and ``halstead.total_{1,2}`` either disappears or
-    # matches the lowercase count numerically.
+    # The Halstead totals (`total_operators`/`total_operands`) and the
+    # distinct counts (`unique_operators`/`unique_operands`) are now
+    # case-distinct dotted keys, so each lands on its own SQLite column
+    # directly — no rename workaround needed (the old `N1`/`n1`
+    # case-collision was removed in #511). Confirm all four columns
+    # survive flattening and that a total is never below its distinct
+    # sibling.
     with sqlite3.connect(db_path) as conn:
         cur = conn.execute(
-            'SELECT "halstead.total_1", "halstead.n1", '
-            '"halstead.total_2", "halstead.n2" FROM metrics LIMIT 1'
+            'SELECT "halstead.total_operators", "halstead.unique_operators", '
+            '"halstead.total_operands", "halstead.unique_operands" FROM metrics LIMIT 1'
         )
-        total_n1, distinct_n1, total_n2, distinct_n2 = cur.fetchone()
-    assert total_n1 is not None
-    assert distinct_n1 is not None
-    assert total_n2 is not None
-    assert distinct_n2 is not None
-    # Totals are always >= distincts. A regression that lost the
-    # `halstead.N2` rename would fold both columns onto
-    # `halstead.n2`, making total_n2 == distinct_n2 — the strict
-    # inequality on at least one pair catches that.
-    assert total_n1 >= distinct_n1
-    assert total_n2 >= distinct_n2
+        total_ops, unique_ops, total_opnds, unique_opnds = cur.fetchone()
+    assert total_ops is not None
+    assert unique_ops is not None
+    assert total_opnds is not None
+    assert unique_opnds is not None
+    # A total count of occurrences is always >= the distinct count.
+    assert total_ops >= unique_ops
+    assert total_opnds >= unique_opnds
 
 
 def test_metric_selection() -> None:
@@ -590,23 +588,6 @@ def test_sarif_upload_threshold_fallback_semantics(
         "lowered DEFAULT_THRESHOLDS must produce findings on hello.rs; "
         "if this assertion fails, the cross-check itself is broken — "
         "the empty-dict zero above no longer proves anything."
-    )
-
-
-def test_sqlite_rename_map_kept_in_lockstep() -> None:
-    """Regression: ``_RENAME_FOR_SQLITE`` is duplicated between
-    ``flat_records.py`` and ``pipeline_db.py`` for the SQLite case-
-    insensitivity workaround (Halstead's ``N1``/``n1`` collision).
-    Comments in both files say "kept in lockstep" — pin that with a
-    test so a future edit to one file fails CI rather than silently
-    diverging.
-    """
-    flat = _load("flat_records")
-    pipeline = _load("pipeline_db")
-    assert flat._RENAME_FOR_SQLITE == pipeline._RENAME_FOR_SQLITE, (
-        "_RENAME_FOR_SQLITE drifted between flat_records.py and "
-        f"pipeline_db.py:\n  flat_records: {flat._RENAME_FOR_SQLITE!r}\n"
-        f"  pipeline_db:  {pipeline._RENAME_FOR_SQLITE!r}"
     )
 
 

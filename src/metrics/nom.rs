@@ -152,25 +152,31 @@ impl Stats {
         self.closures_sum as f64
     }
 
-    /// Returns the average number of function definitions over all spaces
+    /// Returns the average number of function definitions over all spaces.
+    ///
+    /// `nom`'s averages are **per space** (`space_count`). The `.max(1)`
+    /// guard keeps a space-less aggregate from dividing by zero
+    /// (`space_count` defaults to 1 and only grows, so today it is a
+    /// no-op, but the guard removes the reliance on that invariant — cf.
+    /// the divisor guards added for #428).
     #[inline]
     #[must_use]
     pub fn functions_average(&self) -> f64 {
-        self.functions_sum() / self.space_count as f64
+        self.functions_sum() / self.space_count.max(1) as f64
     }
 
-    /// Returns the average number of closures over all spaces
+    /// Returns the average number of closures over all spaces.
     #[inline]
     #[must_use]
     pub fn closures_average(&self) -> f64 {
-        self.closures_sum() / self.space_count as f64
+        self.closures_sum() / self.space_count.max(1) as f64
     }
 
-    /// Returns the average number of function definitions and closures over all spaces
+    /// Returns the average number of function definitions and closures over all spaces.
     #[inline]
     #[must_use]
     pub fn average(&self) -> f64 {
-        self.total() / self.space_count as f64
+        self.total() / self.space_count.max(1) as f64
     }
 
     /// Counts the number of function definitions in a scope.

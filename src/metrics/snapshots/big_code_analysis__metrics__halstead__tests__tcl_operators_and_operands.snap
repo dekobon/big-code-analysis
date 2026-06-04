@@ -1,13 +1,12 @@
 ---
 source: src/metrics/halstead.rs
-assertion_line: 1000
 expression: metric.halstead
 ---
 {
-  "n1": 12.0,
-  "N1": 20.0,
-  "n2": 10.0,
-  "N2": 15.0,
+  "unique_operators": 12.0,
+  "total_operators": 20.0,
+  "unique_operands": 10.0,
+  "total_operands": 15.0,
   "length": 35.0,
   "estimated_program_length": 76.2388309575275,
   "purity_ratio": 2.178252313072214,

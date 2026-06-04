@@ -455,6 +455,35 @@ for historical reference.
 
 ### Changed
 
+- **(breaking)** Normalized the serialized metric output keys for a
+  coherent 2.0 data contract (deferred to the `2.0.0` bump;
+  [#510](https://github.com/dekobon/big-code-analysis/issues/510),
+  [#511](https://github.com/dekobon/big-code-analysis/issues/511)).
+  Affects the JSON / YAML / TOML / CBOR / CSV output and the `bca dump`
+  metric tree:
+  - `halstead`: `n1`/`N1`/`n2`/`N2` → `unique_operators` /
+    `total_operators` / `unique_operands` / `total_operands` (the
+    case-only-distinct keys collided for case-insensitive CSV/env
+    consumers).
+  - `mi`: leaves drop the redundant `mi_` prefix — `mi_original` /
+    `mi_sei` / `mi_visual_studio` → `original` / `sei` /
+    `visual_studio` (now equal to the `mi.*` threshold ids).
+  - `nargs`: `total_functions` / `total_closures` → `function_args` /
+    `closure_args`; `average_functions` / `average_closures` →
+    `function_args_average` / `closure_args_average`; the
+    `functions_*` / `closures_*` min/max keys gain the `_args` infix.
+    Removes the `total_functions` sum-vs-count name collision and the
+    adjective-order disagreement with `nom`.
+  - `npa` / `npm`: the `classes_average` / `interfaces_average` /
+    `average` keys carried CDA/COA accessibility *ratios*, not
+    averages, and are renamed `class_cda` / `interface_cda` / `cda`
+    (npa) and `class_coa` / `interface_coa` / `coa` (npm).
+  - `abc.magnitude` is documented as a derived roll-up with no
+    min/max/average projection (it is not accumulated per space).
+  - Metric *values* are unaffected — this is a key-shape change only.
+    (The separate per-function divisor re-baseline, #512, is deferred
+    to its own change so it can be made self-contained rather than
+    coupling `cyclomatic` to `nom`.)
 - Python bindings: `lang_to_name` now delegates to `LANG::get_name()`
   for all but three lookup-token overrides (`Cpp` → `"cpp"`, `Csharp` →
   `"csharp"`, `Tsx` → `"tsx"`), collapsing a 22-arm hand-maintained

@@ -44,10 +44,10 @@ impl Serialize for Stats {
     where
         S: Serializer,
     {
-        let mut st = serializer.serialize_struct("maintainability_index", 3)?;
-        st.serialize_field("mi_original", &self.mi_original())?;
-        st.serialize_field("mi_sei", &self.mi_sei())?;
-        st.serialize_field("mi_visual_studio", &self.mi_visual_studio())?;
+        let mut st = serializer.serialize_struct("mi", 3)?;
+        st.serialize_field("original", &self.mi_original())?;
+        st.serialize_field("sei", &self.mi_sei())?;
+        st.serialize_field("visual_studio", &self.mi_visual_studio())?;
         st.end()
     }
 }
@@ -56,7 +56,7 @@ impl fmt::Display for Stats {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "mi_original: {}, mi_sei: {}, mi_visual_studio: {}",
+            "original: {}, sei: {}, visual_studio: {}",
             self.mi_original(),
             self.mi_sei(),
             self.mi_visual_studio()
@@ -222,12 +222,13 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.mi,
-                    @r###"
-                    {
-                      "mi_original": 151.2033158832232,
-                      "mi_sei": 142.64306171748976,
-                      "mi_visual_studio": 88.42299174457497
-                    }"###
+                    @r#"
+                {
+                  "original": 151.2033158832232,
+                  "sei": 142.64306171748976,
+                  "visual_studio": 88.42299174457497
+                }
+                "#
                 );
             },
         );

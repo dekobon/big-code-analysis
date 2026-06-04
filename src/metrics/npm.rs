@@ -61,11 +61,11 @@ impl Serialize for Stats {
         st.serialize_field("interfaces", &self.interface_npm_sum())?;
         st.serialize_field("class_methods", &self.class_nm_sum())?;
         st.serialize_field("interface_methods", &self.interface_nm_sum())?;
-        st.serialize_field("classes_average", &self.class_coa())?;
-        st.serialize_field("interfaces_average", &self.interface_coa())?;
+        st.serialize_field("class_coa", &self.class_coa())?;
+        st.serialize_field("interface_coa", &self.interface_coa())?;
         st.serialize_field("total", &self.total_npm())?;
         st.serialize_field("total_methods", &self.total_nm())?;
-        st.serialize_field("average", &self.total_coa())?;
+        st.serialize_field("coa", &self.total_coa())?;
         st.end()
     }
 }
@@ -74,7 +74,7 @@ impl fmt::Display for Stats {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "classes: {}, interfaces: {}, class_methods: {}, interface_methods: {}, classes_average: {}, interfaces_average: {}, total: {}, total_methods: {}, average: {}",
+            "classes: {}, interfaces: {}, class_methods: {}, interface_methods: {}, class_coa: {}, interface_coa: {}, total: {}, total_methods: {}, coa: {}",
             self.class_npm_sum(),
             self.interface_npm_sum(),
             self.class_nm_sum(),
@@ -1069,11 +1069,11 @@ mod tests {
                   "interfaces": 0.0,
                   "class_methods": 4.0,
                   "interface_methods": 0.0,
-                  "classes_average": 0.25,
-                  "interfaces_average": 0.0,
+                  "class_coa": 0.25,
+                  "interface_coa": 0.0,
                   "total": 1.0,
                   "total_methods": 4.0,
-                  "average": 0.25
+                  "coa": 0.25
                 }
                 "#
                 );
@@ -1392,11 +1392,11 @@ mod tests {
                   "interfaces": 0.0,
                   "class_methods": 16.0,
                   "interface_methods": 0.0,
-                  "classes_average": 0.5,
-                  "interfaces_average": 0.0,
+                  "class_coa": 0.5,
+                  "interface_coa": 0.0,
                   "total": 8.0,
                   "total_methods": 16.0,
-                  "average": 0.5
+                  "coa": 0.5
                 }
                 "#
                 );
@@ -1435,11 +1435,11 @@ mod tests {
                   "interfaces": 0.0,
                   "class_methods": 16.0,
                   "interface_methods": 0.0,
-                  "classes_average": 0.5,
-                  "interfaces_average": 0.0,
+                  "class_coa": 0.5,
+                  "interface_coa": 0.0,
                   "total": 8.0,
                   "total_methods": 16.0,
-                  "average": 0.5
+                  "coa": 0.5
                 }
                 "#
                 );
@@ -1474,11 +1474,11 @@ mod tests {
                   "interfaces": 0.0,
                   "class_methods": 12.0,
                   "interface_methods": 0.0,
-                  "classes_average": 0.5,
-                  "interfaces_average": 0.0,
+                  "class_coa": 0.5,
+                  "interface_coa": 0.0,
                   "total": 6.0,
                   "total_methods": 12.0,
-                  "average": 0.5
+                  "coa": 0.5
                 }
                 "#
                 );
@@ -1511,11 +1511,11 @@ mod tests {
                   "interfaces": 0.0,
                   "class_methods": 10.0,
                   "interface_methods": 0.0,
-                  "classes_average": 0.5,
-                  "interfaces_average": 0.0,
+                  "class_coa": 0.5,
+                  "interface_coa": 0.0,
                   "total": 5.0,
                   "total_methods": 10.0,
-                  "average": 0.5
+                  "coa": 0.5
                 }
                 "#
                 );
@@ -1550,11 +1550,11 @@ mod tests {
                   "interfaces": 0.0,
                   "class_methods": 12.0,
                   "interface_methods": 0.0,
-                  "classes_average": 0.5,
-                  "interfaces_average": 0.0,
+                  "class_coa": 0.5,
+                  "interface_coa": 0.0,
                   "total": 6.0,
                   "total_methods": 12.0,
-                  "average": 0.5
+                  "coa": 0.5
                 }
                 "#
                 );
@@ -1585,11 +1585,11 @@ mod tests {
                   "interfaces": 0.0,
                   "class_methods": 6.0,
                   "interface_methods": 0.0,
-                  "classes_average": 0.5,
-                  "interfaces_average": 0.0,
+                  "class_coa": 0.5,
+                  "interface_coa": 0.0,
                   "total": 3.0,
                   "total_methods": 6.0,
-                  "average": 0.5
+                  "coa": 0.5
                 }
                 "#
                 );
@@ -1619,11 +1619,11 @@ mod tests {
                   "interfaces": 0.0,
                   "class_methods": 3.0,
                   "interface_methods": 0.0,
-                  "classes_average": 1.0,
-                  "interfaces_average": 0.0,
+                  "class_coa": 1.0,
+                  "interface_coa": 0.0,
                   "total": 3.0,
                   "total_methods": 3.0,
-                  "average": 1.0
+                  "coa": 1.0
                 }
                 "#
                 );
@@ -1655,11 +1655,11 @@ mod tests {
                   "interfaces": 0.0,
                   "class_methods": 3.0,
                   "interface_methods": 0.0,
-                  "classes_average": 1.0,
-                  "interfaces_average": 0.0,
+                  "class_coa": 1.0,
+                  "interface_coa": 0.0,
                   "total": 3.0,
                   "total_methods": 3.0,
-                  "average": 1.0
+                  "coa": 1.0
                 }
                 "#
                 );
@@ -1698,11 +1698,11 @@ mod tests {
                   "interfaces": 0.0,
                   "class_methods": 5.0,
                   "interface_methods": 0.0,
-                  "classes_average": 0.6,
-                  "interfaces_average": 0.0,
+                  "class_coa": 0.6,
+                  "interface_coa": 0.0,
                   "total": 3.0,
                   "total_methods": 5.0,
-                  "average": 0.6
+                  "coa": 0.6
                 }
                 "#
                 );
@@ -1728,11 +1728,11 @@ mod tests {
                   "interfaces": 3.0,
                   "class_methods": 0.0,
                   "interface_methods": 3.0,
-                  "classes_average": 0.0,
-                  "interfaces_average": 1.0,
+                  "class_coa": 0.0,
+                  "interface_coa": 1.0,
                   "total": 3.0,
                   "total_methods": 3.0,
-                  "average": 1.0
+                  "coa": 1.0
                 }
                 "#
                 );
@@ -1829,18 +1829,19 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.npm,
-                    @r###"
-                    {
-                      "classes": 3.0,
-                      "interfaces": 3.0,
-                      "class_methods": 5.0,
-                      "interface_methods": 3.0,
-                      "classes_average": 0.6,
-                      "interfaces_average": 1.0,
-                      "total": 6.0,
-                      "total_methods": 8.0,
-                      "average": 0.75
-                    }"###
+                    @r#"
+                {
+                  "classes": 3.0,
+                  "interfaces": 3.0,
+                  "class_methods": 5.0,
+                  "interface_methods": 3.0,
+                  "class_coa": 0.6,
+                  "interface_coa": 1.0,
+                  "total": 6.0,
+                  "total_methods": 8.0,
+                  "coa": 0.75
+                }
+                "#
                 );
             },
         );

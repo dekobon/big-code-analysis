@@ -156,6 +156,11 @@ impl Serialize for Stats {
     where
         S: Serializer,
     {
+        // `magnitude` is a derived Euclidean norm
+        // (sqrt(assignments^2 + branches^2 + conditions^2)); unlike the
+        // three components it is not accumulated per space, so it has no
+        // min/max/average projection — it is intentionally serialized as
+        // the rolled-up `magnitude` only (see #510).
         let mut st = serializer.serialize_struct("abc", 13)?;
         st.serialize_field("assignments", &self.assignments_sum())?;
         st.serialize_field("branches", &self.branches_sum())?;

@@ -383,6 +383,11 @@ loose ends that will be tightened at `2.0`:
   across `1.x` get a clean re-baseline note in the `2.0` entry, so
   consumers comparing across the major boundary have one diff to
   reason about rather than the union of every patch.
+- The serialized metric output keys are normalized to a coherent
+  scheme (#510, #511) — reserved for `2.0` because the serialized key
+  shape is SemVer-protected; the changelog `2.0.0` entry carries the
+  full key map. (The per-function `cyclomatic` average re-baseline,
+  #512, is tracked separately.)
 - `FilesData` and `ConcurrentRunner` are reshaped into a terminal
   file-set processor (#495): `FilesData` drops its `include` /
   `exclude` `GlobSet` fields and becomes `FilesData { paths }` (a

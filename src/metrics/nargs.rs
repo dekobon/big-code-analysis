@@ -72,16 +72,16 @@ impl Serialize for Stats {
         S: Serializer,
     {
         let mut st = serializer.serialize_struct("nargs", 10)?;
-        st.serialize_field("total_functions", &self.fn_args_sum())?;
-        st.serialize_field("total_closures", &self.closure_args_sum())?;
-        st.serialize_field("average_functions", &self.fn_args_average())?;
-        st.serialize_field("average_closures", &self.closure_args_average())?;
+        st.serialize_field("function_args", &self.fn_args_sum())?;
+        st.serialize_field("closure_args", &self.closure_args_sum())?;
+        st.serialize_field("function_args_average", &self.fn_args_average())?;
+        st.serialize_field("closure_args_average", &self.closure_args_average())?;
         st.serialize_field("total", &self.nargs_total())?;
         st.serialize_field("average", &self.nargs_average())?;
-        st.serialize_field("functions_min", &self.fn_args_min())?;
-        st.serialize_field("functions_max", &self.fn_args_max())?;
-        st.serialize_field("closures_min", &self.closure_args_min())?;
-        st.serialize_field("closures_max", &self.closure_args_max())?;
+        st.serialize_field("function_args_min", &self.fn_args_min())?;
+        st.serialize_field("function_args_max", &self.fn_args_max())?;
+        st.serialize_field("closure_args_min", &self.closure_args_min())?;
+        st.serialize_field("closure_args_max", &self.closure_args_max())?;
         st.end()
     }
 }
@@ -90,7 +90,7 @@ impl fmt::Display for Stats {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "total_functions: {}, total_closures: {}, average_functions: {}, average_closures: {}, total: {}, average: {}, functions_min: {}, functions_max: {}, closures_min: {}, closures_max: {}",
+            "function_args: {}, closure_args: {}, function_args_average: {}, closure_args_average: {}, total: {}, average: {}, function_args_min: {}, function_args_max: {}, closure_args_min: {}, closure_args_max: {}",
             self.fn_args(),
             self.closure_args(),
             self.fn_args_average(),
@@ -509,19 +509,20 @@ mod tests {
             // 0 functions + 0 closures
             insta::assert_json_snapshot!(
                 metric.nargs,
-                @r###"
-                    {
-                      "total_functions": 0.0,
-                      "total_closures": 0.0,
-                      "average_functions": 0.0,
-                      "average_closures": 0.0,
-                      "total": 0.0,
-                      "average": 0.0,
-                      "functions_min": 0.0,
-                      "functions_max": 0.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                @r#"
+            {
+              "function_args": 0.0,
+              "closure_args": 0.0,
+              "function_args_average": 0.0,
+              "closure_args_average": 0.0,
+              "total": 0.0,
+              "average": 0.0,
+              "function_args_min": 0.0,
+              "function_args_max": 0.0,
+              "closure_args_min": 0.0,
+              "closure_args_max": 0.0
+            }
+            "#
             );
         });
     }
@@ -532,19 +533,20 @@ mod tests {
             // 0 functions + 0 closures
             insta::assert_json_snapshot!(
                 metric.nargs,
-                @r###"
-                    {
-                      "total_functions": 0.0,
-                      "total_closures": 0.0,
-                      "average_functions": 0.0,
-                      "average_closures": 0.0,
-                      "total": 0.0,
-                      "average": 0.0,
-                      "functions_min": 0.0,
-                      "functions_max": 0.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                @r#"
+            {
+              "function_args": 0.0,
+              "closure_args": 0.0,
+              "function_args_average": 0.0,
+              "closure_args_average": 0.0,
+              "total": 0.0,
+              "average": 0.0,
+              "function_args_min": 0.0,
+              "function_args_max": 0.0,
+              "closure_args_min": 0.0,
+              "closure_args_max": 0.0
+            }
+            "#
             );
         });
     }
@@ -555,19 +557,20 @@ mod tests {
             // 0 functions + 0 closures
             insta::assert_json_snapshot!(
                 metric.nargs,
-                @r###"
-                    {
-                      "total_functions": 0.0,
-                      "total_closures": 0.0,
-                      "average_functions": 0.0,
-                      "average_closures": 0.0,
-                      "total": 0.0,
-                      "average": 0.0,
-                      "functions_min": 0.0,
-                      "functions_max": 0.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                @r#"
+            {
+              "function_args": 0.0,
+              "closure_args": 0.0,
+              "function_args_average": 0.0,
+              "closure_args_average": 0.0,
+              "total": 0.0,
+              "average": 0.0,
+              "function_args_min": 0.0,
+              "function_args_max": 0.0,
+              "closure_args_min": 0.0,
+              "closure_args_max": 0.0
+            }
+            "#
             );
         });
     }
@@ -578,19 +581,20 @@ mod tests {
             // 0 functions + 0 closures
             insta::assert_json_snapshot!(
                 metric.nargs,
-                @r###"
-                    {
-                      "total_functions": 0.0,
-                      "total_closures": 0.0,
-                      "average_functions": 0.0,
-                      "average_closures": 0.0,
-                      "total": 0.0,
-                      "average": 0.0,
-                      "functions_min": 0.0,
-                      "functions_max": 0.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                @r#"
+            {
+              "function_args": 0.0,
+              "closure_args": 0.0,
+              "function_args_average": 0.0,
+              "closure_args_average": 0.0,
+              "total": 0.0,
+              "average": 0.0,
+              "function_args_min": 0.0,
+              "function_args_max": 0.0,
+              "closure_args_min": 0.0,
+              "closure_args_max": 0.0
+            }
+            "#
             );
         });
     }
@@ -606,19 +610,20 @@ mod tests {
                 // 1 function
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 2.0,
-                      "total_closures": 0.0,
-                      "average_functions": 2.0,
-                      "average_closures": 0.0,
-                      "total": 2.0,
-                      "average": 2.0,
-                      "functions_min": 0.0,
-                      "functions_max": 2.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 2.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 2.0,
+                  "closure_args_average": 0.0,
+                  "total": 2.0,
+                  "average": 2.0,
+                  "function_args_min": 0.0,
+                  "function_args_max": 2.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -637,19 +642,20 @@ mod tests {
                 // 1 function
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 2.0,
-                      "total_closures": 0.0,
-                      "average_functions": 2.0,
-                      "average_closures": 0.0,
-                      "total": 2.0,
-                      "average": 2.0,
-                      "functions_min": 0.0,
-                      "functions_max": 2.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 2.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 2.0,
+                  "closure_args_average": 0.0,
+                  "total": 2.0,
+                  "average": 2.0,
+                  "function_args_min": 0.0,
+                  "function_args_max": 2.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -668,19 +674,20 @@ mod tests {
                 // 1 function
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 2.0,
-                      "total_closures": 0.0,
-                      "average_functions": 2.0,
-                      "average_closures": 0.0,
-                      "total": 2.0,
-                      "average": 2.0,
-                      "functions_min": 0.0,
-                      "functions_max": 2.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 2.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 2.0,
+                  "closure_args_average": 0.0,
+                  "total": 2.0,
+                  "average": 2.0,
+                  "function_args_min": 0.0,
+                  "function_args_max": 2.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -697,19 +704,20 @@ mod tests {
                 // 1 function
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 2.0,
-                      "total_closures": 0.0,
-                      "average_functions": 2.0,
-                      "average_closures": 0.0,
-                      "total": 2.0,
-                      "average": 2.0,
-                      "functions_min": 0.0,
-                      "functions_max": 2.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 2.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 2.0,
+                  "closure_args_average": 0.0,
+                  "total": 2.0,
+                  "average": 2.0,
+                  "function_args_min": 0.0,
+                  "function_args_max": 2.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -721,19 +729,20 @@ mod tests {
             // 1 lambda
             insta::assert_json_snapshot!(
                 metric.nargs,
-                @r###"
-                    {
-                      "total_functions": 0.0,
-                      "total_closures": 1.0,
-                      "average_functions": 0.0,
-                      "average_closures": 1.0,
-                      "total": 1.0,
-                      "average": 1.0,
-                      "functions_min": 0.0,
-                      "functions_max": 0.0,
-                      "closures_min": 1.0,
-                      "closures_max": 1.0
-                    }"###
+                @r#"
+            {
+              "function_args": 0.0,
+              "closure_args": 1.0,
+              "function_args_average": 0.0,
+              "closure_args_average": 1.0,
+              "total": 1.0,
+              "average": 1.0,
+              "function_args_min": 0.0,
+              "function_args_max": 0.0,
+              "closure_args_min": 1.0,
+              "closure_args_max": 1.0
+            }
+            "#
             );
         });
     }
@@ -744,19 +753,20 @@ mod tests {
             // 1 lambda
             insta::assert_json_snapshot!(
                 metric.nargs,
-                @r###"
-                    {
-                      "total_functions": 0.0,
-                      "total_closures": 1.0,
-                      "average_functions": 0.0,
-                      "average_closures": 1.0,
-                      "total": 1.0,
-                      "average": 1.0,
-                      "functions_min": 0.0,
-                      "functions_max": 0.0,
-                      "closures_min": 0.0,
-                      "closures_max": 1.0
-                    }"###
+                @r#"
+            {
+              "function_args": 0.0,
+              "closure_args": 1.0,
+              "function_args_average": 0.0,
+              "closure_args_average": 1.0,
+              "total": 1.0,
+              "average": 1.0,
+              "function_args_min": 0.0,
+              "function_args_max": 0.0,
+              "closure_args_min": 0.0,
+              "closure_args_max": 1.0
+            }
+            "#
             );
         });
     }
@@ -770,19 +780,20 @@ mod tests {
                 // 1 lambda
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 0.0,
-                      "total_closures": 2.0,
-                      "average_functions": 0.0,
-                      "average_closures": 2.0,
-                      "total": 2.0,
-                      "average": 2.0,
-                      "functions_min": 0.0,
-                      "functions_max": 0.0,
-                      "closures_min": 2.0,
-                      "closures_max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 0.0,
+                  "closure_args": 2.0,
+                  "function_args_average": 0.0,
+                  "closure_args_average": 2.0,
+                  "total": 2.0,
+                  "average": 2.0,
+                  "function_args_min": 0.0,
+                  "function_args_max": 0.0,
+                  "closure_args_min": 2.0,
+                  "closure_args_max": 2.0
+                }
+                "#
                 );
             },
         );
@@ -794,19 +805,20 @@ mod tests {
             // 1 lambda
             insta::assert_json_snapshot!(
                 metric.nargs,
-                @r###"
-                    {
-                      "total_functions": 0.0,
-                      "total_closures": 2.0,
-                      "average_functions": 0.0,
-                      "average_closures": 2.0,
-                      "total": 2.0,
-                      "average": 2.0,
-                      "functions_min": 0.0,
-                      "functions_max": 0.0,
-                      "closures_min": 0.0,
-                      "closures_max": 2.0
-                    }"###
+                @r#"
+            {
+              "function_args": 0.0,
+              "closure_args": 2.0,
+              "function_args_average": 0.0,
+              "closure_args_average": 2.0,
+              "total": 2.0,
+              "average": 2.0,
+              "function_args_min": 0.0,
+              "function_args_max": 0.0,
+              "closure_args_min": 0.0,
+              "closure_args_max": 2.0
+            }
+            "#
             );
         });
     }
@@ -825,19 +837,20 @@ mod tests {
                 // 2 functions
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 4.0,
-                      "total_closures": 0.0,
-                      "average_functions": 2.0,
-                      "average_closures": 0.0,
-                      "total": 4.0,
-                      "average": 2.0,
-                      "functions_min": 0.0,
-                      "functions_max": 2.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 4.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 2.0,
+                  "closure_args_average": 0.0,
+                  "total": 4.0,
+                  "average": 2.0,
+                  "function_args_min": 0.0,
+                  "function_args_max": 2.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -854,19 +867,20 @@ mod tests {
                 // 2 functions
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 5.0,
-                      "total_closures": 0.0,
-                      "average_functions": 2.5,
-                      "average_closures": 0.0,
-                      "total": 5.0,
-                      "average": 2.5,
-                      "functions_min": 0.0,
-                      "functions_max": 3.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 5.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 2.5,
+                  "closure_args_average": 0.0,
+                  "total": 5.0,
+                  "average": 2.5,
+                  "function_args_min": 0.0,
+                  "function_args_max": 3.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -890,19 +904,20 @@ mod tests {
                 // 2 functions
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 4.0,
-                      "total_closures": 0.0,
-                      "average_functions": 2.0,
-                      "average_closures": 0.0,
-                      "total": 4.0,
-                      "average": 2.0,
-                      "functions_min": 0.0,
-                      "functions_max": 2.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 4.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 2.0,
+                  "closure_args_average": 0.0,
+                  "total": 4.0,
+                  "average": 2.0,
+                  "function_args_min": 0.0,
+                  "function_args_max": 2.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -923,19 +938,20 @@ mod tests {
                 // 2 functions
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 5.0,
-                      "total_closures": 0.0,
-                      "average_functions": 2.5,
-                      "average_closures": 0.0,
-                      "total": 5.0,
-                      "average": 2.5,
-                      "functions_min": 0.0,
-                      "functions_max": 3.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 5.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 2.5,
+                  "closure_args_average": 0.0,
+                  "total": 5.0,
+                  "average": 2.5,
+                  "function_args_min": 0.0,
+                  "function_args_max": 3.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -1007,19 +1023,20 @@ mod tests {
                 // 2 functions
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 4.0,
-                      "total_closures": 0.0,
-                      "average_functions": 2.0,
-                      "average_closures": 0.0,
-                      "total": 4.0,
-                      "average": 2.0,
-                      "functions_min": 0.0,
-                      "functions_max": 2.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 4.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 2.0,
+                  "closure_args_average": 0.0,
+                  "total": 4.0,
+                  "average": 2.0,
+                  "function_args_min": 0.0,
+                  "function_args_max": 2.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -1040,19 +1057,20 @@ mod tests {
                 // 2 functions
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 5.0,
-                      "total_closures": 0.0,
-                      "average_functions": 2.5,
-                      "average_closures": 0.0,
-                      "total": 5.0,
-                      "average": 2.5,
-                      "functions_min": 0.0,
-                      "functions_max": 3.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 5.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 2.5,
+                  "closure_args_average": 0.0,
+                  "total": 5.0,
+                  "average": 2.5,
+                  "function_args_min": 0.0,
+                  "function_args_max": 3.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -1072,19 +1090,20 @@ mod tests {
                 // 2 functions
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 4.0,
-                      "total_closures": 0.0,
-                      "average_functions": 2.0,
-                      "average_closures": 0.0,
-                      "total": 4.0,
-                      "average": 2.0,
-                      "functions_min": 0.0,
-                      "functions_max": 2.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 4.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 2.0,
+                  "closure_args_average": 0.0,
+                  "total": 4.0,
+                  "average": 2.0,
+                  "function_args_min": 0.0,
+                  "function_args_max": 2.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -1101,19 +1120,20 @@ mod tests {
                 // 2 functions
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 5.0,
-                      "total_closures": 0.0,
-                      "average_functions": 2.5,
-                      "average_closures": 0.0,
-                      "total": 5.0,
-                      "average": 2.5,
-                      "functions_min": 0.0,
-                      "functions_max": 3.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 5.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 2.5,
+                  "closure_args_average": 0.0,
+                  "total": 5.0,
+                  "average": 2.5,
+                  "function_args_min": 0.0,
+                  "function_args_max": 3.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -1133,19 +1153,20 @@ mod tests {
                 // 2 functions + 2 lambdas = 4
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 3.0,
-                      "total_closures": 2.0,
-                      "average_functions": 1.5,
-                      "average_closures": 1.0,
-                      "total": 5.0,
-                      "average": 1.25,
-                      "functions_min": 0.0,
-                      "functions_max": 2.0,
-                      "closures_min": 0.0,
-                      "closures_max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 3.0,
+                  "closure_args": 2.0,
+                  "function_args_average": 1.5,
+                  "closure_args_average": 1.0,
+                  "total": 5.0,
+                  "average": 1.25,
+                  "function_args_min": 0.0,
+                  "function_args_max": 2.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 2.0
+                }
+                "#
                 );
             },
         );
@@ -1167,19 +1188,20 @@ mod tests {
                 // 2 functions + 2 lambdas = 4
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 3.0,
-                      "total_closures": 3.0,
-                      "average_functions": 1.5,
-                      "average_closures": 1.5,
-                      "total": 6.0,
-                      "average": 1.5,
-                      "functions_min": 0.0,
-                      "functions_max": 2.0,
-                      "closures_min": 0.0,
-                      "closures_max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 3.0,
+                  "closure_args": 3.0,
+                  "function_args_average": 1.5,
+                  "closure_args_average": 1.5,
+                  "total": 6.0,
+                  "average": 1.5,
+                  "function_args_min": 0.0,
+                  "function_args_max": 2.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 2.0
+                }
+                "#
                 );
             },
         );
@@ -1198,19 +1220,20 @@ mod tests {
                 // 1 functions + 2 lambdas = 3
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 3.0,
-                      "total_closures": 3.0,
-                      "average_functions": 3.0,
-                      "average_closures": 1.5,
-                      "total": 6.0,
-                      "average": 2.0,
-                      "functions_min": 0.0,
-                      "functions_max": 3.0,
-                      "closures_min": 0.0,
-                      "closures_max": 3.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 3.0,
+                  "closure_args": 3.0,
+                  "function_args_average": 3.0,
+                  "closure_args_average": 1.5,
+                  "total": 6.0,
+                  "average": 2.0,
+                  "function_args_min": 0.0,
+                  "function_args_max": 3.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 3.0
+                }
+                "#
                 );
             },
         );
@@ -1233,19 +1256,20 @@ mod tests {
                 assert_eq!(s.fn_args_max(), 3.0);
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 3.0,
-                      "total_closures": 0.0,
-                      "average_functions": 3.0,
-                      "average_closures": 0.0,
-                      "total": 3.0,
-                      "average": 3.0,
-                      "functions_min": 0.0,
-                      "functions_max": 3.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 3.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 3.0,
+                  "closure_args_average": 0.0,
+                  "total": 3.0,
+                  "average": 3.0,
+                  "function_args_min": 0.0,
+                  "function_args_max": 3.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -1269,19 +1293,20 @@ mod tests {
                 assert_eq!(s.fn_args_max(), 2.0);
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 2.0,
-                      "total_closures": 0.0,
-                      "average_functions": 2.0,
-                      "average_closures": 0.0,
-                      "total": 2.0,
-                      "average": 2.0,
-                      "functions_min": 0.0,
-                      "functions_max": 2.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 2.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 2.0,
+                  "closure_args_average": 0.0,
+                  "total": 2.0,
+                  "average": 2.0,
+                  "function_args_min": 0.0,
+                  "function_args_max": 2.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -1308,19 +1333,20 @@ mod tests {
                 assert_eq!(s.fn_args_max(), 2.0);
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 2.0,
-                      "total_closures": 0.0,
-                      "average_functions": 2.0,
-                      "average_closures": 0.0,
-                      "total": 2.0,
-                      "average": 2.0,
-                      "functions_min": 0.0,
-                      "functions_max": 2.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 2.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 2.0,
+                  "closure_args_average": 0.0,
+                  "total": 2.0,
+                  "average": 2.0,
+                  "function_args_min": 0.0,
+                  "function_args_max": 2.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -1348,19 +1374,20 @@ mod tests {
                 assert_eq!(s.closure_args_max(), 2.0);
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 0.0,
-                      "total_closures": 2.0,
-                      "average_functions": 0.0,
-                      "average_closures": 2.0,
-                      "total": 2.0,
-                      "average": 1.0,
-                      "functions_min": 0.0,
-                      "functions_max": 0.0,
-                      "closures_min": 0.0,
-                      "closures_max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 0.0,
+                  "closure_args": 2.0,
+                  "function_args_average": 0.0,
+                  "closure_args_average": 2.0,
+                  "total": 2.0,
+                  "average": 1.0,
+                  "function_args_min": 0.0,
+                  "function_args_max": 0.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 2.0
+                }
+                "#
                 );
             },
         );
@@ -1388,19 +1415,20 @@ mod tests {
                 assert_eq!(s.fn_args_max(), 1.0);
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 1.0,
-                      "total_closures": 0.0,
-                      "average_functions": 1.0,
-                      "average_closures": 0.0,
-                      "total": 1.0,
-                      "average": 1.0,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 1.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 1.0,
+                  "closure_args_average": 0.0,
+                  "total": 1.0,
+                  "average": 1.0,
+                  "function_args_min": 0.0,
+                  "function_args_max": 1.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -1415,19 +1443,20 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 0.0,
-                      "total_closures": 0.0,
-                      "average_functions": 0.0,
-                      "average_closures": 0.0,
-                      "total": 0.0,
-                      "average": 0.0,
-                      "functions_min": 0.0,
-                      "functions_max": 0.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 0.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 0.0,
+                  "closure_args_average": 0.0,
+                  "total": 0.0,
+                  "average": 0.0,
+                  "function_args_min": 0.0,
+                  "function_args_max": 0.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -1442,19 +1471,20 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 3.0,
-                      "total_closures": 0.0,
-                      "average_functions": 3.0,
-                      "average_closures": 0.0,
-                      "total": 3.0,
-                      "average": 3.0,
-                      "functions_min": 0.0,
-                      "functions_max": 3.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 3.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 3.0,
+                  "closure_args_average": 0.0,
+                  "total": 3.0,
+                  "average": 3.0,
+                  "function_args_min": 0.0,
+                  "function_args_max": 3.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -1473,19 +1503,20 @@ mod tests {
                 // Receiver is in a separate `receiver` field and is not counted.
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 1.0,
-                      "total_closures": 0.0,
-                      "average_functions": 1.0,
-                      "average_closures": 0.0,
-                      "total": 1.0,
-                      "average": 1.0,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 1.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 1.0,
+                  "closure_args_average": 0.0,
+                  "total": 1.0,
+                  "average": 1.0,
+                  "function_args_min": 0.0,
+                  "function_args_max": 1.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -1500,19 +1531,20 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 1.0,
-                      "total_closures": 0.0,
-                      "average_functions": 1.0,
-                      "average_closures": 0.0,
-                      "total": 1.0,
-                      "average": 1.0,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 1.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 1.0,
+                  "closure_args_average": 0.0,
+                  "total": 1.0,
+                  "average": 1.0,
+                  "function_args_min": 0.0,
+                  "function_args_max": 1.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -1529,19 +1561,20 @@ mod tests {
                 // children — semantically two parameters.
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 3.0,
-                      "total_closures": 0.0,
-                      "average_functions": 3.0,
-                      "average_closures": 0.0,
-                      "total": 3.0,
-                      "average": 3.0,
-                      "functions_min": 0.0,
-                      "functions_max": 3.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 3.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 3.0,
+                  "closure_args_average": 0.0,
+                  "total": 3.0,
+                  "average": 3.0,
+                  "function_args_min": 0.0,
+                  "function_args_max": 3.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -1557,19 +1590,20 @@ mod tests {
                 // Closure with grouped params: `x, y int` -> 2 closure args.
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 0.0,
-                      "total_closures": 2.0,
-                      "average_functions": 0.0,
-                      "average_closures": 2.0,
-                      "total": 2.0,
-                      "average": 2.0,
-                      "functions_min": 0.0,
-                      "functions_max": 0.0,
-                      "closures_min": 0.0,
-                      "closures_max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 0.0,
+                  "closure_args": 2.0,
+                  "function_args_average": 0.0,
+                  "closure_args_average": 2.0,
+                  "total": 2.0,
+                  "average": 2.0,
+                  "function_args_min": 0.0,
+                  "function_args_max": 0.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 2.0
+                }
+                "#
                 );
             },
         );
@@ -1591,19 +1625,20 @@ mod tests {
                 // 3 functions + 1 lambdas = 4
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 6.0,
-                      "total_closures": 1.0,
-                      "average_functions": 2.0,
-                      "average_closures": 1.0,
-                      "total": 7.0,
-                      "average": 1.75,
-                      "functions_min": 0.0,
-                      "functions_max": 2.0,
-                      "closures_min": 0.0,
-                      "closures_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 6.0,
+                  "closure_args": 1.0,
+                  "function_args_average": 2.0,
+                  "closure_args_average": 1.0,
+                  "total": 7.0,
+                  "average": 1.75,
+                  "function_args_min": 0.0,
+                  "function_args_max": 2.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 1.0
+                }
+                "#
                 );
             },
         );
@@ -1626,16 +1661,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "total_functions": 0.0,
-                  "total_closures": 0.0,
-                  "average_functions": 0.0,
-                  "average_closures": 0.0,
+                  "function_args": 0.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 0.0,
+                  "closure_args_average": 0.0,
                   "total": 0.0,
                   "average": 0.0,
-                  "functions_min": 0.0,
-                  "functions_max": 0.0,
-                  "closures_min": 0.0,
-                  "closures_max": 0.0
+                  "function_args_min": 0.0,
+                  "function_args_max": 0.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
                 }
                 "#
                 );
@@ -1662,16 +1697,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "total_functions": 0.0,
-                  "total_closures": 0.0,
-                  "average_functions": 0.0,
-                  "average_closures": 0.0,
+                  "function_args": 0.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 0.0,
+                  "closure_args_average": 0.0,
                   "total": 0.0,
                   "average": 0.0,
-                  "functions_min": 0.0,
-                  "functions_max": 0.0,
-                  "closures_min": 0.0,
-                  "closures_max": 0.0
+                  "function_args_min": 0.0,
+                  "function_args_max": 0.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
                 }
                 "#
                 );
@@ -1697,16 +1732,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "total_functions": 0.0,
-                  "total_closures": 0.0,
-                  "average_functions": 0.0,
-                  "average_closures": 0.0,
+                  "function_args": 0.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 0.0,
+                  "closure_args_average": 0.0,
                   "total": 0.0,
                   "average": 0.0,
-                  "functions_min": 0.0,
-                  "functions_max": 0.0,
-                  "closures_min": 0.0,
-                  "closures_max": 0.0
+                  "function_args_min": 0.0,
+                  "function_args_max": 0.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
                 }
                 "#
                 );
@@ -1732,16 +1767,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "total_functions": 0.0,
-                  "total_closures": 0.0,
-                  "average_functions": 0.0,
-                  "average_closures": 0.0,
+                  "function_args": 0.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 0.0,
+                  "closure_args_average": 0.0,
                   "total": 0.0,
                   "average": 0.0,
-                  "functions_min": 0.0,
-                  "functions_max": 0.0,
-                  "closures_min": 0.0,
-                  "closures_max": 0.0
+                  "function_args_min": 0.0,
+                  "function_args_max": 0.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
                 }
                 "#
                 );
@@ -1766,16 +1801,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "total_functions": 0.0,
-                  "total_closures": 0.0,
-                  "average_functions": 0.0,
-                  "average_closures": 0.0,
+                  "function_args": 0.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 0.0,
+                  "closure_args_average": 0.0,
                   "total": 0.0,
                   "average": 0.0,
-                  "functions_min": 0.0,
-                  "functions_max": 0.0,
-                  "closures_min": 0.0,
-                  "closures_max": 0.0
+                  "function_args_min": 0.0,
+                  "function_args_max": 0.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
                 }
                 "#
                 );
@@ -1795,19 +1830,19 @@ mod tests {
                 insta::assert_json_snapshot!(
                     metric.nargs,
                     @r#"
-                    {
-                      "total_functions": 0.0,
-                      "total_closures": 0.0,
-                      "average_functions": 0.0,
-                      "average_closures": 0.0,
-                      "total": 0.0,
-                      "average": 0.0,
-                      "functions_min": 0.0,
-                      "functions_max": 0.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }
-                    "#
+                {
+                  "function_args": 0.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 0.0,
+                  "closure_args_average": 0.0,
+                  "total": 0.0,
+                  "average": 0.0,
+                  "function_args_min": 0.0,
+                  "function_args_max": 0.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -1827,16 +1862,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "total_functions": 2.0,
-                  "total_closures": 0.0,
-                  "average_functions": 2.0,
-                  "average_closures": 0.0,
+                  "function_args": 2.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 2.0,
+                  "closure_args_average": 0.0,
                   "total": 2.0,
                   "average": 2.0,
-                  "functions_min": 0.0,
-                  "functions_max": 2.0,
-                  "closures_min": 0.0,
-                  "closures_max": 0.0
+                  "function_args_min": 0.0,
+                  "function_args_max": 2.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
                 }
                 "#
                 );
@@ -1861,16 +1896,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "total_functions": 4.0,
-                  "total_closures": 0.0,
-                  "average_functions": 2.0,
-                  "average_closures": 0.0,
+                  "function_args": 4.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 2.0,
+                  "closure_args_average": 0.0,
                   "total": 4.0,
                   "average": 2.0,
-                  "functions_min": 0.0,
-                  "functions_max": 3.0,
-                  "closures_min": 0.0,
-                  "closures_max": 0.0
+                  "function_args_min": 0.0,
+                  "function_args_max": 3.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
                 }
                 "#
                 );
@@ -1892,16 +1927,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "total_functions": 2.0,
-                  "total_closures": 0.0,
-                  "average_functions": 2.0,
-                  "average_closures": 0.0,
+                  "function_args": 2.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 2.0,
+                  "closure_args_average": 0.0,
                   "total": 2.0,
                   "average": 2.0,
-                  "functions_min": 0.0,
-                  "functions_max": 2.0,
-                  "closures_min": 0.0,
-                  "closures_max": 0.0
+                  "function_args_min": 0.0,
+                  "function_args_max": 2.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
                 }
                 "#
                 );
@@ -1948,16 +1983,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "total_functions": 0.0,
-                  "total_closures": 2.0,
-                  "average_functions": 0.0,
-                  "average_closures": 2.0,
+                  "function_args": 0.0,
+                  "closure_args": 2.0,
+                  "function_args_average": 0.0,
+                  "closure_args_average": 2.0,
                   "total": 2.0,
                   "average": 1.0,
-                  "functions_min": 0.0,
-                  "functions_max": 0.0,
-                  "closures_min": 0.0,
-                  "closures_max": 2.0
+                  "function_args_min": 0.0,
+                  "function_args_max": 0.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 2.0
                 }
                 "#
                 );
@@ -2052,19 +2087,19 @@ mod tests {
                 insta::assert_json_snapshot!(
                     metric.nargs,
                     @r#"
-                    {
-                      "total_functions": 0.0,
-                      "total_closures": 0.0,
-                      "average_functions": 0.0,
-                      "average_closures": 0.0,
-                      "total": 0.0,
-                      "average": 0.0,
-                      "functions_min": 0.0,
-                      "functions_max": 0.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }
-                    "#
+                {
+                  "function_args": 0.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 0.0,
+                  "closure_args_average": 0.0,
+                  "total": 0.0,
+                  "average": 0.0,
+                  "function_args_min": 0.0,
+                  "function_args_max": 0.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -2084,16 +2119,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "total_functions": 2.0,
-                  "total_closures": 0.0,
-                  "average_functions": 2.0,
-                  "average_closures": 0.0,
+                  "function_args": 2.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 2.0,
+                  "closure_args_average": 0.0,
                   "total": 2.0,
                   "average": 2.0,
-                  "functions_min": 0.0,
-                  "functions_max": 2.0,
-                  "closures_min": 0.0,
-                  "closures_max": 0.0
+                  "function_args_min": 0.0,
+                  "function_args_max": 2.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
                 }
                 "#
                 );
@@ -2118,16 +2153,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "total_functions": 4.0,
-                  "total_closures": 0.0,
-                  "average_functions": 2.0,
-                  "average_closures": 0.0,
+                  "function_args": 4.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 2.0,
+                  "closure_args_average": 0.0,
                   "total": 4.0,
                   "average": 2.0,
-                  "functions_min": 0.0,
-                  "functions_max": 3.0,
-                  "closures_min": 0.0,
-                  "closures_max": 0.0
+                  "function_args_min": 0.0,
+                  "function_args_max": 3.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
                 }
                 "#
                 );
@@ -2149,16 +2184,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "total_functions": 2.0,
-                  "total_closures": 0.0,
-                  "average_functions": 2.0,
-                  "average_closures": 0.0,
+                  "function_args": 2.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 2.0,
+                  "closure_args_average": 0.0,
                   "total": 2.0,
                   "average": 2.0,
-                  "functions_min": 0.0,
-                  "functions_max": 2.0,
-                  "closures_min": 0.0,
-                  "closures_max": 0.0
+                  "function_args_min": 0.0,
+                  "function_args_max": 2.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
                 }
                 "#
                 );
@@ -2180,16 +2215,16 @@ mod tests {
                     metric.nargs,
                     @r#"
                 {
-                  "total_functions": 0.0,
-                  "total_closures": 2.0,
-                  "average_functions": 0.0,
-                  "average_closures": 2.0,
+                  "function_args": 0.0,
+                  "closure_args": 2.0,
+                  "function_args_average": 0.0,
+                  "closure_args_average": 2.0,
                   "total": 2.0,
                   "average": 1.0,
-                  "functions_min": 0.0,
-                  "functions_max": 0.0,
-                  "closures_min": 0.0,
-                  "closures_max": 2.0
+                  "function_args_min": 0.0,
+                  "function_args_max": 0.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 2.0
                 }
                 "#
                 );
@@ -2208,19 +2243,20 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 4.0,
-                      "total_closures": 0.0,
-                      "average_functions": 2.0,
-                      "average_closures": 0.0,
-                      "total": 4.0,
-                      "average": 2.0,
-                      "functions_min": 0.0,
-                      "functions_max": 2.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 4.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 2.0,
+                  "closure_args_average": 0.0,
+                  "total": 4.0,
+                  "average": 2.0,
+                  "function_args_min": 0.0,
+                  "function_args_max": 2.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -2237,19 +2273,20 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 4.0,
-                      "total_closures": 0.0,
-                      "average_functions": 2.0,
-                      "average_closures": 0.0,
-                      "total": 4.0,
-                      "average": 2.0,
-                      "functions_min": 0.0,
-                      "functions_max": 3.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 4.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 2.0,
+                  "closure_args_average": 0.0,
+                  "total": 4.0,
+                  "average": 2.0,
+                  "function_args_min": 0.0,
+                  "function_args_max": 3.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -2265,19 +2302,20 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 2.0,
-                      "total_closures": 0.0,
-                      "average_functions": 2.0,
-                      "average_closures": 0.0,
-                      "total": 2.0,
-                      "average": 2.0,
-                      "functions_min": 0.0,
-                      "functions_max": 2.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 2.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 2.0,
+                  "closure_args_average": 0.0,
+                  "total": 2.0,
+                  "average": 2.0,
+                  "function_args_min": 0.0,
+                  "function_args_max": 2.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -2288,19 +2326,20 @@ mod tests {
         check_metrics::<MozjsParser>("function (a, b) {return a + b};", "foo.js", |metric| {
             insta::assert_json_snapshot!(
                 metric.nargs,
-                @r###"
-                    {
-                      "total_functions": 0.0,
-                      "total_closures": 2.0,
-                      "average_functions": 0.0,
-                      "average_closures": 2.0,
-                      "total": 2.0,
-                      "average": 2.0,
-                      "functions_min": 0.0,
-                      "functions_max": 0.0,
-                      "closures_min": 0.0,
-                      "closures_max": 2.0
-                    }"###
+                @r#"
+            {
+              "function_args": 0.0,
+              "closure_args": 2.0,
+              "function_args_average": 0.0,
+              "closure_args_average": 2.0,
+              "total": 2.0,
+              "average": 2.0,
+              "function_args_min": 0.0,
+              "function_args_max": 0.0,
+              "closure_args_min": 0.0,
+              "closure_args_max": 2.0
+            }
+            "#
             );
         });
     }
@@ -2445,20 +2484,20 @@ mod tests {
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 2.0,
-                      "total_closures": 2.0,
-                      "average_functions": 2.0,
-                      "average_closures": 2.0,
-                      "total": 4.0,
-                      "average": 2.0,
-                      "functions_min": 0.0,
-                      "functions_max": 2.0,
-                      "closures_min": 0.0,
-                      "closures_max": 2.0
-                    }
-                    "###
+                    @r#"
+                {
+                  "function_args": 2.0,
+                  "closure_args": 2.0,
+                  "function_args_average": 2.0,
+                  "closure_args_average": 2.0,
+                  "total": 4.0,
+                  "average": 2.0,
+                  "function_args_min": 0.0,
+                  "function_args_max": 2.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 2.0
+                }
+                "#
                 );
             },
         );
@@ -2732,19 +2771,20 @@ proc g {x y z} { puts $x }",
         check_metrics::<PhpParser>("<?php $a = 42;", "foo.php", |metric| {
             insta::assert_json_snapshot!(
                 metric.nargs,
-                @r###"
-                {
-                  "total_functions": 0.0,
-                  "total_closures": 0.0,
-                  "average_functions": 0.0,
-                  "average_closures": 0.0,
-                  "total": 0.0,
-                  "average": 0.0,
-                  "functions_min": 0.0,
-                  "functions_max": 0.0,
-                  "closures_min": 0.0,
-                  "closures_max": 0.0
-                }"###
+                @r#"
+            {
+              "function_args": 0.0,
+              "closure_args": 0.0,
+              "function_args_average": 0.0,
+              "closure_args_average": 0.0,
+              "total": 0.0,
+              "average": 0.0,
+              "function_args_min": 0.0,
+              "function_args_max": 0.0,
+              "closure_args_min": 0.0,
+              "closure_args_max": 0.0
+            }
+            "#
             );
         });
     }
@@ -2762,19 +2802,20 @@ proc g {x y z} { puts $x }",
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 2.0,
-                      "total_closures": 0.0,
-                      "average_functions": 2.0,
-                      "average_closures": 0.0,
-                      "total": 2.0,
-                      "average": 2.0,
-                      "functions_min": 0.0,
-                      "functions_max": 2.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 2.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 2.0,
+                  "closure_args_average": 0.0,
+                  "total": 2.0,
+                  "average": 2.0,
+                  "function_args_min": 0.0,
+                  "function_args_max": 2.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -2792,19 +2833,20 @@ proc g {x y z} { puts $x }",
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 0.0,
-                      "total_closures": 3.0,
-                      "average_functions": 0.0,
-                      "average_closures": 1.5,
-                      "total": 3.0,
-                      "average": 1.5,
-                      "functions_min": 0.0,
-                      "functions_max": 0.0,
-                      "closures_min": 0.0,
-                      "closures_max": 2.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 0.0,
+                  "closure_args": 3.0,
+                  "function_args_average": 0.0,
+                  "closure_args_average": 1.5,
+                  "total": 3.0,
+                  "average": 1.5,
+                  "function_args_min": 0.0,
+                  "function_args_max": 0.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 2.0
+                }
+                "#
                 );
             },
         );
@@ -2821,19 +2863,20 @@ proc g {x y z} { puts $x }",
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 3.0,
-                      "total_closures": 0.0,
-                      "average_functions": 1.5,
-                      "average_closures": 0.0,
-                      "total": 3.0,
-                      "average": 1.5,
-                      "functions_min": 0.0,
-                      "functions_max": 2.0,
-                      "closures_min": 0.0,
-                      "closures_max": 0.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 3.0,
+                  "closure_args": 0.0,
+                  "function_args_average": 1.5,
+                  "closure_args_average": 0.0,
+                  "total": 3.0,
+                  "average": 1.5,
+                  "function_args_min": 0.0,
+                  "function_args_max": 2.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 0.0
+                }
+                "#
                 );
             },
         );
@@ -2856,19 +2899,20 @@ proc g {x y z} { puts $x }",
             |metric| {
                 insta::assert_json_snapshot!(
                     metric.nargs,
-                    @r###"
-                    {
-                      "total_functions": 1.0,
-                      "total_closures": 1.0,
-                      "average_functions": 1.0,
-                      "average_closures": 1.0,
-                      "total": 2.0,
-                      "average": 1.0,
-                      "functions_min": 0.0,
-                      "functions_max": 1.0,
-                      "closures_min": 0.0,
-                      "closures_max": 1.0
-                    }"###
+                    @r#"
+                {
+                  "function_args": 1.0,
+                  "closure_args": 1.0,
+                  "function_args_average": 1.0,
+                  "closure_args_average": 1.0,
+                  "total": 2.0,
+                  "average": 1.0,
+                  "function_args_min": 0.0,
+                  "function_args_max": 1.0,
+                  "closure_args_min": 0.0,
+                  "closure_args_max": 1.0
+                }
+                "#
                 );
             },
         );

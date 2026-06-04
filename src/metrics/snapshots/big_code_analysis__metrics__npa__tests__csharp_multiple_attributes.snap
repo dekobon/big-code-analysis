@@ -7,9 +7,9 @@ expression: metric.npa
   "interfaces": 0.0,
   "class_attributes": 18.0,
   "interface_attributes": 0.0,
-  "classes_average": 0.6666666666666666,
-  "interfaces_average": 0.0,
+  "class_cda": 0.6666666666666666,
+  "interface_cda": 0.0,
   "total": 12.0,
   "total_attributes": 18.0,
-  "average": 0.6666666666666666
+  "cda": 0.6666666666666666
 }

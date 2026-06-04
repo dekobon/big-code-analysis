@@ -15,21 +15,6 @@ from pathlib import Path
 
 import big_code_analysis as bca
 
-# SQLite identifier names are case-insensitive, so the Halstead
-# pair `N1` / `n1` (and `N2` / `n2`) collide on one column. Rewrite
-# the uppercase totals to a distinct name before insertion. The
-# explicit map (not a `.replace(".N", "...")` substring rewrite)
-# means a hypothetical future `halstead.NN_metric` would not be
-# silently mangled.
-_RENAME_FOR_SQLITE: dict[str, str] = {
-    "halstead.N1": "halstead.total_1",
-    "halstead.N2": "halstead.total_2",
-}
-
-
-def _safe_column(key: str) -> str:
-    return _RENAME_FOR_SQLITE.get(key, key)
-
 
 def run(path: Path, db_path: Path) -> int:
     """Analyse ``path`` and insert one row per FuncSpace into ``db_path``.
@@ -41,7 +26,10 @@ def run(path: Path, db_path: Path) -> int:
         msg = f"{path} was skipped (looks generated)"
         raise SystemExit(msg)
 
-    records = [{_safe_column(k): v for k, v in r.items()} for r in bca.flatten_spaces(result)]
+    # The flattened keys are dotted, case-distinct names
+    # (`halstead.unique_operators`, `halstead.total_operators`, …), so
+    # they map directly onto SQLite columns without any renaming.
+    records = [dict(r) for r in bca.flatten_spaces(result)]
     if not records:
         return 0
 

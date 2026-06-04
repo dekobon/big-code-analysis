@@ -176,10 +176,22 @@ fn dump_halstead(
 
     let prefix = format!("{prefix}{pref_child}");
 
-    dump_value("n1", stats.u_operators(), &prefix, false, stdout)?;
-    dump_value("N1", stats.operators(), &prefix, false, stdout)?;
-    dump_value("n2", stats.u_operands(), &prefix, false, stdout)?;
-    dump_value("N2", stats.operands(), &prefix, false, stdout)?;
+    dump_value(
+        "unique_operators",
+        stats.u_operators(),
+        &prefix,
+        false,
+        stdout,
+    )?;
+    dump_value("total_operators", stats.operators(), &prefix, false, stdout)?;
+    dump_value(
+        "unique_operands",
+        stats.u_operands(),
+        &prefix,
+        false,
+        stdout,
+    )?;
+    dump_value("total_operands", stats.operands(), &prefix, false, stdout)?;
 
     dump_value("length", stats.length(), &prefix, false, stdout)?;
     dump_value(
@@ -282,10 +294,10 @@ fn dump_mi(
     writeln!(stdout, "mi")?;
 
     let prefix = format!("{prefix}{pref_child}");
-    dump_value("mi_original", stats.mi_original(), &prefix, false, stdout)?;
-    dump_value("mi_sei", stats.mi_sei(), &prefix, false, stdout)?;
+    dump_value("original", stats.mi_original(), &prefix, false, stdout)?;
+    dump_value("sei", stats.mi_sei(), &prefix, false, stdout)?;
     dump_value(
-        "mi_visual_studio",
+        "visual_studio",
         stats.mi_visual_studio(),
         &prefix,
         true,
@@ -311,8 +323,14 @@ fn dump_nargs(
     // Subtree-aggregate counts (`*_sum`), matching the JSON serializer:
     // `total`/`average` are already aggregates, so the per-space
     // `fn_args()`/`closure_args()` would not sum to `total` at a parent.
-    dump_value("functions", stats.fn_args_sum(), &prefix, false, stdout)?;
-    dump_value("closures", stats.closure_args_sum(), &prefix, false, stdout)?;
+    dump_value("function_args", stats.fn_args_sum(), &prefix, false, stdout)?;
+    dump_value(
+        "closure_args",
+        stats.closure_args_sum(),
+        &prefix,
+        false,
+        stdout,
+    )?;
     dump_value("total", stats.nargs_total(), &prefix, false, stdout)?;
     dump_value("average", stats.nargs_average(), &prefix, true, stdout)
 }
@@ -421,7 +439,7 @@ fn dump_npm(
         stdout,
     )?;
     dump_value("total", stats.total_npm(), &prefix, false, stdout)?;
-    dump_value("average", stats.total_coa(), &prefix, true, stdout)
+    dump_value("coa", stats.total_coa(), &prefix, true, stdout)
 }
 
 fn dump_npa(
@@ -452,7 +470,7 @@ fn dump_npa(
         stdout,
     )?;
     dump_value("total", stats.total_npa(), &prefix, false, stdout)?;
-    dump_value("average", stats.total_cda(), &prefix, true, stdout)
+    dump_value("cda", stats.total_cda(), &prefix, true, stdout)
 }
 
 fn dump_value(

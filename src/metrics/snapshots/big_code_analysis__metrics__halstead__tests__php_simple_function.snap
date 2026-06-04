@@ -3,10 +3,10 @@ source: src/metrics/halstead.rs
 expression: metric.halstead
 ---
 {
-  "n1": 9.0,
-  "N1": 9.0,
-  "n2": 5.0,
-  "N2": 10.0,
+  "unique_operators": 9.0,
+  "total_operators": 9.0,
+  "unique_operands": 5.0,
+  "total_operands": 10.0,
   "length": 19.0,
   "estimated_program_length": 40.13896548741762,
   "purity_ratio": 2.112577130916717,

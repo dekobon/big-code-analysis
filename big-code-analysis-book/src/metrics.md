@@ -438,12 +438,16 @@ two categories:
 
 From these you derive four base counts:
 
-| Symbol | Meaning |
-|--------|---------|
-| `n1` | number of **distinct** operators |
-| `n2` | number of **distinct** operands |
-| `N1` | **total** count of operator occurrences |
-| `N2` | **total** count of operand occurrences |
+| JSON key | Symbol | Meaning |
+|----------|--------|---------|
+| `unique_operators` | n1 | number of **distinct** operators |
+| `unique_operands` | n2 | number of **distinct** operands |
+| `total_operators` | N1 | **total** count of operator occurrences |
+| `total_operands` | N2 | **total** count of operand occurrences |
+
+The serialized output uses the descriptive **JSON key** column; the
+derived-metric formulas below use Halstead's classic `n1`/`N1`/`n2`/`N2`
+notation for the same four counts.
 
 big-code-analysis records these four numbers in
 `src/metrics/halstead.rs` per function and per file. The per-language
@@ -585,18 +589,22 @@ cyclomatic complexity, lines of code, and comment density.
 big-code-analysis reports the three formulas that have stuck in
 practice:
 
+The three values nest under the `mi` object as the keys `original`,
+`sei`, and `visual_studio` (the dotted threshold names `mi.original`,
+`mi.sei`, `mi.visual_studio`):
+
 ```text
-mi_original      = 171 − 5.2·ln(HV) − 0.23·CC − 16.2·ln(SLOC)
-mi_sei           = 171 − 5.2·log2(HV) − 0.23·CC − 16.2·log2(SLOC) + 50·sin(√(2.4·comment_ratio))
-mi_visual_studio = max(0, mi_original · 100 / 171)
+mi.original      = 171 − 5.2·ln(HV) − 0.23·CC − 16.2·ln(SLOC)
+mi.sei           = 171 − 5.2·log2(HV) − 0.23·CC − 16.2·log2(SLOC) + 50·sin(√(2.4·comment_ratio))
+mi.visual_studio = max(0, mi.original · 100 / 171)
 ```
 
-- `mi_original` is the Coleman–Oman formula. It can be negative for
+- `mi.original` is the Coleman–Oman formula. It can be negative for
   pathological files.
-- `mi_sei` is the Software Engineering Institute's refinement, which
+- `mi.sei` is the Software Engineering Institute's refinement, which
   adds a comment-density term — the `sin(√(...))` shape was chosen so
   that *some* comments help, but adding more after a point does not.
-- `mi_visual_studio` is the linear rescaling Microsoft chose for
+- `mi.visual_studio` is the linear rescaling Microsoft chose for
   Visual Studio, where the score is clamped to `[0, 100]` and shown
   to developers traffic-light style: green ≥ 20, yellow ≥ 10, red
   below.
@@ -625,7 +633,7 @@ quadrant.
 
 The emergent use case is the **Visual Studio traffic-light rendering**:
 every C# developer who has hovered a method in the IDE has seen the
-green / yellow / red icon, and the underlying number is `mi_visual_studio`.
+green / yellow / red icon, and the underlying number is `mi.visual_studio`.
 This made MI by far the most user-facing software metric for an
 entire generation of .NET developers, which is also why it is the
 metric that has attracted the most criticism. Treat it as a smoke
@@ -645,9 +653,10 @@ big-code-analysis splits the count by callable kind: every aggregate
 is reported separately for *functions* and *closures* so a Rust file
 heavy on `|…| …` closures and a Java file with only methods produce
 comparable numbers. The serialised output
-(`src/metrics/nargs.rs`) is `total_functions`, `total_closures`,
-`average_functions`, `average_closures`, `total`, `average`,
-`functions_min`, `functions_max`, `closures_min`, `closures_max`.
+(`src/metrics/nargs.rs`) is `function_args`, `closure_args`,
+`function_args_average`, `closure_args_average`, `total`, `average`,
+`function_args_min`, `function_args_max`, `closure_args_min`,
+`closure_args_max`.
 The implementation handles default arguments, variadic arguments,
 keyword-only arguments, and destructured parameters consistently per
 language.
@@ -750,9 +759,10 @@ big-code-analysis splits the count by definition-site kind:
 contracts). The serialised output (`src/metrics/npa.rs`) is
 `classes` (sum of NPA across all classes), `interfaces` (sum across
 interfaces), `class_attributes` (sum of *all* attributes — public or
-not — across classes), `interface_attributes`, `classes_average`
-(class density of public attributes), `interfaces_average`, `total`,
-`total_attributes`, and `average`. The per-language `Npa` trait
+not — across classes), `interface_attributes`, `class_cda`
+(class density of public attributes — an accessibility *ratio*, not an
+average), `interface_cda`, `total`, `total_attributes`, and `cda`. The
+per-language `Npa` trait
 decides what counts as "public" (Java `public`, C# `public`, Rust
 `pub`, Python's "no leading underscore" convention, …) and what
 counts as "attribute" rather than "method".
@@ -782,8 +792,9 @@ As with NPA, big-code-analysis splits NPM by definition-site kind
 (classes vs. interfaces). The serialised output
 (`src/metrics/npm.rs`) is `classes` (sum of NPM across classes),
 `interfaces`, `class_methods` (sum of *all* methods — public or
-not — across classes), `interface_methods`, `classes_average`,
-`interfaces_average`, `total`, `total_methods`, and `average`.
+not — across classes), `interface_methods`, `class_coa`,
+`interface_coa` (operation-accessibility *ratios*, not averages),
+`total`, `total_methods`, and `coa`.
 The language-specific `Npm` trait decides what counts as public —
 for example, Rust's `pub`, Python's leading-underscore convention,
 C++'s `public:` section — and folds together regular methods,

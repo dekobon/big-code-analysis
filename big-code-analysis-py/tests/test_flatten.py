@@ -114,8 +114,8 @@ def test_halstead_leaves_flattened_to_dotted_keys() -> None:
     for key in (
         "halstead.volume",
         "halstead.difficulty",
-        "halstead.n1",
-        "halstead.N1",
+        "halstead.unique_operators",
+        "halstead.total_operators",
     ):
         assert key in record, f"missing dotted key {key!r} in record"
         assert isinstance(record[key], (int, float))

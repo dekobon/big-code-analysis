@@ -211,17 +211,17 @@ const METRIC_FIELDS: &[MetricField] = &[
     },
     MetricField {
         name: "mi.original",
-        path: &["mi", "mi_original"],
+        path: &["mi", "original"],
         skip_at_unit: false,
     },
     MetricField {
         name: "mi.sei",
-        path: &["mi", "mi_sei"],
+        path: &["mi", "sei"],
         skip_at_unit: false,
     },
     MetricField {
         name: "mi.visual_studio",
-        path: &["mi", "mi_visual_studio"],
+        path: &["mi", "visual_studio"],
         skip_at_unit: false,
     },
     MetricField {
@@ -758,9 +758,9 @@ mod tests {
             ("tokens", &["tokens", "tokens"]),
             ("nexits", &["nexits", "sum"]),
             ("nargs", &["nargs", "total"]),
-            ("mi.original", &["mi", "mi_original"]),
-            ("mi.sei", &["mi", "mi_sei"]),
-            ("mi.visual_studio", &["mi", "mi_visual_studio"]),
+            ("mi.original", &["mi", "original"]),
+            ("mi.sei", &["mi", "sei"]),
+            ("mi.visual_studio", &["mi", "visual_studio"]),
             ("wmc", &["wmc", "total"]),
             ("npm", &["npm", "total"]),
             ("npa", &["npa", "total"]),

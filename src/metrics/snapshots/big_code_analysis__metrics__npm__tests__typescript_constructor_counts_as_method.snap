@@ -7,9 +7,9 @@ expression: metric.npm
   "interfaces": 0.0,
   "class_methods": 2.0,
   "interface_methods": 0.0,
-  "classes_average": 1.0,
-  "interfaces_average": 0.0,
+  "class_coa": 1.0,
+  "interface_coa": 0.0,
   "total": 2.0,
   "total_methods": 2.0,
-  "average": 1.0
+  "coa": 1.0
 }
