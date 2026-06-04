@@ -417,7 +417,7 @@ fn get_emacs_mode(buf: &[u8]) -> Option<String> {
 /// ```
 ///
 /// [`LANG`]: enum.LANG.html
-pub fn guess_language<'a, P: AsRef<Path>>(buf: &[u8], path: P) -> (Option<LANG>, &'a str) {
+pub fn guess_language<P: AsRef<Path>>(buf: &[u8], path: P) -> (Option<LANG>, &'static str) {
     let ext = path
         .as_ref()
         .extension()
