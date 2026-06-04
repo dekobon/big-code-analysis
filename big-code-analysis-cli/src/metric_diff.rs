@@ -166,6 +166,16 @@ impl MetricDiff {
     ) -> Self {
         let mut diff = Self::default();
 
+        // Accept the dotted `check --threshold` spelling as an alias for
+        // a bucket name (issue #514): `loc.sloc` -> `sloc`,
+        // `halstead.volume` -> `halstead`. Bare bucket names pass through
+        // unchanged, so existing `--metric sloc` keeps working.
+        let metric_filter: Vec<String> = metric_filter
+            .iter()
+            .map(|m| crate::metric_alias::normalize_for_diff(m).into_owned())
+            .collect();
+        let metric_filter = metric_filter.as_slice();
+
         for key in new.keys() {
             if !old.contains_key(key) {
                 diff.added_files.push(key.clone());

@@ -625,7 +625,13 @@ impl ThresholdSet {
     pub(crate) fn build(raw: &BTreeMap<String, f64>) -> Result<Self, String> {
         let mut entries = Vec::with_capacity(raw.len());
         for (name, limit) in raw {
-            let extractor = lookup_extractor(name).ok_or_else(|| {
+            // Accept the bare `diff --metric` spelling as an alias for the
+            // dotted threshold id (issue #514): `sloc` -> `loc.sloc`. An
+            // ambiguous family head (`halstead`, `mi`, which have no single
+            // threshold scalar) is rejected here with a "did you mean"
+            // hint rather than guessing a sub-metric.
+            let canonical = crate::metric_alias::normalize_for_check(name)?;
+            let extractor = lookup_extractor(&canonical).ok_or_else(|| {
                 let known = known_metric_names();
                 format!(
                     "unknown threshold metric {name:?}{}; known metrics: {}",

@@ -153,6 +153,40 @@ fn metric_filter_restricts_buckets() {
     assert_eq!(diff.buckets.keys().collect::<Vec<_>>(), vec!["cyclomatic"]);
 }
 
+/// Issue #514: the dotted `bca check --threshold` spelling of a `loc`
+/// sub-metric is accepted as an alias for the bare bucket name, so a
+/// filter copy-pasted from a `check` config selects the right bucket.
+#[test]
+fn metric_filter_accepts_dotted_loc_alias() {
+    let old = set(
+        "a",
+        json!({ "loc": { "sloc": 3.0 }, "cognitive": { "sum": 2.0 } }),
+    );
+    let new = set(
+        "a",
+        json!({ "loc": { "sloc": 5.0 }, "cognitive": { "sum": 3.0 } }),
+    );
+    // `loc.sloc` (check spelling) must select the `sloc` bucket.
+    let diff = MetricDiff::from_sets(&old, &new, 0.0, &["loc.sloc".to_string()]);
+    assert_eq!(diff.buckets.keys().collect::<Vec<_>>(), vec!["sloc"]);
+}
+
+/// A dotted family head (`halstead.volume`) aliases to its single bucket
+/// (`halstead`).
+#[test]
+fn metric_filter_accepts_dotted_family_alias() {
+    let old = set(
+        "a",
+        json!({ "halstead": { "volume": 10.0 }, "cognitive": { "sum": 2.0 } }),
+    );
+    let new = set(
+        "a",
+        json!({ "halstead": { "volume": 20.0 }, "cognitive": { "sum": 3.0 } }),
+    );
+    let diff = MetricDiff::from_sets(&old, &new, 0.0, &["halstead.volume".to_string()]);
+    assert_eq!(diff.buckets.keys().collect::<Vec<_>>(), vec!["halstead"]);
+}
+
 #[test]
 fn json_render_has_stable_schema() {
     let old = set("src/a.rs", json!({ "cyclomatic": { "sum": 3.0 } }));

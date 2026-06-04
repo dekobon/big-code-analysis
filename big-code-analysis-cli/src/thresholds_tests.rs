@@ -110,6 +110,40 @@ fn build_accepts_zero_limit() {
     ThresholdSet::build(&raw).expect("zero limit is valid");
 }
 
+/// Issue #514: the bare `bca diff --metric` spelling of a `loc`
+/// sub-metric is accepted as an alias and resolves to the dotted
+/// extractor, so a name copy-pasted from a `diff` run gates correctly.
+#[test]
+fn build_accepts_bare_loc_submetric_alias() {
+    let mut raw = BTreeMap::new();
+    raw.insert("sloc".to_string(), 100.0);
+    let set = ThresholdSet::build(&raw).expect("bare loc alias resolves");
+    let resolved: Vec<(&str, f64)> = set.iter().collect();
+    assert_eq!(resolved, [("loc.sloc", 100.0)]);
+}
+
+/// Issue #514: a bare family head with no single threshold scalar is
+/// ambiguous and rejected with the concrete candidates, not silently
+/// mapped to one sub-metric.
+#[test]
+fn build_rejects_ambiguous_family_head() {
+    let mut raw = BTreeMap::new();
+    raw.insert("halstead".to_string(), 1.0);
+    let err = ThresholdSet::build(&raw).expect_err("ambiguous head");
+    assert!(err.contains("ambiguous"), "{err}");
+    assert!(err.contains("halstead.volume"), "{err}");
+}
+
+/// The existing dotted spelling keeps working unchanged after aliasing.
+#[test]
+fn build_still_accepts_dotted_spelling() {
+    let mut raw = BTreeMap::new();
+    raw.insert("loc.sloc".to_string(), 50.0);
+    let set = ThresholdSet::build(&raw).expect("dotted still valid");
+    let resolved: Vec<(&str, f64)> = set.iter().collect();
+    assert_eq!(resolved, [("loc.sloc", 50.0)]);
+}
+
 #[test]
 fn known_metric_names_contains_core_set() {
     let names = known_metric_names();

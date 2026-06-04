@@ -46,6 +46,7 @@ mod formats;
 mod html_report;
 mod manifest;
 mod markdown_report;
+mod metric_alias;
 mod metric_catalog;
 mod metric_diff;
 mod threshold_suggestion;
@@ -419,9 +420,12 @@ struct PreprocArgs {
 struct CheckArgs {
     /// Threshold expressed as `<metric>=<limit>`. Repeatable. Metric
     /// names match `bca list-metrics`; sub-metrics use a dotted form
-    /// (e.g. `loc.lloc`, `halstead.volume`). CLI flags override values
-    /// from `--config`. Limits must be finite and non-negative; `0` is
-    /// allowed and means "no value permitted".
+    /// (e.g. `loc.lloc`, `halstead.volume`). The bare `bca diff --metric`
+    /// spelling of a `loc` sub-metric is accepted as an alias (`sloc` ==
+    /// `loc.sloc`); a bare family head with no single scalar (`halstead`,
+    /// `mi`) is rejected with a "did you mean" hint. CLI flags override
+    /// values from `--config`. Limits must be finite and non-negative;
+    /// `0` is allowed and means "no value permitted".
     #[clap(long = "threshold", value_parser = parse_cli_threshold)]
     thresholds: Vec<(String, f64)>,
     /// Path to a TOML config with a `[thresholds]` table:
@@ -816,6 +820,8 @@ struct DiffArgs {
     min_change: f64,
     /// Restrict the diff to one or more metrics (repeatable). Names are
     /// those printed by `bca list-metrics` (e.g. `cyclomatic`, `sloc`).
+    /// The dotted `bca check --threshold` spelling is accepted as an
+    /// alias (`loc.sloc` == `sloc`, `halstead.volume` == `halstead`).
     /// When omitted, every metric is reported.
     #[clap(long = "metric")]
     metric: Vec<String>,

@@ -106,6 +106,13 @@ form:
 An unknown threshold name is a tool error (exit `1`), not silently
 ignored.
 
+The bare `bca diff --metric` spelling of a `loc` sub-metric is accepted
+as an alias for its dotted form (`sloc` is equivalent to `loc.sloc`, and
+so on for `ploc`/`lloc`/`cloc`/`blank`), so a name copied from a `diff`
+run gates correctly. A bare family head with no single threshold scalar
+(`halstead`, `mi`) is ambiguous and rejected with a "did you mean" hint
+listing the concrete sub-metrics — pick one (e.g. `halstead.volume`).
+
 ## Two-tier thresholds (`--tier`)
 
 `--tier <hard|soft>` selects which threshold tier the gate compares
