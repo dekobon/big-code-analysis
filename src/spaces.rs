@@ -1160,9 +1160,25 @@ pub(crate) fn metrics_inner<T: ParserTrait>(
             last_level = level;
         }
 
-        let kind = T::Getter::get_space_kind_with_code(&node, code);
-
         let func_space = T::Checker::promotes_to_func_space_with_code(&node, code);
+
+        // `kind` is consumed in exactly two places: `FuncSpace::new`
+        // (only when `func_space` is true) and the `unit` flag, which
+        // flows solely into `Loc::compute` (only when `Loc` is
+        // selected). For some languages — notably Elixir, whose
+        // `get_space_kind_with_code` runs a per-`Call` source-text
+        // keyword scan — this lookup is far from a cheap enum compare,
+        // so we skip it entirely when neither consumer is active.
+        // When it IS computed it returns the same value as before, so
+        // both consumers observe byte-identical results (issue #522).
+        let kind = if func_space || selected.contains(Metric::Loc) {
+            T::Getter::get_space_kind_with_code(&node, code)
+        } else {
+            // Unused on this path: `func_space` is false (so
+            // `FuncSpace::new` is not called) and `Loc` is deselected
+            // (so the `unit` flag below is never read by `Loc::compute`).
+            SpaceKind::Unknown
+        };
         let unit = kind == SpaceKind::Unit;
 
         let new_level = if func_space {
@@ -2656,6 +2672,105 @@ fn prod(x: i32) -> i32 {
                     "{skipped} must be elided when not selected"
                 );
             }
+        }
+
+        // #522: `kind` (via `get_space_kind_with_code`) is computed
+        // lazily — skipped when a node is neither a func space nor a
+        // Loc consumer. The lazy path must be byte-equivalent for
+        // every consumer:
+        //   - promoted (func_space) nodes still compute `kind`, so the
+        //     space tree's `SpaceKind`s are unchanged;
+        //   - non-Loc metrics never read `unit`, so their values are
+        //     unchanged when Loc is deselected.
+        // Elixir is the canonical regression target: its
+        // `get_space_kind_with_code` runs a per-`Call` source-text
+        // keyword scan, and `defmodule` / `def` promote to Class /
+        // Function spaces whose kind would be lost if the lazy gate
+        // skipped a node it shouldn't.
+        #[test]
+        fn elixir_loc_deselected_preserves_kinds_and_metrics() {
+            use crate::SpaceKind;
+
+            const ELIXIR_SOURCE: &str = "\
+defmodule Greeter do
+  def hello(name) do
+    if name == \"\" do
+      :anon
+    else
+      name
+    end
+  end
+
+  def bye() do
+    :ok
+  end
+end
+";
+
+            fn collect_kinds(space: &crate::FuncSpace, out: &mut Vec<SpaceKind>) {
+                out.push(space.kind);
+                for sub in &space.spaces {
+                    collect_kinds(sub, out);
+                }
+            }
+
+            fn analyse_elixir(metrics: Option<&[Metric]>) -> crate::FuncSpace {
+                let opts = match metrics {
+                    Some(m) => MetricsOptions::default().with_only(m),
+                    None => MetricsOptions::default(),
+                };
+                analyze(
+                    Source::new(LANG::Elixir, ELIXIR_SOURCE.as_bytes())
+                        .with_name(Some("greeter.ex".to_owned())),
+                    opts,
+                )
+                .expect("analyze must yield a top-level space")
+            }
+
+            let full = analyse_elixir(None);
+            // Cognitive is a non-Loc metric, exercised without Loc so
+            // the lazy gate takes the skip branch on non-promoted
+            // nodes. Cognitive auto-pulls Nom; neither selects Loc.
+            let pruned = analyse_elixir(Some(&[Metric::Cognitive]));
+
+            assert!(
+                !pruned.metrics.selected().contains(Metric::Loc),
+                "test premise: Loc must be deselected on the pruned run"
+            );
+
+            // The promoted-space kinds must be identical: defmodule =>
+            // Class, the two def macros => Function, the module file
+            // root => Unit. If the lazy gate wrongly skipped a promoted
+            // node, FuncSpace::new would have seen SpaceKind::Unknown.
+            let mut full_kinds = Vec::new();
+            let mut pruned_kinds = Vec::new();
+            collect_kinds(&full, &mut full_kinds);
+            collect_kinds(&pruned, &mut pruned_kinds);
+            assert_eq!(
+                full_kinds, pruned_kinds,
+                "lazy `kind` computation must not change the space-tree SpaceKinds"
+            );
+            assert!(
+                full_kinds.contains(&SpaceKind::Class),
+                "test premise: defmodule must promote to a Class space"
+            );
+            assert!(
+                full_kinds.contains(&SpaceKind::Function),
+                "test premise: def must promote to a Function space"
+            );
+
+            // The non-Loc metric value must be byte-identical between
+            // the full and Loc-deselected runs (the `unit` flag only
+            // feeds Loc, so deselecting Loc cannot move it).
+            assert!(
+                full.metrics.cognitive.cognitive_sum() > 0.0,
+                "test premise: the source has cognitive complexity (the `if`/`else`)"
+            );
+            assert_eq!(
+                full.metrics.cognitive.cognitive_sum(),
+                pruned.metrics.cognitive.cognitive_sum(),
+                "deselecting Loc must not change cognitive complexity"
+            );
         }
 
         // Empty slice = nothing selected. Every metric must be
