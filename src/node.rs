@@ -213,14 +213,25 @@ impl<'a> Node<'a> {
         self.0.field_name_for_child(child_index)
     }
 
-    pub(crate) fn children(&self) -> impl ExactSizeIterator<Item = Node<'a>> + use<'a> {
+    pub(crate) fn children(&self) -> Children<'a> {
         let mut cursor = self.cursor();
-        cursor.goto_first_child();
-        (0..self.child_count()).map(move |_| {
-            let result = cursor.node();
-            cursor.goto_next_sibling();
-            result
-        })
+        // `goto_first_child` returns false when the node has no
+        // children, in which case the iterator is empty from the
+        // outset. Termination is then driven entirely by the cursor
+        // (see `Children::next`), so the iterator stops exactly when
+        // the tree reports no further siblings — it can never pad the
+        // sequence with duplicate nodes if `child_count` and the
+        // cursor walk ever disagree.
+        let done = !cursor.goto_first_child();
+        Children {
+            cursor,
+            done,
+            // `child_count` is the authoritative length for the
+            // `ExactSizeIterator` contract; for well-formed trees it
+            // equals the cursor sibling walk, so the reported length
+            // and the emitted data agree.
+            remaining: self.child_count(),
+        }
     }
 
     pub(crate) fn cursor(&self) -> Cursor<'a> {
@@ -306,6 +317,48 @@ impl<'a> Cursor<'a> {
         Node(self.0.node())
     }
 }
+
+/// Iterator over a node's direct children, returned by
+/// [`Node::children`].
+///
+/// Termination is driven by the cursor alone: each step yields the
+/// cursor's current node, then advances with `goto_next_sibling`,
+/// stopping the moment that returns false. This makes the cursor the
+/// single source of truth for both the emitted data and when to stop,
+/// so the sequence can never be padded with duplicates if
+/// `child_count` and the actual sibling walk disagree.
+///
+/// The `ExactSizeIterator` length is reported from `child_count`
+/// (tracked in `remaining`). For well-formed trees the cursor walk and
+/// `child_count` agree, so the advertised length matches the data
+/// exactly.
+pub(crate) struct Children<'a> {
+    cursor: Cursor<'a>,
+    done: bool,
+    remaining: usize,
+}
+
+impl<'a> Iterator for Children<'a> {
+    type Item = Node<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.done {
+            return None;
+        }
+        let result = self.cursor.node();
+        // The cursor is the single source of truth for termination:
+        // once there is no next sibling this yield is the last one.
+        self.done = !self.cursor.goto_next_sibling();
+        self.remaining = self.remaining.saturating_sub(1);
+        Some(result)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.remaining, Some(self.remaining))
+    }
+}
+
+impl ExactSizeIterator for Children<'_> {}
 
 impl<'a> Search<'a> for Node<'a> {
     fn first_occurrence(&self, pred: fn(u16) -> bool) -> Option<Node<'a>> {
@@ -441,6 +494,70 @@ mod tests {
                 !root.has_sibling(id),
                 "root node has no parent → no sibling"
             );
+        }
+    }
+
+    /// `children()` must yield exactly the node's direct children, in
+    /// order, for every node in a real tree — including the empty
+    /// (leaf) and single-child cases. Termination is cursor-driven, so
+    /// the emitted set is compared node-by-node against the raw
+    /// tree-sitter `child(i)` walk (the ground truth for both order and
+    /// count). This pins the no-duplicate-padding property: a desync
+    /// between `child_count` and the cursor walk would surface here as
+    /// extra trailing duplicates or a length mismatch.
+    #[test]
+    fn children_matches_tree_sitter_child_walk() {
+        // Mix of leaf nodes (no children), single-child wrappers, and
+        // multi-child constructs to cover all arities.
+        let code = b"const o = { m: (a) => a + 1 }; foo(); ;";
+        let tree = Tree::new::<MozjsCode>(code);
+        let ts_tree = tree.as_ts_tree();
+
+        let mut stack = vec![ts_tree.root_node()];
+        while let Some(n) = stack.pop() {
+            let wrapped = Node(n);
+
+            // Ground truth: walk children by index off the raw node.
+            let expected: Vec<_> = (0..n.child_count() as u32)
+                .filter_map(|i| n.child(i))
+                .map(|c| (c.id(), c.kind_id()))
+                .collect();
+
+            let mut iter = wrapped.children();
+            // ExactSizeIterator length must equal the child count up
+            // front and stay exact as the iterator is consumed.
+            assert_eq!(
+                iter.len(),
+                expected.len(),
+                "children().len() disagreed with child_count at kind {}",
+                n.kind(),
+            );
+
+            let mut actual = Vec::new();
+            let mut remaining = expected.len();
+            while let Some(child) = iter.next() {
+                remaining -= 1;
+                assert_eq!(
+                    iter.len(),
+                    remaining,
+                    "size_hint drifted mid-iteration at kind {}",
+                    n.kind(),
+                );
+                actual.push((child.id(), child.kind_id()));
+            }
+            assert_eq!(iter.len(), 0, "iterator not drained to zero len");
+            assert_eq!(
+                actual,
+                expected,
+                "children() diverged from child(i) walk at kind {}",
+                n.kind(),
+            );
+
+            for i in 0..n.child_count() as u32 {
+                if let Some(c) = n.child(i) {
+                    stack.push(c);
+                }
+            }
         }
     }
 }
