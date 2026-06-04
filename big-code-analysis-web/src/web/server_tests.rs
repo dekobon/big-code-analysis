@@ -1134,3 +1134,154 @@ async fn test_web_comment_plain_at_limit_succeeds() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::OK);
 }
+
+// --- Content-Type guard interop (#515) ---------------------------------
+//
+// These tests build the app via the production `configure_routes` so they
+// exercise the real `fn_guard` content-type matching and the diagnostic
+// `default_service`, not a per-test inline route. A raw `Content-Type`
+// header string is set explicitly (rather than `ContentType::json()`) so
+// the guard sees exactly the bytes a real client would send.
+
+/// A minimal C AST request body, reused across the guard tests.
+fn ast_request_body() -> serde_json::Value {
+    json!({
+        "id": "ct-515",
+        "file_name": "foo.c",
+        "code": "int x = 1;",
+        "comment": false,
+        "span": true
+    })
+}
+
+#[actix_rt::test]
+async fn test_web_ast_accepts_json_charset_suffix() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    // The exact variant browsers / Python `requests` send and that the
+    // old exact-match `guard::Header` rejected with a bodyless 404.
+    let req = test::TestRequest::post()
+        .uri("/ast")
+        .insert_header(("content-type", "application/json; charset=utf-8"))
+        .set_payload(ast_request_body().to_string())
+        .to_request();
+
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = test::read_body(resp).await;
+    let parsed: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(parsed["id"], json!("ct-515"));
+    assert_eq!(parsed["root"]["Type"], json!("translation_unit"));
+}
+
+#[actix_rt::test]
+async fn test_web_ast_accepts_uppercase_content_type() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    let req = test::TestRequest::post()
+        .uri("/ast")
+        .insert_header(("content-type", "APPLICATION/JSON"))
+        .set_payload(ast_request_body().to_string())
+        .to_request();
+
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = test::read_body(resp).await;
+    let parsed: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(parsed["id"], json!("ct-515"));
+}
+
+#[actix_rt::test]
+async fn test_web_octet_stream_accepts_charset_suffix() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    // `application/octet-stream` with a parameter still matches the
+    // octet-stream route by essence.
+    let req = test::TestRequest::post()
+        .uri("/comment?file_name=foo.c")
+        .insert_header(("content-type", "application/octet-stream; boundary=x"))
+        .set_payload("int x;//c")
+        .to_request();
+
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[actix_rt::test]
+async fn test_web_missing_content_type_yields_415() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    // No content-type header at all on a known endpoint: the default
+    // service must return a diagnosable 415, not a bodyless 404.
+    let req = test::TestRequest::post()
+        .uri("/ast")
+        .set_payload(ast_request_body().to_string())
+        .to_request();
+
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    let body = test::read_body(resp).await;
+    let body_str = String::from_utf8_lossy(&body);
+    assert!(
+        body_str.contains("Content-Type"),
+        "415 body must name the offending header: {body_str}"
+    );
+}
+
+#[actix_rt::test]
+async fn test_web_wrong_content_type_yields_415() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    // A media type matching neither json nor octet-stream on a known
+    // endpoint is a 415, distinguishable from a wrong URL.
+    let req = test::TestRequest::post()
+        .uri("/metrics")
+        .insert_header(("content-type", "text/plain"))
+        .set_payload("int x = 1;")
+        .to_request();
+
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+}
+
+#[actix_rt::test]
+async fn test_web_unknown_url_still_404() {
+    let app = test::init_service(
+        App::new()
+            .app_data(test_config())
+            .configure(configure_routes),
+    )
+    .await;
+    // A genuinely unknown path remains a 404 even with a valid
+    // content-type, so the 415 path does not swallow routing errors.
+    let req = test::TestRequest::post()
+        .uri("/does-not-exist")
+        .insert_header(("content-type", "application/json"))
+        .set_payload("{}")
+        .to_request();
+
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    let body = test::read_body(resp).await;
+    assert_eq!(String::from_utf8_lossy(&body), "Not found");
+}

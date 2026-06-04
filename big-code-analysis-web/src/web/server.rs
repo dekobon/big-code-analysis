@@ -1,7 +1,9 @@
-// bca: suppress-file(halstead, nargs, exit, abc)
-// Actix server setup + handlers; the file-aggregate halstead/nargs/exit and the
-// route-registration closure's abc (one `.service()`/`.route()` per endpoint) are
-// declarative many-fn aggregation artifacts, not per-function logic complexity.
+// bca: suppress-file(halstead, nargs, exit, abc, nom)
+// Actix server setup + handlers; the file-aggregate halstead/nargs/exit/nom and
+// the route-registration closure's abc (one `.service()`/`.route()` per endpoint)
+// are declarative many-fn aggregation artifacts, not per-function logic
+// complexity. The per-endpoint handlers plus the content-type guard helpers
+// (#515) push the file's method count past the per-file nom cap.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -9,7 +11,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use actix_web::{
-    App, HttpResponse, HttpServer, guard, http,
+    App, HttpResponse, HttpServer, guard,
+    guard::GuardContext,
+    http,
+    http::header::ContentType,
+    mime,
     web::{self, BytesMut, Query},
 };
 use futures::StreamExt;
@@ -384,6 +390,99 @@ pub async fn run(host: &str, port: u16, n_threads: usize) -> std::io::Result<()>
     run_with_timeout(host, port, n_threads, DEFAULT_PARSE_TIMEOUT_SECS).await
 }
 
+/// Paths served by a content-type-guarded `POST` route.
+///
+/// Used by the default service to distinguish a content-type mismatch
+/// (`415`) on a real endpoint from a genuinely unknown URL (`404`).
+const GUARDED_POST_PATHS: [&str; 4] = ["/ast", "/comment", "/metrics", "/function"];
+
+/// Matches a request whose `Content-Type` media type *essence*
+/// (type/subtype) equals `expected`, ignoring parameters such as
+/// `; charset=utf-8` and ASCII case.
+///
+/// `guard::Header` matches the raw header byte string exactly, so
+/// `application/json; charset=utf-8` — emitted by browsers, Python
+/// `requests` with `json=`, and many `fetch` configs — fell through to
+/// a bodyless 404 (#515). Parsing the header into a [`mime::Mime`] and
+/// comparing the essence accepts those well-formed variants.
+fn content_type_essence_matches(ctx: &GuardContext<'_>, expected: &mime::Mime) -> bool {
+    // `ContentType` wraps a parsed `Mime`; `mime`'s `Name` comparison is
+    // ASCII-case-insensitive, so `APPLICATION/JSON` matches too. A
+    // missing or unparseable header yields `None` and fails the guard.
+    ctx.header::<ContentType>()
+        .is_some_and(|ct| ct.0.type_() == expected.type_() && ct.0.subtype() == expected.subtype())
+}
+
+/// Guard accepting any `application/json` body, charset suffix and all.
+fn json_guard() -> impl guard::Guard {
+    guard::fn_guard(|ctx| content_type_essence_matches(ctx, &mime::APPLICATION_JSON))
+}
+
+/// Guard accepting any `application/octet-stream` body, parameters and all.
+fn octet_guard() -> impl guard::Guard {
+    guard::fn_guard(|ctx| content_type_essence_matches(ctx, &mime::APPLICATION_OCTET_STREAM))
+}
+
+/// Registers every `bca-web` route plus the diagnostic default service.
+///
+/// Shared by [`run_with_timeout`] and the integration tests so both
+/// exercise the same content-type guards.
+fn configure_routes(cfg: &mut web::ServiceConfig) {
+    cfg.service(
+        web::resource("/ast")
+            .guard(json_guard())
+            .route(web::post().to(ast_parser)),
+    )
+    .service(
+        web::resource("/comment")
+            .guard(json_guard())
+            .route(web::post().to(comment_removal_json)),
+    )
+    .service(
+        web::resource("/comment")
+            .guard(octet_guard())
+            .route(web::post().to(comment_removal_plain)),
+    )
+    .service(
+        web::resource("/metrics")
+            .guard(json_guard())
+            .route(web::post().to(metrics_json)),
+    )
+    .service(
+        web::resource("/metrics")
+            .guard(octet_guard())
+            .route(web::post().to(metrics_plain)),
+    )
+    .service(
+        web::resource("/function")
+            .guard(json_guard())
+            .route(web::post().to(function_json)),
+    )
+    .service(
+        web::resource("/function")
+            .guard(octet_guard())
+            .route(web::post().to(function_plain)),
+    )
+    .service(web::resource("/ping").route(web::get().to(ping)))
+    .default_service(web::route().to(unmatched_route));
+}
+
+/// Fallback handler for requests that match no guarded route.
+///
+/// Returns `415 Unsupported Media Type` with a diagnostic body when the
+/// URL is a known endpoint (so a wrong/missing `Content-Type` is
+/// distinguishable from a wrong URL), and a plain `404` otherwise.
+async fn unmatched_route(req: actix_web::HttpRequest) -> HttpResponse {
+    if GUARDED_POST_PATHS.contains(&req.path()) {
+        HttpResponse::UnsupportedMediaType().body(
+            "Unsupported or missing Content-Type. Send 'application/json' \
+             or 'application/octet-stream' (a charset parameter is allowed).",
+        )
+    } else {
+        HttpResponse::NotFound().body("Not found")
+    }
+}
+
 /// Runs an HTTP server with a configurable parse timeout.
 ///
 /// `parse_timeout_secs = 0` disables the deadline (no timeout).
@@ -430,42 +529,7 @@ pub async fn run_with_timeout(
         App::new()
             .app_data(config.clone())
             .app_data(web::JsonConfig::default().limit(max_size))
-            .service(
-                web::resource("/ast")
-                    .guard(guard::Header("content-type", "application/json"))
-                    .route(web::post().to(ast_parser)),
-            )
-            .service(
-                web::resource("/comment")
-                    .guard(guard::Header("content-type", "application/json"))
-                    .route(web::post().to(comment_removal_json)),
-            )
-            .service(
-                web::resource("/comment")
-                    .guard(guard::Header("content-type", "application/octet-stream"))
-                    .route(web::post().to(comment_removal_plain)),
-            )
-            .service(
-                web::resource("/metrics")
-                    .guard(guard::Header("content-type", "application/json"))
-                    .route(web::post().to(metrics_json)),
-            )
-            .service(
-                web::resource("/metrics")
-                    .guard(guard::Header("content-type", "application/octet-stream"))
-                    .route(web::post().to(metrics_plain)),
-            )
-            .service(
-                web::resource("/function")
-                    .guard(guard::Header("content-type", "application/json"))
-                    .route(web::post().to(function_json)),
-            )
-            .service(
-                web::resource("/function")
-                    .guard(guard::Header("content-type", "application/octet-stream"))
-                    .route(web::post().to(function_plain)),
-            )
-            .service(web::resource("/ping").route(web::get().to(ping)))
+            .configure(configure_routes)
     })
     .workers(n_threads)
     .bind((host, port))?
