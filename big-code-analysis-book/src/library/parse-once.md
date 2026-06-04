@@ -90,13 +90,39 @@ let space = ast
 println!("name = {:?}", space.name);
 ```
 
+## Operators and operands on the same parse
+
+[`Ast::ops`][ast_ops] returns the per-space operator/operand `Ops`
+tree (the data behind the Halstead metrics). It is the
+`Source`-flavored counterpart of the deprecated [`get_ops`][get_ops]:
+the top-level `Ops::name` is the `Source::name` you supplied —
+carried explicitly, including the `None` case — rather than a
+lossy-path string, so `Ops::name_was_lossy` is never set on this path.
+
+```rust,no_run
+use big_code_analysis::{Ast, LANG, Source};
+
+let ops = Ast::parse(
+    Source::new(LANG::Rust, b"fn f() { let x = 1 + 2; }")
+        .with_name(Some("snippet.rs".to_owned())),
+)
+.expect("rust feature enabled")
+.ops()
+.expect("walker succeeds");
+assert_eq!(ops.name.as_deref(), Some("snippet.rs"));
+assert!(ops.operators.iter().any(|op| op == "+"));
+```
+
+[ast_ops]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Ast.html#method.ops
+[get_ops]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.get_ops.html
+
 ## Adopting a caller-built tree
 
 If you already build the `tree_sitter::Tree` yourself (e.g. because
 your editor / LSP has its own parser pool),
 [`Ast::from_tree_sitter`][ast_from_ts] is the `Source`-flavored
-counterpart of the older [`metrics_from_tree`][mft]. It carries an
-explicit `name: Option<String>` end-to-end instead of deriving one
+counterpart of the deprecated [`metrics_from_tree`][mft]. It carries
+an explicit `name: Option<String>` end-to-end instead of deriving one
 from a path via lossy UTF-8 conversion.
 
 [ast_from_ts]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Ast.html#method.from_tree_sitter

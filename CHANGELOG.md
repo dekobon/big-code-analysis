@@ -23,6 +23,17 @@ for historical reference.
 
 ### Added
 
+- `Ast::ops()` — the `Source`-based counterpart of `get_ops`. Returns the
+  operator/operand `Ops` tree for a parsed `Ast`, carrying the
+  `Source::name` (`Option<String>`) end-to-end instead of deriving the
+  top-level `Ops::name` from a filesystem path via lossy UTF-8 conversion.
+  This closes the last public seam that keyed function identity off a lossy
+  path: a `None` source name now yields a `None` top-level `Ops::name`
+  (which `get_ops` cannot express), and `Ops::name_was_lossy` is never set
+  on this path. Mirrors `Ast::metrics`
+  ([#509](https://github.com/dekobon/big-code-analysis/issues/509),
+  part of [#505](https://github.com/dekobon/big-code-analysis/issues/505)).
+
 - `LANG` now derives `Hash` and implements `Display` (its `name()`
   string) and `FromStr` (parsing that canonical name; case-sensitive, error
   type `ParseLangError`). After the #507 JavaScript-grammar split the only
@@ -463,6 +474,19 @@ for historical reference.
   [#381](https://github.com/dekobon/big-code-analysis/issues/381).
 
 ### Changed
+
+- `get_ops`, `metrics_from_tree`, and the doc-hidden
+  `operands_and_operators` are now `#[deprecated]` in favour of the
+  explicit-name `Ast` seams (`Ast::ops`, `Ast::from_tree_sitter`), which
+  carry `name: Option<String>` from `Source` end-to-end. The shims keep
+  their previous lossy-path behaviour (the lossy UTF-8 conversion now lives
+  only in the deprecated path-positional shims; the shared walk core takes
+  an explicit name), so existing callers see no behaviour or output change.
+  This completes the `Source`/`Ast` migration begun for the metrics family
+  in [#254](https://github.com/dekobon/big-code-analysis/issues/254);
+  removal is deferred to the `2.0.0` bump
+  ([#509](https://github.com/dekobon/big-code-analysis/issues/509),
+  part of [#505](https://github.com/dekobon/big-code-analysis/issues/505)).
 
 - **(breaking)** Normalized the public language-dispatch surface
   (deferred to the `2.0.0` bump;

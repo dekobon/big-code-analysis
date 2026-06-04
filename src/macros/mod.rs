@@ -476,6 +476,26 @@ macro_rules! mk_action {
                 }
             }
 
+            /// Run the operator/operand walk against the held parse,
+            /// carrying an explicit `name` end-to-end. Backs
+            /// [`crate::Ast::ops`]; the ops analogue of [`Self::run_metrics`].
+            pub(crate) fn run_ops(
+                &self,
+                name: Option<String>,
+            ) -> Result<Ops, MetricsError> {
+                match self {
+                    $(
+                        #[cfg(feature = $feature)]
+                        AstInner::$camel(parser) => ops_inner(parser, name),
+                    )*
+                    #[cfg(not(any( $( feature = $feature ),* )))]
+                    _ => {
+                        let _ = name;
+                        match *self {}
+                    },
+                }
+            }
+
             pub(crate) fn language(&self) -> LANG {
                 match self {
                     $(
@@ -651,11 +671,21 @@ macro_rules! mk_action {
         /// same `(lang, source, path)` triple when the same tree is
         /// reproduced internally.
         ///
+        /// # Deprecated
+        ///
+        /// Prefer [`crate::Ast::from_tree_sitter`], which carries an
+        /// explicit `name: Option<String>` end-to-end instead of deriving
+        /// the top-level [`FuncSpace::name`] from `path` via lossy UTF-8
+        /// conversion: `Ast::from_tree_sitter(lang, tree, code,
+        /// name)?.metrics(options)`. This shim remains for backwards
+        /// compatibility for one minor release.
+        ///
         /// # Examples
         ///
         /// ```
         /// use std::path::PathBuf;
         ///
+        /// # #[allow(deprecated)]
         /// use big_code_analysis::{
         ///     get_function_spaces, metrics_from_tree, tree_sitter, LANG,
         ///     MetricsOptions,
@@ -677,6 +707,7 @@ macro_rules! mk_action {
         ///     .parse(&source, None)
         ///     .expect("parser has a language set");
         ///
+        /// # #[allow(deprecated)]
         /// let from_tree = metrics_from_tree(
         ///     LANG::Rust,
         ///     tree,
@@ -703,6 +734,10 @@ macro_rules! mk_action {
         /// The return type also carries [`MetricsError::EmptyRoot`]
         /// for forward compatibility, but the walker does not produce
         /// it today — see the variant doc.
+        #[deprecated(
+            since = "0.0.26",
+            note = "Use `Ast::from_tree_sitter(lang, tree, code, name)?.metrics(options)` instead — the path-positional shim derives the top-level FuncSpace name via lossy UTF-8 conversion and will be removed in a future release."
+        )]
         #[inline]
         pub fn metrics_from_tree(
             lang: LANG,
@@ -731,23 +766,31 @@ macro_rules! mk_action {
 
         /// Returns all operators and operands of each space in a code.
         ///
+        /// # Deprecated
+        ///
+        /// Prefer [`crate::Ast::ops`], which carries an explicit
+        /// `name: Option<String>` from [`crate::Source`] end-to-end
+        /// instead of deriving the top-level [`Ops::name`] from `path`
+        /// via lossy UTF-8 conversion:
+        /// `Ast::parse(Source::new(lang, code).with_name(Some(name)))?.ops()`.
+        /// This shim remains for backwards compatibility for one minor
+        /// release.
+        ///
         /// # Examples
         ///
         /// ```
-        /// use std::path::PathBuf;
+        /// use big_code_analysis::{Ast, LANG, Source};
         ///
-        /// use big_code_analysis::{get_ops, LANG};
-        ///
-        /// # fn main() {
         /// let source_code = "int a = 42;";
-        /// let language = LANG::Cpp;
         ///
-        /// // The path to a dummy file used to contain the source code
-        /// let path = PathBuf::from("foo.c");
-        /// let source_as_vec = source_code.as_bytes().to_vec();
-        ///
-        /// get_ops(language, source_as_vec, &path, None).unwrap();
-        /// # }
+        /// let ops = Ast::parse(
+        ///     Source::new(LANG::Cpp, source_code.as_bytes())
+        ///         .with_name(Some("foo.c".to_owned())),
+        /// )
+        /// .expect("cpp feature enabled")
+        /// .ops()
+        /// .unwrap();
+        /// assert_eq!(ops.name.as_deref(), Some("foo.c"));
         /// ```
         ///
         /// # Errors
@@ -757,6 +800,10 @@ macro_rules! mk_action {
         /// The return type also carries [`MetricsError::EmptyRoot`]
         /// for forward compatibility, but the walker does not produce
         /// it today — see the variant doc.
+        #[deprecated(
+            since = "0.0.26",
+            note = "Use `Ast::parse(Source::new(lang, code).with_name(Some(name)))?.ops()` instead — the path-positional shim derives the top-level Ops name via lossy UTF-8 conversion and will be removed in a future release."
+        )]
         #[inline]
         pub fn get_ops(lang: LANG, source: Vec<u8>, path: &Path, pr: Option<Arc<PreprocResults>>) -> Result<Ops, MetricsError> {
             match lang {
@@ -764,6 +811,10 @@ macro_rules! mk_action {
                     #[cfg(feature = $feature)]
                     LANG::$camel => {
                         let parser = $parser::new(source, &path, pr);
+                        // Backwards-compat shim: the path-based
+                        // `operands_and_operators` derives the lossy name.
+                        // The `Ast::ops` seam carries an explicit name.
+                        #[allow(deprecated)]
                         operands_and_operators(&parser, &path)
                     },
                     #[cfg(not(feature = $feature))]

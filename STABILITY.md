@@ -215,15 +215,20 @@ reach the raw tree-sitter surface.
   itself. Both follow the `tree-sitter` pin in the same value-
   not-stable sense as the re-export above.
 - **`Ast`** is the parse-once seam. `Ast::parse` mirrors `analyze`,
-  `Ast::from_tree_sitter` mirrors `metrics_from_tree`, and
-  `Ast::as_tree_sitter` exposes the held `tree_sitter::Tree` —
-  that single method follows the `tree-sitter` pin in the same
-  value-not-stable sense as the `tree_sitter` re-export. The rest
-  of `Ast`'s API surface (`parse`, `from_tree_sitter`, `metrics`,
-  `language`, `source`, `name`) is shape-stable. The
-  language-dispatched `AstInner` enum and the matching
-  `ast_*_dispatch` helpers stay `pub(crate)`; only `Ast` is
-  exposed.
+  `Ast::from_tree_sitter` mirrors `metrics_from_tree`, `Ast::ops`
+  mirrors `get_ops`, and `Ast::as_tree_sitter` exposes the held
+  `tree_sitter::Tree` — that single method follows the
+  `tree-sitter` pin in the same value-not-stable sense as the
+  `tree_sitter` re-export. The rest of `Ast`'s API surface
+  (`parse`, `from_tree_sitter`, `metrics`, `ops`, `language`,
+  `source`, `name`) is shape-stable. The language-dispatched
+  `AstInner` enum and the matching `ast_*_dispatch` helpers stay
+  `pub(crate)`; only `Ast` is exposed. The path-positional
+  `metrics` / `metrics_with_options` / `get_function_spaces*` /
+  `metrics_from_tree` / `get_ops` / `operands_and_operators`
+  entry points are all `#[deprecated]` in favour of these
+  explicit-name `Source` / `Ast` seams (they derive identity from
+  a lossy path) and are slated for removal at `2.0`.
 - **`#[doc(hidden)]` items** are part of the macro / internal
   plumbing surface. They are not covered by any stability promise
   and may be removed or renamed in a patch bump.

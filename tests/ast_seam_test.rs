@@ -376,3 +376,134 @@ fn language_and_name_accessors_match_constructors() {
     let nameless = Ast::parse(Source::new(LANG::Rust, b"fn f() {}")).expect("rust feature enabled");
     assert_eq!(nameless.name(), None);
 }
+
+// ----- `Ast::ops` seam (#509) --------------------------------------------
+//
+// The explicit-name counterpart of the deprecated `get_ops`. Two
+// guarantees: (1) the operator/operand walk is byte-for-byte the same as
+// the legacy path-based walk (only the top-level name provenance differs),
+// and (2) the name is carried straight from `Source::name` — including the
+// `None` case, which `get_ops` structurally cannot express because it
+// always derives a `Some(lossy-path)`.
+
+// Recursively assert two `Ops` trees agree on everything except the
+// top-level identity fields (`name` / `name_was_lossy`), which are the
+// only values the new seam intentionally changes.
+#[cfg(any(feature = "rust", feature = "python", feature = "cpp"))]
+fn assert_ops_walk_eq(a: &big_code_analysis::Ops, b: &big_code_analysis::Ops) {
+    // `operators` / `operands` are materialised from `HalsteadMaps`
+    // (a `HashMap`), so their Vec order is not stable between walks;
+    // compare them as sorted multisets, not positionally.
+    let sorted = |v: &[String]| {
+        let mut s = v.to_vec();
+        s.sort();
+        s
+    };
+    assert_eq!(a.kind, b.kind, "space kind must match");
+    assert_eq!(a.start_line, b.start_line, "start_line must match");
+    assert_eq!(a.end_line, b.end_line, "end_line must match");
+    assert_eq!(
+        sorted(&a.operators),
+        sorted(&b.operators),
+        "operators must match"
+    );
+    assert_eq!(
+        sorted(&a.operands),
+        sorted(&b.operands),
+        "operands must match"
+    );
+    assert_eq!(a.spaces.len(), b.spaces.len(), "subspace count must match");
+    for (sa, sb) in a.spaces.iter().zip(&b.spaces) {
+        assert_ops_walk_eq(sa, sb);
+    }
+}
+
+// `get_ops(lang, src, &path, None)` and
+// `Ast::parse(Source::new(lang, &src).with_name(Some(path)))?.ops()` must
+// produce the same walk; only the top-level name provenance differs.
+#[cfg(any(feature = "rust", feature = "python", feature = "cpp"))]
+fn assert_ops_parity(lang: LANG, source: &[u8], file: &str) {
+    let path = PathBuf::from(file);
+    #[allow(deprecated)]
+    let legacy = big_code_analysis::get_ops(lang, source.to_vec(), &path, None)
+        .expect("get_ops yields a top-level Ops");
+    let seam = Ast::parse(Source::new(lang, source).with_name(Some(file.to_owned())))
+        .expect("language feature enabled")
+        .ops()
+        .expect("walker succeeds");
+
+    assert_ops_walk_eq(&legacy, &seam);
+    // Both express the same name here (UTF-8 path), but only the seam
+    // promises it was carried, not lossily derived.
+    assert_eq!(seam.name.as_deref(), Some(file));
+    assert!(!seam.name_was_lossy);
+}
+
+#[cfg(feature = "rust")]
+#[test]
+fn ops_parity_with_get_ops_rust() {
+    assert_ops_parity(
+        LANG::Rust,
+        b"fn f(x: i32) -> i32 { let y = x + 1; y * 2 }",
+        "snippet.rs",
+    );
+}
+
+#[cfg(feature = "python")]
+#[test]
+fn ops_parity_with_get_ops_python() {
+    assert_ops_parity(
+        LANG::Python,
+        b"def m(x):\n    y = x + 1\n    return y * 2\n",
+        "snippet.py",
+    );
+}
+
+#[cfg(feature = "cpp")]
+#[test]
+fn ops_parity_with_get_ops_cpp() {
+    assert_ops_parity(LANG::Cpp, b"int f(int x) { return x + 1; }", "snippet.c");
+}
+
+// The headline win: a `None` source name flows through to a `None`
+// top-level `Ops::name`. `get_ops` cannot reach this state — it always
+// derives `Some(lossy-path)` — so this test fails against the legacy path
+// and proves the new seam is exercised (test-via-revert discriminator).
+#[cfg(feature = "rust")]
+#[test]
+fn ops_nameless_source_yields_none_name() {
+    let ops = Ast::parse(Source::new(LANG::Rust, b"fn f() { let x = 1 + 2; }"))
+        .expect("rust feature enabled")
+        .ops()
+        .expect("walker succeeds");
+    assert_eq!(ops.name, None);
+    assert!(!ops.name_was_lossy);
+    // The walk still ran: an addition contributes the `+` operator.
+    assert!(ops.operators.iter().any(|op| op == "+"));
+}
+
+// `Ast::from_tree_sitter(...).ops()` carries the explicit name end-to-end
+// from a caller-built tree, with no path involved at any step.
+#[cfg(feature = "rust")]
+#[test]
+fn ops_from_tree_sitter_carries_explicit_name() {
+    let code = b"fn f() { let x = 1 + 2; }".to_vec();
+    let mut parser = tree_sitter::Parser::new();
+    parser
+        .set_language(
+            &LANG::Rust
+                .tree_sitter_language()
+                .expect("rust feature enabled"),
+        )
+        .expect("rust grammar pinned to a compatible version");
+    let tree = parser
+        .parse(&code, None)
+        .expect("parser has a language set");
+
+    let ops = Ast::from_tree_sitter(LANG::Rust, tree, code, Some("from-tree.rs".to_owned()))
+        .expect("rust feature enabled")
+        .ops()
+        .expect("walker succeeds");
+    assert_eq!(ops.name.as_deref(), Some("from-tree.rs"));
+    assert!(!ops.name_was_lossy);
+}

@@ -79,9 +79,11 @@ Every dispatch entry point that returns a `Result` surfaces the
 disabled state as `Err(MetricsError::LanguageDisabled(LANG))`:
 
 - [`analyze`]
-- [`metrics_from_tree`]
+- `Ast::parse` / `Ast::from_tree_sitter` (and the `metrics` / `ops`
+  methods on the returned `Ast`)
 - [`action`]
-- [`get_ops`]
+- [`metrics_from_tree`] (deprecated — use `Ast::from_tree_sitter`)
+- [`get_ops`] (deprecated — use `Ast::ops`)
 - [`get_function_spaces`] / [`get_function_spaces_with_options`] (deprecated)
 - [`LANG::tree_sitter_language`] — this returns
   `Result<tree_sitter::Language, MetricsError>` (changed in 0.0.26)

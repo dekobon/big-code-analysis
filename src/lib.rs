@@ -118,8 +118,15 @@ pub use crate::langs::{
     LANG, LuaCode, LuaParser, MozjsCode, MozjsParser, PerlCode, PerlParser, PhpCode, PhpParser,
     PreprocCode, PreprocParser, PythonCode, PythonParser, RubyCode, RubyParser, RustCode,
     RustParser, TclCode, TclParser, TsxCode, TsxParser, TypescriptCode, TypescriptParser, action,
-    analyze_dispatch, get_from_emacs_mode, get_from_ext, get_ops, metrics_from_tree,
+    analyze_dispatch, get_from_emacs_mode, get_from_ext,
 };
+// The path-positional `get_ops` / `metrics_from_tree` shims are
+// `#[deprecated]` at their definition site in favour of the explicit-name
+// `Ast::ops` / `Ast::from_tree_sitter` seams; re-export them scoped with
+// `#[allow(deprecated)]` so the previously-globbed API surface keeps
+// working without lint noise (mirrors the `metrics` re-export below).
+#[allow(deprecated)]
+pub use crate::langs::{get_ops, metrics_from_tree};
 // `ParseLangError` is the `FromStr` error for `LANG`; it is defined in
 // the `mk_lang!` macro layer (`crate::macros`) rather than `crate::langs`.
 pub use crate::macros::ParseLangError;
@@ -258,7 +265,18 @@ pub use crate::ast::{AstCallback, AstCfg, AstNode, AstPayload, AstResponse, Span
 
 // --- Halstead operator/operand callback ---
 mod ops;
-pub use crate::ops::{Ops, OpsCfg, OpsCode, operands_and_operators};
+pub use crate::ops::{Ops, OpsCfg, OpsCode};
+// `operands_and_operators` is `#[deprecated]` at its definition site in
+// favour of the explicit-name `Ast::ops` seam; re-export it scoped with
+// `#[allow(deprecated)]` so the previously-globbed API surface keeps
+// working without lint noise (mirrors the `metrics` re-export above).
+#[allow(deprecated)]
+pub use crate::ops::operands_and_operators;
+// `ops_inner` is the explicit-name walk core consumed by feature-gated
+// `mk_action!` arms (`AstInner::run_ops`); mirrors the `metrics_inner`
+// re-export above and is nominally unused under `--no-default-features`.
+#[allow(unused_imports)]
+pub(crate) use crate::ops::ops_inner;
 
 // --- Preprocessor handling (C/C++) ---
 mod preproc;
@@ -334,6 +352,12 @@ pub mod prelude {
         SpaceKind,
         // Core entry points
         analyze,
-        metrics_from_tree,
     };
+    // `metrics_from_tree` is `#[deprecated]` in favour of
+    // `Ast::from_tree_sitter`, but stays in the prelude for the `1.x`
+    // stability promise (STABILITY.md lists it); scoped with
+    // `#[allow(deprecated)]` to avoid lint noise. Removed with the
+    // function at `2.0`.
+    #[allow(deprecated)]
+    pub use crate::metrics_from_tree;
 }

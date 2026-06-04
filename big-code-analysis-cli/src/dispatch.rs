@@ -13,26 +13,26 @@
 //! can follow exactly the path a given subcommand takes without
 //! scrolling past nine unrelated arms.
 //!
-//! Every dispatch helper reaches the deprecated
-//! `get_function_spaces_with_options` shim because the CLI is the
-//! canonical path-based caller (it always holds the `&Path` for the
-//! file it just read) and migration to `analyze(Source { ... }, ...)`
-//! tracks issue #254's follow-up. The function-scope
-//! `#[allow(deprecated)]` keeps the helpers readable without
-//! per-call-site attributes.
+//! The metrics / ops helpers reach the deprecated path-positional
+//! shims (`get_function_spaces_with_options`, `get_ops`) because the
+//! CLI is the canonical path-based caller (it always holds the `&Path`
+//! for the file it just read) and migration to the explicit-name
+//! `Source` / `Ast` seams tracks issue #254's follow-up. The
+//! function-scope `#[allow(deprecated)]` keeps the helpers readable
+//! without per-call-site attributes.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-#[allow(deprecated)]
-use big_code_analysis::get_function_spaces_with_options;
 use big_code_analysis::{
     CommentRm, CommentRmCfg, Count, CountCfg, Dump, DumpCfg, Find, FindCfg, Function, FunctionCfg,
     Metrics, MetricsCfg, OpsCfg, OpsCode, PreprocParser, PreprocResults, SuppressionScan, action,
-    get_ops, guess_language, is_generated, preprocess, read_file_with_eol,
+    guess_language, is_generated, preprocess, read_file_with_eol,
 };
 use big_code_analysis::{LANG, ParserTrait};
+#[allow(deprecated)]
+use big_code_analysis::{get_function_spaces_with_options, get_ops};
 
 use crate::exemptions::FileMarkers;
 use crate::formats::{MetricsDispatch, MetricsFormat, dump_csv};

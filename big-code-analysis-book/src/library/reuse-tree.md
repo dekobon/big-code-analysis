@@ -7,16 +7,20 @@ inside `get_function_spaces`. The parse seam (issue [#251]) lets you
 hand `big-code-analysis` an already-parsed `tree_sitter::Tree` and
 get the same `FuncSpace` back without re-parsing.
 
-> **Prefer `Ast::from_tree_sitter`** if you also want to run the
-> metric walker more than once against the same parse (different
+> **Use [`Ast::from_tree_sitter`][aft].** It adopts a caller-built
+> `tree_sitter::Tree` and lets you run the metric walker more than
+> once against the same parse (different
 > [`MetricsOptions::with_only`][with_only] selections, custom
-> tree-sitter walks interleaved with metrics, etc.). See
-> [Parse once, run metrics many times](parse-once.md). The
-> `metrics_from_tree` function shown below is a single-shot
-> equivalent that constructs an `Ast` internally and discards it
-> after one call.
+> tree-sitter walks interleaved with metrics, `Ast::ops` for
+> operator/operand extraction, etc.). See
+> [Parse once, run metrics many times](parse-once.md). Unlike the
+> deprecated single-shot `metrics_from_tree`, it carries an explicit
+> `name: Option<String>` rather than deriving the top-level
+> [`FuncSpace::name`][fsn] from a path via lossy UTF-8 conversion.
 >
 > [with_only]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.MetricsOptions.html#method.with_only
+> [aft]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Ast.html#method.from_tree_sitter
+> [fsn]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.FuncSpace.html#structfield.name
 
 [tree-sitter]: https://tree-sitter.github.io/tree-sitter/
 [#251]: https://github.com/dekobon/big-code-analysis/issues/251
@@ -36,26 +40,19 @@ Use the parse seam if you:
   `big_code_analysis::tree_sitter` module is the same crate we
   link against, so the types agree by definition.
 
-Use the byte-based entry points
-([`get_function_spaces`][gfs] / [`metrics_with_options`][mwo]) if
-you do not already have a tree — they construct the parser
-internally and own the parse end to end.
+Use the byte-based entry point [`analyze`][analyze] (with a
+[`Source`][source]) if you do not already have a tree — it
+constructs the parser internally and owns the parse end to end.
 
-[gfs]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.get_function_spaces.html
-[mwo]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.metrics_with_options.html
+[analyze]: https://docs.rs/big-code-analysis/*/big_code_analysis/fn.analyze.html
+[source]: https://docs.rs/big-code-analysis/*/big_code_analysis/struct.Source.html
 
 ## Working example
 
 ```rust,no_run
-use std::path::PathBuf;
-
-use big_code_analysis::{
-    get_function_spaces, metrics_from_tree, tree_sitter, LANG,
-    MetricsOptions,
-};
+use big_code_analysis::{analyze, tree_sitter, Ast, LANG, MetricsOptions, Source};
 
 let source_code = "fn main() { if true { 1 } else { 2 }; }";
-let path = PathBuf::from("foo.rs");
 let source = source_code.as_bytes().to_vec();
 
 // Step 1: build a tree with the *re-exported* tree-sitter crate.
@@ -70,21 +67,23 @@ let tree = parser
     .parse(&source, None)
     .expect("parser has a language set");
 
-// Step 2: feed the tree into metrics_from_tree.
-let from_tree = metrics_from_tree(
-    &LANG::Rust,
+// Step 2: adopt the tree with an explicit display name.
+let from_tree = Ast::from_tree_sitter(
+    LANG::Rust,
     tree,
     source.clone(),
-    &path,
-    None,
-    MetricsOptions::default(),
+    Some("foo.rs".to_owned()),
 )
+.expect("rust feature enabled")
+.metrics(MetricsOptions::default())
 .expect("non-empty input");
 
 // Step 3 (optional): confirm the values match the byte-based path.
-let from_bytes =
-    get_function_spaces(&LANG::Rust, source, &path, None)
-        .expect("non-empty input");
+let from_bytes = analyze(
+    Source::new(LANG::Rust, &source).with_name(Some("foo.rs".to_owned())),
+    MetricsOptions::default(),
+)
+.expect("non-empty input");
 
 assert_eq!(
     from_tree.metrics.cyclomatic.cyclomatic_sum(),
@@ -103,9 +102,9 @@ from bytes.
 
 ## Lower-level: `Parser::from_tree` (internal)
 
-`metrics_from_tree` is the documented entry point for tree reuse —
-it dispatches on a `&LANG` and hides the generic parser plumbing
-entirely. The lower-level path goes through `Parser<T>` /
+`Ast::from_tree_sitter` is the documented entry point for tree
+reuse — it dispatches on a `LANG` and hides the generic parser
+plumbing entirely. The lower-level path goes through `Parser<T>` /
 `ParserTrait`, which are now `#[doc(hidden)]` (see issue #256). They
 remain `pub` so the in-tree macros (`mk_action!`, `action::<T>`,
 the `Callback` dispatch shared with the REST API) can refer to
@@ -115,8 +114,8 @@ them as a stable extension point is at your own risk.
 The per-language `*Parser` aliases (`RustParser`, `PythonParser`,
 …) emitted by `mk_langs!` are doc-hidden for the same reason —
 see [STABILITY.md][stab] for the escape-hatch caveat. For library
-consumers, the higher-level `metrics_from_tree` shown above is the
-right entry point because it dispatches on a `&LANG` at runtime
+consumers, the higher-level `Ast::from_tree_sitter` shown above is
+the right entry point because it dispatches on a `LANG` at runtime
 and does not expose any of the per-language tag types or trait
 bounds.
 

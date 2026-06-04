@@ -771,6 +771,41 @@ impl Ast {
         self.inner.run_metrics(self.name.clone(), options)
     }
 
+    /// Return every operator and operand of each space in the held parse.
+    ///
+    /// The `Source`-based counterpart of the deprecated [`crate::get_ops`]:
+    /// the top-level [`crate::Ops::name`] is the [`Source::name`] supplied
+    /// to [`Ast::parse`] / [`Ast::from_tree_sitter`] — carried explicitly
+    /// rather than derived from a filesystem path via lossy UTF-8
+    /// conversion, so [`crate::Ops::name_was_lossy`] is never set on this
+    /// path. Safe to call repeatedly; the tree is reused.
+    ///
+    /// # Errors
+    ///
+    /// The return type carries [`MetricsError::EmptyRoot`] for forward
+    /// compatibility, but the walker always pushes a synthetic top-level
+    /// space before walking, so this method does not return `Err` in
+    /// practice today (see the variant doc).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use big_code_analysis::{Ast, LANG, Source};
+    ///
+    /// let ops = Ast::parse(
+    ///     Source::new(LANG::Cpp, b"int a = 42;")
+    ///         .with_name(Some("foo.c".to_owned())),
+    /// )
+    /// .expect("cpp feature enabled")
+    /// .ops()
+    /// .expect("walker succeeds");
+    /// assert_eq!(ops.name.as_deref(), Some("foo.c"));
+    /// assert!(!ops.name_was_lossy);
+    /// ```
+    pub fn ops(&self) -> Result<crate::ops::Ops, MetricsError> {
+        self.inner.run_ops(self.name.clone())
+    }
+
     /// Source language of the parsed tree.
     #[must_use]
     #[inline]

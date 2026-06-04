@@ -557,7 +557,7 @@ mod tests {
     ) {
         let path = PathBuf::from(file);
         let parser = T::new(source.as_bytes().to_vec(), &path, None);
-        let ops = crate::operands_and_operators(&parser, &path).expect("ops walk succeeds");
+        let ops = crate::ops::ops_inner(&parser, None).expect("ops walk succeeds");
 
         let unique: HashSet<&str> = ops.operands.iter().map(String::as_str).collect();
         assert_eq!(
@@ -773,7 +773,7 @@ mod tests {
         // would diverge here.
         let path = PathBuf::from("foo.cpp");
         let parser = CppParser::new(source.as_bytes().to_vec(), &path, None);
-        let ops = crate::operands_and_operators(&parser, &path).expect("ops walk succeeds");
+        let ops = crate::ops::ops_inner(&parser, None).expect("ops walk succeeds");
         let unique_operators: HashSet<&str> = ops.operators.iter().map(String::as_str).collect();
         assert_eq!(
             unique_operators.len(),
@@ -3527,7 +3527,7 @@ f() {
 
         let path = PathBuf::from("foo.irule");
         let parser = IrulesParser::new(source.as_bytes().to_vec(), &path, None);
-        let ops = crate::operands_and_operators(&parser, &path).expect("ops walk succeeds");
+        let ops = crate::ops::ops_inner(&parser, None).expect("ops walk succeeds");
         let unique_operators: HashSet<&str> = ops.operators.iter().map(String::as_str).collect();
         let unique_operands: HashSet<&str> = ops.operands.iter().map(String::as_str).collect();
         assert_eq!(
@@ -3563,7 +3563,7 @@ f() {
 
         let path = PathBuf::from("foo.irule");
         let parser = IrulesParser::new(source.as_bytes().to_vec(), &path, None);
-        let ops = crate::operands_and_operators(&parser, &path).expect("ops walk succeeds");
+        let ops = crate::ops::ops_inner(&parser, None).expect("ops walk succeeds");
         // The inert quoted word is present as exactly one operand (not
         // dropped, not split): dropping it would mean the inert branch was
         // over-guarded.
@@ -3597,7 +3597,7 @@ f() {
 
         let path = PathBuf::from("foo.irule");
         let parser = IrulesParser::new(source.as_bytes().to_vec(), &path, None);
-        let ops = crate::operands_and_operators(&parser, &path).expect("ops walk succeeds");
+        let ops = crate::ops::ops_inner(&parser, None).expect("ops walk succeeds");
         // The wrapping interpolated string must NOT appear as an operand;
         // its inner substitutions must. The wrapper, if wrongly counted,
         // would surface as the quoted literal `"$x is $y"` (with quotes,
@@ -3646,7 +3646,7 @@ f() {
 
         let path = PathBuf::from("foo.irule");
         let parser = IrulesParser::new(source.as_bytes().to_vec(), &path, None);
-        let ops = crate::operands_and_operators(&parser, &path).expect("ops walk succeeds");
+        let ops = crate::ops::ops_inner(&parser, None).expect("ops walk succeeds");
         let unique_operators: HashSet<&str> = ops.operators.iter().map(String::as_str).collect();
         let unique_operands: HashSet<&str> = ops.operands.iter().map(String::as_str).collect();
         assert_eq!(
@@ -3685,7 +3685,7 @@ f() {
 
         let path = PathBuf::from("foo.irule");
         let parser = IrulesParser::new(source.as_bytes().to_vec(), &path, None);
-        let ops = crate::operands_and_operators(&parser, &path).expect("ops walk succeeds");
+        let ops = crate::ops::ops_inner(&parser, None).expect("ops walk succeeds");
         let bare_var = ops.operands.iter().filter(|o| o.as_str() == "$x").count();
         assert_eq!(
             bare_var, 1,
