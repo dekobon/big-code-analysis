@@ -30,7 +30,7 @@ serde_yaml = "^0.9"
 # `bca diff --since` materializes the tree at a git ref into an
 # auto-cleaning TempDir (#492), so tempfile is a runtime dependency, not
 # just a test helper.
-tempfile = "^3.0"
+tempfile.workspace = true
 toml = "^1.1"
 
 [lints]
@@ -38,7 +38,7 @@ workspace = true
 
 [dev-dependencies]
 assert_cmd = "^2.0"
-csv = "=1.4.0"
+csv.workspace = true
 insta = "1.29.0"
 jsonschema = "^0.46"
 predicates = "^3.0"

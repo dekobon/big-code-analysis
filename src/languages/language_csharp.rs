@@ -1099,7 +1099,7 @@ impl From<Csharp> for &'static str {
 impl From<u16> for Csharp {
     #[inline]
     fn from(x: u16) -> Self {
-        num::FromPrimitive::from_u16(x).unwrap_or(Self::Error)
+        num_traits::FromPrimitive::from_u16(x).unwrap_or(Self::Error)
     }
 }
 

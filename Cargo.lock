@@ -411,7 +411,6 @@ dependencies = [
  "globset",
  "insta",
  "jsonschema",
- "num",
  "num-derive",
  "num-format",
  "num-traits",

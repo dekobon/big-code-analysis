@@ -555,7 +555,7 @@ impl From<Javascript> for &'static str {
 impl From<u16> for Javascript {
     #[inline]
     fn from(x: u16) -> Self {
-        num::FromPrimitive::from_u16(x).unwrap_or(Self::Error)
+        num_traits::FromPrimitive::from_u16(x).unwrap_or(Self::Error)
     }
 }
 

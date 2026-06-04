@@ -51,7 +51,7 @@ serde.workspace = true
 # `tempfile` backs the `analyze_path` integration tests that need a
 # real on-disk file (shebang detection, unknown-extension probe).
 # Matches the root crate's dev-dep pin in the workspace `Cargo.toml`.
-tempfile = "^3.0"
+tempfile.workspace = true
 
 [build-dependencies]
 # `add_libpython_rpath_link_args` in `build.rs` bakes the libpython
