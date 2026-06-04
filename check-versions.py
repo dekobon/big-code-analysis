@@ -79,6 +79,30 @@ DOC_PIN_RE = re.compile(
     r"(?:\{[^}]*\bversion\s*=\s*)?\"=?\s*([^\"]+?)\""
 )
 
+# The external (crates.io) tree-sitter grammar pins are duplicated
+# between the root Cargo.toml and enums/Cargo.toml because `enums/` is
+# workspace-excluded and cannot inherit [workspace.dependencies] (see
+# the lockstep comment in both manifests). Nothing but a hand-edited
+# comment kept them aligned — issue #524 caught `tree-sitter-kotlin-ng`
+# carrying a loose `"1.1.0"` caret in *both* files. This check diffs
+# the two simple-form grammar-pin blocks and fails on any drift
+# (a crate present in only one file, or pinned to a different version).
+#
+# Only the bare-string simple form is matched here:
+#     <name> = "=X.Y.Z"
+# The vendored `{ package = ..., path = ... }` forks are deliberately
+# excluded — those are internal-crate pins already enforced against the
+# canonical workspace version by INTERNAL_PIN_RE above, so re-checking
+# them here would be redundant.
+EXTERNAL_GRAMMAR_MANIFESTS = (
+    "Cargo.toml",
+    "enums/Cargo.toml",
+)
+EXTERNAL_GRAMMAR_PIN_RE = re.compile(
+    r"^((?:dekobon-)?tree-sitter[\w-]*)\s*=\s*\"([^\"]+)\"",
+    re.MULTILINE,
+)
+
 
 def read(path: pathlib.Path) -> str:
     return path.read_text(encoding="utf-8")
@@ -106,6 +130,38 @@ def workspace_version(root: pathlib.Path) -> str:
 def package_version(manifest: pathlib.Path) -> str | None:
     m = PACKAGE_VERSION_RE.search(read(manifest))
     return m.group(1) if m else None
+
+
+def external_grammar_pins(manifest: pathlib.Path) -> dict[str, str]:
+    """Map each simple-form external grammar dep to its version string.
+
+    Returns e.g. {"tree-sitter-bash": "=0.25.1", ...}. The bare core
+    `tree-sitter` crate is included; vendored `{ package = ... }` forks
+    are not (they don't match the simple-string pattern).
+    """
+    return {name: ver for name, ver in EXTERNAL_GRAMMAR_PIN_RE.findall(read(manifest))}
+
+
+def check_external_grammar_lockstep(root: pathlib.Path) -> list[str]:
+    """Diff the external grammar pin blocks across the listed manifests.
+
+    Uses the first manifest as the reference and reports every crate
+    that is missing from, or pinned differently in, any other manifest.
+    """
+    reference_path, *others = EXTERNAL_GRAMMAR_MANIFESTS
+    reference = external_grammar_pins(root / reference_path)
+    failures: list[str] = []
+    for other_path in others:
+        other = external_grammar_pins(root / other_path)
+        for name in sorted(set(reference) | set(other)):
+            ref_ver = reference.get(name)
+            oth_ver = other.get(name)
+            if ref_ver != oth_ver:
+                failures.append(
+                    f"{name}: {reference_path} pins {ref_ver!r} but "
+                    f"{other_path} pins {oth_ver!r}"
+                )
+    return failures
 
 
 def main() -> int:
@@ -145,6 +201,8 @@ def main() -> int:
                     f"{doc_path}:{line}: snippet cites version "
                     f"{cited!r}, expected {canonical!r} (or a prefix)"
                 )
+
+    failures.extend(check_external_grammar_lockstep(root))
 
     if failures:
         print("lockstep-version check FAILED", file=sys.stderr)
