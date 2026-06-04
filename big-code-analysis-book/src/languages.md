@@ -1,16 +1,15 @@
 # Supported Languages
 
 This is the list of programming languages parsed by
-**big-code-analysis**.
+**big-code-analysis**. Each entry below is a real `LANG` variant
+(defined by the `mk_langs!` invocation in `src/langs.rs`) and is
+gated behind the matching per-language Cargo feature documented in
+[Per-language Cargo features](./library/cargo-features.md).
 
-- [x] C
-- [x] C++
-- [x] C#
-- [x] Mozcpp
 - [x] Bash
-- [x] Ccomment
+- [x] C/C++
+- [x] C#
 - [x] Elixir
-- [x] Preproc
 - [x] Go
 - [x] Groovy
 - [x] Irules
@@ -27,3 +26,23 @@ This is the list of programming languages parsed by
 - [x] Tcl
 - [x] Tsx
 - [x] Typescript
+
+Some entries are variants of a shared grammar pipeline: `Mozjs` is a
+Mozilla-flavoured `JavaScript` variant, and `Tsx` is `Typescript`
+with JSX syntax enabled. C and C++ are analysed by the single
+`C/C++` variant (display name `c/c++`).
+
+## Internal helper variants
+
+The following `LANG` variants are not user-facing languages — they
+are internal helpers in the C/C++ analysis pipeline (both ride the
+`cpp` Cargo feature) and are not selected directly when analysing
+source files:
+
+- `Ccomment` — focuses on C/C++ comments.
+- `Preproc` — focuses on C/C++ preprocessor macros.
+
+> **Note:** `Mozcpp` is a vendored grammar *crate*
+> (`bca-tree-sitter-mozcpp`, pulled in by the `cpp` feature), not a
+> `LANG` variant — it backs the `C/C++` variant rather than
+> appearing as a separate language.

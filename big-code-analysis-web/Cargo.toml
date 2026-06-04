@@ -51,9 +51,10 @@ big-code-analysis-web ships the `bca-web` daemon, which exposes the
 maintainability-metric extractors from big-code-analysis (cognitive
 complexity, cyclomatic, Halstead, LOC, maintainability index, ABC,
 exit points, and more) as an HTTP service. Source can be posted in
-any of the languages supported by the library — C, C++, JavaScript,
-TypeScript, Python, Java, C#, Go, Kotlin, Rust, Bash, Lua, Perl,
-PHP, and Tcl — and results are returned as JSON.\
+any of the languages supported by the library — Bash, C/C++, C#,
+Elixir, Go, Groovy, iRules, Java, JavaScript, Kotlin, Lua, Perl,
+PHP, Python, Ruby, Rust, Tcl, and TypeScript — and results are
+returned as JSON.\
 """
 assets = [
   [
