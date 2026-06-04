@@ -145,12 +145,15 @@ table.hotspot td.numeric{text-align:right;font-variant-numeric:tabular-nums}\
 /// suite. `"other"` is the neutral fallback for any name not listed.
 ///
 /// Names match production output of [`big_code_analysis::LANG::name`]
-/// (see `src/langs.rs`); aliases like `LANG::Tsx`/`Mozjs` already
-/// collapse to `"typescript"`/`"javascript"` upstream.
+/// (see `src/langs.rs`); `LANG::Tsx` still collapses to `"typescript"`
+/// upstream, and the Mozilla-fork `"mozjs"` reuses the `"javascript"`
+/// tint (it is JavaScript, just a different grammar) without its own
+/// CSS rule.
 const LANGUAGE_PALETTE: &[(&str, &str)] = &[
     ("rust", "rust"),
     ("python", "python"),
     ("javascript", "javascript"),
+    ("mozjs", "javascript"),
     ("typescript", "typescript"),
     ("java", "java"),
     ("kotlin", "kotlin"),
@@ -1174,11 +1177,12 @@ mod tests {
         assert_eq!(language_palette_slug("python"), "python");
         assert_eq!(language_palette_slug("c/c++"), "cpp");
         assert_eq!(language_palette_slug("c#"), "csharp");
-        // `LANG::Tsx` and `LANG::Mozjs` collapse to "typescript" and
-        // "javascript" upstream — the slug table reflects that, no
-        // standalone "tsx"/"mozjs" entry.
+        // `LANG::Tsx` still collapses to "typescript" upstream (no
+        // standalone "tsx" entry). Since #507 the Mozilla fork reports
+        // "mozjs" and reuses the "javascript" tint via an explicit row.
         assert_eq!(language_palette_slug("typescript"), "typescript");
         assert_eq!(language_palette_slug("javascript"), "javascript");
+        assert_eq!(language_palette_slug("mozjs"), "javascript");
         assert_eq!(language_palette_slug("ruby"), "ruby");
         assert_eq!(language_palette_slug("elixir"), "elixir");
         // Languages without an explicit palette entry fall through to

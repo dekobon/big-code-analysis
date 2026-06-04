@@ -52,25 +52,28 @@ mk_langs!(
     // (TSX vs TypeScript is a per-grammar `LANGUAGE_*` constant
     // inside that one crate, see `get_language!` in `src/macros.rs`).
     (
-        "mozjs",
-        Mozjs,
-        "The `Mozjs` language is variant of the `JavaScript` language",
-        "javascript",
-        MozjsCode,
-        MozjsParser,
-        tree_sitter_mozjs,
-        [js, jsm, mjs, jsx],
-        ["js", "js2"]
-    ),
-    (
         "javascript",
         Javascript,
-        "The `JavaScript` language",
+        "The `JavaScript` language (upstream `tree-sitter-javascript` \
+         grammar; the default for `.js` / `.mjs` / `.cjs` / `.jsx`)",
         "javascript",
         JavascriptCode,
         JavascriptParser,
         tree_sitter_javascript,
-        [],
+        [js, mjs, cjs, jsx],
+        ["js", "js2"]
+    ),
+    (
+        "mozjs",
+        Mozjs,
+        "The Mozilla/SpiderMonkey `JavaScript` dialect (vendored \
+         `tree-sitter-mozjs` fork; opt-in, owns the `.jsm` module \
+         extension)",
+        "mozjs",
+        MozjsCode,
+        MozjsParser,
+        tree_sitter_mozjs,
+        [jsm],
         []
     ),
     (
@@ -426,17 +429,19 @@ mod tests {
     // impl delegates to it, so this pins that contract against future
     // refactors that might diverge the two.
     #[test]
-    fn display_matches_get_name_for_every_variant() {
+    fn display_matches_name_for_every_variant() {
         for lang in LANG::into_enum_iter() {
             assert_eq!(lang.to_string(), lang.name());
         }
     }
 
-    // `Display` -> `FromStr` round-trip. Because several variants share
-    // a display name (Mozjs/Javascript -> "javascript",
-    // Tsx/Typescript -> "typescript"), parsing back is not guaranteed
-    // to return the *same* variant, but it must return one whose name
-    // matches — i.e. the round-trip preserves the display name.
+    // `Display` -> `FromStr` round-trip. The only variants still sharing
+    // a display name are `Tsx`/`Typescript` (both "typescript"); the
+    // JavaScript pair was split at 2.0 (#507) so `Mozjs` displays "mozjs"
+    // and `Javascript` "javascript". Parsing back is therefore not
+    // guaranteed to return the *same* variant for the TS pair, but it
+    // must return one whose name matches — the round-trip preserves the
+    // display name.
     #[test]
     fn display_fromstr_round_trip_preserves_name() {
         use std::str::FromStr;
@@ -453,18 +458,50 @@ mod tests {
         }
     }
 
-    // Aliased display names resolve to the first variant declared with
-    // that name in this file: "javascript" -> Javascript? No — Mozjs is
-    // declared first, so the canonical sibling is the earliest in the
-    // `mk_langs!` list. Pin the documented resolution so a reorder of
-    // the macro invocation is a deliberate, test-visible change.
+    // The JavaScript pair has distinct display names since #507, so
+    // `Display` is injective for it and the round-trip is exact —
+    // "javascript" -> `Javascript` (upstream grammar, the default) and
+    // "mozjs" -> `Mozjs` (the opt-in Mozilla fork). Pin both so a future
+    // reorder or display-string change is deliberate and test-visible.
     #[test]
-    fn aliased_names_resolve_to_first_declared_variant() {
+    fn javascript_pair_has_distinct_names() {
         use std::str::FromStr;
-        // Mozjs precedes Javascript in `mk_langs!`.
-        assert_eq!(LANG::from_str("javascript"), Ok(LANG::Mozjs));
+        assert_eq!(LANG::Javascript.name(), "javascript");
+        assert_eq!(LANG::Mozjs.name(), "mozjs");
+        assert_eq!(LANG::from_str("javascript"), Ok(LANG::Javascript));
+        assert_eq!(LANG::from_str("mozjs"), Ok(LANG::Mozjs));
+    }
+
+    // The TypeScript pair still shares the "typescript" display name
+    // (both ride the upstream `tree-sitter-typescript` crate), so the
+    // aliased name resolves to the first variant declared with it.
+    #[test]
+    fn aliased_typescript_name_resolves_to_first_declared_variant() {
+        use std::str::FromStr;
         // Tsx precedes Typescript in `mk_langs!`.
         assert_eq!(LANG::from_str("typescript"), Ok(LANG::Tsx));
+    }
+
+    // Extension dispatch after the #507 default-grammar swap: the
+    // standard JS extensions resolve to the upstream `Javascript`
+    // grammar (including the newly-supported `.cjs`), while the Mozilla
+    // fork owns only `.jsm`.
+    #[test]
+    fn javascript_extension_dispatch_defaults_to_upstream() {
+        assert_eq!(get_from_ext("js"), Some(LANG::Javascript));
+        assert_eq!(get_from_ext("mjs"), Some(LANG::Javascript));
+        assert_eq!(get_from_ext("cjs"), Some(LANG::Javascript));
+        assert_eq!(get_from_ext("jsx"), Some(LANG::Javascript));
+        assert_eq!(get_from_ext("jsm"), Some(LANG::Mozjs));
+    }
+
+    // The `js` / `js2` emacs modes moved to the upstream `Javascript`
+    // default alongside the extensions; pin them so a future `mk_langs!`
+    // reorder cannot silently reroute emacs-mode dispatch to the fork.
+    #[test]
+    fn javascript_emacs_mode_dispatch_defaults_to_upstream() {
+        assert_eq!(get_from_emacs_mode("js"), Some(LANG::Javascript));
+        assert_eq!(get_from_emacs_mode("js2"), Some(LANG::Javascript));
     }
 
     // The `Cpp` and `Csharp` variants carry punctuation in their

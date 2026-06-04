@@ -37,12 +37,12 @@ use crate::analysis::AnalysisError;
 ///   one lookup key. The override exposes `"tsx"`, making them
 ///   distinct (TSX via `.tsx`, TypeScript via `.ts`).
 ///
-/// Every other variant delegates to `name()` unchanged. Notably
-/// `Mozjs` and `Javascript` both report `"javascript"` upstream:
-/// `Mozjs` is the reachable `.js` / `.jsm` / `.mjs` / `.jsx` variant,
-/// while `Javascript` has no registered extensions and is filtered
-/// out by [`public_languages`], so the shared name is unambiguous
-/// from the Python API.
+/// Every other variant delegates to `name()` unchanged. Since #507 the
+/// JavaScript pair has distinct names and needs no override: `Javascript`
+/// (upstream grammar) reports `"javascript"` and is the default for `.js`
+/// / `.mjs` / `.cjs` / `.jsx`, while `Mozjs` (the Mozilla fork) reports
+/// `"mozjs"` and owns only `.jsm`. Both have registered extensions, so
+/// both are public and individually addressable from the Python API.
 pub(crate) fn lang_to_name(lang: LANG) -> &'static str {
     match lang {
         LANG::Cpp => "cpp",
@@ -175,21 +175,20 @@ mod tests {
     }
 
     #[test]
-    fn language_for_file_recognises_js_as_javascript() {
-        // CLI parity: `bca metrics --output-format json foo.js`
-        // reports `"language": "javascript"` (via
-        // `Mozjs.name()`). The bindings must round-trip the
-        // same string so a user reading the CLI output and feeding
-        // it back through `analyze_source` does not hit
-        // UnsupportedLanguageError.
-        //
-        // Cover every extension Mozjs registers in `langs.rs`
-        // (`[js, jsm, mjs, jsx]`) — missing one is a silent
-        // coverage gap (audit finding A2).
-        for ext in ["js", "jsm", "mjs", "jsx"] {
+    fn language_for_file_recognises_js_extensions() {
+        // CLI parity since #507: the standard JS extensions dispatch to
+        // the upstream `Javascript` grammar (`"javascript"`), while the
+        // Mozilla fork `Mozjs` owns only `.jsm` (`"mozjs"`). A user
+        // reading `"language"` from `bca metrics --output-format json`
+        // must round-trip the same string back through `analyze_source`,
+        // so cover every registered extension for both variants — missing
+        // one is a silent coverage gap (audit finding A2).
+        for ext in ["js", "mjs", "cjs", "jsx"] {
             let (_dir, path) = write_fixture(&format!("foo.{ext}"), b"// js\n");
             assert_language(&path, Some("javascript"));
         }
+        let (_dir, path) = write_fixture("foo.jsm", b"// mozilla js module\n");
+        assert_language(&path, Some("mozjs"));
     }
 
     #[test]
@@ -274,17 +273,14 @@ mod tests {
         assert!(langs.contains(&"rust"));
         assert!(langs.contains(&"python"));
         assert!(langs.contains(&"java"));
-        // `Mozjs` is exposed under the canonical CLI-display name
-        // `"javascript"`, NOT the variant name `"mozjs"`. This is
-        // the parity contract — a user who reads `"language":
-        // "javascript"` from `bca metrics --output-format json` on
-        // a `.js` file can pass that same string back through
-        // `analyze_source` and get a result.
+        // Since #507 the JavaScript pair is split and both are public:
+        // `Javascript` (the `.js`/`.mjs`/`.cjs`/`.jsx` default) under
+        // `"javascript"`, and the Mozilla fork `Mozjs` (owning `.jsm`)
+        // under `"mozjs"`. Both round-trip — a user who reads
+        // `"language"` from `bca metrics --output-format json` can pass
+        // that string back through `analyze_source` and get a result.
         assert!(langs.contains(&"javascript"));
-        assert!(
-            !langs.contains(&"mozjs"),
-            "supported_languages should not advertise the internal variant name"
-        );
+        assert!(langs.contains(&"mozjs"));
     }
 
     #[test]
@@ -356,24 +352,21 @@ mod tests {
     }
 
     #[test]
-    fn parse_language_name_resolves_javascript_to_mozjs() {
-        // `Mozjs` is the variant that handles `.js`/`.jsx`/`.mjs`/
-        // `.jsm` and reports `"javascript"` as its display name in
-        // CLI output. The bindings must accept that same string,
-        // not the internal variant name.
+    fn parse_language_name_resolves_js_pair_to_distinct_variants() {
+        // Since #507 `"javascript"` resolves to the upstream `Javascript`
+        // grammar (the `.js`/`.mjs`/`.cjs`/`.jsx` default) and `"mozjs"`
+        // to the opt-in Mozilla fork (`.jsm`). Both are now public, so
+        // both string forms resolve — case-insensitively.
         assert!(matches!(
             parse_language_name("javascript"),
-            Some(LANG::Mozjs)
+            Some(LANG::Javascript)
         ));
         assert!(matches!(
             parse_language_name("JavaScript"),
-            Some(LANG::Mozjs)
+            Some(LANG::Javascript)
         ));
-        // The variant name is *not* exposed — `LANG::Javascript`
-        // has no extensions and is filtered out by
-        // `public_languages`, so the string "mozjs" does not
-        // resolve to any LANG.
-        assert!(parse_language_name("mozjs").is_none());
+        assert!(matches!(parse_language_name("mozjs"), Some(LANG::Mozjs)));
+        assert!(matches!(parse_language_name("MozJS"), Some(LANG::Mozjs)));
     }
 
     #[test]
@@ -400,7 +393,7 @@ mod tests {
     }
 
     #[test]
-    fn lang_to_name_delegates_to_get_name_outside_overrides() {
+    fn lang_to_name_delegates_to_name_outside_overrides() {
         // Parity contract: every public variant EXCEPT the three
         // identifier/collision overrides exposes exactly the upstream
         // CLI display name. This makes the delegation explicit and

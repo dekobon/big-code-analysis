@@ -27,10 +27,14 @@ gated behind the matching per-language Cargo feature documented in
 - [x] Tsx
 - [x] Typescript
 
-Some entries are variants of a shared grammar pipeline: `Mozjs` is a
-Mozilla-flavoured `JavaScript` variant, and `Tsx` is `Typescript`
-with JSX syntax enabled. C and C++ are analysed by the single
-`C/C++` variant (display name `c/c++`).
+Some entries are variants of a shared grammar pipeline. `JavaScript`
+(the upstream `tree-sitter-javascript` grammar) is the default for
+`.js`, `.mjs`, `.cjs`, and `.jsx` files; `Mozjs` is the Mozilla /
+SpiderMonkey fork, now opt-in — it owns only the `.jsm` (Firefox
+module) extension and reports the display name `mozjs`. The two are
+metric-equivalent on ordinary JavaScript. `Tsx` is `Typescript` with
+JSX syntax enabled. C and C++ are analysed by the single `C/C++`
+variant (display name `c/c++`).
 
 ## Internal helper variants
 

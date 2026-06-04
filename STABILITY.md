@@ -51,9 +51,11 @@ section.
     allowed; renaming or removing one is a `2.0` break. Derives
     `Hash` and implements `Display` (the `name` string) and
     `FromStr` (parsing that same canonical name; error type
-    `ParseLangError`). Names shared by aliased variants
-    (`javascript`, `typescript`) parse back to the first variant
-    declared in `src/langs.rs`, so `Display` is not injective.
+    `ParseLangError`). The only remaining aliased pair is
+    `Tsx` / `Typescript` (both `typescript`), which parses back to
+    the first variant declared in `src/langs.rs` (`Tsx`), so
+    `Display` is not injective for it; every other name — including
+    the split `javascript` / `mozjs` pair — round-trips exactly.
   - `get_language_for_file`, `guess_language` in `src/tools.rs`.
 - **Top-level entry points**
   - `analyze` and `Source` in `src/spaces.rs` — the recommended
@@ -404,6 +406,19 @@ loose ends that will be tightened at `2.0`:
   filtering seam and eliminating the second, emitted-path-form-sensitive
   library matcher that could otherwise re-inherit the path-form
   dependence #488/#489 removed.
+- The language-dispatch surface is normalized (#507): every getter
+  drops its Java-style `get_` prefix (`LANG::name`,
+  `tree_sitter_language`, `extensions`; the `LanguageInfo` /
+  `ParserTrait` / `Parser` accessors) and the `action` /
+  `get_function_spaces*` / `metrics_from_tree` / `get_ops` dispatchers
+  take `lang: LANG` by value instead of `&LANG`.
+- The default JavaScript grammar switches to upstream
+  `tree-sitter-javascript` (#507): `LANG::Javascript` becomes the
+  default for `.js` / `.mjs` / `.cjs` / `.jsx`, the Mozilla fork
+  `LANG::Mozjs` becomes opt-in (owning only `.jsm`, display name
+  `mozjs`), and `.cjs` is newly recognized. The two grammars are
+  metric-equivalent on real-world code, so this is a naming/dispatch
+  change with **no** JS metric re-baseline.
 
 `2.0` is not scheduled. We will cut it when the items above are
 ripe and the value-drift accumulated since `1.0` is worth the

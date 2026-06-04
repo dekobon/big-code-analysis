@@ -23,11 +23,13 @@ for historical reference.
 
 ### Added
 
-- `LANG` now derives `Hash` and implements `Display` (its `get_name()`
+- `LANG` now derives `Hash` and implements `Display` (its `name()`
   string) and `FromStr` (parsing that canonical name; case-sensitive, error
-  type `ParseLangError`). Aliased display names (`javascript`, `typescript`)
-  parse to the first-declared variant (`Mozjs`, `Tsx`). `Serialize` / `Ord`
-  are deferred to the 2.0 bump
+  type `ParseLangError`). After the #507 JavaScript-grammar split the only
+  variants still sharing a display name are `Tsx` / `Typescript` (both
+  `typescript`), which parse back to the first-declared variant (`Tsx`);
+  every other name — including `javascript` and `mozjs` — round-trips
+  exactly. `Serialize` / `Ord` are deferred to the 2.0 bump
   ([#508](https://github.com/dekobon/big-code-analysis/issues/508)).
 
 - The `bca` CLI is now pip-installable. `pip install big-code-analysis-cli`
@@ -462,6 +464,42 @@ for historical reference.
 
 ### Changed
 
+- **(breaking)** Normalized the public language-dispatch surface
+  (deferred to the `2.0.0` bump;
+  [#507](https://github.com/dekobon/big-code-analysis/issues/507)):
+  - Dropped the Java-style `get_` prefix from every language getter, per
+    the Rust C-GETTER guideline: `LANG::get_name` → `name`,
+    `get_tree_sitter_language` → `tree_sitter_language`, `get_extensions`
+    → `extensions`; `LanguageInfo::get_lang` / `get_lang_name` → `lang` /
+    `lang_name`; `ParserTrait::get_language` / `get_root` / `get_code` /
+    `get_filters` → `language` / `root` / `code` / `filters`;
+    `Parser::get_ts_tree` → `ts_tree`.
+  - The dispatchers `action`, `get_function_spaces`,
+    `get_function_spaces_with_options`, `metrics_from_tree`, and `get_ops`
+    now take `lang: LANG` by value instead of `&LANG` (`LANG` is a `Copy`
+    1-byte enum, so the reference was pointless indirection). Call sites
+    pass `LANG::Rust`, not `&LANG::Rust`.
+  - Rename + signature only; no serialized output or metric values change.
+- **(breaking)** The default JavaScript grammar is now the upstream
+  `tree-sitter-javascript`, not the vendored Mozilla `tree-sitter-mozjs`
+  fork (the project is no longer Mozilla-driven;
+  [#507](https://github.com/dekobon/big-code-analysis/issues/507)):
+  - `LANG::Javascript` (upstream grammar) is the default for `.js`, `.mjs`,
+    `.cjs`, and `.jsx`, and is declared first in the language list. `.cjs`
+    (CommonJS) is **newly recognized** — it was previously unmapped.
+  - `LANG::Mozjs` (the Mozilla/SpiderMonkey fork) is now opt-in: it owns
+    only the `.jsm` (Firefox module) extension and its display name changed
+    from `javascript` to `mozjs`, so `.jsm` files report
+    `"language": "mozjs"`. Select the fork explicitly via `LANG::Mozjs`.
+  - The two grammars are metric-equivalent on real-world JavaScript (the
+    fork only adds SpiderMonkey-specific node types absent from ordinary
+    code), so **no metric values change** for `.js` / `.jsx` / `.mjs`
+    files and no snapshots were re-baselined — verified against the full
+    integration corpus (385 `.js` snapshots) plus an independent sample.
+  - Builds that enable the `mozjs` feature but **not** `javascript` no
+    longer analyze `.js` files (they resolve to the now-disabled
+    `Javascript` variant and return `LanguageDisabled`); default
+    `all-languages` builds are unaffected.
 - **(breaking)** Normalized the serialized metric output keys for a
   coherent 2.0 data contract (deferred to the `2.0.0` bump;
   [#510](https://github.com/dekobon/big-code-analysis/issues/510),
