@@ -157,6 +157,56 @@ macro_rules! impl_simple_is_string {
     };
 }
 
+// Generate an `is_else_if` impl for the grammars that model `else if` as
+// an `$if_kind` node nested directly inside an `else_clause` wrapper
+// (`else_clause → if`). Covers C++/JS/TS/TSX (`IfStatement`) and Rust
+// (`IfExpression`). Per-call rationale (e.g. the `IfExpression` choice)
+// is hoisted above each invocation per `.claude/rules/macro-comments.md`.
+macro_rules! impl_is_else_if_parent_clause {
+    ($lang:ident, $if_kind:ident, $else_clause:ident) => {
+        #[inline]
+        fn is_else_if(node: &Node) -> bool {
+            node.kind_id() == $lang::$if_kind
+                && node
+                    .parent()
+                    .is_some_and(|parent| parent.kind_id() == $lang::$else_clause)
+        }
+    };
+}
+
+// Generate an `is_else_if` impl for the grammars that emit a bare `else`
+// keyword token followed by a nested `$if_kind` sibling, with no wrapping
+// clause node. Covers Java/C#/Groovy (`IfStatement`) and Kotlin
+// (`IfExpression`).
+macro_rules! impl_is_else_if_prev_sibling {
+    ($lang:ident, $if_kind:ident, $else_kw:ident) => {
+        #[inline]
+        fn is_else_if(node: &Node) -> bool {
+            node.kind_id() == $lang::$if_kind
+                && node
+                    .previous_sibling()
+                    .is_some_and(|prev| prev.kind_id() == $lang::$else_kw)
+        }
+    };
+}
+
+// Generate an `is_else_if` impl for the grammars that expose a dedicated
+// elseif/elsif clause node, so the clause node itself is the else-if
+// (no `if`-nesting or sibling-token shape to inspect). Flat `matches!`
+// against one or more variant kinds, analogous to `impl_simple_is_string!`;
+// the multi-variant form covers PHP's `ElseIfClause | ElseIfClause2`.
+macro_rules! impl_is_else_if_clause {
+    ($lang:ident, $first:ident $(, $rest:ident)* $(,)?) => {
+        #[inline]
+        fn is_else_if(node: &Node) -> bool {
+            matches!(
+                node.kind_id().into(),
+                $lang::$first $(| $lang::$rest)*
+            )
+        }
+    };
+}
+
 #[inline]
 fn get_aho_corasick_match(code: &[u8]) -> bool {
     AHO_CORASICK
@@ -351,15 +401,7 @@ impl Checker for CppCode {
 
     impl_simple_is_string!(Cpp, StringLiteral, ConcatenatedString, RawStringLiteral);
 
-    fn is_else_if(node: &Node) -> bool {
-        if node.kind_id() != Cpp::IfStatement {
-            return false;
-        }
-        if let Some(parent) = node.parent() {
-            return parent.kind_id() == Cpp::ElseClause;
-        }
-        false
-    }
+    impl_is_else_if_parent_clause!(Cpp, IfStatement, ElseClause);
 
     #[inline]
     fn is_primitive(node: &Node) -> bool {
@@ -536,15 +578,9 @@ impl Checker for JavaCode {
 
     impl_simple_is_string!(Java, StringLiteral, MultilineStringLiteral);
 
-    #[inline]
-    fn is_else_if(node: &Node) -> bool {
-        // tree-sitter-java models `else if` as an `Else` keyword token followed
-        // by a nested `if_statement` (no wrapping `else_clause` node).
-        node.kind_id() == Java::IfStatement
-            && node
-                .previous_sibling()
-                .is_some_and(|prev| prev.kind_id() == Java::Else)
-    }
+    // tree-sitter-java models `else if` as an `Else` keyword token followed
+    // by a nested `if_statement` (no wrapping `else_clause` node).
+    impl_is_else_if_prev_sibling!(Java, IfStatement, Else);
 }
 
 /// Counts the `accessor_declaration` children (`get` / `set` / `init`) of a C#
@@ -666,15 +702,9 @@ impl Checker for CsharpCode {
         InterpolatedStringExpression,
     );
 
-    #[inline]
-    fn is_else_if(node: &Node) -> bool {
-        // tree-sitter-c-sharp models `else if` as an `Else` keyword token
-        // followed by a nested `if_statement` (no wrapping `else_clause` node).
-        node.kind_id() == Csharp::IfStatement
-            && node
-                .previous_sibling()
-                .is_some_and(|prev| prev.kind_id() == Csharp::Else)
-    }
+    // tree-sitter-c-sharp models `else if` as an `Else` keyword token
+    // followed by a nested `if_statement` (no wrapping `else_clause` node).
+    impl_is_else_if_prev_sibling!(Csharp, IfStatement, Else);
 
     #[inline]
     fn is_primitive(node: &Node) -> bool {
@@ -722,16 +752,7 @@ impl Checker for MozjsCode {
 
     impl_js_family_is_string!(Mozjs);
 
-    #[inline]
-    fn is_else_if(node: &Node) -> bool {
-        if node.kind_id() != Mozjs::IfStatement {
-            return false;
-        }
-        if let Some(parent) = node.parent() {
-            return parent.kind_id() == Mozjs::ElseClause;
-        }
-        false
-    }
+    impl_is_else_if_parent_clause!(Mozjs, IfStatement, ElseClause);
 }
 
 impl Checker for JavascriptCode {
@@ -769,13 +790,7 @@ impl Checker for JavascriptCode {
 
     impl_js_family_is_string!(Javascript);
 
-    #[inline]
-    fn is_else_if(node: &Node) -> bool {
-        node.kind_id() == Javascript::IfStatement
-            && node
-                .parent()
-                .is_some_and(|p| p.kind_id() == Javascript::ElseClause)
-    }
+    impl_is_else_if_parent_clause!(Javascript, IfStatement, ElseClause);
 }
 
 impl Checker for TypescriptCode {
@@ -815,16 +830,7 @@ impl Checker for TypescriptCode {
 
     impl_js_family_is_string!(Typescript);
 
-    #[inline]
-    fn is_else_if(node: &Node) -> bool {
-        if node.kind_id() != Typescript::IfStatement {
-            return false;
-        }
-        if let Some(parent) = node.parent() {
-            return parent.kind_id() == Typescript::ElseClause;
-        }
-        false
-    }
+    impl_is_else_if_parent_clause!(Typescript, IfStatement, ElseClause);
 
     #[inline]
     fn is_primitive(node: &Node) -> bool {
@@ -869,12 +875,7 @@ impl Checker for TsxCode {
 
     impl_js_family_is_string!(Tsx, String3);
 
-    fn is_else_if(node: &Node) -> bool {
-        node.kind_id() == Tsx::IfStatement
-            && node
-                .parent()
-                .is_some_and(|p| p.kind_id() == Tsx::ElseClause)
-    }
+    impl_is_else_if_parent_clause!(Tsx, IfStatement, ElseClause);
 
     #[inline]
     fn is_primitive(node: &Node) -> bool {
@@ -1013,16 +1014,9 @@ impl Checker for RustCode {
 
     impl_simple_is_string!(Rust, StringLiteral, RawStringLiteral);
 
-    #[inline]
-    fn is_else_if(node: &Node) -> bool {
-        if node.kind_id() != Rust::IfExpression {
-            return false;
-        }
-        if let Some(parent) = node.parent() {
-            return parent.kind_id() == Rust::ElseClause;
-        }
-        false
-    }
+    // Rust models `else if` as a nested `if_expression` (not an
+    // `if_statement`) sitting directly inside the `else_clause`.
+    impl_is_else_if_parent_clause!(Rust, IfExpression, ElseClause);
 
     #[inline]
     fn is_primitive(node: &Node) -> bool {
@@ -1159,15 +1153,10 @@ impl Checker for KotlinCode {
 
     impl_simple_is_string!(Kotlin, StringLiteral, MultilineStringLiteral);
 
-    #[inline]
-    fn is_else_if(node: &Node) -> bool {
-        // tree-sitter-kotlin models `else if` as an `else` keyword sibling
-        // followed by an `if_expression`, not a wrapping clause node.
-        node.kind_id() == Kotlin::IfExpression
-            && node
-                .previous_sibling()
-                .is_some_and(|prev| prev.kind_id() == Kotlin::Else)
-    }
+    // tree-sitter-kotlin models `else if` as an `else` keyword sibling
+    // followed by an `if_expression` (not an `if_statement`, and no
+    // wrapping clause node).
+    impl_is_else_if_prev_sibling!(Kotlin, IfExpression, Else);
 }
 
 impl Checker for PerlCode {
@@ -1232,13 +1221,10 @@ impl Checker for PerlCode {
         HeredocBodyStatement,
     );
 
-    #[inline]
-    fn is_else_if(node: &Node) -> bool {
-        // tree-sitter-perl emits `elsif_clause` as a direct child of the
-        // surrounding `if_statement` (not as a wrapper around a nested
-        // `if`), so the clause node itself is the else-if.
-        node.kind_id() == Perl::ElsifClause
-    }
+    // tree-sitter-perl emits `elsif_clause` as a direct child of the
+    // surrounding `if_statement` (not as a wrapper around a nested
+    // `if`), so the clause node itself is the else-if.
+    impl_is_else_if_clause!(Perl, ElsifClause);
 }
 
 impl Checker for LuaCode {
@@ -1284,12 +1270,9 @@ impl Checker for LuaCode {
 
     impl_simple_is_string!(Lua, String);
 
-    #[inline]
-    fn is_else_if(node: &Node) -> bool {
-        // Lua uses a dedicated elseif_statement node rather than nesting a
-        // second if_statement inside the outer one (as Go does).
-        node.kind_id() == Lua::ElseifStatement
-    }
+    // Lua uses a dedicated elseif_statement node rather than nesting a
+    // second if_statement inside the outer one (as Go does).
+    impl_is_else_if_clause!(Lua, ElseifStatement);
 }
 
 impl Checker for BashCode {
@@ -1334,10 +1317,9 @@ impl Checker for BashCode {
         HeredocBody2,
     );
 
-    #[inline]
-    fn is_else_if(node: &Node) -> bool {
-        node.kind_id() == Bash::ElifClause
-    }
+    // tree-sitter-bash exposes a dedicated `elif_clause` node, so the
+    // clause node itself is the else-if (no nested `if` to inspect).
+    impl_is_else_if_clause!(Bash, ElifClause);
 }
 
 impl Checker for TclCode {
@@ -1369,11 +1351,8 @@ impl Checker for TclCode {
 
     impl_simple_is_string!(Tcl, QuotedWord, BracedWord, BracedWordSimple);
 
-    #[inline]
-    fn is_else_if(node: &Node) -> bool {
-        // Tcl grammar has a dedicated `elseif` named node, not a nested `if`.
-        node.kind_id() == Tcl::Elseif
-    }
+    // Tcl grammar has a dedicated `elseif` named node, not a nested `if`.
+    impl_is_else_if_clause!(Tcl, Elseif);
 }
 
 impl Checker for IrulesCode {
@@ -1433,13 +1412,11 @@ impl Checker for IrulesCode {
 
     impl_simple_is_string!(Irules, QuotedWord, BracedWord, BracedWordSimple);
 
-    #[inline]
-    fn is_else_if(node: &Node) -> bool {
-        // iRules grammar has a dedicated `elseif` named node (id 145), not a
-        // nested `if`. `Elseif2` (id 92) is the `elseif` keyword token, not
-        // the clause, so it is intentionally excluded here.
-        node.kind_id() == Irules::Elseif
-    }
+    // iRules grammar has a dedicated `elseif` named node (id 145), not a
+    // nested `if`. `Elseif2` (id 92) is the `elseif` keyword token, not
+    // the clause, so it is intentionally excluded here (lesson #34
+    // defensive-arm marker).
+    impl_is_else_if_clause!(Irules, Elseif);
 }
 
 impl Checker for PhpCode {
@@ -1518,13 +1495,15 @@ impl Checker for PhpCode {
         ShellCommandExpression,
     );
 
-    #[inline]
-    fn is_else_if(node: &Node) -> bool {
-        matches!(
-            node.kind_id().into(),
-            Php::ElseIfClause | Php::ElseIfClause2
-        )
-    }
+    // PHP exposes a dedicated `else_if_clause` node (`ElseIfClause`); both
+    // the brace `} elseif {` and the alternative `elseif: … endif;` colon
+    // forms parse as `ElseIfClause`. `ElseIfClause2` is an aliased kind_id
+    // the grammar maps to the same `else_if_clause` rule name but which does
+    // not surface in observed parse trees; it is kept as a defensive arm
+    // (lesson #34) so a future grammar revision that emits it is handled
+    // rather than silently dropped, matching the PHP cyclomatic/ABC/cognitive
+    // dispatch which list both variants.
+    impl_is_else_if_clause!(Php, ElseIfClause, ElseIfClause2);
 }
 
 impl Checker for ElixirCode {
@@ -1718,10 +1697,7 @@ impl Checker for RubyCode {
 
     // tree-sitter-ruby exposes `elsif` as its own named clause node, so the
     // dedicated-clause-node strategy applies here (same as Lua/Bash/PHP).
-    #[inline]
-    fn is_else_if(node: &Node) -> bool {
-        node.kind_id() == Ruby::Elsif
-    }
+    impl_is_else_if_clause!(Ruby, Elsif);
 }
 
 impl Checker for GroovyCode {
@@ -1791,13 +1767,7 @@ impl Checker for GroovyCode {
     // The dekobon Groovy grammar models `if_statement` with the `else`
     // keyword token emitted inline followed by the inner `if_statement`
     // sibling — same shape as the prior amaanq grammar and Java.
-    #[inline]
-    fn is_else_if(node: &Node) -> bool {
-        node.kind_id() == Groovy::IfStatement
-            && node
-                .previous_sibling()
-                .is_some_and(|prev| prev.kind_id() == Groovy::Else)
-    }
+    impl_is_else_if_prev_sibling!(Groovy, IfStatement, Else);
 }
 
 #[cfg(test)]

@@ -8586,6 +8586,48 @@ end",
     }
 
     #[test]
+    fn php_if_elseif_else() {
+        // PHP exposes `elseif` as a dedicated `else_if_clause` node, scored
+        // as a branch extension (+1, no nesting) via the `ElseIfClause` arm
+        // — parallel to bash/perl/ruby. An `if … elseif … else` chain is
+        // therefore +1 each = 3. PHP previously had no cognitive test for
+        // the `elseif` dispatch; this pins it.
+        //
+        // Note: unlike C++/JS/Java/etc. (where `else if` is a nested
+        // `if`/`if_expression` and `Checker::is_else_if` suppresses its
+        // nesting penalty), PHP's `is_else_if` is never consulted on this
+        // path — an `else_if_clause` is its own node, dispatched directly,
+        // and `is_else_if` is only ever checked against `IfStatement`.
+        check_metrics::<PhpParser>(
+            "<?php
+            function f(int $a): void {
+                if ($a > 0) {        // +1
+                    echo 'pos';
+                } elseif ($a < 0) {  // +1
+                    echo 'neg';
+                } else {             // +1
+                    echo 'zero';
+                }
+            }",
+            "foo.php",
+            |metric| {
+                assert_eq!(metric.cognitive.cognitive_sum(), 3.0);
+                assert_eq!(metric.cognitive.cognitive_max(), 3.0);
+                insta::assert_json_snapshot!(
+                    metric.cognitive,
+                    @r###"
+                    {
+                      "sum": 3.0,
+                      "average": 3.0,
+                      "min": 0.0,
+                      "max": 3.0
+                    }"###
+                );
+            },
+        );
+    }
+
+    #[test]
     fn php_ternary() {
         // PHP's ternary `?:` (grammar `conditional_expression`) is a
         // conditional construct: +1 base + nesting. Regression test for
