@@ -9,6 +9,7 @@ use actix_web::{http::StatusCode, http::header::ContentType, test};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use serde_json::value::Value;
+use tracing_test::traced_test;
 
 use super::*;
 
@@ -833,26 +834,46 @@ async fn test_web_function_plain_rejects_text_plain() {
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
+#[traced_test]
 #[actix_rt::test]
 async fn test_run_parse_error_does_not_leak_internals() {
     let config = test_config();
-    let result = run_parse(&config, || -> String { panic!("secret internal detail") }).await;
+    let result = run_parse(&config, "req-leak-json", || -> String {
+        panic!("secret internal detail")
+    })
+    .await;
     assert_error_sanitized(result).await;
+    // The server-side log must carry the correlation id, the failure
+    // marker, and the underlying panic detail for ops diagnostics — even
+    // though `assert_error_sanitized` already proved that same detail is
+    // scrubbed from the HTTP body. Asserting the detail's presence in the
+    // log and absence from the body on the same string pins the contract.
+    assert!(logs_contain("Parse task failed"));
+    assert!(logs_contain("req-leak-json"));
+    assert!(logs_contain("secret internal detail"));
 }
 
+#[traced_test]
 #[actix_rt::test]
 async fn test_run_parse_error_with_timeout_does_not_leak_internals() {
     let config = test_config_with_timeout(Duration::from_secs(5));
-    let result = run_parse(&config, || -> String { panic!("secret internal detail") }).await;
+    let result = run_parse(&config, "req-leak-timeout", || -> String {
+        panic!("secret internal detail")
+    })
+    .await;
     assert_error_sanitized(result).await;
+    assert!(logs_contain("Parse task failed"));
+    assert!(logs_contain("req-leak-timeout"));
+    assert!(logs_contain("secret internal detail"));
 }
 
+#[traced_test]
 #[actix_rt::test]
 async fn test_run_parse_timeout_returns_504() {
     let config = test_config_with_timeout(Duration::from_millis(50));
     // The blocking task outlives the timeout, but exits shortly after to keep
     // the test fast (the cleanup task awaits the JoinHandle).
-    let result = run_parse(&config, || {
+    let result = run_parse(&config, "req-timeout", || {
         std::thread::sleep(Duration::from_millis(200));
         "completed"
     })
@@ -863,6 +884,9 @@ async fn test_run_parse_timeout_returns_504() {
     assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT);
     let body = actix_web::body::to_bytes(resp.into_body()).await.unwrap();
     assert_eq!(String::from_utf8_lossy(&body), PARSE_TIMEOUT);
+    // The timeout must be logged server-side, correlated to the request id.
+    assert!(logs_contain("Parse timed out"));
+    assert!(logs_contain("req-timeout"));
 }
 
 #[actix_rt::test]
@@ -879,7 +903,7 @@ async fn test_run_parse_timeout_increments_orphan_counter_and_decrements_on_comp
         max_body_size: TEST_MAX_BODY_SIZE,
     });
 
-    let err = run_parse(&config, move || {
+    let err = run_parse(&config, "req-orphan", move || {
         // Block until the test signals completion.
         let _ = rx.recv();
     })
@@ -916,7 +940,7 @@ async fn test_run_parse_rejects_with_503_when_orphan_threshold_exceeded() {
     });
 
     // The closure should never run because the threshold check fires first.
-    let result = run_parse(&config, || "should not run").await;
+    let result = run_parse(&config, "req-503", || "should not run").await;
     let err = result.unwrap_err();
     let resp = err.error_response();
     assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
@@ -962,7 +986,7 @@ async fn test_run_parse_rechecks_orphan_cap_after_semaphore_admission() {
         .run_until(async {
             let config_for_task = config.clone();
             let queued = tokio::task::spawn_local(async move {
-                run_parse(&config_for_task, move || {
+                run_parse(&config_for_task, "req-recheck", move || {
                     closure_ran_for_task.store(true, Ordering::Release);
                     "should not run"
                 })

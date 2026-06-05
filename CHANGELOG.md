@@ -475,6 +475,18 @@ for historical reference.
 
 ### Changed
 
+- `bca-web` now logs server-side events via `tracing` instead of
+  unstructured `eprintln!`: parse failures at `error!` and parse timeouts
+  at `warn!`, each with a structured `payload_id` field taken from the
+  request payload's `id`. It also wires `tracing-actix-web`'s
+  `TracingLogger` middleware for per-request spans (one access-log line
+  per completed request, with its own `request_id` UUID, method, route,
+  status, and latency). Log level and output are controlled by the
+  `RUST_LOG` environment variable (default `info`). HTTP responses are
+  byte-for-byte unchanged — this is server-side observability only
+  ([#516](https://github.com/dekobon/big-code-analysis/issues/516),
+  part of [#505](https://github.com/dekobon/big-code-analysis/issues/505)).
+
 - Unified output-format selection across every `bca` subcommand
   ([#513](https://github.com/dekobon/big-code-analysis/issues/513),
   part of [#505](https://github.com/dekobon/big-code-analysis/issues/505)).

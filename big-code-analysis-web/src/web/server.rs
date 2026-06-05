@@ -68,8 +68,16 @@ const PAYLOAD_TOO_LARGE: &str = "Request body exceeds the maximum allowed size";
 /// Default parse timeout used by [`run`].
 pub const DEFAULT_PARSE_TIMEOUT_SECS: u64 = 30;
 
+/// Runs `f` on the blocking pool under the timeout / orphan-pool policy.
+///
+/// `payload_id` is the client-supplied request id from the JSON payload
+/// (empty for the octet-stream endpoints, which carry none). It is logged
+/// on the failure path under a distinct field name so it does not collide
+/// with `tracing-actix-web`'s own span-level `request_id` (a per-request
+/// UUID).
 async fn run_parse<T: Send + 'static>(
     config: &web::Data<ParseConfig>,
+    payload_id: &str,
     f: impl FnOnce() -> T + Send + 'static,
 ) -> Result<T, actix_web::Error> {
     // Reject when the orphaned-task pool has saturated. `Acquire` pairs with
@@ -110,12 +118,21 @@ async fn run_parse<T: Send + 'static>(
             Ok(Err(e)) => {
                 // Log the full error server-side for ops diagnostics; the
                 // client only sees the generic "Internal server error" string.
-                eprintln!("Parse task failed: {e}");
+                tracing::error!(payload_id = %payload_id, error = %e, "Parse task failed");
                 Err(actix_web::error::ErrorInternalServerError(
                     "Internal server error",
                 ))
             }
             Err(_) => {
+                // A timeout orphans the blocking task until it finishes on
+                // its own. Log it (`warn`, not `error`: it is a deadline /
+                // load condition, not an internal fault) so ops can correlate
+                // which request timed out and track orphan-pool pressure.
+                tracing::warn!(
+                    payload_id = %payload_id,
+                    timeout_secs = deadline.as_secs(),
+                    "Parse timed out; blocking task orphaned"
+                );
                 let counter = Arc::clone(&config.orphaned_tasks);
                 // AcqRel: load+publish so admission re-checks observe
                 // the latest count. Pairs with the `Acquire` loads in
@@ -132,7 +149,7 @@ async fn run_parse<T: Send + 'static>(
         }
     } else {
         handle.await.map_err(|e| {
-            eprintln!("Parse task failed: {e}");
+            tracing::error!(payload_id = %payload_id, error = %e, "Parse task failed");
             actix_web::error::ErrorInternalServerError("Internal server error")
         })
     };
@@ -176,12 +193,15 @@ async fn ast_parser(
     let buf = payload.code.into_bytes();
     let (language, _) = guess_language(&buf, path);
     if let Some(language) = language {
+        // Clone the (small) correlation id for server-side log correlation;
+        // the original is moved into `cfg` and consumed by `action` below.
+        let payload_id = payload.id.clone();
         let cfg = AstCfg {
             id: payload.id,
             comment: payload.comment,
             span: payload.span,
         };
-        let result = run_parse(&config, move || {
+        let result = run_parse(&config, &payload_id, move || {
             action::<AstCallback>(language, buf, Path::new(""), None, cfg).expect(FEATURES_PINNED)
         })
         .await?;
@@ -203,9 +223,10 @@ async fn comment_removal_json(
     let buf = payload.code.into_bytes();
     let (language, _) = guess_language(&buf, path);
     if let Some(language) = language {
+        let payload_id = payload.id.clone();
         let cfg = WebCommentCfg { id: payload.id };
         let language = comment_language(language);
-        let result = run_parse(&config, move || {
+        let result = run_parse(&config, &payload_id, move || {
             action::<WebCommentCallback>(language, buf, Path::new(""), None, cfg)
                 .expect(FEATURES_PINNED)
         })
@@ -230,7 +251,9 @@ async fn comment_removal_plain(
     if let Some(language) = language {
         let language = comment_language(language);
         let cfg = WebCommentCfg { id: String::new() };
-        let res = run_parse(&config, move || {
+        // The octet-stream variants carry no request id in the body, so log
+        // correlation falls back to the `TracingLogger` request span.
+        let res = run_parse(&config, "", move || {
             action::<WebCommentCallback>(language, buf, Path::new(""), None, cfg)
                 .expect(FEATURES_PINNED)
         })
@@ -264,8 +287,9 @@ async fn metrics_json(
         // preserving the pre-#182 numbers for every existing REST
         // client. A future change can thread the flag through the
         // request payload and chain `.with_exclude_tests(...)` here.
+        let payload_id = payload.id.clone();
         let cfg = WebMetricsCfg::new(payload.id, path, payload.unit, name.to_string());
-        let result = run_parse(&config, move || {
+        let result = run_parse(&config, &payload_id, move || {
             action::<WebMetricsCallback>(language, buf, Path::new(""), None, cfg)
                 .expect(FEATURES_PINNED)
         })
@@ -296,7 +320,7 @@ async fn metrics_plain(
         });
         // Same `exclude_tests` rationale as the JSON variant above.
         let cfg = WebMetricsCfg::new(String::new(), path, unit, name.to_string());
-        let result = run_parse(&config, move || {
+        let result = run_parse(&config, "", move || {
             action::<WebMetricsCallback>(language, buf, Path::new(""), None, cfg)
                 .expect(FEATURES_PINNED)
         })
@@ -318,8 +342,9 @@ async fn function_json(
     let buf = payload.code.into_bytes();
     let (language, _) = guess_language(&buf, path);
     if let Some(language) = language {
+        let payload_id = payload.id.clone();
         let cfg = WebFunctionCfg { id: payload.id };
-        let result = run_parse(&config, move || {
+        let result = run_parse(&config, &payload_id, move || {
             action::<WebFunctionCallback>(language, buf, Path::new(""), None, cfg)
                 .expect(FEATURES_PINNED)
         })
@@ -343,7 +368,7 @@ async fn function_plain(
     let (language, _) = guess_language(&buf, path);
     if let Some(language) = language {
         let cfg = WebFunctionCfg { id: String::new() };
-        let result = run_parse(&config, move || {
+        let result = run_parse(&config, "", move || {
             action::<WebFunctionCallback>(language, buf, Path::new(""), None, cfg)
                 .expect(FEATURES_PINNED)
         })
@@ -534,6 +559,7 @@ pub async fn run_with_timeout(
 
     HttpServer::new(move || {
         App::new()
+            .wrap(tracing_actix_web::TracingLogger::default())
             .app_data(config.clone())
             .app_data(web::JsonConfig::default().limit(max_size))
             .configure(configure_routes)
