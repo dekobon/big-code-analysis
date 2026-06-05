@@ -44,13 +44,17 @@ bca -p /path/to/your/file/or/directory dump
 
 ## Analyzing code portions
 
-To analyze only a specific portion of the code, use the global `--ls`
-(line start) and `--le` (line end) options. For example, to print the
-AST of a single function from line 5 to line 10:
+To analyze only a specific portion of the code, use the `dump`
+subcommand's `--line-start` and `--line-end` options. For example, to
+print the AST of a single function from line 5 to line 10:
 
 ```bash
-bca -p /path/to/your/file/or/directory --ls 5 --le 10 dump
+bca -p /path/to/your/file/or/directory dump --line-start 5 --line-end 10
 ```
+
+These flags are specific to `dump` and `find`, so they must follow the
+subcommand. The short `--ls` / `--le` spellings still work as
+deprecated aliases but are slated for removal in 2.0.
 
 ## Listing functions
 

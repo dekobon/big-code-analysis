@@ -43,11 +43,11 @@ use crate::thresholds::{
     ParsedThresholds, SoftLimit, ThresholdSet, Violation, render_violation_line, scale_threshold,
 };
 use crate::{
-    Action, CheckArgs, Cli, Command, Config, DiffBaselineArgs, ExemptionsArgs, GlobalOpts,
-    InitArgs, ListMetricsArgs, NodesArgs, OutputFormat, PreprocArgs, PrintConfigFormat, ReportArgs,
-    StripCommentsArgs, StructuredArgs, Tier, die, die_io, group_files_by_basename, legacy_hint,
-    load_baseline, load_preproc_data, load_threshold_config, read_exclude_patterns_from, run_walk,
-    run_walk_collecting, write_atomic, write_stdout_or_die,
+    Action, CheckArgs, Cli, Command, Config, DiffBaselineArgs, ExemptionsArgs, FindArgs,
+    GlobalOpts, InitArgs, LineRange, ListMetricsArgs, NodesArgs, OutputFormat, PreprocArgs,
+    PrintConfigFormat, ReportArgs, StripCommentsArgs, StructuredArgs, Tier, die, die_io,
+    group_files_by_basename, legacy_hint, load_baseline, load_preproc_data, load_threshold_config,
+    read_exclude_patterns_from, run_walk, run_walk_collecting, write_atomic, write_stdout_or_die,
 };
 
 fn run_check(
@@ -1418,7 +1418,7 @@ pub fn run() {
 
     match cli.command {
         Command::ListMetrics(args) => run_command_list_metrics(args),
-        Command::Dump => run_command_dump(cli.globals, preproc),
+        Command::Dump(line) => run_command_dump(cli.globals, line, preproc),
         Command::Functions => run_command_functions(cli.globals, preproc),
         Command::Metrics(args) => run_command_metrics(cli.globals, args, preproc),
         Command::Ops(args) => run_command_ops(cli.globals, args, preproc),
@@ -1492,8 +1492,12 @@ fn run_command_list_metrics(args: ListMetricsArgs) {
     write_stdout_or_die(&buf);
 }
 
-fn run_command_dump(globals: GlobalOpts, preproc: Option<Arc<PreprocResults>>) {
-    let cfg = Config::new(Action::Dump, &globals, preproc);
+fn run_command_dump(globals: GlobalOpts, line: LineRange, preproc: Option<Arc<PreprocResults>>) {
+    let cfg = Config {
+        line_start: line.line_start,
+        line_end: line.line_end,
+        ..Config::new(Action::Dump, &globals, preproc)
+    };
     run_walk(globals, cfg);
 }
 
@@ -1613,8 +1617,16 @@ fn run_command_report(
     }
 }
 
-fn run_command_find(globals: GlobalOpts, args: NodesArgs, preproc: Option<Arc<PreprocResults>>) {
-    let cfg = Config::new(Action::Find(args.nodes.into()), &globals, preproc);
+fn run_command_find(globals: GlobalOpts, args: FindArgs, preproc: Option<Arc<PreprocResults>>) {
+    let FindArgs {
+        nodes: NodesArgs { nodes },
+        line,
+    } = args;
+    let cfg = Config {
+        line_start: line.line_start,
+        line_end: line.line_end,
+        ..Config::new(Action::Find(nodes.into()), &globals, preproc)
+    };
     run_walk(globals, cfg);
 }
 

@@ -67,24 +67,26 @@ bca --paths src/lib.rs dump
 ```
 
 To narrow the dump to a specific function or block, add line bounds
-with the global `--ls` and `--le` flags:
+with the `--line-start` and `--line-end` flags (they must follow the
+`dump` subcommand):
 
 ```bash
 bca \
     --paths src/lib.rs \
-    --ls 42 --le 88 \
-    dump
+    dump --line-start 42 --line-end 88
 ```
 
-`--ls` / `--le` apply to `dump` and `find`, so the same range can be
-used to scope a search to a single function:
+`--line-start` / `--line-end` apply to `dump` and `find`, so the same
+range can be used to scope a search to a single function:
 
 ```bash
 bca \
     --paths src/lib.rs \
-    --ls 42 --le 88 \
-    find return_expression
+    find --line-start 42 --line-end 88 return_expression
 ```
+
+The short `--ls` / `--le` spellings remain as deprecated aliases for one
+release cycle and are slated for removal in 2.0.
 
 ## List every function or method
 

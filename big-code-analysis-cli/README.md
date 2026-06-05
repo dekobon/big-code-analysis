@@ -61,8 +61,8 @@ file, with command-specific options as needed.
 | `ops` | Per-file operand/operator output (same formats as `metrics`). |
 | `report <FORMAT>` | Aggregated report (`markdown` or `html`). |
 | `check` | Check per-function metrics against thresholds; exits 2 on threshold violations. |
-| `dump` | AST dump to stdout. |
-| `find <NODE>...` | Find nodes of one or more types. |
+| `dump` | AST dump to stdout (`--line-start`/`--line-end` to scope a range). |
+| `find <NODE>...` | Find nodes of one or more types (`--line-start`/`--line-end` to scope a range). |
 | `count <NODE>...` | Count nodes of one or more types. |
 | `functions` | List functions/methods and their spans. |
 | `strip-comments` | Remove comments from source files (`--in-place`). |
@@ -78,8 +78,6 @@ Run `bca <COMMAND> --help` for command-specific options.
 - `-X, --exclude [<GLOB>...]` — exclude files matching pattern.
 - `-j, --num-jobs <N>` — worker threads.
 - `-l, --language-type <LANG>` — force a language instead of inferring.
-- `--ls <LINE_START>` / `--le <LINE_END>` — line range (used by `dump`,
-  `find`).
 - `-w, --warning` — print warnings (skipped files, unrecognized
   languages).
 - `--no-skip-generated` — disable auto-skip of files marked as generated

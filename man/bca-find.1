@@ -4,10 +4,16 @@
 .SH NAME
 bca\-find \- Find nodes of one or more types
 .SH SYNOPSIS
-\fBbca\-find\fR [\fB\-h\fR|\fB\-\-help\fR] <\fINODES\fR> 
+\fBbca\-find\fR [\fB\-\-line\-start\fR] [\fB\-\-line\-end\fR] [\fB\-h\fR|\fB\-\-help\fR] <\fINODES\fR> 
 .SH DESCRIPTION
 Find nodes of one or more types
 .SH OPTIONS
+.TP
+\fB\-\-line\-start\fR \fI<LINE_START>\fR
+First line of the range to analyze (1\-based, inclusive)
+.TP
+\fB\-\-line\-end\fR \fI<LINE_END>\fR
+Last line of the range to analyze (1\-based, inclusive)
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help

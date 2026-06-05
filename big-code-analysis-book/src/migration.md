@@ -35,7 +35,8 @@ verb has its own scoped flag set.
 | `--preproc <FILE>` (consumer) | `--preproc-data <FILE>` (global) |
 | `--list-metrics [MODE]` | `list-metrics [MODE]` |
 | `--pr` (pretty) | `--pretty` (on `metrics` and `ops`) |
-| `-p`, `-I`, `-X`, `-j`, `-l`, `--ls`, `--le`, `-w` | unchanged; global |
+| `--ls`, `--le` (global) | `--line-start`, `--line-end` on `dump`/`find` (`--ls`/`--le` kept as deprecated aliases) |
+| `-p`, `-I`, `-X`, `-j`, `-l`, `-w` | unchanged; global |
 
 ## Side-by-side examples
 

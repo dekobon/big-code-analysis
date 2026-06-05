@@ -475,6 +475,20 @@ for historical reference.
 
 ### Changed
 
+- The `bca` line-range flags are now **scoped to the `dump` and `find`
+  subcommands** instead of being `global`, and gain descriptive long
+  names: `--line-start` / `--line-end` (canonical) with `--ls` / `--le`
+  kept as hidden, deprecated aliases for one release cycle. Previously
+  the flags were advertised on every subcommand's help even though only
+  `dump`/`find` consumed them, and passing e.g. `bca metrics --ls 5`
+  was silently ignored; that invocation — and the pre-existing
+  flag-*before*-subcommand form `bca --ls 5 dump` — now errors. The new
+  form puts the flag after the subcommand: `bca dump --line-start 5
+  --line-end 10`. The order change and the eventual removal of the
+  `--ls`/`--le` aliases are **(breaking)** and deferred to the next
+  major bump
+  ([#518](https://github.com/dekobon/big-code-analysis/issues/518),
+  part of [#505](https://github.com/dekobon/big-code-analysis/issues/505)).
 - `bca-web` REST routes are now versioned under a `/v1` prefix
   (`/v1/ast`, `/v1/comment`, `/v1/metrics`, `/v1/function`, `/v1/ping`).
   The original unprefixed paths remain available as **deprecated

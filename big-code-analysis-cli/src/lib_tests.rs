@@ -773,3 +773,90 @@ fn cli_default_num_jobs_is_auto() {
     let cli = parse(&["metrics"]).unwrap();
     assert_eq!(cli.globals.num_jobs, NumJobs::Auto);
 }
+
+// Issue #518 scoped the line-range flags off `global` onto the `dump`
+// and `find` subcommands, renamed them `--line-start`/`--line-end`, and
+// kept `--ls`/`--le` as hidden deprecated aliases. Inspect the parsed
+// bounds (not just `is_ok`) so a regression that wires a flag to the
+// wrong field or drops an alias is caught.
+fn dump_line_range(argv: &[&str]) -> (Option<usize>, Option<usize>) {
+    match parse(argv).expect("dump invocation parses").command {
+        Command::Dump(line) => (line.line_start, line.line_end),
+        other => panic!("expected Command::Dump, got {other:?}"),
+    }
+}
+
+fn find_line_range(argv: &[&str]) -> (Option<usize>, Option<usize>) {
+    match parse(argv).expect("find invocation parses").command {
+        Command::Find(args) => (args.line.line_start, args.line.line_end),
+        other => panic!("expected Command::Find, got {other:?}"),
+    }
+}
+
+#[test]
+fn dump_accepts_canonical_line_range_flags() {
+    assert_eq!(
+        dump_line_range(&["dump", "--line-start", "5", "--line-end", "10"]),
+        (Some(5), Some(10))
+    );
+}
+
+#[test]
+fn dump_accepts_deprecated_short_line_range_aliases() {
+    assert_eq!(
+        dump_line_range(&["dump", "--ls", "5", "--le", "10"]),
+        (Some(5), Some(10))
+    );
+}
+
+#[test]
+fn find_accepts_canonical_line_range_flags() {
+    assert_eq!(
+        find_line_range(&[
+            "find",
+            "--line-start",
+            "42",
+            "--line-end",
+            "88",
+            "identifier"
+        ]),
+        (Some(42), Some(88))
+    );
+}
+
+#[test]
+fn find_accepts_deprecated_short_line_range_aliases() {
+    assert_eq!(
+        find_line_range(&["find", "--ls", "42", "identifier"]),
+        (Some(42), None)
+    );
+}
+
+#[test]
+fn dump_omitting_line_range_leaves_bounds_unset() {
+    assert_eq!(dump_line_range(&["dump"]), (None, None));
+}
+
+// The flags are no longer `global`, so subcommands that never consumed
+// them must reject them loudly instead of silently ignoring the value.
+#[test]
+fn metrics_rejects_line_range_flags() {
+    assert!(parse(&["metrics", "--line-start", "5"]).is_err());
+    assert!(parse(&["metrics", "--ls", "5"]).is_err());
+}
+
+#[test]
+fn count_rejects_line_range_flags() {
+    // `find` and `count` share `NodesArgs`; only `find` gained the
+    // range, so `count` must still reject it.
+    assert!(parse(&["count", "--line-start", "5", "identifier"]).is_err());
+}
+
+// The pre-#518 documented form put the flag *before* the subcommand
+// (`bca --ls 5 dump`). Scoping is a deliberate 2.0 break: that ordering
+// no longer parses.
+#[test]
+fn line_range_flag_before_subcommand_is_rejected() {
+    assert!(parse(&["--line-start", "5", "dump"]).is_err());
+    assert!(parse(&["--ls", "5", "dump"]).is_err());
+}

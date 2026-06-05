@@ -222,12 +222,6 @@ struct GlobalOpts {
     /// Force a language type instead of inferring from extension.
     #[clap(long, short = 'l', global = true)]
     language_type: Option<String>,
-    /// Line start (used by `dump` and `find`).
-    #[clap(long = "ls", global = true)]
-    line_start: Option<usize>,
-    /// Line end (used by `dump` and `find`).
-    #[clap(long = "le", global = true)]
-    line_end: Option<usize>,
     /// Print warnings (skipped files, unrecognized languages).
     #[clap(long, short, global = true)]
     warning: bool,
@@ -305,9 +299,9 @@ enum Command {
     /// Generate an aggregated report across the analyzed source.
     Report(ReportArgs),
     /// Dump the AST to stdout.
-    Dump,
+    Dump(LineRange),
     /// Find nodes of one or more types.
-    Find(NodesArgs),
+    Find(FindArgs),
     /// Count nodes of one or more types.
     Count(NodesArgs),
     /// List functions/methods and their spans.
@@ -421,6 +415,33 @@ struct NodesArgs {
     /// Node-type names. Pass one or more, space-separated.
     #[clap(required = true, num_args = 1..)]
     nodes: Vec<String>,
+}
+
+/// Line-range bounds shared by the `dump` and `find` subcommands. Scoped
+/// to those two commands rather than `global` (issue #518): every other
+/// subcommand silently ignored the range, and the cryptic `--ls`/`--le`
+/// names cluttered all of their help. The descriptive `--line-start` /
+/// `--line-end` are canonical; `--ls` / `--le` survive as hidden
+/// deprecated aliases for one release cycle (mirrors the #513
+/// `--output-format` deprecation) and are slated for removal in 2.0.
+#[derive(Args, Debug, Default)]
+struct LineRange {
+    /// First line of the range to analyze (1-based, inclusive).
+    #[clap(long = "line-start", alias = "ls")]
+    line_start: Option<usize>,
+    /// Last line of the range to analyze (1-based, inclusive).
+    #[clap(long = "line-end", alias = "le")]
+    line_end: Option<usize>,
+}
+
+/// Arguments for the `find` subcommand: the node-type filters plus the
+/// shared [`LineRange`] bounds.
+#[derive(Args, Debug)]
+struct FindArgs {
+    #[clap(flatten)]
+    nodes: NodesArgs,
+    #[clap(flatten)]
+    line: LineRange,
 }
 
 #[derive(Args, Debug)]
@@ -1051,16 +1072,19 @@ struct Config {
 impl Config {
     /// Build a `Config` for `action`, populating the fields every command
     /// shares from `globals`. Per-command extras (`output`, `count_lock`,
-    /// `markdown_tx`, `strip_prefix`) are set on the returned value at the
-    /// call site.
+    /// `markdown_tx`, `strip_prefix`, and the `dump`/`find`
+    /// `line_start`/`line_end` bounds) are set on the returned value at
+    /// the call site.
     fn new(action: Action, globals: &GlobalOpts, preproc: Option<Arc<PreprocResults>>) -> Self {
         let language = resolve_language(globals.language_type.as_deref(), &action);
         Self {
             action,
             output: None,
             language,
-            line_start: globals.line_start,
-            line_end: globals.line_end,
+            // Set by the `dump`/`find` call sites from their `LineRange`
+            // args; every other action leaves the range unbounded.
+            line_start: None,
+            line_end: None,
             preproc_lock: None,
             preproc,
             count_lock: None,
