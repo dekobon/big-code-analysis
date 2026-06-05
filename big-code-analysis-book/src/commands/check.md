@@ -7,7 +7,7 @@ fails the pipeline before the change lands.
 
 > **Looking for full CI recipes?** The
 > [CI integration recipe](../recipes/ci.md) consolidates the
-> `--output-format` matrix, runnable GitHub Actions and `.gitlab-ci.yml`
+> `--format` matrix, runnable GitHub Actions and `.gitlab-ci.yml`
 > examples, the baseline / ratchet pattern, and the GitLab Code Quality
 > path. This page documents the command itself; the recipe documents
 > how to wire it into a pipeline.
@@ -299,7 +299,7 @@ excluded. Pass `--no-suppress` together with `--write-baseline` to
 record every violation (CI-auditor flow).
 
 `--write-baseline` cannot be combined with `--baseline`,
-`--output-format`, or `--output` — the baseline file *is* the output.
+`--format`, or `--output` — the baseline file *is* the output.
 
 ### Reading a baseline
 
@@ -428,8 +428,10 @@ annotation while you reduce the count, swap in `--no-fail`:
 ## Exporting offender records
 
 `bca check` also emits a single CI/IDE document covering every
-offender in the walk. Pass `--output-format <fmt>` to pick the shape
-and `--output <file>` to write it to disk (stdout if omitted). The
+offender in the walk. Pass `--format <fmt>` (short `-O`) to pick the
+shape and `--output <file>` to write it to disk (stdout if omitted).
+`--output-format` is accepted as a deprecated alias and will be removed
+in 2.0. The
 exit-code contract is unaffected by these flags: 0 clean, 2 on any
 violation (unless `--no-fail`), 1 on tool error.
 
@@ -453,7 +455,7 @@ unchanged.
 ```bash
 bca --paths src/ check \
     --threshold cyclomatic=15 \
-    --output-format checkstyle \
+    --format checkstyle \
     --output report.checkstyle.xml
 ```
 
@@ -468,7 +470,7 @@ Generation" / "Generic Issue" importers consume directly.
 ```bash
 bca --paths src/ check \
     --threshold cyclomatic=15 \
-    --output-format sarif \
+    --format sarif \
     --output report.sarif.json
 ```
 
@@ -493,7 +495,7 @@ jobs:
       - name: Run big-code-analysis
         run: |
           bca --paths . check \
-              --output-format sarif \
+              --format sarif \
               --output report.sarif.json \
               --no-fail
       - name: Upload SARIF
@@ -511,7 +513,7 @@ fail the workflow.
 ```bash
 bca --paths src/ check \
     --threshold cyclomatic=15 \
-    --output-format code-climate \
+    --format code-climate \
     --output gl-code-quality-report.json
 ```
 
@@ -537,7 +539,7 @@ code_quality:
   stage: quality
   script:
     - bca --paths "$CI_PROJECT_DIR" check
-          --output-format code-climate
+          --format code-climate
           --output gl-code-quality-report.json
           --no-fail
   artifacts:
@@ -562,7 +564,7 @@ regression to fail the pipeline.
 ```bash
 bca --paths src/ check \
     --threshold cyclomatic=15 \
-    --output-format clang-warning \
+    --format clang-warning \
     --output report.txt
 ```
 
@@ -594,7 +596,7 @@ jobs:
       - name: Run big-code-analysis
         run: |
           bca --paths . check \
-              --output-format clang-warning \
+              --format clang-warning \
               --no-fail
 ```
 
@@ -607,7 +609,7 @@ workflow commands.
 ```bash
 bca --paths src/ check \
     --threshold cyclomatic=15 \
-    --output-format msvc-warning \
+    --format msvc-warning \
     --output report.txt
 ```
 

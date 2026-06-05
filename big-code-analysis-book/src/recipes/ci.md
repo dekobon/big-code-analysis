@@ -18,12 +18,12 @@ runnable example.
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | Hard gate on threshold regressions              | `bca check` *(thresholds from the auto-discovered `bca.toml`)*                                               |
 | Ratchet thresholds on an existing codebase      | `bca check --baseline .bca-baseline.toml` *(‡)*                                                              |
-| Inline PR annotations (GitHub)                  | `bca check … --output-format clang-warning --no-fail` + GCC problem matcher                                  |
-| Code Scanning alerts (GitHub)                   | `bca check … --output-format sarif --no-fail` + `github/codeql-action/upload-sarif`                          |
-| Merge-request widget (GitLab Code Quality)      | `bca check … --output-format code-climate --no-fail`                                                         |
-| Jenkins / SonarQube ingestion                   | `bca check … --output-format checkstyle`                                                                     |
+| Inline PR annotations (GitHub)                  | `bca check … --format clang-warning --no-fail` + GCC problem matcher                                  |
+| Code Scanning alerts (GitHub)                   | `bca check … --format sarif --no-fail` + `github/codeql-action/upload-sarif`                          |
+| Merge-request widget (GitLab Code Quality)      | `bca check … --format code-climate --no-fail`                                                         |
+| Jenkins / SonarQube ingestion                   | `bca check … --format checkstyle`                                                                     |
 | Human-readable PR/MR comment or downloadable    | `bca report markdown --top 20 --strip-prefix "$PWD/"`                                                        |
-| Machine-readable artifact for dashboards        | `bca metrics --output-format json --output ./out`                                                            |
+| Machine-readable artifact for dashboards        | `bca metrics --format json --output ./out`                                                            |
 
 *(‡) Recommended adoption path when introducing thresholds on a
 codebase with existing offenders. See the
@@ -561,13 +561,13 @@ when the count grows:
     git worktree add /tmp/base "$BASE"
 
     bca --paths /tmp/base check \
-        --output-format checkstyle \
+        --format checkstyle \
         --output /tmp/base.xml \
         --no-fail
     BASE_COUNT=$(grep -c "<error" /tmp/base.xml || true)
 
     bca --paths "$PWD" check \
-        --output-format checkstyle \
+        --format checkstyle \
         --output /tmp/head.xml \
         --no-fail
     HEAD_COUNT=$(grep -c "<error" /tmp/head.xml || true)
@@ -694,13 +694,13 @@ bca-quality:
     - bca
         --paths "$PWD"
         check
-        --output-format code-climate
+        --format code-climate
         --output gl-code-quality-report.json
         --no-fail
     - bca
         --paths "$PWD"
         check
-        --output-format checkstyle
+        --format checkstyle
         --output bca-checkstyle.xml
         --no-fail
     - bca
@@ -741,7 +741,7 @@ A few notes about the example:
 GitLab's first-class Code Quality experience (inline complaints on
 the MR diff, summary on the MR overview page) consumes
 [Code Climate JSON](https://docs.gitlab.com/ci/testing/code_quality/).
-`bca check` emits this natively via `--output-format code-climate`,
+`bca check` emits this natively via `--format code-climate`,
 so the integration is a one-liner:
 
 ```yaml
@@ -749,7 +749,7 @@ code_quality:
   stage: quality
   script:
     - bca --paths "$CI_PROJECT_DIR" check
-          --output-format code-climate
+          --format code-climate
           --output gl-code-quality-report.json
           --no-fail
   artifacts:
@@ -818,7 +818,7 @@ XML directly. The same invocation feeds both:
 
 ```bash
 bca --paths src/ check \
-    --output-format checkstyle \
+    --format checkstyle \
     --output report.checkstyle.xml
 ```
 

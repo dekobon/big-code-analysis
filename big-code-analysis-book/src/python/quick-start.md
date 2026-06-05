@@ -15,7 +15,7 @@ build-from-source instructions.
 ## 2. Analyse a file
 
 `bca.analyze(path)` returns a `dict` matching the JSON `bca
-metrics --output-format json` emits for the same file — same field
+metrics --format json` emits for the same file — same field
 order, same numeric formatting, same shape.
 
 ```python

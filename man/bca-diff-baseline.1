@@ -4,12 +4,12 @@
 .SH NAME
 bca\-diff\-baseline \- Diff two `.bca\-baseline.toml` files and report what was added, removed, worsened, or improved. Replaces the in\-the\-head TOML diff parsing the book\*(Aqs PR\-review recipe used to walk through. Always exits 0 on success — the diff is informational, not a gate
 .SH SYNOPSIS
-\fBbca\-diff\-baseline\fR [\fB\-\-format\fR] [\fB\-\-added\-only\fR] [\fB\-\-removed\-only\fR] [\fB\-\-worsened\-only\fR] [\fB\-\-improved\-only\fR] [\fB\-h\fR|\fB\-\-help\fR] <\fIOLD\fR> <\fINEW\fR> 
+\fBbca\-diff\-baseline\fR [\fB\-O\fR|\fB\-\-format\fR] [\fB\-\-added\-only\fR] [\fB\-\-removed\-only\fR] [\fB\-\-worsened\-only\fR] [\fB\-\-improved\-only\fR] [\fB\-h\fR|\fB\-\-help\fR] <\fIOLD\fR> <\fINEW\fR> 
 .SH DESCRIPTION
 Diff two `.bca\-baseline.toml` files and report what was added, removed, worsened, or improved. Replaces the in\-the\-head TOML diff parsing the book\*(Aqs PR\-review recipe used to walk through. Always exits 0 on success — the diff is informational, not a gate
 .SH OPTIONS
 .TP
-\fB\-\-format\fR \fI<FORMAT>\fR [default: tty]
+\fB\-O\fR, \fB\-\-format\fR \fI<FORMAT>\fR [default: tty]
 Output style: `tty` (default), `markdown`, or `json`
 .br
 

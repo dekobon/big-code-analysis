@@ -4,12 +4,12 @@
 .SH NAME
 bca\-exemptions \- Audit everything the `bca check` gate skips in one view: in\-source suppression markers (`bca: suppress`, `#lizard forgives`, …), `[check.exclude]` globs, and `.bca\-baseline.toml` entries. Read\-only; always exits 0 on success
 .SH SYNOPSIS
-\fBbca\-exemptions\fR [\fB\-\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-strip\-prefix\fR] [\fB\-\-only\-markers\fR] [\fB\-\-only\-excludes\fR] [\fB\-\-only\-baseline\fR] [\fB\-\-baseline\fR] [\fB\-\-check\-exclude\fR] [\fB\-\-check\-exclude\-from\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+\fBbca\-exemptions\fR [\fB\-O\fR|\fB\-\-format\fR] [\fB\-o\fR|\fB\-\-output\fR] [\fB\-\-strip\-prefix\fR] [\fB\-\-only\-markers\fR] [\fB\-\-only\-excludes\fR] [\fB\-\-only\-baseline\fR] [\fB\-\-baseline\fR] [\fB\-\-check\-exclude\fR] [\fB\-\-check\-exclude\-from\fR] [\fB\-h\fR|\fB\-\-help\fR] 
 .SH DESCRIPTION
 Audit everything the `bca check` gate skips in one view: in\-source suppression markers (`bca: suppress`, `#lizard forgives`, …), `[check.exclude]` globs, and `.bca\-baseline.toml` entries. Read\-only; always exits 0 on success
 .SH OPTIONS
 .TP
-\fB\-\-format\fR \fI<FORMAT>\fR [default: tty]
+\fB\-O\fR, \fB\-\-format\fR \fI<FORMAT>\fR [default: tty]
 Output style: `tty` (default), `markdown`, or `json`. JSON nests all three sections under a single `suppressions` envelope
 .br
 

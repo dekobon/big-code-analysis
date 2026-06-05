@@ -1589,6 +1589,7 @@ fn run_command_report(
             ));
         }
     }
+    let format = args.resolved_format();
     let (tx, rx) = std::sync::mpsc::channel();
     let cfg = Config {
         markdown_tx: Some(Mutex::new(tx)),
@@ -1600,7 +1601,7 @@ fn run_command_report(
     // ConcurrentRunner::run() consumed Config (and thus the Sender).
     // All worker threads have joined, so `rx.into_iter()` terminates.
     let summaries: Vec<FunctionSummary> = rx.into_iter().collect();
-    let report = match args.format {
+    let report = match format {
         ReportFormat::Markdown => generate_report(&summaries, args.top as usize, policy),
         ReportFormat::Html => generate_html_report(&summaries, args.top as usize, policy),
     };

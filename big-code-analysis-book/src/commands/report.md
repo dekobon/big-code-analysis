@@ -1,8 +1,13 @@
 # Report
 
-`bca report <FORMAT>` produces an aggregated quality-metrics report
-across every file walked. It is designed for pasting into pull
+`bca report [--format <FORMAT>]` produces an aggregated quality-metrics
+report across every file walked. It is designed for pasting into pull
 requests, wikis, or issue trackers.
+
+Pick the format with `--format` / `-O` (`bca report --format html`).
+When omitted, the report defaults to `markdown`. The bare positional
+form (`bca report markdown`) still works as a deprecated alias and will
+be removed in 2.0; prefer `--format`.
 
 > **CI integration.** For runnable GitHub Actions and GitLab CI
 > recipes that post the Markdown report as a PR/MR comment, see the

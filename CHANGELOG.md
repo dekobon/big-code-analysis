@@ -475,6 +475,23 @@ for historical reference.
 
 ### Changed
 
+- Unified output-format selection across every `bca` subcommand
+  ([#513](https://github.com/dekobon/big-code-analysis/issues/513),
+  part of [#505](https://github.com/dekobon/big-code-analysis/issues/505)).
+  `--format` (short `-O`) is now the canonical spelling everywhere:
+  - `metrics` / `ops` / `check` gain the long `--format` spelling;
+    their previous `--output-format` is kept as a hidden, deprecated
+    alias.
+  - `report` gains a `--format` / `-O` flag and now **defaults to
+    `markdown`** when no format is given (previously a missing
+    positional was an error). The bare positional form
+    (`bca report markdown`) is kept working as a hidden, deprecated
+    alias; the `--format` flag wins when both are supplied.
+  - `diff` / `diff-baseline` / `exemptions` gain the `-O` short for
+    their existing `--format` flag.
+  - These additions are backward-compatible. Removal of the deprecated
+    `--output-format` alias and the bare `report` positional is
+    **(breaking)** and deferred to the next major bump.
 - Unified the "average over a count" divisor convention and its
   divide-by-zero guard across the metric suite, and **re-baselined the
   cyclomatic averages** as part of the `2.0` re-baseline

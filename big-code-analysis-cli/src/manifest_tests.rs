@@ -244,7 +244,8 @@ fn merge_report_enables_no_suppress_from_manifest() {
 /// flag; other fields take their non-interesting defaults.
 fn report_args(no_suppress: bool) -> ReportArgs {
     ReportArgs {
-        format: crate::formats::ReportFormat::Markdown,
+        format: Some(crate::formats::ReportFormat::Markdown),
+        format_positional: None,
         output: None,
         top: 20,
         strip_prefix: String::new(),

@@ -66,6 +66,34 @@ fn metrics_with_format_parses() {
     assert!(parse(&["metrics", "-O", "json"]).is_ok());
 }
 
+// Issue #513 made `--format` the canonical long spelling on every
+// subcommand; `--output-format` stays a hidden, deprecated alias on
+// `metrics`/`ops`/`check` for one release cycle. Inspect the parsed
+// value (not just `is_ok`) so a regression that wired the flag to the
+// wrong field — or dropped the alias — is caught.
+fn metrics_output_format(argv: &[&str]) -> Option<MetricsFormat> {
+    match parse(argv).expect("metrics invocation parses").command {
+        Command::Metrics(args) => args.output_format,
+        other => panic!("expected Command::Metrics, got {other:?}"),
+    }
+}
+
+#[test]
+fn metrics_accepts_canonical_format_flag() {
+    assert_eq!(
+        metrics_output_format(&["metrics", "--format", "json"]),
+        Some(MetricsFormat::Json)
+    );
+}
+
+#[test]
+fn metrics_accepts_deprecated_output_format_alias() {
+    assert_eq!(
+        metrics_output_format(&["metrics", "--output-format", "json"]),
+        Some(MetricsFormat::Json)
+    );
+}
+
 // Offender formats (Checkstyle, SARIF, clang-warning,
 // msvc-warning) moved from `bca metrics` to
 // `bca check --output-format` in issue #235. `MetricsFormat` no
@@ -94,6 +122,21 @@ fn metrics_rejects_msvc_warning_format() {
 #[test]
 fn check_accepts_sarif_output_format() {
     assert!(parse(&["check", "--threshold", "cyclomatic=10", "-O", "sarif"]).is_ok());
+}
+
+#[test]
+fn check_accepts_canonical_format_flag() {
+    // Inspect the parsed value so the canonical `--format` spelling is
+    // proven to bind `check`'s offender-format field, not merely parse.
+    match parse(&["check", "--threshold", "cyclomatic=10", "--format", "sarif"])
+        .expect("check --format sarif parses")
+        .command
+    {
+        Command::Check(args) => {
+            assert_eq!(args.output_format, Some(AggregatedFormat::Sarif));
+        }
+        other => panic!("expected Command::Check, got {other:?}"),
+    }
 }
 
 #[test]
@@ -148,6 +191,15 @@ fn metrics_rejects_strip_prefix_flag() {
     assert!(parse(&["metrics", "--strip-prefix", "/x"]).is_err());
 }
 
+/// Extract the parsed `ReportArgs` from a `report` invocation, panicking
+/// if the parsed command is anything else.
+fn parse_report_args(argv: &[&str]) -> ReportArgs {
+    match parse(argv).expect("report invocation parses").command {
+        Command::Report(args) => args,
+        other => panic!("expected Command::Report, got {other:?}"),
+    }
+}
+
 #[test]
 fn report_markdown_parses() {
     assert!(parse(&["report", "markdown"]).is_ok());
@@ -157,16 +209,48 @@ fn report_markdown_parses() {
 fn report_html_parses() {
     // Inspect the parsed variant so a future alias / value-rename
     // that maps `html` to `Markdown` cannot pass this test.
-    let cli = parse(&["report", "html"]).expect("`report html` parses");
-    match cli.command {
-        Command::Report(args) => assert_eq!(args.format, ReportFormat::Html),
-        other => panic!("expected Command::Report, got {other:?}"),
-    }
+    assert_eq!(
+        parse_report_args(&["report", "html"]).resolved_format(),
+        ReportFormat::Html
+    );
+}
+
+// `--format`/`-O` is the canonical spelling (issue #513); the bare
+// positional is retained as a hidden, deprecated alias for one cycle.
+#[test]
+fn report_accepts_format_flag() {
+    assert_eq!(
+        parse_report_args(&["report", "--format", "html"]).resolved_format(),
+        ReportFormat::Html
+    );
 }
 
 #[test]
-fn report_requires_format() {
-    assert!(parse(&["report"]).is_err());
+fn report_accepts_short_format_flag() {
+    assert_eq!(
+        parse_report_args(&["report", "-O", "html"]).resolved_format(),
+        ReportFormat::Html
+    );
+}
+
+// `bca report` with no format now defaults to Markdown rather than
+// erroring (issue #513): a previously-erroring invocation now succeeds.
+#[test]
+fn report_defaults_to_markdown() {
+    assert_eq!(
+        parse_report_args(&["report"]).resolved_format(),
+        ReportFormat::Markdown
+    );
+}
+
+// When both the flag and the deprecated positional are supplied, the
+// flag wins.
+#[test]
+fn report_flag_wins_over_positional() {
+    assert_eq!(
+        parse_report_args(&["report", "--format", "html", "markdown"]).resolved_format(),
+        ReportFormat::Html
+    );
 }
 
 #[test]
@@ -176,16 +260,10 @@ fn report_with_top_and_strip_prefix() {
 
 #[test]
 fn report_html_with_top_and_strip_prefix() {
-    let cli =
-        parse(&["report", "html", "--top", "10", "--strip-prefix", "/x/"]).expect("flags parse");
-    match cli.command {
-        Command::Report(args) => {
-            assert_eq!(args.format, ReportFormat::Html);
-            assert_eq!(args.top, 10);
-            assert_eq!(args.strip_prefix, "/x/");
-        }
-        other => panic!("expected Command::Report, got {other:?}"),
-    }
+    let args = parse_report_args(&["report", "html", "--top", "10", "--strip-prefix", "/x/"]);
+    assert_eq!(args.resolved_format(), ReportFormat::Html);
+    assert_eq!(args.top, 10);
+    assert_eq!(args.strip_prefix, "/x/");
 }
 
 #[test]
@@ -201,6 +279,42 @@ fn report_html_top_zero_rejected() {
 #[test]
 fn ops_parses() {
     assert!(parse(&["ops", "-O", "json"]).is_ok());
+}
+
+// Issue #513 added the `-O` short to the read-only reporting commands
+// (`diff`, `diff-baseline`, `exemptions`), which previously only took
+// the long `--format`. Both spellings must select the same enum value.
+#[test]
+fn diff_baseline_accepts_short_format_flag() {
+    match parse(&["diff-baseline", "old.toml", "new.toml", "-O", "json"])
+        .expect("diff-baseline -O json parses")
+        .command
+    {
+        Command::DiffBaseline(args) => assert_eq!(args.format, OutputFormat::Json),
+        other => panic!("expected Command::DiffBaseline, got {other:?}"),
+    }
+}
+
+#[test]
+fn diff_accepts_short_format_flag() {
+    match parse(&["diff", "-O", "markdown"])
+        .expect("diff -O markdown parses")
+        .command
+    {
+        Command::Diff(args) => assert_eq!(args.format, OutputFormat::Markdown),
+        other => panic!("expected Command::Diff, got {other:?}"),
+    }
+}
+
+#[test]
+fn exemptions_accepts_short_format_flag() {
+    match parse(&["exemptions", "-O", "json"])
+        .expect("exemptions -O json parses")
+        .command
+    {
+        Command::Exemptions(args) => assert_eq!(args.format, OutputFormat::Json),
+        other => panic!("expected Command::Exemptions, got {other:?}"),
+    }
 }
 
 #[test]
@@ -326,6 +440,16 @@ fn legacy_hint_redirects_metrics_checkstyle_long_form() {
     .expect("hint");
     assert!(hint.contains("bca check"), "{hint}");
     assert!(hint.contains("checkstyle"), "{hint}");
+}
+
+#[test]
+fn legacy_hint_redirects_metrics_offender_format_canonical_flag() {
+    // The offender-format migration hint must also fire for the
+    // canonical `--format` spelling introduced in issue #513, not just
+    // the legacy `-O` / `--output-format` forms.
+    let hint = legacy_hint(os_args(&["cli", "metrics", "--format", "sarif"])).expect("hint");
+    assert!(hint.contains("bca check"), "{hint}");
+    assert!(hint.contains("sarif"), "{hint}");
 }
 
 #[test]

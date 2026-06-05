@@ -4,7 +4,7 @@
 .SH NAME
 bca\-diff \- Compare two metric\-output runs and report, per metric, which files changed (old to new), plus files added/removed between the two sets. Each side is a per\-file JSON file or a directory tree of them (the form `bca metrics \-O json \-\-output DIR` writes). Replaces the grammar\-bump glue chain — the external `json\-minimal\-tests` binary plus `split\-minimal\-tests.py` — with one native command. Always exits 0 on success; the diff is informational, not a gate
 .SH SYNOPSIS
-\fBbca\-diff\fR [\fB\-\-since\fR] [\fB\-\-format\fR] [\fB\-\-min\-change\fR] [\fB\-\-metric\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIOLD\fR] [\fINEW\fR] 
+\fBbca\-diff\fR [\fB\-\-since\fR] [\fB\-O\fR|\fB\-\-format\fR] [\fB\-\-min\-change\fR] [\fB\-\-metric\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fIOLD\fR] [\fINEW\fR] 
 .SH DESCRIPTION
 Compare two metric\-output runs and report, per metric, which files changed (old to new), plus files added/removed between the two sets. Each side is a per\-file JSON file or a directory tree of them (the form `bca metrics \-O json \-\-output DIR` writes). Replaces the grammar\-bump glue chain — the external `json\-minimal\-tests` binary plus `split\-minimal\-tests.py` — with one native command. Always exits 0 on success; the diff is informational, not a gate
 .SH OPTIONS
@@ -14,7 +14,7 @@ Analyze the tree at this git ref for the "before" side instead of reading a capt
 
 In this mode the before side comes from `<ref>` and the after side is the working tree, so at most one positional is accepted and it is a relative path *scope* (equivalent to `\-\-paths`) applied to both sides; omit it to diff the whole tree. Passing two positionals with `\-\-since` is rejected at runtime.
 .TP
-\fB\-\-format\fR \fI<FORMAT>\fR [default: tty]
+\fB\-O\fR, \fB\-\-format\fR \fI<FORMAT>\fR [default: tty]
 Output style: `tty` (default), `markdown`, or `json`
 .br
 

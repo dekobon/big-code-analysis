@@ -35,12 +35,25 @@ fn report_help_lists_format_top_and_strip_prefix() {
 }
 
 #[test]
-fn report_requires_a_format() {
+fn report_defaults_to_markdown_format() {
+    // Issue #513: `bca report` with no format selector now defaults to
+    // the markdown report rather than erroring on a missing positional.
     cli()
-        .args(["report"])
+        .args(["--paths", &fixture_path(), "report"])
         .assert()
-        .failure()
-        .stderr(predicate::str::contains("<FORMAT>"));
+        .success()
+        .stdout(predicate::str::contains("# Code Quality Metrics Summary"));
+}
+
+#[test]
+fn report_canonical_format_flag_selects_markdown() {
+    // The canonical `--format` spelling (issue #513) selects the same
+    // markdown report the legacy positional did.
+    cli()
+        .args(["--paths", &fixture_path(), "report", "--format", "markdown"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("# Code Quality Metrics Summary"));
 }
 
 #[test]

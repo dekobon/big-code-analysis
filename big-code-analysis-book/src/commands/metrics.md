@@ -8,7 +8,7 @@ or to a directory of structured files.
 > now lives under [`bca report`](report.md), and the CI/IDE offender
 > formats (Checkstyle, SARIF, code-climate, clang-warning,
 > msvc-warning) moved to
-> [`bca check --output-format <fmt>`](check.md). See the
+> [`bca check --format <fmt>`](check.md). See the
 > [migration guide](../migration.md).
 
 ## Display metrics
@@ -46,7 +46,7 @@ each one stays consistent with its data model:
 The CI/IDE offender formats (Checkstyle, SARIF, code-climate,
 clang-warning, msvc-warning) used to live on `bca metrics -O <fmt>`.
 They moved to
-`bca check --output-format <fmt>` in #235 because their input is a
+`bca check --format <fmt>` in #235 because their input is a
 list of threshold violations, not the per-file metric tree that the
 other formats above carry. See the
 [`bca check` chapter](check.md#exporting-offender-records) for the
@@ -61,8 +61,9 @@ bca --paths /path/to/your/file/or/directory metrics \
     -O json -o /path/to/output/directory
 ```
 
-- `-O, --output-format`: per-file output format (`cbor`, `csv`,
-  `json`, `toml`, `yaml`).
+- `-O, --format`: per-file output format (`cbor`, `csv`, `json`,
+  `toml`, `yaml`). `--output-format` is accepted as a deprecated alias
+  and will be removed in 2.0.
 - `-o, --output`: directory to save output files. Filenames mirror
   the input file plus the format extension. If omitted, results are
   printed to stdout. CBOR is binary and therefore requires `-o`.

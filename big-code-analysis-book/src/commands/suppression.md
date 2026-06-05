@@ -190,12 +190,12 @@ markers in its hotspot tables by default and accepts its own
 ## Surfacing suppressed debt (`--report-suppressed`)
 
 Suppression keeps an offender out of the gate, which also keeps it out of
-the `--output-format` document — so a suppressed module disappears from the
+the `--format` document — so a suppressed module disappears from the
 code-scan report entirely. `bca check --report-suppressed` puts it back, as
 *suppressed* rather than active:
 
 ```bash
-bca check --output-format sarif --no-fail --report-suppressed \
+bca check --format sarif --no-fail --report-suppressed \
     --tier soft --headroom 0.95 --output bca.sarif
 ```
 
@@ -217,7 +217,7 @@ suppressed debt apart from active offenders.
 
 Notes:
 
-- Only the SARIF format represents suppression; other `--output-format`
+- Only the SARIF format represents suppression; other `--format`
   values ignore the flag and emit the active offenders alone.
 - Pair it with `--tier soft --headroom 0.95` (matching your baseline's
   provenance) so baseline-covered offenders that sit below the hard limit

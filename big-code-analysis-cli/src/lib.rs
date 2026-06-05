@@ -359,8 +359,10 @@ enum Command {
 /// semantics (directory of per-file emissions; stdout if omitted).
 #[derive(Args, Debug)]
 struct StructuredArgs {
-    /// Output format.
-    #[clap(long, short = 'O', value_enum)]
+    /// Output format. `--output-format` is accepted as a deprecated
+    /// alias (issue #513); it is hidden from help and slated for removal
+    /// in 2.0.
+    #[clap(long = "format", short = 'O', alias = "output-format", value_enum)]
     output_format: Option<MetricsFormat>,
     /// Output directory. Filenames mirror input paths plus the format
     /// extension. Stdout if omitted (CBOR requires this flag).
@@ -373,9 +375,17 @@ struct StructuredArgs {
 
 #[derive(Args, Debug)]
 struct ReportArgs {
-    /// Report format.
-    #[clap(value_enum)]
-    format: ReportFormat,
+    /// Report format (`markdown` or `html`). Defaults to `markdown`
+    /// when neither this flag nor the deprecated positional form is
+    /// given (issue #513).
+    #[clap(long = "format", short = 'O', value_enum)]
+    format: Option<ReportFormat>,
+    /// Deprecated positional form of the report format, kept working
+    /// for one release cycle (issue #513). Hidden from help; use
+    /// `--format`/`-O` instead. The flag wins when both are given. To
+    /// be removed in 2.0.
+    #[clap(value_enum, hide = true, value_name = "FORMAT")]
+    format_positional: Option<ReportFormat>,
     /// Output file. Stdout if omitted.
     #[clap(long, short, value_parser)]
     output: Option<PathBuf>,
@@ -393,6 +403,17 @@ struct ReportArgs {
     /// Pass this for the raw audit view that lists every offender.
     #[clap(long = "no-suppress")]
     no_suppress: bool,
+}
+
+impl ReportArgs {
+    /// Resolve the effective report format. The `--format`/`-O` flag
+    /// wins over the deprecated positional form; with neither present
+    /// the default is Markdown (issue #513).
+    fn resolved_format(&self) -> ReportFormat {
+        self.format
+            .or(self.format_positional)
+            .unwrap_or(ReportFormat::Markdown)
+    }
 }
 
 #[derive(Args, Debug)]
@@ -452,7 +473,7 @@ struct CheckArgs {
     /// dropping it. Offenders silenced by an in-source `bca: suppress`
     /// marker or covered by the baseline are still kept out of the gate
     /// (exit code and human stream are unaffected), but are emitted into
-    /// the `--output-format sarif` document carrying a SARIF
+    /// the `--format sarif` document carrying a SARIF
     /// `suppressions` entry — GitHub Code Scanning renders them as
     /// suppressed (closed) alerts so the debt stays visible. Only the
     /// SARIF format represents suppression; other formats ignore the
@@ -464,11 +485,13 @@ struct CheckArgs {
     /// SARIF 2.1.0 JSON, GitLab Code Climate JSON, clang/GCC warning
     /// lines, MSVC warning lines). When omitted, only the
     /// human-readable stderr stream is emitted; the exit-code contract
-    /// is unaffected.
-    #[clap(long = "output-format", short = 'O', value_enum)]
+    /// is unaffected. `--output-format` is accepted as a deprecated
+    /// alias (issue #513); it is hidden from help and slated for removal
+    /// in 2.0.
+    #[clap(long = "format", short = 'O', alias = "output-format", value_enum)]
     output_format: Option<AggregatedFormat>,
     /// File path for the aggregated offender document. Stdout if omitted.
-    /// Only meaningful together with `--output-format`. Parent
+    /// Only meaningful together with `--format`. Parent
     /// directories are created on demand.
     #[clap(long, short, value_parser)]
     output: Option<PathBuf>,
@@ -485,7 +508,7 @@ struct CheckArgs {
     /// <path>` writes there; a bare `--write-baseline` (no value) writes
     /// to the `baseline` key from the auto-discovered `bca.toml` manifest
     /// (errors if no manifest `baseline` is set). Conflicts with
-    /// `--baseline`, `--output-format`, `--output`, `--since`, and
+    /// `--baseline`, `--format`, `--output`, `--since`, and
     /// `--changed-only` — diff-scope filtering would write a *partial*
     /// baseline that the next non-`--changed-only` run would treat as a
     /// complete snapshot, silently masking every offender outside the
@@ -745,7 +768,7 @@ struct DiffBaselineArgs {
     #[clap(value_parser)]
     new: PathBuf,
     /// Output style: `tty` (default), `markdown`, or `json`.
-    #[clap(long, value_enum, default_value_t = OutputFormat::Tty)]
+    #[clap(long, short = 'O', value_enum, default_value_t = OutputFormat::Tty)]
     format: OutputFormat,
     /// Render only the "Added" section (combinable with the other
     /// `--*-only` flags). Ignored by `--format json`.
@@ -810,7 +833,7 @@ struct DiffArgs {
     #[clap(long)]
     since: Option<String>,
     /// Output style: `tty` (default), `markdown`, or `json`.
-    #[clap(long, value_enum, default_value_t = OutputFormat::Tty)]
+    #[clap(long, short = 'O', value_enum, default_value_t = OutputFormat::Tty)]
     format: OutputFormat,
     /// Minimum absolute change for a per-file metric delta to be
     /// reported. `0` (the default) reports any change of any size;
@@ -840,7 +863,7 @@ struct DiffArgs {
 struct ExemptionsArgs {
     /// Output style: `tty` (default), `markdown`, or `json`. JSON nests
     /// all three sections under a single `suppressions` envelope.
-    #[clap(long, value_enum, default_value_t = OutputFormat::Tty)]
+    #[clap(long, short = 'O', value_enum, default_value_t = OutputFormat::Tty)]
     format: OutputFormat,
     /// Output file. Stdout if omitted.
     #[clap(long, short, value_parser)]
@@ -1553,17 +1576,22 @@ const SUBCOMMANDS: &[&str] = &[
     "exemptions",
 ];
 
-/// Decode the value of `-O <v>` / `--output-format <v>` /
-/// `--output-format=<v>` / `-O<v>` from a flat argv slice. Returns
-/// the first match (callers pre-filter the slice to the legacy
+/// Decode the value of the output-format flag from a flat argv slice,
+/// in any of its spellings: the canonical `--format <v>` /
+/// `--format=<v>` / `-O <v>` / `-O<v>` (issue #513) and the deprecated
+/// `--output-format <v>` / `--output-format=<v>` alias. Returns the
+/// first match (callers pre-filter the slice to the legacy
 /// invocation's tokens, so a single occurrence is the realistic
 /// case).
 fn parse_output_format_value(args: &[String]) -> Option<&str> {
     args.iter().enumerate().find_map(|(i, a)| {
         let s = a.as_str();
-        if s == "-O" || s == "--output-format" {
+        if s == "-O" || s == "--output-format" || s == "--format" {
             args.get(i + 1).map(String::as_str)
-        } else if let Some(rest) = s.strip_prefix("--output-format=") {
+        } else if let Some(rest) = s
+            .strip_prefix("--output-format=")
+            .or_else(|| s.strip_prefix("--format="))
+        {
             Some(rest)
         } else {
             s.strip_prefix("-O").filter(|r| !r.is_empty())
@@ -1571,16 +1599,16 @@ fn parse_output_format_value(args: &[String]) -> Option<&str> {
     })
 }
 
-/// Scan `args` for `-O <offender>` / `--output-format <offender>` /
-/// `--output-format=<offender>` against the moved offender formats
-/// (any variant of [`AggregatedFormat`]) and build a migration hint
-/// pointing at `bca check`. Returns `None` when no offender format
+/// Scan `args` for an output-format flag (any spelling — see
+/// [`parse_output_format_value`]) carrying one of the moved offender
+/// formats (any variant of [`AggregatedFormat`]) and build a migration
+/// hint pointing at `bca check`. Returns `None` when no offender format
 /// is found, so the caller can fall through to clap's own error.
 fn offender_format_migration_hint(args: &[String]) -> Option<String> {
     let fmt =
         parse_output_format_value(args).filter(|f| AggregatedFormat::from_str(f, true).is_ok())?;
     Some(format!(
-        "note: -O {fmt} moved to `bca check` in #235; offender formats are no longer accepted on `bca metrics` / `bca ops`.\n  bca metrics -O {fmt} ...  ->  bca check --threshold <metric>=<limit> --output-format {fmt} [--output FILE]\n  Run `bca check --help` for the threshold and output-format flags.\n"
+        "note: -O {fmt} moved to `bca check` in #235; offender formats are no longer accepted on `bca metrics` / `bca ops`.\n  bca metrics -O {fmt} ...  ->  bca check --threshold <metric>=<limit> --format {fmt} [--output FILE]\n  Run `bca check --help` for the threshold and format flags.\n"
     ))
 }
 
